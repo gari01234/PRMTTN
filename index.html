@@ -611,102 +611,39 @@
     // ——————————————————————————————————————————————
     // === Evolución AI ===
     async function applyEvolutionAI(){
-  // 1) Define un prompt que pide SOLO JSON con instrucciones claras
-  const systemPrompt = `Eres un asistente que devuelve instrucciones para modificar un visualizador de permutaciones en un cubo de 30x30x30.
-Devuelve UNICAMENTE un objeto JSON con estas propiedades opcionales:
-• colors: {1: "#rrggbb", 2: "#rrggbb", …}      // color de cada permutación
-• bg: "#rrggbb"                                 // color de fondo
-• cube: "#rrggbb"                               // color de las paredes del cubo
-• permCount: número                           // cuántas permutaciones mostrar (aleatorio o sugerido)
-• scale: número decimal                       // factor de escala para todos los cubos
-• positions: {1: [x,y,z], 2:[x,y,z], …}        // nueva posición para cada permutación
-• rotationSpeeds: {1: valor, 2: valor, …}      // nueva velocidad de giro
-Nada más. No incluyas texto fuera del JSON.`;
-  const userPrompt = `Calificación actual: ${userRating||"sin calificar"}.` +
-    `Sugiéreme evolución estética, basándote en teorías de color, proporción y armonía.`;
-
-  try {
-    showPopup("Consultando Evolution AI…", 2000);
-    let resp = await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        system: systemPrompt,
-        user: userPrompt
-      })
-    });
-    let { text, error } = await resp.json();
-    if(error){
-      showPopup("Error en Evolución AI: "+error,4000);
-      return;
-    }
-
-    // 2) Extrae el JSON puro
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch(e){
-      console.error("JSON parse error:", text);
-      showPopup("Evolución AI: respuesta no es JSON.",4000);
-      return;
-    }
-
-    // 3) Aplica cada propiedad si existe
-    if(json.bg){
-      document.getElementById('bgColor').value = json.bg;
-      updateBackground();
-    }
-    if(json.cube){
-      document.getElementById('cubeColor').value = json.cube;
-      updateCubeColor();
-    }
-    if(json.colors){
-      Object.entries(json.colors).forEach(([idx, col])=>{
-        let i = Number(idx);
-        if(colorMapping[i] !== undefined){
-          colorMapping[i] = col;
-          document.getElementById('color'+i).value = col;
+      // Tomas el prompt de la última configuración
+      let prompt = "Sugiere ajustes de color, rotación y posición para las permutaciones " +
+                   "en base a su calificación y teorías de estética, proporciones y armonía.";
+      try {
+        showPopup("Consultando Evolution AI…", 2000);
+        let resp = await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ prompt })
+        });
+        let data = await resp.json();
+        if(data.error){
+          showPopup("Error en Evolución AI: "+data.error,4000);
+          return;
         }
-      });
-      updateScene(false);
-    }
-    if(json.scale){
-      permutationGroup.children.forEach(o=>{
-        o.scale.set(json.scale, json.scale, json.scale);
-      });
-    }
-    if(json.rotationSpeeds){
-      Object.entries(json.rotationSpeeds).forEach(([idx, spd])=>{
-        permutationGroup.children.forEach(o=>{
-          if(o.userData.permStr.startsWith(idx+",")){
-            o.userData.rotationSpeed = spd;
+        // Interpretación muy simple: cada número 1–5 en el texto indica permutación a cambiar color
+        // Ejemplo de texto: "Permutación 2 → cambia a #00ff00"
+        let lines = data.text.split(/[\.\n]/).map(l=>l.trim()).filter(l=>l);
+        lines.forEach(line=>{
+          let m = line.match(/Permutación (\d) .*? (#?[0-9a-fA-F]{6})/);
+          if(m){
+            let idx = parseInt(m[1]);
+            let col = (m[2].startsWith('#')?m[2]:'#'+m[2]);
+            colorMapping[idx] = col;
           }
         });
-      });
+        updateScene(false);
+        showPopup("Evolución AI aplicada.",2000);
+      } catch(e){
+        console.error(e);
+        showPopup("Error en Evolución AI: red",4000);
+      }
     }
-    if(json.positions){
-      Object.entries(json.positions).forEach(([idx, pos])=>{
-        let p = permutationGroup.children.find(o=>o.userData.permStr.startsWith(idx+","));
-        if(p){
-          p.position.set(pos[0], pos[1], pos[2]);
-        }
-      });
-    }
-    if(json.permCount){
-      // re-selecciona aleatoriamente esa cantidad
-      const opts = Array.from(document.getElementById('permutationList').options);
-      opts.forEach(o=>o.selected=false);
-      shuffle(opts).slice(0, json.permCount).forEach(o=>o.selected=true);
-      updateScene(false);
-    }
-
-    showPopup("Evolución AI aplicada.",2000);
-  } catch(e){
-    console.error(e);
-    showPopup("Error en Evolución AI: red",4000);
-  }
-}
-
 
     // ——————————————————————————————————————————————
     // === Aplicar mapping manual ===
