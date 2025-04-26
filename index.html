@@ -2,76 +2,117 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Visualizador 3D de Permutaciones - Modalidades Manual y Evolutiva</title>
+  <title>Visualizador 3D de Permutaciones - Modalidades Manual, Evolutiva y Evolución AI</title>
   <style>
+    /* ———————————————————————— Global & Body ———————————————————————— */
     body {
-      margin: 0; overflow: hidden; background: #ffffff;
+      margin: 0;
+      overflow: hidden;
+      background: #ffffff;
       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-      font-weight: 200; font-size: 12px; cursor: none;
+      font-weight: 200;
+      font-size: 12px;
+      cursor: none;
     }
     #customCursor {
-      position: fixed; width:12px; height:12px; border-radius:50%;
-      background:#000; border:1px solid:#fff; pointer-events:none;
-      z-index:300; transform:translate(-50%,-50%);
+      position: fixed;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #000;
+      border: 1px solid #fff;
+      pointer-events: none;
+      z-index: 300;
+      transform: translate(-50%, -50%);
     }
     #topRightDisplay {
-      position: fixed; top:5px; right:10px; z-index:280;
-      color:#000; font-size:12px; line-height:1.2;
+      position: fixed;
+      top: 5px;
+      right: 10px;
+      z-index: 280;
+      color: #000;
+      font-size: 12px;
+      line-height: 1.2;
     }
-    #controls {
-      position:absolute; top:10px; left:10px; z-index:100;
-      padding:10px; border-radius:5px; max-width:350px;
+
+    /* ———————————————————————— Botones flotantes ———————————————————————— */
+    button {
+      cursor: none;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      z-index: 250;
       background: rgba(255,255,255,0.8);
     }
-    details { margin-bottom:10px; }
-    details summary { font-weight:200; cursor:pointer; }
-    details summary:hover { color:#333; }
-    select, input, button { cursor:none; }
-    #permutationList { width:100%; height:300px; }
-    #attrMapping { width:100%; }
-    #hoverPopup {
-      position:absolute; padding:5px 10px;
-      background:rgba(0,0,0,0.7); color:#fff;
-      border-radius:4px; pointer-events:none;
-      font-size:12px; display:none; opacity:0;
-      transition:opacity .3s;
-      z-index:200;
+    #toggleTextButton { bottom: 10px; right: 10px; position: fixed; }
+    #randomConfigButton { bottom: 40px; right: 10px; position: fixed; }
+    #evolutionAIButton { bottom: 70px; right: 10px; position: fixed; }
+    #saveImageButton { bottom: 100px; right: 10px; position: fixed; }
+    #exportEmbedButton { bottom: 130px; right: 10px; position: fixed; }
+
+    /* ———————————————————————— Controles laterales ———————————————————————— */
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      padding: 10px;
+      border-radius: 5px;
+      background: rgba(255,255,255,0.9);
+      max-width: 350px;
     }
-    /* Botones flotantes */
-    .floatBtn {
-      position:fixed; right:10px; z-index:250;
-      background:transparent; border:none;
-      padding:8px 12px; font-size:12px;
-      cursor:none; border-radius:4px;
-    }
-    #toggleTextButton { bottom:10px; }
-    #randomConfigButton { bottom:40px; }
-    #saveImageButton   { bottom:70px; }
-    #exportEmbedButton { bottom:100px;}
-    #aiEvolutionBtn    { bottom:130px;}
-    /* Calificación */
+    details { margin-bottom: 10px; }
+    details summary { font-weight: 200; cursor: pointer; }
+    details summary:hover { color: #333; }
+    select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
+    #permutationList { width: 100%; height: 100px; }
+
+    /* ———————————————————————— Rating ———————————————————————— */
     #ratingContainer {
-      position:fixed; bottom:160px; right:10px; z-index:260;
-      font-size:12px;
+      position: fixed;
+      bottom: 170px;
+      right: 10px;
+      z-index: 260;
+      font-size: 12px;
     }
-    #ratingControls { margin-top:4px; }
-    #ratingLabels, #ratingDots {
-      display:flex; justify-content:space-between;
+    #ratingControls { margin-top: 4px; }
+    #ratingLabels, #ratingDots { display: flex; justify-content: space-between; }
+    .ratingBtn {
+      font-size: 20px;
+      cursor: none;
+      color: #000;
     }
-    #ratingLabels { margin-bottom:4px; }
-    .ratingBtn { font-size:20px; cursor:pointer; }
+
+    /* ———————————————————————— Tooltip Hover ———————————————————————— */
+    #hoverPopup {
+      position: absolute;
+      padding: 5px 10px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 12px;
+      display: none;
+      opacity: 0;
+      transition: opacity .3s;
+      z-index: 200;
+    }
   </style>
 </head>
 <body>
+  <!-- Cursor personalizado y display superior -->
   <div id="customCursor"></div>
   <div id="topRightDisplay"></div>
 
-  <button id="randomConfigButton" class="floatBtn" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
-  <button id="toggleTextButton" class="floatBtn" onclick="toggleTexts()">Ocultar Textos</button>
-  <button id="saveImageButton"   class="floatBtn" onclick="saveImage()">Guardar Imagen</button>
-  <button id="exportEmbedButton" class="floatBtn" onclick="exportEmbed()">Guardar Embed</button>
-  <button id="aiEvolutionBtn"    class="floatBtn">Evolución AI</button>
+  <!-- Botones flotantes -->
+  <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
+  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
+  <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
+  <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
+  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar</button>
 
+  <!-- Rating -->
   <div id="ratingContainer">
     <details open>
       <summary>Calificar Configuración</summary>
@@ -90,13 +131,16 @@
     </details>
   </div>
 
+  <!-- Panel de controles -->
   <div id="controls">
+    <!-- Modo de operación -->
     <details open>
       <summary>Modo de Operación</summary>
       <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label>
       <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label>
     </details>
 
+    <!-- Controles Manual -->
     <div id="manualControls">
       <details>
         <summary>Seleccionar Permutaciones</summary>
@@ -105,45 +149,51 @@
       </details>
     </div>
 
+    <!-- Controles Evolutivo -->
     <div id="evolutionControls" style="display:none;">
       <details open>
         <summary>Parámetros Evolutivos</summary>
         <p>Tasa de Mutación: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
-        <p>Umbral de Cambio: <input type="range" id="threshold"    min="0" max="1" step="0.01" value="0.5"></p>
-        <button onclick="applyEvolution()">Aplicar Evolución Manual</button>
+        <p>Umbral de Cambio: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
+        <button onclick="applyEvolution()">Aplicar Evolución</button>
         <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
       </details>
     </div>
 
+    <!-- Colores permutaciones -->
     <details>
       <summary>Seleccionar Colores Permutaciones</summary>
-      <div class="color-picker"><label>1: <input type="color" id="color1" value="#ff0000"></label></div>
-      <div class="color-picker"><label>2: <input type="color" id="color2" value="#00ff00"></label></div>
-      <div class="color-picker"><label>3: <input type="color" id="color3" value="#0000ff"></label></div>
-      <div class="color-picker"><label>4: <input type="color" id="color4" value="#ff00ff"></label></div>
-      <div class="color-picker"><label>5: <input type="color" id="color5" value="#00ffff"></label></div>
+      <div><label>1: <input type="color" id="color1" value="#ff0000"></label></div>
+      <div><label>2: <input type="color" id="color2" value="#00ff00"></label></div>
+      <div><label>3: <input type="color" id="color3" value="#0000ff"></label></div>
+      <div><label>4: <input type="color" id="color4" value="#ff00ff"></label></div>
+      <div><label>5: <input type="color" id="color5" value="#00ffff"></label></div>
       <button onclick="updateColorMapping()">Actualizar Colores</button>
     </details>
 
+    <!-- Fondo -->
     <details>
       <summary>Seleccionar Fondo del Universo</summary>
       <input type="color" id="bgColor" value="#ffffff">
       <button onclick="updateBackground()">Actualizar Fondo</button>
     </details>
 
+    <!-- Pared del cubo -->
     <details>
       <summary>Seleccionar Color de Pared del Cubo</summary>
       <input type="color" id="cubeColor" value="#808080">
       <button onclick="updateCubeColor()">Actualizar Paredes</button>
     </details>
 
+    <!-- Atributos & mapeo -->
     <details>
       <summary>Reorganización de Atributos</summary>
       <select id="attrMapping"></select>
-      <button onclick="updateMapping()">Aplicar Mapping</button>
+      <button onclick="updateMapping()">Aplicar Reorganización</button>
       <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
     </details>
 
+    <!-- Vistas estándar -->
     <details>
       <summary>Vistas Estándar</summary>
       <select id="standardView">
@@ -151,52 +201,76 @@
         <option value="top">Superior</option>
         <option value="front">Frontal</option>
         <option value="side">Lateral</option>
-        <option value="diagonal">Diagonal</option>
+        <option value="diagonal">Diagonal opuesta</option>
       </select>
       <button onclick="applyStandardView()">Aplicar Vista</button>
     </details>
 
+    <!-- Zoom & Movimiento -->
     <details>
-      <summary>Zoom y Movimiento</summary>
+      <summary>Controles de Zoom</summary>
       <button onclick="zoomIn()">Zoom In</button>
       <button onclick="zoomOut()">Zoom Out</button>
-      <button onclick="togglePause()">Pausar/Continuar</button>
+    </details>
+    <details>
+      <summary>Controles de Movimiento</summary>
+      <button onclick="togglePause()">Pausar Movimiento</button>
       <button onclick="resetMovement()">Resetear Movimiento</button>
     </details>
   </div>
 
+  <!-- Tooltip hover -->
   <div id="hoverPopup"></div>
 
+  <!-- Three.js & OrbitControls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
   <script>
     // ——————————————————————————————————————————————
-    // === CONSTANTES Y UTILIDADES
-    const CUSTOM_COLORS = [ /* tus 120 colores aquí */ /* … */ ];
-    function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
-    function mapRangeToSpeed(r,mn,mx){ return 0.001+(r-mn)*(0.005-0.001)/(mx-mn); }
-    function shuffle(a){ for(let i=a.length-1;i>0;i--){ let j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+    // === LISTA DE 120 COLORES ===
+    const CUSTOM_COLORS = [
+      "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
+      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
+      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
+      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
+      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
+      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
+      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
+      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
+      "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
+      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
+      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
+      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
+      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
+      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
+      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
+      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
+      "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
+      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
+    ];
 
     // ——————————————————————————————————————————————
-    // === VARIABLES GLOBALES
+    // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
-    let isPaused=false, currentMode="manual", userRating=null, textsVisible=true;
-    let attributeMapping={forma:0,color:1,x:2,y:3,z:4};
-    let colorMapping={1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff"};
-
-    const cubeSize=30, segment=cubeSize/5, halfCube=cubeSize/2;
-    const minRangeValue=2, maxRangeValue=6;
-    const shapeMapping={
-      1:{w:4.5,h:4.5},
-      2:{w:4.5,h:4.5*Math.sqrt(2)},
-      3:{w:4.5,h:4.5*Math.sqrt(3)},
-      4:{w:4.5,h:4.5*Math.sqrt(4)},
+    const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
+    let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
+    let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
+    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
+    const minRangeValue = 2, maxRangeValue = 6;
+    const shapeMapping = {
+      1:{w:4.5,h:4.5}, 2:{w:4.5,h:4.5*Math.sqrt(2)},
+      3:{w:4.5,h:4.5*Math.sqrt(3)}, 4:{w:4.5,h:4.5*Math.sqrt(4)},
       5:{w:4.5,h:4.5*Math.sqrt(5)}
     };
 
     // ——————————————————————————————————————————————
-    // === GENERAR PERMUTACIONES
+    // === Utilidades ===
+    function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+    function mapRangeToSpeed(r,mn,mx){ return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn); }
+    function shuffle(a){ for(let i=a.length-1;i>0;i--){ let j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
     function getPermutations(arr){
       if(arr.length===1) return [arr];
       let res=[];
@@ -206,21 +280,9 @@
       }
       return res;
     }
-    const allPerms = getPermutations([1,2,3,4,5]);
-    const permutationStrings = allPerms.map(p=>p.join(','));
+    const allPermutations = getPermutations([1,2,3,4,5]);
+    const permutationStrings = allPermutations.map(p=>p.join(','));
 
-    // ——————————————————————————————————————————————
-    // === POBLAR SELECTS
-    function populatePermutationList(){
-      const sel = document.getElementById('permutationList');
-      sel.innerHTML='';
-      permutationStrings.forEach((ps,i)=>{
-        let o=document.createElement('option');
-        o.value=ps; o.text=`Permutación ${i+1}: (${ps})`;
-        if(i<3) o.selected=true;
-        sel.appendChild(o);
-      });
-    }
     function getAttributeMappings(a){
       if(a.length===1) return [a];
       let res=[];
@@ -230,59 +292,84 @@
       }
       return res;
     }
-    function populateAttributeMappingSelect(){
-      const sel = document.getElementById('attrMapping');
-      sel.innerHTML='';
-      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        let s=m.join(','), o=document.createElement('option');
-        o.value=s; o.text=`[${s}]`;
-        if(s==='0,1,2,3,4') o.selected=true;
+
+    // ——————————————————————————————————————————————
+    // === Poblado de selects ===
+    function populatePermutationList(){
+      const sel = document.getElementById('permutationList');
+      sel.innerHTML = '';
+      permutationStrings.forEach((ps,i)=>{
+        let o = document.createElement('option');
+        o.value = ps;
+        o.text = `Permutación ${i+1}: (${ps})`;
+        if(i===0) o.selected = true;
         sel.appendChild(o);
       });
     }
-
-    // ——————————————————————————————————————————————
-    // === DISPLAY SUPERIOR
-    function updateTopRightDisplay(){
-      const cfg=`Mapping: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
-      const rt=`Calificación: ${userRating||'–'}`;
-      let info='';
-      Array.from(document.getElementById('permutationList').selectedOptions)
-        .forEach(o=>{
-          let pa=o.value.split(',').map(Number),
-              sig=pa.map((v,i)=>v+pa[(i+1)%pa.length]),
-              rg=Math.max(...sig)-Math.min(...sig);
-          info+=`<div>(${pa.join(',')}) Rango ${rg}</div>`;
-        });
-      document.getElementById('topRightDisplay').innerHTML=cfg+'<br>'+rt+'<br>'+info;
+    function populateAttributeMappingSelect(){
+      const sel = document.getElementById('attrMapping');
+      sel.innerHTML = '';
+      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
+        let s = m.join(','), o=document.createElement('option');
+        o.value = s;
+        o.text = `Opción: [${s}]`;
+        if(s==='0,1,2,3,4') o.selected=true;
+        sel.appendChild(o);
+      });
+      updateTopRightDisplay();
     }
 
     // ——————————————————————————————————————————————
-    // === CREAR OBJETOS 3D
+    // === Display superior ===
+    function updateTopRightDisplay(){
+      const cfg = `Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
+      const rt  = `Calificación: ${userRating?userRating:'Aún no calificada'}`;
+      let info = '';
+      Array.from(document.getElementById('permutationList').selectedOptions)
+        .forEach(o=>{
+          let pa = o.value.split(',').map(Number),
+              sig = computeSignature(pa),
+              rg = computeRange(sig);
+          info += `<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
+        });
+      document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
+    }
+
+    // ——————————————————————————————————————————————
+    // === Crear objetos 3D ===
+    function computeSignature(a){ let s=[]; for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]); return s; }
+    function computeRange(sig){ return Math.max(...sig)-Math.min(...sig); }
+
     function createPermutationObjectWithMapping(pa,map){
       let fv=pa[map.forma], cv=pa[map.color],
           px=pa[map.x], py=pa[map.y], pz=pa[map.z],
           d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
-      let geo=new THREE.BoxGeometry(w,h,t),
-          mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50 }),
-          mesh=new THREE.Mesh(geo,mat);
-      let x=(px-1)*segment-halfCube+segment/2,
-          y=(py-1)*segment-halfCube+segment/2,
-          z=(pz-1)*segment-halfCube+segment/2;
+      let geo = new THREE.BoxGeometry(w,h,t),
+          mat = new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50 }),
+          mesh = new THREE.Mesh(geo, mat);
+      let x = (px-1)*segment-halfCube+segment/2,
+          y = (py-1)*segment-halfCube+segment/2,
+          z = (pz-1)*segment-halfCube+segment/2;
       mesh.position.set(
         clamp(x,-halfCube+w/2,halfCube-w/2),
         clamp(y,-halfCube+h/2,halfCube-h/2),
         clamp(z,-halfCube+t/2,halfCube-t/2)
       );
-      let sig=pa.map((v,i)=>v+pa[(i+1)%pa.length]),
-          rg=Math.max(...sig)-Math.min(...sig);
-      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed: mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+      let sig = computeSignature(pa), rg = computeRange(sig);
+      mesh.userData = {
+        permStr: pa.join(','),
+        signature: sig,
+        range: rg,
+        rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue)
+      };
       return mesh;
     }
-    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
+    function createPermutationObject(pa){
+      return createPermutationObjectWithMapping(pa, attributeMapping);
+    }
 
     // ——————————————————————————————————————————————
-    // === COLISIONES
+    // === Colisiones ===
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
         let b1=new THREE.Box3().setFromObject(g.children[i]);
@@ -295,395 +382,399 @@
     }
     function autoResolveColisionesGlobal(){
       let found=null;
-      getAttributeMappings([0,1,2,3,4]).some(m=>{
-        if(found) return true;
-        const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]};
-        const tg=new THREE.Group();
-        Array.from(document.getElementById('permutationList').selectedOptions)
-          .forEach(o=>{
-            let pa=o.value.split(',').map(Number),
-                mo=createPermutationObjectWithMapping(pa,cm);
-            tg.add(mo);
-          });
+      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
+        if(found) return;
+        let cm = { forma:m[0], color:m[1], x:m[2], y:m[3], z:m[4] },
+            tg = new THREE.Group(),
+            opts = Array.from(document.getElementById('permutationList').selectedOptions);
+        opts.forEach((o,i)=>{
+          let pa = o.value.split(',').map(Number),
+              mo = createPermutationObjectWithMapping(pa, cm);
+          if(opts.length>1){
+            let ang=2*Math.PI*i/opts.length, rad=1.5;
+            mo.position.x += rad*Math.cos(ang);
+            mo.position.y += rad*Math.sin(ang);
+            let ww=mo.geometry.parameters.width, hh=mo.geometry.parameters.height;
+            mo.position.x=clamp(mo.position.x,-halfCube+ww/2,halfCube-ww/2);
+            mo.position.y=clamp(mo.position.y,-halfCube+hh/2,halfCube-hh/2);
+          }
+          tg.add(mo);
+        });
         if(!checkCollisionsInGroup(tg)) found=cm;
-        return false;
       });
       if(found){
-        attributeMapping=found;
-        document.getElementById('attrMapping').value=Object.values(found).join(',');
-        updateScene(false); updateTopRightDisplay();
-        showPopup("Mapping sin colisiones encontrado",3000);
+        attributeMapping = found;
+        document.getElementById('attrMapping').value =
+          `${found.forma},${found.color},${found.x},${found.y},${found.z}`;
+        updateScene(false);
+        updateTopRightDisplay();
       } else {
-        showPopup("No se encontró mapping sin colisiones",3000);
+        showPopup("No se encontró reorganización sin colisiones.",7000);
       }
     }
 
     // ——————————————————————————————————————————————
-    // === POPUP
+    // === Popup tooltip ===
     function showPopup(msg,dur=2000){
-      const pop=document.getElementById('hoverPopup');
-      pop.style.display="block"; pop.style.opacity=1;
-      pop.style.left=(window.innerWidth/2-150)+"px";
-      pop.style.top="20px"; pop.innerHTML=msg;
-      setTimeout(()=>{ pop.style.opacity=0; setTimeout(()=>pop.style.display="none",300); },dur);
+      let p = document.getElementById('hoverPopup');
+      p.style.display = "block"; p.style.opacity=1;
+      p.style.left = (window.innerWidth/2-150)+"px";
+      p.style.top  = "20px";
+      p.innerHTML = msg;
+      setTimeout(()=>{
+        p.style.opacity=0;
+        setTimeout(()=>{ p.style.display="none"; p.innerHTML=""; },300);
+      }, dur);
     }
 
     // ——————————————————————————————————————————————
-    // === ACTUALIZAR ESCENA
+    // === Actualizar escena (manual/evolutivo) ===
     function updateScene(attemptResolve=true){
-      while(permutationGroup.children.length) {
-        const o=permutationGroup.children[0];
+      // Limpia grupo
+      while(permutationGroup.children.length>0){
+        let o = permutationGroup.children[0];
         permutationGroup.remove(o);
         o.geometry.dispose(); o.material.dispose();
       }
-      Array.from(document.getElementById('permutationList').selectedOptions)
-        .forEach((o,i)=>{
-          let pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
-          if(i>0){
-            const ang=2*Math.PI*i/5, rad=1.5;
-            obj.position.x+=rad*Math.cos(ang);
-            obj.position.y+=rad*Math.sin(ang);
-          }
-          permutationGroup.add(obj);
-        });
+      // Añade objetos
+      let opts = Array.from(document.getElementById('permutationList').selectedOptions);
+      opts.forEach((o,i)=>{
+        let pa = o.value.split(',').map(Number),
+            obj = createPermutationObject(pa);
+        if(opts.length>1){
+          let ang=2*Math.PI*i/opts.length, rad=1.5;
+          obj.position.x += rad*Math.cos(ang);
+          obj.position.y += rad*Math.sin(ang);
+          let ww=obj.geometry.parameters.width, hh=obj.geometry.parameters.height;
+          obj.position.x=clamp(obj.position.x,-halfCube+ww/2,halfCube-ww/2);
+          obj.position.y=clamp(obj.position.y,-halfCube+hh/2,halfCube-hh/2);
+        }
+        permutationGroup.add(obj);
+      });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
     }
 
     // ——————————————————————————————————————————————
-    // === RAYCAST & HOVER
+    // === Raycast hover ===
     function onMouseMove(e){
-      mouse.x=(e.clientX/window.innerWidth)*2-1;
-      mouse.y=-(e.clientY/window.innerHeight)*2+1;
-      raycaster.setFromCamera(mouse,camera);
-      const ints=raycaster.intersectObjects(permutationGroup.children);
-      const pop=document.getElementById('hoverPopup');
-      if(ints.length){
-        const d=ints[0].object.userData;
+      mouse.x = (e.clientX/window.innerWidth)*2-1;
+      mouse.y = -(e.clientY/window.innerHeight)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      let ints = raycaster.intersectObjects(permutationGroup.children);
+      let pop = document.getElementById('hoverPopup');
+      if(ints.length>0){
+        let d = ints[0].object.userData;
         pop.style.display="block"; pop.style.opacity=1;
-        pop.style.left=e.clientX+20+"px"; pop.style.top=e.clientY+20+"px";
-        pop.innerHTML=`(${d.permStr}) Rango ${d.range}`;
+        pop.style.left=`${e.clientX+20}px`;
+        pop.style.top =`${e.clientY+20}px`;
+        pop.innerHTML=`Perm (${d.permStr})<br>Firma [${d.signature.join(', ')}]<br>Rango ${d.range}`;
       } else {
-        pop.style.opacity=0; setTimeout(()=>pop.style.display="none",300);
+        pop.style.opacity=0;
+        setTimeout(()=>{ pop.style.display="none"; },300);
       }
     }
 
     // ——————————————————————————————————————————————
-    // === ZOOM & MOVIMIENTO
-    function zoomIn(){ camera.position.z-=5; controls.update(); }
-    function zoomOut(){ camera.position.z+=5; controls.update(); }
+    // === Zoom & Movimiento ===
+    function zoomIn(){ camera.position.z -= 5; controls.update(); }
+    function zoomOut(){ camera.position.z += 5; controls.update(); }
     function togglePause(){
-      isPaused=!isPaused;
-      document.querySelector("#controls button[onclick='togglePause()']")
-        .textContent = isPaused? "Continuar":"Pausar";
+      isPaused = !isPaused;
+      let b = document.querySelector("button[onclick='togglePause()']");
+      b.textContent = isPaused ? "Reanudar Movimiento" : "Pausar Movimiento";
     }
     function resetMovement(){
-      isPaused=true; updateScene(false);
-      document.querySelector("#controls button[onclick='togglePause()']")
-        .textContent = "Continuar";
+      updateScene(false);
+      isPaused = true;
+      let b = document.querySelector("button[onclick='togglePause()']");
+      b.textContent = "Reanudar Movimiento";
     }
 
     // ——————————————————————————————————————————————
-    // === GUARDAR IMAGEN
+    // === Guardar imagen ===
     function saveImage(){
       renderer.render(scene,camera);
-      const url=renderer.domElement.toDataURL("image/png"),
-            a=document.createElement("a");
-      a.href=url; a.download="captura.png";
-      document.body.appendChild(a); a.click(); a.remove();
+      let url = renderer.domElement.toDataURL("image/png"),
+          a = document.createElement("a");
+      a.href = url; a.download = "configuracion.png";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
 
     // ——————————————————————————————————————————————
-    // === ACTUALIZAR COLORES MANUAL
+    // === Actualizar colores manual ===
     function updateColorMapping(){
       for(let i=1;i<=5;i++){
-        colorMapping[i]=document.getElementById('color'+i).value;
+        colorMapping[i] = document.getElementById('color'+i).value;
       }
       updateScene(false);
     }
     function updateBackground(){
-      const c=document.getElementById('bgColor').value;
-      scene.background=new THREE.Color(c);
+      let c = document.getElementById('bgColor').value;
+      scene.background = new THREE.Color(c);
+      let lum = (parseInt(c.slice(1,3),16)*299 +
+                 parseInt(c.slice(3,5),16)*587 +
+                 parseInt(c.slice(5,7),16)*114) / 1000;
+      document.getElementById('hoverPopup').style.color = lum<128 ? "#fff" : "#000";
     }
     function updateCubeColor(){
-      const c=document.getElementById('cubeColor').value;
-      cubeUniverse.material.color=new THREE.Color(c);
+      let c = document.getElementById('cubeColor').value;
+      cubeUniverse.material.color = new THREE.Color(c);
+      document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
+      document.getElementById('toggleTextButton').style.color=c;
     }
 
     // ——————————————————————————————————————————————
-    // === TOGGLE TEXTOS
+    // === Mostrar/Ocultar textos UI ===
     function toggleTexts(){
-      textsVisible=!textsVisible;
-      const elems=[
+      let elems = [
         'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','saveImageButton','exportEmbedButton','aiEvolutionBtn'
-      ];
-      elems.forEach(id=>{
-        document.getElementById(id).style.display = textsVisible? 'block':'none';
-      });
-      document.getElementById('toggleTextButton')
-        .textContent = textsVisible? "Ocultar Textos":"Mostrar Textos";
+        'randomConfigButton','evolutionAIButton','saveImageButton','exportEmbedButton'
+      ].map(id=>document.getElementById(id));
+      elems.forEach(e=>e.style.display = textsVisible ? "none" : "block");
+      document.getElementById('toggleTextButton').textContent =
+        textsVisible ? "Mostrar Textos" : "Ocultar Textos";
+      textsVisible = !textsVisible;
     }
 
     // ——————————————————————————————————————————————
-    // === MODO MANUAL/EVOLUTIVO
+    // === Modo Manual/Evolutivo ===
     function setMode(m){
-      currentMode=m;
-      document.getElementById('manualControls').style.display = m==="manual"? "block":"none";
-      document.getElementById('evolutionControls').style.display = m==="evolution"? "block":"none";
+      currentMode = m;
+      document.getElementById('manualControls').style.display    = (m==="manual" ? "block" : "none");
+      document.getElementById('evolutionControls').style.display = (m==="evolution" ? "block" : "none");
+      updateScene(false);
     }
 
     // ——————————————————————————————————————————————
-    // === CONFIGURACIÓN ALEATORIA
+    // === Generación Aleatoria ===
     function generateRandomConfiguration(){
-      // permutaciones
-      const opts=document.getElementById('permutationList').options;
-      Array.from(opts).forEach(o=>o.selected=false);
-      for(let i=0;i<3;i++){
-        opts[Math.floor(Math.random()*opts.length)].selected=true;
+      // Permutaciones
+      let sel = document.getElementById('permutationList');
+      Array.from(sel.options).forEach(o=>o.selected=false);
+      let n = Math.floor(Math.random()*5)+1;
+      for(let i=0;i<n;i++){
+        let val = permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        sel.querySelector(`option[value="${val}"]`).selected=true;
       }
-      // fondo y paredes
-      const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      const wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      document.getElementById('bgColor').value=bg; updateBackground();
-      document.getElementById('cubeColor').value=wall; updateCubeColor();
-      // colores perm
-      let pool=shuffle(CUSTOM_COLORS.slice());
+      // Fondo y paredes
+      let bg = CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
+          wall = CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
+      document.getElementById('bgColor').value = bg; updateBackground();
+      document.getElementById('cubeColor').value = wall; updateCubeColor();
+      // Colores permutaciones
+      let pool = shuffle(CUSTOM_COLORS.slice());
       for(let i=1;i<=5;i++){
-        colorMapping[i]=pool.shift();
-        document.getElementById('color'+i).value=colorMapping[i];
+        let hex = pool.shift();
+        colorMapping[i] = hex;
+        document.getElementById('color'+i).value = hex;
       }
       updateScene(false);
     }
 
     // ——————————————————————————————————————————————
-    // === CALIFICACIÓN
+    // === Rating interactividad ===
     document.querySelectorAll('.ratingBtn').forEach(el=>{
-      const r=+el.dataset.rating;
-      el.addEventListener('click', ()=>{
-        userRating=r;
-        const cols=[null,"#8B0000","#FF4500","#FFA500","#9ACD32","#008000"];
+      let r = +el.getAttribute('data-rating');
+      el.addEventListener('click',()=>{
+        userRating = r;
+        let cols = {1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
         document.querySelectorAll('.ratingBtn').forEach((b,i)=>{
-          b.style.color=(i<r? cols[r]:"#000");
+          b.style.color = (i<r ? cols[r] : "#000");
         });
         updateTopRightDisplay();
       });
+      el.addEventListener('mouseenter',()=> showPopup(`Calificación: ${r}`,1000));
     });
 
     // ——————————————————————————————————————————————
-    // === EVOLUCIÓN MANUAL
+    // === Evolución simple ===
     function applyEvolution(){
-      const mr=parseFloat(document.getElementById('mutationRate').value);
-      const th=parseFloat(document.getElementById('threshold').value);
-      let log="";
+      let mr = parseFloat(document.getElementById('mutationRate').value),
+          th = parseFloat(document.getElementById('threshold').value),
+          cf = 0.02, log = "";
       permutationGroup.children.forEach(o=>{
-        const rf=(Math.random()-0.5)*mr;
-        o.rotation.y+=rf;
-        const sf=1+(Math.random()-0.5)*th;
+        let rf = (Math.random()-0.5)*mr;
+        o.rotation.y += rf;
+        let sf = 1 + (Math.random()-0.5)*th;
         o.scale.set(sf,sf,sf);
-        const cf=0.02;
         o.material.color.offsetHSL(
           (Math.random()-0.5)*cf,
           (Math.random()-0.5)*cf,
           (Math.random()-0.5)*cf
         );
-        log+=`[${o.userData.permStr}] rot ${rf.toFixed(2)} esc ${sf.toFixed(2)}<br>`;
+        log += `(${o.userData.permStr}): Rot ${rf.toFixed(3)}, Esc ${sf.toFixed(3)}<br>`;
       });
-      document.getElementById('evolutionInfo').innerHTML=log;
+      document.getElementById('evolutionInfo').innerHTML = log;
     }
 
     // ——————————————————————————————————————————————
-    // === EVOLUCIÓN AI (AUTÓNOMA)
-    document.getElementById('aiEvolutionBtn')
-      .addEventListener('click', aiEvolution);
-
-    async function aiEvolution(){
-      const rating = userRating||'sin calificar';
-      const perms  = permutationGroup.children.map(o=>o.userData.permStr);
-      const prompt = `
-Eres un sistema evolutivo. Calificación actual: ${rating}.
-Permutaciones desplegadas: ${perms.join('; ')}.
-Fondo actual: ${scene.background.getStyle()}.
-Color paredes: ${cubeUniverse.material.color.getStyle()}.
-Responde SOLO un JSON con:
-  "nuevosColores":[...],
-  "cambioFondo":"#hex",
-  "cambioParedes":"#hex",
-  "escalaMin":n,"escalaMax":n,
-  "velocidadRotacion":n,
-  "contarCubos":n,
-  "posiciones":[{"x":n,"y":n,"z":n},...]
-`;
+    // === Evolución AI ===
+    async function applyEvolutionAI(){
+      // Tomas el prompt de la última configuración
+      let prompt = "Sugiere ajustes de color, rotación y posición para las permutaciones " +
+                   "en base a su calificación y teorías de estética, proporciones y armonía.";
       try {
-        const res = await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({prompt})
+        showPopup("Consultando Evolution AI…", 2000);
+        let resp = await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ prompt })
         });
-        const { text } = await res.json();
-        const cfg = JSON.parse(text);
-
-        // Aplicar fondo
-        if(cfg.cambioFondo){
-          scene.background=new THREE.Color(cfg.cambioFondo);
+        let data = await resp.json();
+        if(data.error){
+          showPopup("Error en Evolución AI: "+data.error,4000);
+          return;
         }
-        // Aplicar paredes
-        if(cfg.cambioParedes){
-          cubeUniverse.material.color=new THREE.Color(cfg.cambioParedes);
-        }
-        // Nuevos colores perm
-        if(Array.isArray(cfg.nuevosColores)){
-          cfg.nuevosColores.forEach((hex,i)=>{
-            if(i<5){
-              colorMapping[i+1]=hex;
-              document.getElementById('color'+(i+1)).value=hex;
-            }
-          });
-        }
-        // Número de cubos
-        if(Number.isInteger(cfg.contarCubos)){
-          const opts=document.getElementById('permutationList').options;
-          Array.from(opts).forEach(o=>o.selected=false);
-          for(let i=0;i<cfg.contarCubos && i<opts.length;i++){
-            opts[i].selected=true;
-          }
-        }
-        // Posiciones
-        if(Array.isArray(cfg.posiciones)){
-          cfg.posiciones.forEach((p,i)=>{
-            if(permutationGroup.children[i]){
-              permutationGroup.children[i].position.set(p.x,p.y,p.z);
-            }
-          });
-        }
-        // Escalas y velocidades
-        permutationGroup.children.forEach(o=>{
-          if(cfg.escalaMin!=null && cfg.escalaMax!=null){
-            let s=Math.random()*(cfg.escalaMax-cfg.escalaMin)+cfg.escalaMin;
-            o.scale.set(s,s,s);
-          }
-          if(cfg.velocidadRotacion!=null){
-            o.userData.rotationSpeed = cfg.velocidadRotacion;
+        // Interpretación muy simple: cada número 1–5 en el texto indica permutación a cambiar color
+        // Ejemplo de texto: "Permutación 2 → cambia a #00ff00"
+        let lines = data.text.split(/[\.\n]/).map(l=>l.trim()).filter(l=>l);
+        lines.forEach(line=>{
+          let m = line.match(/Permutación (\d) .*? (#?[0-9a-fA-F]{6})/);
+          if(m){
+            let idx = parseInt(m[1]);
+            let col = (m[2].startsWith('#')?m[2]:'#'+m[2]);
+            colorMapping[idx] = col;
           }
         });
-
         updateScene(false);
-        updateTopRightDisplay();
-        showPopup("Evolución AI aplicada ✔️",3000);
+        showPopup("Evolución AI aplicada.",2000);
       } catch(e){
         console.error(e);
-        showPopup("Error en Evolución AI",3000);
+        showPopup("Error en Evolución AI: red",4000);
       }
     }
 
     // ——————————————————————————————————————————————
-    // === VISTA ESTÁNDAR
+    // === Aplicar mapping manual ===
+    function updateMapping(){
+      let v = document.getElementById('attrMapping').value.split(',').map(Number);
+      if(v.length===5){
+        attributeMapping = { forma:v[0], color:v[1], x:v[2], y:v[3], z:v[4] };
+        updateScene(false);
+        updateTopRightDisplay();
+      }
+    }
+
+    // ——————————————————————————————————————————————
+    // === Vistas estándar ===
     function applyStandardView(){
-      let view=document.getElementById('standardView').value, pos=new THREE.Vector3();
+      let view = document.getElementById('standardView').value,
+          pos  = new THREE.Vector3();
       switch(view){
-        case"top": pos.set(0,80,0); break;
-        case"front": pos.set(0,0,50); break;
-        case"side": pos.set(50,0,0); break;
-        case"diagonal": pos.set(-50,50,-50); break;
-        default: pos.set(50,50,50);
+        case "isometric": pos.set(50,50,50); break;
+        case "top":       pos.set(0,80,0);   break;
+        case "front":     pos.set(0,0,50);   break;
+        case "side":      pos.set(50,0,0);   break;
+        case "diagonal":  pos.set(-50,50,-50);break;
+        default:          pos.set(0,0,50);
       }
       camera.position.copy(pos);
-      camera.lookAt(0,0,0);
+      camera.lookAt(new THREE.Vector3(0,0,0));
       controls.update();
     }
 
     // ——————————————————————————————————————————————
-    // === EMBED & URL PARAMS
+    // === Embed params (URL) ===
     function applyEmbedParams(){
-      const p=new URLSearchParams(location.search);
+      const p = new URLSearchParams(window.location.search);
       if(p.has('perms')){
-        const arr=p.get('perms').split(';');
-        Array.from(document.getElementById('permutationList').options)
-          .forEach(o=> o.selected=arr.includes(o.value));
+        let arr = p.get('perms').split(';');
+        document.querySelectorAll('#permutationList option').forEach(o=>{
+          o.selected = arr.includes(o.value);
+        });
       }
       if(p.has('mapping')){
-        const m=p.get('mapping').split(',').map(Number);
-        attributeMapping={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]};
-        document.getElementById('attrMapping').value=p.get('mapping');
+        let m = p.get('mapping').split(',').map(Number);
+        attributeMapping = { forma:m[0], color:m[1], x:m[2], y:m[3], z:m[4] };
       }
       if(p.has('colors')){
-        p.get('colors').split(',').forEach((c,i)=>{
+        let cols = p.get('colors').split(',');
+        cols.forEach((hex,i)=>{
           if(i<5){
-            colorMapping[i+1]='#'+c;
-            document.getElementById('color'+(i+1)).value='#'+c;
+            let h = '#'+hex;
+            colorMapping[i+1] = h;
+            document.getElementById('color'+(i+1)).value = h;
           }
         });
       }
       if(p.has('bg')){
-        const bg='#'+p.get('bg');
-        document.getElementById('bgColor').value=bg; updateBackground();
+        let bg = '#'+p.get('bg');
+        document.getElementById('bgColor').value = bg; updateBackground();
       }
       if(p.has('cube')){
-        const c='#'+p.get('cube');
-        document.getElementById('cubeColor').value=c; updateCubeColor();
+        let c = '#'+p.get('cube');
+        document.getElementById('cubeColor').value = c; updateCubeColor();
       }
       if(p.has('view')){
-        document.getElementById('standardView').value=p.get('view');
+        document.getElementById('standardView').value = p.get('view');
         applyStandardView();
       }
       if(p.get('hide')==='1') toggleTexts();
     }
 
+    // ——————————————————————————————————————————————
+    // === Export embed ===
     function exportEmbed(){
-      const perms=Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value).join(';');
-      const mapping=Object.values(attributeMapping).join(',');
-      const colors=[1,2,3,4,5].map(i=>document.getElementById('color'+i).value.slice(1)).join(',');
-      const bg=document.getElementById('bgColor').value.slice(1);
-      const cube=document.getElementById('cubeColor').value.slice(1);
-      const view=document.getElementById('standardView').value;
-      const src=`${location.pathname}?perms=${encodeURIComponent(perms)}&mapping=${mapping}&colors=${colors}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
-      prompt("Código iframe:", `<iframe src="${src}" width="800" height="600"></iframe>`);
+      const perms   = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value).join(';');
+      const mapping = [attributeMapping.forma,attributeMapping.color,attributeMapping.x,attributeMapping.y,attributeMapping.z].join(',');
+      const colors  = [1,2,3,4,5].map(i=>document.getElementById('color'+i).value.substring(1)).join(',');
+      const bg      = document.getElementById('bgColor').value.substring(1);
+      const cube    = document.getElementById('cubeColor').value.substring(1);
+      const view    = document.getElementById('standardView').value;
+      const src = `${location.pathname}?perms=${encodeURIComponent(perms)}` +
+                  `&mapping=${mapping}` +
+                  `&colors=${encodeURIComponent(colors)}` +
+                  `&bg=${bg}&cube=${cube}` +
+                  `&view=${view}&hide=1`;
+      const embed = `<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
+      prompt("Copia este código para embeber:", embed);
     }
 
     // ——————————————————————————————————————————————
-    // === INITIALIZE
+    // === Inicialización Three.js & UI ===
     function initCustomCursor(){
-      const c=document.getElementById('customCursor');
-      window.addEventListener('mousemove', e=> {
-        c.style.left=e.clientX+'px';
-        c.style.top =e.clientY+'px';
+      let c = document.getElementById('customCursor');
+      window.addEventListener('mousemove', e=>{
+        c.style.left = e.clientX+"px";
+        c.style.top  = e.clientY+"px";
       });
     }
     function initRenderer(){
-      renderer=new THREE.WebGLRenderer({antialias:true});
+      renderer = new THREE.WebGLRenderer({ antialias:true });
       renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(window.innerWidth,window.innerHeight);
+      renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
     }
     function init(){
-      scene=new THREE.Scene(); scene.background=new THREE.Color(0xffffff);
-      camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
-      camera.position.set(50,50,50);
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      camera.position.set(0,0,50);
       initRenderer();
-      controls=new THREE.OrbitControls(camera,renderer.domElement);
-      controls.enableDamping=true; controls.dampingFactor=0.1;
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+      controls.enableZoom    = true;
+      scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+      let dir = new THREE.DirectionalLight(0xffffff,0.5);
+      dir.position.set(1,1,1);
+      scene.add(dir);
 
-      scene.add(new THREE.AmbientLight(0xffffff,0.8));
-      const dir=new THREE.DirectionalLight(0xffffff,0.5);
-      dir.position.set(1,1,1); scene.add(dir);
-
-      cubeUniverse=new THREE.Mesh(
-        new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
-        new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
-      );
+      let cubeGeo = new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
+          cubeMat = new THREE.MeshBasicMaterial({
+            color:0x808080, transparent:true, opacity:0.2, side: THREE.BackSide
+          });
+      cubeUniverse = new THREE.Mesh(cubeGeo, cubeMat);
       scene.add(cubeUniverse);
 
-      permutationGroup=new THREE.Group(); scene.add(permutationGroup);
+      permutationGroup = new THREE.Group();
+      scene.add(permutationGroup);
 
-      raycaster=new THREE.Raycaster();
-      mouse=new THREE.Vector2();
-      window.addEventListener('mousemove',onMouseMove);
-      window.addEventListener('resize',()=> {
-        camera.aspect=window.innerWidth/window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth,window.innerHeight);
-      });
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+      window.addEventListener('mousemove', onMouseMove, false);
+      window.addEventListener('resize', onWindowResize, false);
 
       initCustomCursor();
       populatePermutationList();
@@ -693,16 +784,22 @@ Responde SOLO un JSON con:
       updateScene(false);
       animate();
     }
+    function onWindowResize(){
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
     function animate(){
       requestAnimationFrame(animate);
       if(!isPaused){
         permutationGroup.children.forEach(o=>{
-          o.rotation.y+=o.userData.rotationSpeed;
+          if(o.userData.rotationSpeed) o.rotation.y += o.userData.rotationSpeed;
         });
       }
       controls.update();
-      renderer.render(scene,camera);
+      renderer.render(scene, camera);
     }
+    // Arranca todo
     init();
   </script>
 </body>
