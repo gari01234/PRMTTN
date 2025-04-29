@@ -35,16 +35,16 @@
       padding: 8px 12px; font-size: 12px; z-index: 250;
       background: rgba(255,255,255,0.8);
     }
-    #toggleTextButton  { bottom: 10px; right: 10px; position: fixed; }
-    #randomConfigButton{ bottom: 40px; right: 10px; position: fixed; }
-    #evolutionAIButton { bottom: 70px; right: 10px; position: fixed; }
-    #saveImageButton   { bottom:100px; right: 10px; position: fixed; }
-    #exportEmbedButton { bottom:130px; right: 10px; position: fixed; }
-    #toggleModularButton { bottom:160px; right:10px; position:fixed; }
+    #toggleTextButton   { bottom:  10px; right: 10px; position: fixed; }
+    #randomConfigButton { bottom:  40px; right: 10px; position: fixed; }
+    #evolutionAIButton  { bottom:  70px; right: 10px; position: fixed; }
+    #toggleModularButton{ bottom:  100px;right: 10px; position: fixed; }
+    #saveImageButton    { bottom:  130px;right: 10px; position: fixed; }
+    #exportEmbedButton  { bottom:  160px;right: 10px; position: fixed; }
 
     /* ———————————————————————— Rating ———————————————————————— */
     #ratingContainer {
-      position: fixed; bottom:190px; right: 10px; z-index:260;
+      position: fixed; bottom: 190px; right: 10px; z-index:260;
       font-size:12px;
     }
     #ratingLabels, #ratingDots { display:flex; justify-content:space-between; }
@@ -63,19 +63,24 @@
     #controls {
       position: absolute; top: 10px; left: 10px; z-index: 100;
       padding: 10px; border-radius: 5px;
-      background: rgba(255,255,255,0.9); max-width: 350px;
-      max-height: calc(100vh - 20px); overflow-y: auto;
+      background: rgba(255,255,255,0.9);
+      max-width: 350px; max-height: calc(100vh - 20px);
+      overflow-y: auto;
     }
     details { margin-bottom: 10px; }
     details summary { font-weight: 200; cursor: pointer; }
     details summary:hover { color: #333; }
-    select, input[type="range"], input[type="color"] { width: 100%; margin-top:4px; }
+    select, input[type="range"], input[type="color"] {
+      width: 100%; margin-top:4px;
+    }
     #permutationList { width: 100%; height: 100px; }
 
     /* ———————————————————————— Modo Modular: grid 3×3 ———————————————————————— */
     #modularGrid {
       display: none;
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: grid;
       grid-template-columns: repeat(3, 1fr);
       grid-template-rows: repeat(3, 1fr);
       gap: 2px; background: #000;
@@ -94,12 +99,12 @@
   <div id="topRightDisplay"></div>
 
   <!-- Botones flotantes -->
-  <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
-  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
-  <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
-  <button id="toggleModularButton" onclick="toggleModular()">Modo Modular</button>
-  <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
-  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar Configuración</button>
+  <button id="toggleTextButton"   onclick="toggleTexts()">Ocultar Textos</button>
+  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Aleatoria</button>
+  <button id="evolutionAIButton"  onclick="applyEvolutionAI()">Evolución AI</button>
+  <button id="toggleModularButton"onclick="toggleModular()">Modo Modular</button>
+  <button id="saveImageButton"    onclick="saveImage()">Guardar Imagen</button>
+  <button id="exportEmbedButton"  onclick="exportEmbed()">Guardar Config</button>
 
   <!-- Rating -->
   <div id="ratingContainer">
@@ -122,41 +127,43 @@
   <div id="controls">
     <details open>
       <summary>Modo de Operación</summary>
-      <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label><br>
-      <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label><br>
-      <label><input type="radio" name="mode" value="modular" onchange="setMode(this.value)"> Modular</label>
+      <label><input type="radio" name="mode" value="manual"   checked onchange="setMode(this.value)">Manual</label><br>
+      <label><input type="radio" name="mode" value="evolution"        onchange="setMode(this.value)">Evolutivo</label><br>
+      <label><input type="radio" name="mode" value="modular" onchange="setMode(this.value)">Modular</label>
     </details>
 
-    <!-- Aquí vendrán los sub-controles de cada modo -->
+    <!-- Manual -->
     <div id="manualControls">
       <details>
         <summary>Seleccionar Permutaciones</summary>
         <select id="permutationList" multiple></select>
-        <button onclick="updateScene()">Visualizar Permutación</button>
+        <button onclick="updateScene()">Visualizar</button>
       </details>
     </div>
 
+    <!-- Evolutivo -->
     <div id="evolutionControls" style="display:none;">
       <details open>
         <summary>Parámetros Evolutivos</summary>
         <p>Tasa de Mutación:<br><input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
-        <p>Umbral de Cambio:<br><input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
+        <p>Umbral de Cambio:<br><input type="range" id="threshold"    min="0" max="1" step="0.01" value="0.5"></p>
         <button onclick="applyEvolution()">Aplicar Evolución</button>
         <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
       </details>
     </div>
 
+    <!-- Modular -->
     <div id="modularControls" style="display:none;">
       <details>
-        <summary>Selector Global vs Individual</summary>
-        <label><input type="radio" name="modularMode" value="global" checked onchange="setModularMode(this.value)"> Global</label><br>
-        <label><input type="radio" name="modularMode" value="individual" onchange="setModularMode(this.value)"> Individual</label>
+        <summary>Global vs Individual</summary>
+        <label><input type="radio" name="modularMode" value="global"     checked onchange="setModularMode(this.value)">Global</label><br>
+        <label><input type="radio" name="modularMode" value="individual" onchange="setModularMode(this.value)">Individual</label>
       </details>
       <div id="individualPickers" style="display:none;">
-        <!-- Aquí aparecerán 9 selectores, uno por cubo -->
+        <!-- 9 selectores si elige “Individual” -->
       </div>
     </div>
-  </div> <!-- fin de #controls -->
+  </div>
 
   <!-- Grid Modular 3×3 -->
   <div id="modularGrid">
@@ -170,7 +177,6 @@
     <div class="subCanvas" data-index="7"></div>
     <div class="subCanvas" data-index="8"></div>
   </div>
-
   <!-- Three.js & OrbitControls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -221,145 +227,129 @@
     };
 
     // — Utilidades genéricas —
-    function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
-    function mapRangeToSpeed(r,mn,mx){ return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn); }
-    function shuffle(a){ for(let i=a.length-1;i>0;i--){ let j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+    const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+    const mapRangeToSpeed = (r,mn,mx) => 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);
+    const shuffle = a => { for(let i=a.length-1;i>0;i--){ let j=Math.random()*(i+1)|0; [a[i],a[j]]=[a[j],a[i]]; } return a; };
 
-    // — Permutaciones y mapeos —
+    // — Permutaciones y mappings —
     function getPermutations(arr){
       if(arr.length===1) return [arr];
       let res=[];
       for(let i=0;i<arr.length;i++){
-        let c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
-        for(let p of getPermutations(rem)) res.push([c].concat(p));
+        const c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
+        for(const p of getPermutations(rem)) res.push([c].concat(p));
       }
       return res;
     }
-    const allPermutations = getPermutations([1,2,3,4,5]);
+    const allPermutations    = getPermutations([1,2,3,4,5]);
     const permutationStrings = allPermutations.map(p=>p.join(','));
-
     function getAttributeMappings(a){
       if(a.length===1) return [a];
       let res=[];
       for(let i=0;i<a.length;i++){
-        let c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
-        for(let m of getAttributeMappings(rem)) res.push([c].concat(m));
+        const c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
+        for(const m of getAttributeMappings(rem)) res.push([c].concat(m));
       }
       return res;
     }
 
-    // — Poblado de selects —
+    // — Poblado de selects ISO —
     function populatePermutationList(){
-      const sel = document.getElementById('permutationList');
-      sel.innerHTML = '';
+      const sel=document.getElementById('permutationList');
+      sel.innerHTML='';
       permutationStrings.forEach((ps,i)=>{
-        let o = document.createElement('option');
-        o.value = ps;
-        o.text = `Permutación ${i+1}: (${ps})`;
-        if(i===0) o.selected = true;
+        const o=document.createElement('option');
+        o.value=ps; o.text=`Permutación ${i+1}: (${ps})`;
+        if(i===0) o.selected=true;
         sel.appendChild(o);
       });
     }
     function populateAttributeMappingSelect(){
-      const sel = document.getElementById('attrMapping');
-      sel.innerHTML = '';
+      const sel=document.getElementById('attrMapping');
+      sel.innerHTML='';
       getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        let s = m.join(','), o = document.createElement('option');
-        o.value = s;
-        o.text = `Opción: [${s}]`;
-        if(s==='0,1,2,3,4') o.selected = true;
+        const s=m.join(','), o=document.createElement('option');
+        o.value=s; o.text=`Opción: [${s}]`;
+        if(s==='0,1,2,3,4') o.selected=true;
         sel.appendChild(o);
       });
       updateTopRightDisplay();
     }
-
     // — Display superior —
-    function computeSignature(a){ let s=[]; for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]); return s; }
-    function computeRange(sig){ return Math.max(...sig)-Math.min(...sig); }
+    function computeSignature(a){ return a.map((v,i)=>v + a[(i+1)%a.length]); }
+    function computeRange(sig){ return Math.max(...sig) - Math.min(...sig); }
     function updateTopRightDisplay(){
-      const cfg = `Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
-      const rt  = `Calificación: ${userRating?userRating:'Aún no calificada'}`;
-      let info = '';
+      const cfg=`Atributos: [${Object.values(attributeMapping).join(',')}]`;
+      const rt=`Calificación: ${userRating||'Aún no calificada'}`;
+      let info='';
       Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
-        let pa = o.value.split(',').map(Number),
-            sig = computeSignature(pa),
-            rg  = computeRange(sig);
-        info += `<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
+        const pa=o.value.split(',').map(Number),
+              sig=computeSignature(pa),
+              rg=computeRange(sig);
+        info+=`<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
       });
-      document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
+      document.getElementById('topRightDisplay').innerHTML=cfg+'<br>'+rt+'<br>'+info;
     }
 
     // — Crear objetos 3D —
     function createPermutationObjectWithMapping(pa,map){
-      let fv=pa[map.forma], cv=pa[map.color],
-          px=pa[map.x], py=pa[map.y], pz=pa[map.z],
-          d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
-      let geo = new THREE.BoxGeometry(w,h,t),
-          mat = new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50 }),
-          mesh= new THREE.Mesh(geo,mat);
-      let x=(px-1)*segment-halfCube+segment/2,
-          y=(py-1)*segment-halfCube+segment/2,
-          z=(pz-1)*segment-halfCube+segment/2;
+      const fv=pa[map.forma], cv=pa[map.color],
+            px=pa[map.x], py=pa[map.y], pz=pa[map.z],
+            {w,h}=shapeMapping[fv], t=0.5;
+      const geo=new THREE.BoxGeometry(w,h,t),
+            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50 }),
+            mesh=new THREE.Mesh(geo,mat);
       mesh.position.set(
-        clamp(x,-halfCube+w/2,halfCube-w/2),
-        clamp(y,-halfCube+h/2,halfCube-h/2),
-        clamp(z,-halfCube+t/2,halfCube-t/2)
+        clamp((px-1)*segment-halfCube+segment/2, -halfCube+w/2, halfCube-w/2),
+        clamp((py-1)*segment-halfCube+segment/2, -halfCube+h/2, halfCube-h/2),
+        clamp((pz-1)*segment-halfCube+segment/2, -halfCube+t/2, halfCube-t/2)
       );
-      let sig=computeSignature(pa), rg=computeRange(sig);
+      const sig=computeSignature(pa), rg=computeRange(sig);
       mesh.userData={ permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue) };
       return mesh;
     }
     function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
 
-    // — Colisiones —
+    // — Colisiones & auto-resolve —
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
-        let b1=new THREE.Box3().setFromObject(g.children[i]);
+        const b1=new THREE.Box3().setFromObject(g.children[i]);
         for(let j=i+1;j<g.children.length;j++){
-          let b2=new THREE.Box3().setFromObject(g.children[j]);
-          if(b1.intersectsBox(b2)) return true;
+          if(b1.intersectsBox(new THREE.Box3().setFromObject(g.children[j]))) return true;
         }
       }
       return false;
     }
     function autoResolveColisionesGlobal(){
       let found=null;
-      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        if(found) return;
-        let cm={ forma:m[0], color:m[1], x:m[2], y:m[3], z:m[4] },
-            tg=new THREE.Group(),
-            opts=Array.from(document.getElementById('permutationList').selectedOptions);
+      getAttributeMappings([0,1,2,3,4]).some(m=>{
+        const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
+              tg=new THREE.Group(),
+              opts=Array.from(document.getElementById('permutationList').selectedOptions);
         opts.forEach((o,i)=>{
-          let pa=o.value.split(',').map(Number),
-              mo=createPermutationObjectWithMapping(pa,cm);
+          const pa=o.value.split(',').map(Number),
+                mo=createPermutationObjectWithMapping(pa,cm);
           if(opts.length>1){
-            let ang=2*Math.PI*i/opts.length, rad=1.5;
+            const ang=2*Math.PI*i/opts.length, rad=1.5;
             mo.position.x+=rad*Math.cos(ang);
             mo.position.y+=rad*Math.sin(ang);
-            let ww=mo.geometry.parameters.width, hh=mo.geometry.parameters.height;
-            mo.position.x=clamp(mo.position.x,-halfCube+ww/2,halfCube-ww/2);
-            mo.position.y=clamp(mo.position.y,-halfCube+hh/2,halfCube-hh/2);
           }
           tg.add(mo);
         });
-        if(!checkCollisionsInGroup(tg)) found=cm;
+        if(!checkCollisionsInGroup(tg)){ found=cm; return true; }
       });
       if(found){
         attributeMapping=found;
-        document.getElementById('attrMapping').value=
-          `${found.forma},${found.color},${found.x},${found.y},${found.z}`;
+        document.getElementById('attrMapping').value=Object.values(found).join(',');
         updateScene(false); updateTopRightDisplay();
-      } else {
-        showPopup("No se encontró reorganización sin colisiones.",7000);
-      }
+      } else showPopup("No se encontró reorganización sin colisiones.",7000);
     }
 
     // — Popup tooltip —
     function showPopup(msg,dur=2000){
-      let p=document.getElementById('hoverPopup');
+      const p=document.getElementById('hoverPopup');
       p.style.display="block"; p.style.opacity=1;
-      p.style.left=(window.innerWidth/2-150)+"px";
-      p.style.top="20px";
+      p.style.left=`${window.innerWidth/2-150}px`; p.style.top="20px";
       p.innerHTML=msg;
       setTimeout(()=>{
         p.style.opacity=0;
@@ -369,524 +359,236 @@
 
     // — Actualizar escena —
     function updateScene(attemptResolve=true){
-      let group = (currentMode==="modular")
-                  ? modularGroups[activeUniverseIndex]
-                  : permutationGroup;
-      while(group.children.length>0){
-        let o=group.children[0];
-        group.remove(o);
-        o.geometry.dispose(); o.material.dispose();
+      const group = currentMode==="modular"
+                    ? modularGroups[activeUniverseIndex].group
+                    : permutationGroup;
+      while(group.children.length){
+        const o=group.children[0];
+        group.remove(o); o.geometry.dispose(); o.material.dispose();
       }
-      let opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      opts.forEach((o,i)=>{
-        let pa=o.value.split(',').map(Number),
-            obj=createPermutationObject(pa);
-        if(opts.length>1){
-          let ang=2*Math.PI*i/opts.length, rad=1.5;
+      Array.from(document.getElementById('permutationList').selectedOptions).forEach((o,i)=>{
+        const pa=o.value.split(',').map(Number),
+              obj=createPermutationObject(pa);
+        if(document.getElementById('permutationList').selectedOptions.length>1){
+          const ang=2*Math.PI*i/document.getElementById('permutationList').selectedOptions.length,
+                rad=1.5;
           obj.position.x+=rad*Math.cos(ang);
           obj.position.y+=rad*Math.sin(ang);
-          let ww=obj.geometry.parameters.width, hh=obj.geometry.parameters.height;
-          obj.position.x=clamp(obj.position.x,-halfCube+ww/2,halfCube-ww/2);
-          obj.position.y=clamp(obj.position.y,-halfCube+hh/2,halfCube-hh/2);
         }
         group.add(obj);
       });
-      if(attemptResolve) autoResolveColisionesGlobal();
-      else updateTopRightDisplay();
+      attemptResolve && autoResolveColisionesGlobal();
+      !attemptResolve && updateTopRightDisplay();
     }
 
-    // — Raycast hover —
+    // — Eventos & utilidades varias —
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
       raycaster.setFromCamera(mouse,camera);
-      let ints = raycaster.intersectObjects(permutationGroup.children);
-      let pop  = document.getElementById('hoverPopup');
-      if(ints.length>0){
-        let d=ints[0].object.userData;
+      const ints=raycaster.intersectObjects(permutationGroup.children),
+            pop=document.getElementById('hoverPopup');
+      if(ints.length){
+        const d=ints[0].object.userData;
         pop.style.display="block"; pop.style.opacity=1;
         pop.style.left=`${e.clientX+20}px`;
         pop.style.top=`${e.clientY+20}px`;
         pop.innerHTML=`Perm (${d.permStr})<br>Firma [${d.signature.join(', ')}]<br>Rango ${d.range}`;
       } else {
-        pop.style.opacity=0;
-        setTimeout(()=>{ pop.style.display="none"; },300);
+        pop.style.opacity=0; setTimeout(()=>pop.style.display="none",300);
       }
     }
-
-    // — Zoom & Movimiento —
     function zoomIn(){ camera.position.z-=5; controls.update(); }
     function zoomOut(){ camera.position.z+=5; controls.update(); }
-    function togglePause(){
-      isPaused=!isPaused;
-      let b=document.querySelector("button[onclick='togglePause()']");
-      b.textContent=isPaused?"Reanudar Movimiento":"Pausar Movimiento";
-    }
-    function resetMovement(){
-      updateScene(false);
-      isPaused=true;
-      let b=document.querySelector("button[onclick='togglePause()']");
-      b.textContent="Reanudar Movimiento";
-    }
 
-    // — Guardar imagen —
     function saveImage(){
       renderer.render(scene,camera);
-      let url=renderer.domElement.toDataURL("image/png"),
-          a=document.createElement("a");
+      const url=renderer.domElement.toDataURL("image/png"),
+            a=document.createElement("a");
       a.href=url; a.download="configuracion.png";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
 
-    // — Actualizar colores manual —
     function updateColorMapping(){
-      for(let i=1;i<=5;i++){
-        colorMapping[i]=document.getElementById('color'+i).value;
-      }
+      for(let i=1;i<=5;i++) colorMapping[i]=document.getElementById('color'+i).value;
       updateScene(false);
     }
     function updateBackground(){
-      let c=document.getElementById('bgColor').value;
+      const c=document.getElementById('bgColor').value;
       scene.background=new THREE.Color(c);
-      let lum=(parseInt(c.slice(1,3),16)*299+
-               parseInt(c.slice(3,5),16)*587+
-               parseInt(c.slice(5,7),16)*114)/1000;
+      const lum=(parseInt(c.slice(1,3),16)*299+
+                 parseInt(c.slice(3,5),16)*587+
+                 parseInt(c.slice(5,7),16)*114)/1000;
       document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
     function updateCubeColor(){
-      let c=document.getElementById('cubeColor').value;
+      const c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
-      document.getElementById('toggleTextButton').style.color=c;
     }
 
-    // — Mostrar/Ocultar textos UI —
     function toggleTexts(){
-      let elems=[
-        'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','evolutionAIButton','toggleModularButton',
-        'saveImageButton','exportEmbedButton'
-      ].map(id=>document.getElementById(id));
-      elems.forEach(e=>e.style.display = textsVisible?"none":"block");
+      ['controls','topRightDisplay','ratingContainer',
+       'randomConfigButton','evolutionAIButton','toggleModularButton',
+       'saveImageButton','exportEmbedButton']
+      .forEach(id=>{
+        const el=document.getElementById(id);
+        el.style.display = textsVisible ? 'none' : 'block';
+      });
       document.getElementById('toggleTextButton').textContent=
-        textsVisible?"Mostrar Textos":"Ocultar Textos";
-      textsVisible=!textsVisible;
+        textsVisible ? 'Mostrar Textos' : 'Ocultar Textos';
+      textsVisible = !textsVisible;
     }
 
-    // — Modo Manual / Evolutivo / Modular —
     function setMode(m){
       currentMode=m;
-      document.getElementById('manualControls').style.display    = (m==="manual" ? "block" : "none");
-      document.getElementById('evolutionControls').style.display = (m==="evolution" ? "block" : "none");
-      document.getElementById('modularControls').style.display   = (m==="modular"? "block" : "none");
-      document.getElementById('modularGrid').style.display       = (m==="modular"? "grid" : "none");
+      document.getElementById('manualControls').style.display    = m==='manual'    ? 'block' : 'none';
+      document.getElementById('evolutionControls').style.display = m==='evolution' ? 'block' : 'none';
+      document.getElementById('modularControls').style.display   = m==='modular'   ? 'block' : 'none';
+      document.getElementById('modularGrid').style.display       = m==='modular'   ? 'grid'  : 'none';
       updateScene(false);
     }
 
-    // — Generación Aleatoria —
+    function toggleModular(){
+      setMode(currentMode==='modular'?'manual':'modular');
+    }
+
     function generateRandomConfiguration(){
-      let sel=document.getElementById('permutationList');
+      const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
-      let n=Math.floor(Math.random()*5)+1;
+      const n=Math.floor(Math.random()*5)+1;
       for(let i=0;i<n;i++){
-        let val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
         sel.querySelector(`option[value="${val}"]`).selected=true;
       }
-      let bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
-          wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
+      const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
+            wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
       document.getElementById('bgColor').value=bg; updateBackground();
       document.getElementById('cubeColor').value=wall; updateCubeColor();
-      let pool=shuffle(CUSTOM_COLORS.slice());
+      let pool=shuffle([...CUSTOM_COLORS]);
       for(let i=1;i<=5;i++){
-        let hex=pool.shift();
+        const hex=pool.shift();
         colorMapping[i]=hex;
         document.getElementById('color'+i).value=hex;
       }
       updateScene(false);
     }
-  </script>
-    // — Rating interactividad —
-    document.querySelectorAll('.ratingBtn').forEach(el => {
-      const r = +el.getAttribute('data-rating');
-      el.addEventListener('click', () => {
-        userRating = r;
-        const cols = {1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
-        document.querySelectorAll('.ratingBtn').forEach((b,i) => {
-          b.style.color = (i < r ? cols[r] : "#000");
-        });
+
+    document.querySelectorAll('.ratingBtn').forEach(el=>{
+      const r=+el.dataset.rating;
+      el.addEventListener('click',()=>{
+        userRating=r;
+        const cols={1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
+        document.querySelectorAll('.ratingBtn').forEach((b,i)=>b.style.color=(i<r?cols[r]:"#000"));
         updateTopRightDisplay();
       });
-      el.addEventListener('mouseenter', () => showPopup(`Calificación: ${r}`, 1000));
+      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
     });
 
-    // — Evolución simple —
-    function applyEvolution() {
-      const mr = parseFloat(document.getElementById('mutationRate').value),
-            th = parseFloat(document.getElementById('threshold').value),
-            cf = 0.02;
-      let log = "";
-      let group = (currentMode==="modular")
-                  ? modularGroups[activeUniverseIndex]
-                  : permutationGroup;
-      group.children.forEach(o => {
-        const rf = (Math.random()-0.5)*mr;
-        o.rotation.y += rf;
-        const sf = 1 + (Math.random()-0.5)*th;
-        o.scale.set(sf,sf,sf);
-        o.material.color.offsetHSL(
-          (Math.random()-0.5)*cf,
-          (Math.random()-0.5)*cf,
-          (Math.random()-0.5)*cf
-        );
-        log += `(${o.userData.permStr}): Rot ${rf.toFixed(3)}, Esc ${sf.toFixed(3)}<br>`;
-      });
-      document.getElementById('evolutionInfo').innerHTML = log;
-    }
-
-    // — Evolución AI —
-    async function applyEvolutionAI() {
-      const systemPrompt = `Eres un asistente que devuelve instrucciones para modificar un visualizador
-de permutaciones en un cubo de 30x30x30. Devuelve SOLO un objeto JSON con
-estas propiedades opcionales:
-  colors: {1:"#rrggbb",2:"#rrggbb",…}
-  bg: "#rrggbb"
-  cube: "#rrggbb"
-  permCount: número
-  scale: número decimal
-  positions: {1:[x,y,z],2:[x,y,z],…}
-  rotationSpeeds: {1:valor,2:valor,…}
-Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
-      const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. ` +
-                         `Sugiéreme evolución estética basándote en teorías de color, proporción y armonía.`;
-      try {
-        showPopup("Consultando Evolution AI…",2000);
-        const resp = await fetch(
-          'https://us-central1-prmtcns.cloudfunctions.net/askChatGPT',
-          {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ system:systemPrompt, user:userPrompt })
-          }
-        );
-        const { text, error } = await resp.json();
-        if(error) {
-          showPopup("Error en Evolución AI: "+error,4000);
-          return;
-        }
-        let jsonText = text.trim();
-        if(jsonText.startsWith("```")) {
-          jsonText = jsonText.replace(/^```[^\n]*\n/,"").replace(/```$/,"").trim();
-        }
-        let instr;
-        try { instr = JSON.parse(jsonText); }
-        catch(e) {
-          console.error("JSON parse error:",jsonText);
-          showPopup("Evolución AI: respuesta no es JSON válido",4000);
-          return;
-        }
-        // Aplica instrucciones recibidas
-        if(instr.bg) {
-          document.getElementById('bgColor').value = instr.bg;
-          updateBackground();
-        }
-        if(instr.cube) {
-          document.getElementById('cubeColor').value = instr.cube;
-          updateCubeColor();
-        }
-        if(instr.colors) {
-          Object.entries(instr.colors).forEach(([i,c]) => {
-            i=Number(i);
-            if(colorMapping[i]!==undefined){
-              colorMapping[i]=c;
-              document.getElementById('color'+i).value=c;
-            }
-          });
-          updateScene(false);
-        }
-        if(instr.scale) {
-          let group = (currentMode==="modular")
-                      ? modularGroups[activeUniverseIndex]
-                      : permutationGroup;
-          group.children.forEach(o => {
-            o.scale.set(instr.scale,instr.scale,instr.scale);
-          });
-        }
-        if(instr.rotationSpeeds){
-          Object.entries(instr.rotationSpeeds).forEach(([i,spd])=>{
-            let group = (currentMode==="modular")
-                        ? modularGroups[activeUniverseIndex]
-                        : permutationGroup;
-            group.children.forEach(o => {
-              if(o.userData.permStr.startsWith(i+",")) {
-                o.userData.rotationSpeed = spd;
-              }
-            });
-          });
-        }
-        if(instr.positions) {
-          let group = (currentMode==="modular")
-                      ? modularGroups[activeUniverseIndex]
-                      : permutationGroup;
-          Object.entries(instr.positions).forEach(([i,pos])=>{
-            const o = group.children.find(o=>o.userData.permStr.startsWith(i+","));
-            if(o) o.position.set(pos[0],pos[1],pos[2]);
-          });
-        }
-        if(instr.permCount) {
-          const opts = Array.from(document.getElementById('permutationList').options);
-          opts.forEach(o=>o.selected=false);
-          shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
-          updateScene(false);
-        }
-        showPopup("Evolución AI aplicada.",2000);
-      } catch(err) {
-        console.error(err);
-        showPopup("Error en Evolución AI: red o servidor",4000);
-      }
-    }
-
-    // — Aplicar mapping manual —
-    function updateMapping() {
-      const v = document.getElementById('attrMapping').value.split(',').map(Number);
-      if(v.length===5) {
-        attributeMapping = { forma:v[0], color:v[1], x:v[2], y:v[3], z:v[4] };
-        updateScene(false);
-        updateTopRightDisplay();
-      }
-    }
-
-    // — Vistas estándar —
-    function applyStandardView(){
-      const view = document.getElementById('standardView').value,
-            pos  = new THREE.Vector3();
-      switch(view){
-        case "isometric": pos.set(50,50,50); break;
-        case "top":       pos.set(0,80,0);   break;
-        case "front":     pos.set(0,0,50);   break;
-        case "side":      pos.set(50,0,0);   break;
-        case "diagonal":  pos.set(-50,50,-50); break;
-        default:          pos.set(0,0,50);
-      }
-      camera.position.copy(pos);
-      camera.lookAt(new THREE.Vector3(0,0,0));
-      controls.update();
-    }
-
-    // — Parámetros desde URL (embed) —
-    function applyEmbedParams(){
-      const p = new URLSearchParams(window.location.search);
-      if(p.has('perms')){
-        const arr = p.get('perms').split(';');
-        document.querySelectorAll('#permutationList option').forEach(o=>{
-          o.selected = arr.includes(o.value);
-        });
-      }
-      if(p.has('mapping')){
-        const m = p.get('mapping').split(',').map(Number);
-        attributeMapping = { forma:m[0], color:m[1], x:m[2], y:m[3], z:m[4] };
-      }
-      if(p.has('colors')){
-        const cols = p.get('colors').split(',');
-        cols.forEach((hex,i)=>{
-          if(i<5){
-            let h = '#'+hex;
-            colorMapping[i+1] = h;
-            document.getElementById('color'+(i+1)).value = h;
-          }
-        });
-      }
-      if(p.has('bg')){
-        let bg = '#'+p.get('bg');
-        document.getElementById('bgColor').value = bg; updateBackground();
-      }
-      if(p.has('cube')){
-        let c = '#'+p.get('cube');
-        document.getElementById('cubeColor').value = c; updateCubeColor();
-      }
-      if(p.has('view')){
-        document.getElementById('standardView').value = p.get('view');
-        applyStandardView();
-      }
-      if(p.get('hide')==='1') toggleTexts();
-    }
-
-    // — Export embed —
-    function exportEmbed(){
-      const perms   = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value).join(';');
-      const mapping = [attributeMapping.forma,attributeMapping.color,attributeMapping.x,attributeMapping.y,attributeMapping.z].join(',');
-      const colors  = [1,2,3,4,5].map(i=>document.getElementById('color'+i).value.substring(1)).join(',');
-      const bg      = document.getElementById('bgColor').value.substring(1);
-      const cube    = document.getElementById('cubeColor').value.substring(1);
-      const view    = document.getElementById('standardView').value;
-      const src = `${location.pathname}?perms=${encodeURIComponent(perms)}&mapping=${mapping}&colors=${encodeURIComponent(colors)}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
-      const embed = `<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
-      prompt("Copia este código para embeber:", embed);
-    }
-
-    // — Scheduler de Evolución Fluida —
-    let autoEvolutionInterval = null;
-    function startAutoEvolution(seconds=30){
-      if(autoEvolutionInterval) clearInterval(autoEvolutionInterval);
-      autoEvolutionInterval = setInterval(()=>{
-        applyEvolutionAI();
-      }, seconds*1000);
-    }
-    function stopAutoEvolution(){
-      if(autoEvolutionInterval) clearInterval(autoEvolutionInterval);
-      autoEvolutionInterval = null;
-    }
-
-    // — Mint 3D NFT (stub con Ethers.js y MetaMask) —
-    async function mintNFT() {
-      try {
-        await ethereum.request({ method: 'eth_requestAccounts' });
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const signer   = provider.getSigner();
-        const contractAddress = "TU_CONTRACT_ADDRESS";
-        const abi = [ /* ABI de tu ERC721 con método mint(tokenURI) */ ];
-        const contract = new ethers.Contract(contractAddress, abi, signer);
-
-        // Genera metadata 3D (puede ser JSON con URL de modelo GLTF)
-        const metadata = {
-          name: "Permutaciones NFT",
-          description: "Configuración 3D de permutaciones",
-          model: "<URL o IPFS a tu GLTF/GLB generado>"
-        };
-        // Aquí subirías 'metadata' a IPFS/Pinata y obtendrías tokenURI
-        const tokenURI = await pinJSONToIPFS(metadata);
-
-        const tx = await contract.mint(tokenURI);
-        await tx.wait();
-        alert("Mint completado: " + tx.hash);
-      } catch(e) {
-        console.error(e);
-        alert("Error al mintear NFT: " + e.message);
-      }
-    }
-
-    // — Inicialización Three.js & UI —
-    function initCustomCursor(){
-      const c = document.getElementById('customCursor');
-      window.addEventListener('mousemove', e=>{
-        c.style.left = e.clientX + "px";
-        c.style.top  = e.clientY + "px";
-      });
-    }
-    function initRenderer(canvas){
-      const ren = new THREE.WebGLRenderer({ antialias:true });
-      ren.setPixelRatio(window.devicePixelRatio);
-      ren.setSize(canvas.clientWidth, canvas.clientHeight);
-      canvas.appendChild(ren.domElement);
-      return ren;
-    }
+    // — Inicialización Modular —
     function initSubCanvases(){
-      const elems = document.querySelectorAll('.subCanvas');
-      elems.forEach((div,i)=>{
-        const sc = {
-          canvasDiv: div,
-          scene:     new THREE.Scene(),
-          camera:    new THREE.PerspectiveCamera(75, div.clientWidth/div.clientHeight, 0.1,1000),
-          group:     new THREE.Group(),
-          renderer:  null,
-          controls:  null
+      document.querySelectorAll('.subCanvas').forEach((div,i)=>{
+        const sc={
+          div,
+          scene:new THREE.Scene(),
+          camera:new THREE.PerspectiveCamera(75,div.clientWidth/div.clientHeight,0.1,1000),
+          group:new THREE.Group(),
+          renderer:initSubRenderer(div),
+          controls:null
         };
         sc.camera.position.set(0,0,50);
-        sc.renderer = initRenderer(div);
-        sc.controls = new THREE.OrbitControls(sc.camera, sc.renderer.domElement);
-        sc.controls.enableDamping = true;
-        sc.controls.enableZoom    = true;
+        sc.controls=new THREE.OrbitControls(sc.camera,sc.renderer.domElement);
+        sc.controls.enableDamping=true; sc.controls.enableZoom=true;
+        sc.scene.background=new THREE.Color(0x111111);
         sc.scene.add(new THREE.AmbientLight(0xffffff,0.8));
-        const dir = new THREE.DirectionalLight(0xffffff,0.5);
+        const dir=new THREE.DirectionalLight(0xffffff,0.5);
         dir.position.set(1,1,1);
         sc.scene.add(dir);
-        const geo = new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
-              mat = new THREE.MeshBasicMaterial({ color:0x808080, transparent:true, opacity:0.2, side:THREE.BackSide });
-        const cube = new THREE.Mesh(geo, mat);
-        sc.scene.add(cube);
+        sc.scene.add(new THREE.Mesh(
+          new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
+          new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
+        ));
         sc.scene.add(sc.group);
         modularGroups.push(sc);
+        div.addEventListener('click',()=>activeUniverseIndex=i);
       });
     }
+    function initSubRenderer(div){
+      const ren=new THREE.WebGLRenderer({antialias:true});
+      ren.setSize(div.clientWidth,div.clientHeight);
+      div.appendChild(ren.domElement);
+      return ren;
+    }
+
     function animateAll(){
       requestAnimationFrame(animateAll);
-      // global
-      if(!isPaused && currentMode!=="modular"){
-        permutationGroup.children.forEach(o=>{
-          if(o.userData.rotationSpeed) o.rotation.y += o.userData.rotationSpeed;
-        });
-      }
-      if(currentMode!=="modular") {
+      if(currentMode!=="modular" && !isPaused){
+        permutationGroup.children.forEach(o=>o.rotation.y+=o.userData.rotationSpeed||0);
         controls.update();
         renderer.render(scene,camera);
       }
-      // modular
       if(currentMode==="modular"){
-        modularGroups.forEach((sc,idx)=>{
-          sc.group.children.forEach(o=>{
-            if(o.userData && o.userData.rotationSpeed) o.rotation.y += o.userData.rotationSpeed;
-          });
+        modularGroups.forEach(sc=>{
+          sc.group.children.forEach(o=>o.rotation.y+=o.userData.rotationSpeed||0);
           sc.controls.update();
-          sc.renderer.render(sc.scene, sc.camera);
+          sc.renderer.render(sc.scene,sc.camera);
         });
       }
     }
 
     function init(){
-      // DOM inicial
       initCustomCursor();
       populatePermutationList();
       populateAttributeMappingSelect();
-      applyEmbedParams();
-      // global Three.js
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xffffff);
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight,0.1,1000);
+
+      // Global Three.js
+      scene=new THREE.Scene();
+      scene.background=new THREE.Color(0xffffff);
+      camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
-      renderer = new THREE.WebGLRenderer({ antialias:true });
+      renderer=new THREE.WebGLRenderer({antialias:true});
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth,window.innerHeight);
       document.body.appendChild(renderer.domElement);
-      controls = new THREE.OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true; controls.enableZoom = true;
+      controls=new THREE.OrbitControls(camera,renderer.domElement);
+      controls.enableDamping=true; controls.enableZoom=true;
       scene.add(new THREE.AmbientLight(0xffffff,0.8));
-      const dirG = new THREE.DirectionalLight(0xffffff,0.5);
+      const dirG=new THREE.DirectionalLight(0xffffff,0.5);
       dirG.position.set(1,1,1);
       scene.add(dirG);
-      const cubeGeoG = new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
-            cubeMatG = new THREE.MeshBasicMaterial({ color:0x808080, transparent:true, opacity:0.2, side:THREE.BackSide });
-      cubeUniverse = new THREE.Mesh(cubeGeoG, cubeMatG);
+      cubeUniverse=new THREE.Mesh(
+        new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
+        new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
+      );
       scene.add(cubeUniverse);
-      permutationGroup = new THREE.Group();
+      permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
-      raycaster = new THREE.Raycaster();
-      mouse     = new THREE.Vector2();
-      window.addEventListener('mousemove', onMouseMove, false);
-      window.addEventListener('resize', onWindowResize, false);
+      raycaster=new THREE.Raycaster();
+      mouse=new THREE.Vector2();
+      window.addEventListener('mousemove',onMouseMove,false);
+      window.addEventListener('resize',onWindowResize,false);
 
-      // sub-canvases
+      // Modular
       initSubCanvases();
 
-      // modo inicial
+      // Set initial mode & draw
       setMode("manual");
       updateScene(false);
 
-      // arranca animaciones
+      // Start loop
       animateAll();
     }
     function onWindowResize(){
-      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.aspect=window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
-      // actualizar sub-canvases si cambian de tamaño
       modularGroups.forEach(sc=>{
-        sc.camera.aspect = sc.canvasDiv.clientWidth/sc.canvasDiv.clientHeight;
-        sc.camera.updateProjectionMatrix();
-        sc.renderer.setSize(sc.canvasDiv.clientWidth, sc.canvasDiv.clientHeight);
+        const w=sc.div.clientWidth, h=sc.div.clientHeight;
+        sc.camera.aspect=w/h; sc.camera.updateProjectionMatrix();
+        sc.renderer.setSize(w,h);
       });
     }
-    // Arranque
     init();
   </script>
 </body>
 </html>
-
