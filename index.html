@@ -4,76 +4,108 @@
   <meta charset="UTF-8">
   <title>Visualizador 3D de Permutaciones - Manual, Evolutivo y Modo Modular</title>
   <style>
+    /* ————— Global & Body ————— */
     body {
-      margin: 0; overflow: hidden; background: #ffffff;
+      margin: 0;
+      overflow: hidden;
+      background: #ffffff;
       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-      font-weight: 200; font-size: 12px; cursor: none;
+      font-weight: 200;
+      font-size: 12px;
+      cursor: none;
     }
     #customCursor {
-      position: fixed; width: 12px; height: 12px;
-      border-radius: 50%; background: #000;
-      border: 1px solid #fff; pointer-events: none; z-index: 300;
-      transform: translate(-50%, -50%);
+      position: fixed;
+      width:12px; height:12px;
+      border-radius:50%;
+      background:#000;
+      border:1px solid #fff;
+      pointer-events:none;
+      z-index:300;
+      transform:translate(-50%, -50%);
     }
-    #topRightDisplay {
-      position: fixed; top: 5px; right: 10px; z-index: 280;
-      color: #000; font-size: 12px; line-height: 1.2;
-    }
-
-    /* Botones flotantes */
-    button {
-      cursor: pointer; border: none; border-radius: 4px;
-      padding: 8px 12px; font-size: 12px; z-index: 250;
-      background: rgba(255,255,255,0.8);
-    }
-    #toggleTextButton  { bottom: 10px; right: 10px; position: fixed; }
-    #randomConfigButton{ bottom: 40px; right: 10px; position: fixed; }
-    #evolutionAIButton { bottom: 70px; right: 10px; position: fixed; }
-    #toggleModularButton{ bottom:100px; right:10px; position:fixed; }
-    #toggleFrameButton { bottom:130px; right:10px; position:fixed; }
-    #saveImageButton   { bottom:160px; right:10px; position: fixed; }
-    #exportEmbedButton { bottom:190px; right:10px; position: fixed; }
-    #mintButton        { bottom:220px; right:10px; position: fixed; }
-
-    /* Rating */
-    #ratingContainer {
-      position: fixed; bottom:250px; right: 10px; z-index:260; font-size:12px;
-    }
-    #ratingLabels, #ratingDots { display:flex; justify-content:space-between; }
-    .ratingBtn { font-size:20px; cursor:pointer; color:#000; }
-
-    /* Tooltip Hover */
     #hoverPopup {
-      position:absolute; padding:5px 10px; background:rgba(0,0,0,0.7);
-      color:#fff; border-radius:4px; pointer-events:none;
-      font-size:12px; display:none; opacity:0; transition:opacity .3s;
+      position:absolute;
+      padding:5px 10px;
+      background:rgba(0,0,0,0.7);
+      color:#fff;
+      border-radius:4px;
+      pointer-events:none;
+      font-size:12px;
+      display:none; opacity:0;
+      transition:opacity .3s;
       z-index:200;
     }
+    #topRightDisplay {
+      position:fixed; top:5px; right:10px; z-index:280;
+      font-size:12px; line-height:1.2; color:#000;
+      max-width:200px; overflow-y:auto; max-height:90vh;
+    }
 
-    /* Controles laterales */
+    /* ————— Botones flotantes ————— */
+    button {
+      cursor:pointer;
+      border:none; border-radius:4px;
+      padding:8px 12px; font-size:12px;
+      background:rgba(255,255,255,0.8);
+      z-index:250;
+    }
+    #toggleTextButton  { position:fixed; bottom:10px;  right:10px; }
+    #randomConfigButton{ position:fixed; bottom:40px;  right:10px; }
+    #evolutionAIButton { position:fixed; bottom:70px;  right:10px; }
+    #startAutoEvoBtn   { position:fixed; bottom:100px; right:10px; }
+    #toggleModularButton{position:fixed; bottom:130px; right:10px;}
+    #mintNFTButton     { position:fixed; bottom:160px; right:10px; }
+    #saveImageButton   { position:fixed; bottom:190px; right:10px; }
+    #exportEmbedButton { position:fixed; bottom:220px; right:10px; }
+
+    /* ————— Rating ————— */
+    #ratingContainer {
+      position:fixed; bottom:260px; right:10px; z-index:260;
+      font-size:12px;
+    }
+    #ratingLabels, #ratingDots {
+      display:flex; justify-content:space-between;
+    }
+    .ratingBtn {
+      font-size:20px; cursor:pointer; color:#000;
+    }
+
+    /* ————— Controles laterales ————— */
     #controls {
-      position: absolute; top: 10px; left: 10px; z-index: 100;
-      padding: 10px; border-radius: 5px;
-      background: rgba(255,255,255,0.9); max-width: 350px;
-      max-height: calc(100vh - 20px); overflow-y: auto;
+      position:absolute; top:10px; left:10px; z-index:100;
+      padding:10px;
+      background:rgba(255,255,255,0.9);
+      border-radius:5px;
+      max-width:350px;
+      max-height:calc(100vh-20px);
+      overflow-y:auto;
     }
-    details { margin-bottom: 10px; }
-    details summary { font-weight: 200; cursor: pointer; }
-    details summary:hover { color: #333; }
+    details { margin-bottom:10px; }
+    details summary {
+      font-weight:200; cursor:pointer; color:#333;
+    }
+    details summary:hover { color:#000; }
     select, input[type="range"], input[type="color"] {
-      width: 100%; margin-top:4px;
+      width:100%; margin-top:4px;
     }
-    #permutationList { width: 100%; height: 100px; }
+    #permutationList { height:100px; }
 
-    /* Grid Modular 3×3 */
+    /* ————— Modo Modular ————— */
     #modularGrid {
-      display: none; position: absolute; top: 0; left: 0;
-      width: 100%; height: 100%; gap: 2px; background: #000;
-      display: grid; grid-template-columns: repeat(3,1fr);
-      grid-template-rows: repeat(3,1fr); z-index: 50;
+      display:none;
+      position:absolute; top:0; left:0; width:100%; height:100%;
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      grid-template-rows:repeat(3,1fr);
+      gap:2px;
+      background:#000;
+      z-index:50;
     }
     .subCanvas {
-      position: relative; background: #111; cursor: pointer;
+      position:relative;
+      background:#111;
+      cursor:pointer;
     }
   </style>
 </head>
@@ -84,29 +116,27 @@
 
   <!-- Botones flotantes -->
   <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
-  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
+  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Aleatorio</button>
   <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
-  <button id="toggleModularButton" onclick="toggleModular()">Modo Modular</button>
-  <button id="toggleFrameButton" onclick="toggleFrame()">Alternar Marco</button>
+  <button id="startAutoEvoBtn" onclick="startAutoEvolution(20)">Auto Evolución</button>
+  <button id="toggleModularButton" onclick="setMode(currentMode==='modular'?'manual':'modular')">Modo Modular</button>
+  <button id="mintNFTButton" onclick="mintNFT()">Mint NFT 3D</button>
   <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
-  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar Configuración</button>
-  <button id="mintButton" onclick="mintNFT()">Mint NFT</button>
+  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar Config</button>
 
   <!-- Rating -->
   <div id="ratingContainer">
     <details open>
       <summary>Calificar Configuración</summary>
-      <div id="ratingControls">
-        <div id="ratingLabels">
-          <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
-        </div>
-        <div id="ratingDots">
-          <span class="ratingBtn" data-rating="1">●</span>
-          <span class="ratingBtn" data-rating="2">●</span>
-          <span class="ratingBtn" data-rating="3">●</span>
-          <span class="ratingBtn" data-rating="4">●</span>
-          <span class="ratingBtn" data-rating="5">●</span>
-        </div>
+      <div id="ratingLabels">
+        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+      </div>
+      <div id="ratingDots">
+        <span class="ratingBtn" data-rating="1">●</span>
+        <span class="ratingBtn" data-rating="2">●</span>
+        <span class="ratingBtn" data-rating="3">●</span>
+        <span class="ratingBtn" data-rating="4">●</span>
+        <span class="ratingBtn" data-rating="5">●</span>
       </div>
     </details>
   </div>
@@ -115,16 +145,22 @@
   <div id="controls">
     <details open>
       <summary>Modo de Operación</summary>
-      <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label><br>
-      <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label><br>
-      <label><input type="radio" name="mode" value="modular" onchange="setMode(this.value)"> Modular</label>
+      <label><input type="radio" name="mode" value="manual"   checked onchange="setMode(this.value)"> Manual</label><br>
+      <label><input type="radio" name="mode" value="evolution"        onchange="setMode(this.value)"> Evolutivo</label><br>
+      <label><input type="radio" name="mode" value="modular"          onchange="setMode(this.value)"> Modular</label>
     </details>
 
     <div id="manualControls">
       <details>
         <summary>Seleccionar Permutaciones</summary>
         <select id="permutationList" multiple></select>
-        <button onclick="updateScene()">Visualizar Permutación</button>
+        <button onclick="updateScene()">Visualizar</button>
+      </details>
+      <details>
+        <summary>Reorganización de Atributos</summary>
+        <select id="attrMapping"></select>
+        <button onclick="updateMapping()">Aplicar</button>
+        <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
       </details>
       <details>
         <summary>Seleccionar Colores Permutaciones</summary>
@@ -143,13 +179,7 @@
       <details>
         <summary>Seleccionar Color de Pared del Cubo</summary>
         <input type="color" id="cubeColor" value="#808080">
-        <button onclick="updateCubeColor()">Actualizar Paredes</button>
-      </details>
-      <details>
-        <summary>Reorganización de Atributos</summary>
-        <select id="attrMapping"></select>
-        <button onclick="updateMapping()">Aplicar Reorganización</button>
-        <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
+        <button onclick="updateCubeColor()">Actualizar Pared</button>
       </details>
       <details>
         <summary>Vistas Estándar</summary>
@@ -158,7 +188,7 @@
           <option value="top">Superior</option>
           <option value="front">Frontal</option>
           <option value="side">Lateral</option>
-          <option value="diagonal">Diagonal opuesta</option>
+          <option value="diagonal">Diagonal</option>
         </select>
         <button onclick="applyStandardView()">Aplicar Vista</button>
       </details>
@@ -166,7 +196,8 @@
         <summary>Controles de Zoom y Movimiento</summary>
         <button onclick="zoomIn()">Zoom In</button>
         <button onclick="zoomOut()">Zoom Out</button>
-        <button onclick="resetMovement()">Resetear Movimiento</button>
+        <button onclick="togglePause()">⏸/▶</button>
+        <button onclick="resetMovement()">Reset Movimiento</button>
       </details>
     </div>
 
@@ -176,7 +207,7 @@
         <p>Tasa de Mutación:<br>
            <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
         <p>Umbral de Cambio:<br>
-           <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
+           <input type="range" id="threshold"    min="0" max="1" step="0.01" value="0.5"></p>
         <button onclick="applyEvolution()">Aplicar Evolución</button>
         <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
       </details>
@@ -185,15 +216,16 @@
     <div id="modularControls" style="display:none;">
       <details>
         <summary>Global vs Individual</summary>
-        <label><input type="radio" name="modularMode" value="global" checked onchange="setModularMode(this.value)"> Global</label><br>
+        <label><input type="radio" name="modularMode" value="global"     checked onchange="setModularMode(this.value)"> Global</label><br>
         <label><input type="radio" name="modularMode" value="individual" onchange="setModularMode(this.value)"> Individual</label>
       </details>
       <div id="individualPickers" style="display:none;">
-        <!-- Aquí irán 9 selectores idénticos al permutationList, uno por cubo -->
+        <!-- Se rellenará con 9 selects idénticos a #permutationList -->
       </div>
     </div>
   </div>
 
+  <!-- Grid 3×3 para Modo Modular -->
   <div id="modularGrid">
     <div class="subCanvas" data-index="0"></div>
     <div class="subCanvas" data-index="1"></div>
@@ -206,43 +238,45 @@
     <div class="subCanvas" data-index="8"></div>
   </div>
 
-  <!-- Three.js & OrbitControls -->
+  <!-- Dependencias Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script>
-    // === LISTA DE 120 COLORES ===
+    // === 120 COLORES CUSTOM ===
     const CUSTOM_COLORS = [
       "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
-      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
-      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
-      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
-      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
-      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
-      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
-      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
-      "#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
-      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
-      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
-      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
-      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
-      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
-      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
-      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
-      "#6d4d2c","#2d060a","#000005","#000100","#2d0006",
-      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
+      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0","#fafcff",
+      "#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8","#f6f5ea",
+      "#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7","#350b0c",
+      "#9e4031","#820707","#eeb049","#120607","#f6f1ed","#300809","#8c2d18",
+      "#6a6620","#b99c5c","#110505","#5f2423","#400909","#a04b37","#180506",
+      "#e1b055","#6f2919","#170607","#000000","#9c822b","#3e1b2c","#edce83",
+      "#1b0408","#8a4667","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
+      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e","#0b0304",
+      "#a4735a","#4e272a","#cab296","#923930","#1d0709","#f4c061","#963326",
+      "#d89048","#430f0c","#ce5830","#72121a","#fefffe","#c0b280","#57231d",
+      "#99541e","#210d0a","#8a5d2f","#e2a33f","#a24a2c","#591e14","#8f2e1c",
+      "#1e0809","#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
+      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100","#6d4d2c",
+      "#2d060a","#000005","#2d0006","#17120a","#451e18","#42401c","#7c4934",
+      "#8c7640","#c0b468"
     ];
 
-    // === Variables globales ===
+    // === Variables Globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
-    let modularGroups = [], activeUniverseIndex = 0;
-    const cubeSize=30, segment=cubeSize/5, halfCube=cubeSize/2;
-    let isPaused=false, currentMode="manual", modularMode="global";
-    let userRating=null, textsVisible=true;
-    let attributeMapping={forma:0,color:1,x:2,y:3,z:4};
-    let colorMapping={1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff"};
-    const minRangeValue=2, maxRangeValue=6;
-    const shapeMapping={
+    let modularGroups = [];
+    let activeUniverseIndex = 0;
+    const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
+    let isPaused = false;
+    let currentMode = "manual";
+    let modularMode = "global";
+    let userRating = null;
+    let textsVisible = true;
+    let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
+    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
+    const minRangeValue = 2, maxRangeValue = 6;
+    const shapeMapping = {
       1:{w:4.5,h:4.5},
       2:{w:4.5,h:4.5*Math.sqrt(2)},
       3:{w:4.5,h:4.5*Math.sqrt(3)},
@@ -252,27 +286,34 @@
 
     // — Utilidades —
     const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
-    const mapRangeToSpeed = (r,mn,mx)=>0.001 + (r-mn)*(0.005-0.001)/(mx-mn);
-    const shuffle = a=>{for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+    const mapRangeToSpeed = (r,mn,mx)=>0.001+(r-mn)*(0.005-0.001)/(mx-mn);
+    const shuffle = a => {
+      for(let i=a.length-1;i>0;i--){
+        let j=Math.floor(Math.random()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
+      }
+      return a;
+    };
 
-    // — Permutaciones y mapeos —
+    // — Permutaciones —
     function getPermutations(arr){
       if(arr.length===1) return [arr];
       let res=[];
       for(let i=0;i<arr.length;i++){
-        const c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
-        for(const p of getPermutations(rem)) res.push([c].concat(p));
+        let c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
+        for(let p of getPermutations(rem)) res.push([c].concat(p));
       }
       return res;
     }
     const allPermutations = getPermutations([1,2,3,4,5]);
-    const permutationStrings = allPermutations.map(p=>p.join(','));
+    const permutationStrings= allPermutations.map(p=>p.join(','));
+
     function getAttributeMappings(a){
       if(a.length===1) return [a];
       let res=[];
       for(let i=0;i<a.length;i++){
-        const c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
-        for(const m of getAttributeMappings(rem)) res.push([c].concat(m));
+        let c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
+        for(let m of getAttributeMappings(rem)) res.push([c].concat(m));
       }
       return res;
     }
@@ -283,65 +324,91 @@
       sel.innerHTML='';
       permutationStrings.forEach((ps,i)=>{
         const o=document.createElement('option');
-        o.value=ps; o.text=`Permutación ${i+1}: (${ps})`;
+        o.value=ps;
+        o.text=`Perm ${i+1}: (${ps})`;
         if(i===0) o.selected=true;
         sel.appendChild(o);
       });
     }
     function populateAttributeMappingSelect(){
-      const sel=document.createElement('select');
-      sel.id='attrMapping';
-      document.getElementById('manualControls').appendChild(sel);
+      const sel=document.getElementById('attrMapping');
+      sel.innerHTML='';
       getAttributeMappings([0,1,2,3,4]).forEach(m=>{
         const s=m.join(','), o=document.createElement('option');
-        o.value=s; o.text=`Opción: [${s}]`;
+        o.value=s; o.text=`[${s}]`;
         if(s==='0,1,2,3,4') o.selected=true;
         sel.appendChild(o);
       });
-      sel.addEventListener('change',updateMapping);
       updateTopRightDisplay();
     }
-
-    // — Display superior —
-    function computeSignature(a){return a.map((v,i)=>v + a[(i+1)%a.length]);}
-    function computeRange(sig){return Math.max(...sig)-Math.min(...sig);}
+    // — Display Superior —
+    function computeSignature(a){
+      return a.map((v,i)=>v+a[(i+1)%a.length]);
+    }
+    function computeRange(sig){
+      return Math.max(...sig)-Math.min(...sig);
+    }
     function updateTopRightDisplay(){
-      const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
-      const rt=`Calificación: ${userRating||'Aún no calificada'}`;
+      const cfg=`Atributos:[${Object.values(attributeMapping).join(',')}]`;
+      const rt =`Calificación:${userRating||'–'}`;
       let info='';
-      Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
-        const pa=o.value.split(',').map(Number),
-              sig=computeSignature(pa), rg=computeRange(sig);
-        info+=`<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
-      });
+      Array.from(document.getElementById('permutationList').selectedOptions)
+        .forEach(o=>{
+          const pa=o.value.split(',').map(Number),
+                sig=computeSignature(pa),
+                rg=computeRange(sig);
+          info+=`<div style="margin:2px 0;">(${pa.join(',')}) F[${sig.join(',')}] R${rg}</div>`;
+        });
       document.getElementById('topRightDisplay').innerHTML=cfg+'<br>'+rt+'<br>'+info;
     }
 
-    // — Crear objetos 3D —
+    // — Crear cubitos 3D —
     function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map.forma], cv=pa[map.color],
-            px=pa[map.x], py=pa[map.y], pz=pa[map.z],
-            {w,h}=shapeMapping[fv], t=0.5;
+      const fv=pa[map.forma],
+            cv=pa[map.color],
+            px=pa[map.x],
+            py=pa[map.y],
+            pz=pa[map.z],
+            {w,h}=shapeMapping[fv],
+            t=0.5;
       const geo=new THREE.BoxGeometry(w,h,t),
-            mat=new THREE.MeshPhongMaterial({color:new THREE.Color(colorMapping[cv]), shininess:50}),
+            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50 }),
             mesh=new THREE.Mesh(geo,mat);
+      // Posición base:
       mesh.position.set(
-        clamp((px-1)*segment-halfCube+segment/2,-halfCube+w/2,halfCube-w/2),
-        clamp((py-1)*segment-halfCube+segment/2,-halfCube+h/2,halfCube-h/2),
-        clamp((pz-1)*segment-halfCube+segment/2,-halfCube+t/2,halfCube-t/2)
+        (px-1)*segment-halfCube+segment/2,
+        (py-1)*segment-halfCube+segment/2,
+        (pz-1)*segment-halfCube+segment/2
       );
-      const sig=computeSignature(pa), rg=computeRange(sig);
-      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+      // clamp para mantener dentro:
+      mesh.position.x = clamp(mesh.position.x, -halfCube+w/2, halfCube-w/2);
+      mesh.position.y = clamp(mesh.position.y, -halfCube+h/2, halfCube-h/2);
+      mesh.position.z = clamp(mesh.position.z, -halfCube+t/2, halfCube-t/2);
+
+      // metadata para hover, rotación, rating:
+      const sig=computeSignature(pa),
+            rg =computeRange(sig);
+      mesh.userData = {
+        permStr: pa.join(','),
+        signature: sig,
+        range: rg,
+        rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue),
+        ratingHistory: [],
+        avgRating: null
+      };
       return mesh;
     }
-    function createPermutationObject(pa){return createPermutationObjectWithMapping(pa,attributeMapping);}
+    function createPermutationObject(pa){
+      return createPermutationObjectWithMapping(pa, attributeMapping);
+    }
 
-    // — Colisiones —
+    // — Colisiones y auto-resolve —
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
-        const b1=new THREE.Box3().setFromObject(g.children[i]);
+        let b1=new THREE.Box3().setFromObject(g.children[i]);
         for(let j=i+1;j<g.children.length;j++){
-          if(b1.intersectsBox(new THREE.Box3().setFromObject(g.children[j]))) return true;
+          let b2=new THREE.Box3().setFromObject(g.children[j]);
+          if(b1.intersectsBox(b2)) return true;
         }
       }
       return false;
@@ -359,41 +426,51 @@
             const ang=2*Math.PI*i/opts.length, rad=1.5;
             mo.position.x+=rad*Math.cos(ang);
             mo.position.y+=rad*Math.sin(ang);
+            mo.position.x = clamp(mo.position.x, -halfCube+mo.geometry.parameters.width/2, halfCube-mo.geometry.parameters.width/2);
+            mo.position.y = clamp(mo.position.y, -halfCube+mo.geometry.parameters.height/2,halfCube-mo.geometry.parameters.height/2);
           }
           tg.add(mo);
         });
-        if(!checkCollisionsInGroup(tg)){found=cm;return true;}
+        if(!checkCollisionsInGroup(tg)){
+          found=cm;
+          return true;
+        }
       });
       if(found){
         attributeMapping=found;
         document.getElementById('attrMapping').value=Object.values(found).join(',');
-        updateScene(false); updateTopRightDisplay();
-      } else showPopup("No se encontró reorganización sin colisiones.",7000);
+        updateScene(false);
+        updateTopRightDisplay();
+      } else {
+        showPopup("No hay mapping sin colisiones",3000);
+      }
     }
 
-    // — Popup tooltip —
-    function showPopup(msg,dur=2000){
-      const p=document.getElementById('hoverPopup');
-      p.style.display="block";p.style.opacity=1;
-      p.style.left=`${window.innerWidth/2-150}px`;p.style.top="20px";
-      p.innerHTML=msg;
-      setTimeout(()=>{
-        p.style.opacity=0;
-        setTimeout(()=>{p.style.display="none";p.innerHTML="";},300);
-      },dur);
+    // — Mostrar/Ocultar Textos —
+    function toggleTexts(){
+      ['controls','topRightDisplay','ratingContainer',
+       'randomConfigButton','evolutionAIButton','startAutoEvoBtn',
+       'toggleModularButton','mintNFTButton','saveImageButton','exportEmbedButton']
+      .forEach(id=>{
+        const el=document.getElementById(id);
+        el.style.display = textsVisible ? 'none' : 'block';
+      });
+      document.getElementById('toggleTextButton').textContent = textsVisible ? 'Mostrar Textos' : 'Ocultar Textos';
+      textsVisible = !textsVisible;
     }
 
-    // — Update escena —
+    // — Actualizar escena —
     function updateScene(attemptResolve=true){
-      userRating=null;
-      document.querySelectorAll('.ratingBtn').forEach(b=>b.style.color='#000');
       const group = currentMode==='modular'
                     ? modularGroups[activeUniverseIndex].group
                     : permutationGroup;
+      // limpiar
       while(group.children.length){
-        const o=group.children[0];
-        group.remove(o);o.geometry.dispose();o.material.dispose();
+        const o=group.children.shift();
+        o.geometry.dispose();
+        o.material.dispose();
       }
+      // añadir
       const opts=Array.from(document.getElementById('permutationList').selectedOptions);
       opts.forEach((o,i)=>{
         const pa=o.value.split(',').map(Number),
@@ -402,178 +479,169 @@
           const ang=2*Math.PI*i/opts.length, rad=1.5;
           obj.position.x+=rad*Math.cos(ang);
           obj.position.y+=rad*Math.sin(ang);
+          obj.position.x = clamp(obj.position.x, -halfCube+obj.geometry.parameters.width/2, halfCube-obj.geometry.parameters.width/2);
+          obj.position.y = clamp(obj.position.y, -halfCube+obj.geometry.parameters.height/2,halfCube-obj.geometry.parameters.height/2);
         }
         group.add(obj);
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
     }
-    // — Raycast hover —
+
+    // — Raycast Hover —
     function onMouseMove(e){
-      mouse.x=(e.clientX/window.innerWidth)*2-1;
-      mouse.y=-(e.clientY/window.innerHeight)*2+1;
-      raycaster.setFromCamera(mouse,camera);
-      const ints=raycaster.intersectObjects(permutationGroup.children),
-            pop=document.getElementById('hoverPopup');
+      mouse.x = (e.clientX/window.innerWidth)*2-1;
+      mouse.y = -(e.clientY/window.innerHeight)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const ints = raycaster.intersectObjects(permutationGroup.children);
+      const pop  = document.getElementById('hoverPopup');
       if(ints.length){
         const d=ints[0].object.userData;
-        pop.style.display="block"; pop.style.opacity=1;
+        pop.style.display='block';
+        pop.style.opacity=1;
         pop.style.left=`${e.clientX+20}px`;
         pop.style.top=`${e.clientY+20}px`;
-        pop.innerHTML=`Perm (${d.permStr})<br>Firma [${d.signature.join(', ')}]<br>Rango ${d.range}`;
+        pop.innerHTML=`Perm(${d.permStr})<br>F[${d.signature.join(',')}] R${d.range}`;
       } else {
         pop.style.opacity=0;
-        setTimeout(()=>pop.style.display="none",300);
+        setTimeout(()=>pop.style.display='none',300);
       }
     }
 
-    // — Zoom & Movimiento —
-    function zoomIn(){camera.position.z-=5;controls.update();}
-    function zoomOut(){camera.position.z+=5;controls.update();}
-    function resetMovement(){updateScene(false);isPaused=true;}
+    // — Zoom, Movimiento, Pausa —
+    function zoomIn(){ camera.position.z-=5; controls.update(); }
+    function zoomOut(){ camera.position.z+=5; controls.update(); }
+    function togglePause(){ isPaused = !isPaused; }
+    function resetMovement(){ isPaused=true; updateScene(false); }
 
     // — Guardar Imagen —
     function saveImage(){
       renderer.render(scene,camera);
       const url=renderer.domElement.toDataURL("image/png"),
-            a=document.createElement("a");
-      a.href=url; a.download="configuracion.png";
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
+            a=document.createElement('a');
+      a.href=url; a.download="config.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
 
-    // — Actualizar colores y fondo —
+    // — Update Colores Manual —
     function updateColorMapping(){
-      for(let i=1;i<=5;i++) colorMapping[i]=document.getElementById('color'+i).value;
+      for(let i=1;i<=5;i++){
+        colorMapping[i] = document.getElementById('color'+i).value;
+      }
       updateScene(false);
     }
     function updateBackground(){
       const c=document.getElementById('bgColor').value;
       scene.background=new THREE.Color(c);
-      const lum=(parseInt(c.slice(1,3),16)*299+
-                 parseInt(c.slice(3,5),16)*587+
-                 parseInt(c.slice(5,7),16)*114)/1000;
-      document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
+      const lum = (parseInt(c.slice(1,3),16)*299 +
+                   parseInt(c.slice(3,5),16)*587 +
+                   parseInt(c.slice(5,7),16)*114) /1000;
+      const txtCol = lum<128 ? '#fff' : '#000';
+      document.querySelectorAll('details summary, #topRightDisplay')
+        .forEach(el=>el.style.color=txtCol);
+      document.getElementById('hoverPopup').style.color=txtCol;
     }
     function updateCubeColor(){
       const c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
-      document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
     }
 
-    // — Toggle Textos, Modular y Marco —
-    function toggleTexts(){
-      ['controls','topRightDisplay','ratingContainer',
-      'randomConfigButton','evolutionAIButton','toggleModularButton',
-      'toggleFrameButton','saveImageButton','exportEmbedButton','mintButton']
-      .forEach(id=>{
-        const el=document.getElementById(id);
-        el.style.display=textsVisible?'none':'block';
-      });
-      document.getElementById('toggleTextButton').textContent=
-        textsVisible?'Mostrar Textos':'Ocultar Textos';
-      textsVisible=!textsVisible;
-    }
+    // — Manual / Evolución / Modular —
     function setMode(m){
       currentMode=m;
-      document.getElementById('manualControls').style.display    = m==='manual'   ? 'block':'none';
-      document.getElementById('evolutionControls').style.display = m==='evolution'? 'block':'none';
-      document.getElementById('modularControls').style.display   = m==='modular'  ? 'block':'none';
-      document.getElementById('modularGrid').style.display       = m==='modular'  ? 'grid':'none';
+      document.getElementById('manualControls').style.display    = m==='manual'   ? 'block' : 'none';
+      document.getElementById('evolutionControls').style.display = m==='evolution'? 'block' : 'none';
+      document.getElementById('modularControls').style.display   = m==='modular'  ? 'block' : 'none';
+      document.getElementById('modularGrid').style.display       = m==='modular'  ? 'grid'  : 'none';
       updateScene(false);
     }
-    function toggleModular(){
-      setMode(currentMode==='modular'?'manual':'modular');
-    }
-    function toggleFrame(){
-      cubeUniverse.visible=!cubeUniverse.visible;
+    function setModularMode(mm){
+      modularMode=mm;
+      document.getElementById('individualPickers').style.display = mm==='individual'?'block':'none';
     }
 
-    // — Generación Aleatoria —
-    function generateRandomConfiguration(){
-      const sel=document.getElementById('permutationList');
-      Array.from(sel.options).forEach(o=>o.selected=false);
-      const n=Math.floor(Math.random()*5)+1;
-      for(let i=0;i<n;i++){
-        const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
-        sel.querySelector(`option[value="${val}"]`).selected=true;
-      }
-      const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
-            wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      document.getElementById('bgColor').value=bg; updateBackground();
-      document.getElementById('cubeColor').value=wall; updateCubeColor();
-      let pool=shuffle([...CUSTOM_COLORS]);
-      for(let i=1;i<=5;i++){
-        const hex=pool.shift();
-        colorMapping[i]=hex;
-        document.getElementById('color'+i).value=hex;
-      }
-      updateScene(false);
-    }
-
-    // — Rating interactividad —
-    document.querySelectorAll('.ratingBtn').forEach(el=>{
-      const r=+el.dataset.rating;
-      el.addEventListener('click',()=>{
-        userRating=r;
-        const cols={1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
-        document.querySelectorAll('.ratingBtn').forEach((b,i)=>b.style.color=(i<r?cols[r]:"#000"));
-        updateTopRightDisplay();
-      });
-      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
-    });
-
-    // — Evolución simple —
+    // — Evolución Simple —
     function applyEvolution(){
       const mr=parseFloat(document.getElementById('mutationRate').value),
             th=parseFloat(document.getElementById('threshold').value),
             cf=0.02;
-      let log="", group=(currentMode==='modular'?modularGroups[activeUniverseIndex].group:permutationGroup);
+      const group = currentMode==='modular'
+                    ? modularGroups[activeUniverseIndex].group
+                    : permutationGroup;
+      let log='';
       group.children.forEach(o=>{
-        const rf=(Math.random()-0.5)*mr;
+        const rf=(Math.random()-0.5)*mr,
+              sf=1+(Math.random()-0.5)*th;
         o.rotation.y+=rf;
-        const sf=1+(Math.random()-0.5)*th;
         o.scale.set(sf,sf,sf);
         o.material.color.offsetHSL(
           (Math.random()-0.5)*cf,
           (Math.random()-0.5)*cf,
           (Math.random()-0.5)*cf
         );
-        log+=`(${o.userData.permStr}): Rot ${rf.toFixed(3)}, Esc ${sf.toFixed(3)}<br>`;
+        log+=`${o.userData.permStr}: rot${rf.toFixed(3)} scl${sf.toFixed(3)}<br>`;
       });
       document.getElementById('evolutionInfo').innerHTML=log;
     }
 
-    // — Evolución AI —
+    // — Rating & Broadcast Ligero —
+    document.querySelectorAll('.ratingBtn').forEach(el=>{
+      const r=+el.dataset.rating;
+      el.addEventListener('click',()=>{
+        userRating=r;
+        // guardar history
+        const group=permutationGroup.children;
+        group.forEach(o=>{
+          o.userData.ratingHistory.push(r);
+          if(o.userData.ratingHistory.length>20) o.userData.ratingHistory.shift();
+          o.userData.avgRating = o.userData.ratingHistory.reduce((a,b)=>a+b,0)/o.userData.ratingHistory.length;
+        });
+        // ajustar vecinos
+        group.forEach(o=>{
+          group.forEach(n=>{
+            if(n!==o && n.position.distanceTo(o.position)<5){
+              if(o.userData.avgRating< n.userData.avgRating){
+                o.scale.multiplyScalar(1.02);
+              } else {
+                o.scale.multiplyScalar(0.98);
+              }
+            }
+          });
+        });
+        // refrescar UI
+        document.querySelectorAll('.ratingBtn').forEach((b,i)=>{
+          b.style.color = i<r ? '#008000' : '#000';
+        });
+        updateTopRightDisplay();
+      });
+      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,800));
+    });
+
+    // — Evolución AI & Background Scheduler —
     async function applyEvolutionAI(){
-      const systemPrompt=`Eres un asistente que devuelve instrucciones para modificar un visualizador
-de permutaciones en un cubo de 30x30x30. Devuelve SOLO un objeto JSON con
-estas propiedades opcionales:
-  colors:{1:"#rrggbb",2:"#rrggbb",…}
-  bg:"#rrggbb"
-  cube:"#rrggbb"
-  permCount:número
-  scale:decimal
-  positions:{1:[x,y,z],…}
-  rotationSpeeds:{1:valor,…}
-Nada más.`, userPrompt=`Calificación actual: ${userRating||"sin calificar"}. Sugiéreme evolución estética.`;
-      try{
-        showPopup("Consultando Evolution AI…",2000);
-        const resp=await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT',{
+      const systemPrompt = `Eres un asistente que devuelve JSON con propiedades opcionales:
+  colors:{1:"#rrggbb",…}, bg:"#rrggbb", cube:"#rrggbb",
+  permCount:número, scale:número, positions:{…}, rotationSpeeds:{…}`;
+      const userPrompt = `Calificación:${userRating||'–'}. Sugiere evolución.`;
+      try {
+        showPopup("Consultando AI…",1500);
+        const resp = await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({system:systemPrompt,user:userPrompt})
         });
         const {text,error}=await resp.json();
-        if(error){ showPopup("Error AI:"+error,4000);return;}
-        let jt=text.trim();
-        if(jt.startsWith("```")) jt=jt.replace(/^```[^\n]*\n/,"").replace(/```$/,"").trim();
-        let instr;
-        try{ instr=JSON.parse(jt); }catch{showPopup("Respuesta no JSON",4000);return;}
-        if(instr.bg){document.getElementById('bgColor').value=instr.bg;updateBackground();}
-        if(instr.cube){document.getElementById('cubeColor').value=instr.cube;updateCubeColor();}
+        if(error) throw new Error(error);
+        let jt=text.trim().replace(/^```[\s\S]*?```$/,'').trim();
+        const instr=JSON.parse(jt);
+        // aplicar deltas...
+        if(instr.bg){ document.getElementById('bgColor').value=instr.bg; updateBackground(); }
+        if(instr.cube){ document.getElementById('cubeColor').value=instr.cube; updateCubeColor(); }
         if(instr.colors){
           Object.entries(instr.colors).forEach(([i,c])=>{
-            i=+i;
+            i=Number(i);
             if(colorMapping[i]!==undefined){
               colorMapping[i]=c;
               document.getElementById('color'+i).value=c;
@@ -582,47 +650,86 @@ Nada más.`, userPrompt=`Calificación actual: ${userRating||"sin calificar"}. S
           updateScene(false);
         }
         if(instr.scale){
-          const grp=(currentMode==='modular'?modularGroups[activeUniverseIndex].group:permutationGroup);
-          grp.children.forEach(o=>o.scale.set(instr.scale,instr.scale,instr.scale));
+          const group=currentMode==='modular'
+            ? modularGroups[activeUniverseIndex].group
+            : permutationGroup;
+          group.children.forEach(o=>{
+            o.scale.set(instr.scale,instr.scale,instr.scale);
+          });
         }
         if(instr.rotationSpeeds){
-          const grp=(currentMode==='modular'?modularGroups[activeUniverseIndex].group:permutationGroup);
+          const group=currentMode==='modular'
+            ? modularGroups[activeUniverseIndex].group
+            : permutationGroup;
           Object.entries(instr.rotationSpeeds).forEach(([i,spd])=>{
-            grp.children.forEach(o=>{
-              if(o.userData.permStr.startsWith(i+",")) o.userData.rotationSpeed=spd;
+            group.children.forEach(o=>{
+              if(o.userData.permStr.startsWith(i+',')){
+                o.userData.rotationSpeed=spd;
+              }
             });
           });
         }
         if(instr.positions){
-          const grp=(currentMode==='modular'?modularGroups[activeUniverseIndex].group:permutationGroup);
+          const group=currentMode==='modular'
+            ? modularGroups[activeUniverseIndex].group
+            : permutationGroup;
           Object.entries(instr.positions).forEach(([i,pos])=>{
-            const o=grp.children.find(x=>x.userData.permStr.startsWith(i+","));
+            const o=group.children.find(o=>o.userData.permStr.startsWith(i+','));
             if(o) o.position.set(pos[0],pos[1],pos[2]);
           });
         }
         if(instr.permCount){
-          const opts=Array.from(document.getElementById('permutationList').options);
-          opts.forEach(o=>o.selected=false);
-          shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
+          const sel=document.getElementById('permutationList');
+          Array.from(sel.options).forEach(o=>o.selected=false);
+          shuffle(Array.from(sel.options)).slice(0,instr.permCount)
+            .forEach(o=>o.selected=true);
           updateScene(false);
         }
-        showPopup("Evolución AI aplicada.",2000);
-      }catch(e){console.error(e);showPopup("Error AI red/servidor",4000);}
+        showPopup("AI aplicada.",1200);
+      } catch(e){
+        console.error(e);
+        showPopup("Error AI",2000);
+      }
+    }
+    let autoEvolutionInterval=null;
+    function startAutoEvolution(sec=30){
+      clearInterval(autoEvolutionInterval);
+      autoEvolutionInterval=setInterval(applyEvolutionAI,sec*1000);
+    }
+    function stopAutoEvolution(){
+      clearInterval(autoEvolutionInterval);
     }
 
-    // — Aplicar mapping manual —
-    function updateMapping(){
-      const v=document.getElementById('attrMapping').value.split(',').map(Number);
-      if(v.length===5){
-        attributeMapping={forma:v[0],color:v[1],x:v[2],y:v[3],z:v[4]};
-        updateScene(false);updateTopRightDisplay();
+    // — Mint 3D NFT (Ethers.js + Pinata) —
+    async function mintNFT(){
+      try {
+        await ethereum.request({method:'eth_requestAccounts'});
+        const provider=new ethers.providers.Web3Provider(window.ethereum);
+        const signer=provider.getSigner();
+        const contractAddress="<TU_CONTRACT>";
+        const abi=[ /* tu ABI ERC721 */ ];
+        const contract=new ethers.Contract(contractAddress,abi,signer);
+
+        const metadata={
+          name:"Permutaciones 3D",
+          description:"Configuración 3D interactiva",
+          model:"<URL o IPFS GLTF>" 
+        };
+        const tokenURI=await pinJSONToIPFS(metadata);
+        const tx=await contract.mint(tokenURI);
+        await tx.wait();
+        alert("Mint OK: "+tx.hash);
+      } catch(e){
+        console.error(e);
+        alert("Mint error: "+e.message);
       }
     }
 
     // — Vistas estándar —
     function applyStandardView(){
-      const view=document.getElementById('standardView').value, pos=new THREE.Vector3();
-      switch(view){
+      const v=document.getElementById('standardView').value;
+      const pos=new THREE.Vector3();
+      switch(v){
         case "isometric": pos.set(50,50,50); break;
         case "top":       pos.set(0,80,0);   break;
         case "front":     pos.set(0,0,50);   break;
@@ -630,122 +737,26 @@ Nada más.`, userPrompt=`Calificación actual: ${userRating||"sin calificar"}. S
         case "diagonal":  pos.set(-50,50,-50);break;
         default:          pos.set(0,0,50);
       }
-      camera.position.copy(pos);camera.lookAt(0,0,0);controls.update();
+      camera.position.copy(pos);
+      camera.lookAt(0,0,0);
+      controls.update();
     }
 
-    // — URL embed params —
-    function applyEmbedParams(){
-      const p=new URLSearchParams(location.search);
-      if(p.has('perms')){
-        const arr=p.get('perms').split(';');
-        document.querySelectorAll('#permutationList option')
-          .forEach(o=>o.selected=arr.includes(o.value));
-      }
-      if(p.has('mapping')){
-        const m=p.get('mapping').split(',').map(Number);
-        attributeMapping={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]};
-      }
-      if(p.has('colors')){
-        p.get('colors').split(',').forEach((hex,i)=>{
-          if(i<5){
-            const h='#'+hex;
-            colorMapping[i+1]=h;
-            document.getElementById('color'+(i+1)).value=h;
-          }
-        });
-      }
-      if(p.has('bg')){
-        const bg='#'+p.get('bg');
-        document.getElementById('bgColor').value=bg;updateBackground();
-      }
-      if(p.has('cube')){
-        const c='#'+p.get('cube');
-        document.getElementById('cubeColor').value=c;updateCubeColor();
-      }
-      if(p.has('view')){
-        document.getElementById('standardView').value=p.get('view');
-        applyStandardView();
-      }
-      if(p.get('hide')==='1') toggleTexts();
-    }
-
-    // — Export embed —
-    function exportEmbed(){
-      const perms=Array.from(document.getElementById('permutationList').selectedOptions)
-                      .map(o=>o.value).join(';');
-      const mapping=[attributeMapping.forma,attributeMapping.color,
-                     attributeMapping.x,attributeMapping.y,attributeMapping.z]
-                     .join(',');
-      const colors=[1,2,3,4,5].map(i=>document.getElementById('color'+i)
-                     .value.substring(1)).join(',');
-      const bg=document.getElementById('bgColor').value.substring(1);
-      const cube=document.getElementById('cubeColor').value.substring(1);
-      const view=document.getElementById('standardView').value;
-      const src=location.pathname+`?perms=${encodeURIComponent(perms)}&mapping=${mapping}
-                &colors=${encodeURIComponent(colors)}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
-      const embed=`<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
-      prompt("Código para embeber:",embed);
-    }
-
-    // — Evolución fluida en background —
-    let autoEvolutionInterval=null;
-    function startAutoEvolution(sec=30){
-      if(autoEvolutionInterval) clearInterval(autoEvolutionInterval);
-      autoEvolutionInterval=setInterval(applyEvolutionAI,sec*1000);
-    }
-    function stopAutoEvolution(){
-      if(autoEvolutionInterval) clearInterval(autoEvolutionInterval);
-      autoEvolutionInterval=null;
-    }
-
-    // — Mint 3D NFT (Ethers.js + MetaMask stub) —
-    async function mintNFT(){
-      try{
-        await ethereum.request({method:'eth_requestAccounts'});
-        const provider=new ethers.providers.Web3Provider(window.ethereum);
-        const signer=provider.getSigner();
-        const contractAddress="0xYourContractAddressHere";
-        const abi=[]; // ABI JSON array
-        const contract=new ethers.Contract(contractAddress,abi,signer);
-        const metadata={
-          name:"Permutaciones NFT",
-          description:"Configuración 3D de permutaciones",
-          model:"https://your-ipfs-or-url/model.glb"
-        };
-        // pinJSONToIPFS(metadata) debe devolver la URI
-        const tokenURI=await pinJSONToIPFS(metadata);
-        const tx=await contract.mint(tokenURI);
-        await tx.wait();
-        alert("Mint completado: "+tx.hash);
-      }catch(e){
-        console.error(e);
-        alert("Error al mintear NFT: "+e.message);
-      }
-    }
-
-    // — Inicialización Three.js & UI —
-    function initCustomCursor(){
-      const c=document.getElementById('customCursor');
-      window.addEventListener('mousemove',e=>{
-        c.style.left=e.clientX+"px";c.style.top=e.clientY+"px";
-      });
-    }
-    function initRenderer(canvas){
-      const ren=new THREE.WebGLRenderer({antialias:true});
-      ren.setPixelRatio(window.devicePixelRatio);
-      ren.setSize(canvas.clientWidth,canvas.clientHeight);
-      canvas.appendChild(ren.domElement);
-      return ren;
-    }
+    // — Init Sub-Canvases Modular —
     function initSubCanvases(){
       document.querySelectorAll('.subCanvas').forEach((div,i)=>{
-        const sc={div,scene:new THREE.Scene(),
-                  camera:new THREE.PerspectiveCamera(75,1,0.1,1000),
-                  group:new THREE.Group()};
+        const sc = {
+          div,
+          scene:new THREE.Scene(),
+          camera:new THREE.PerspectiveCamera(75,1,0.1,1000),
+          group:new THREE.Group(),
+          renderer:initSubRenderer(div),
+          controls:null
+        };
         sc.camera.position.set(0,0,50);
-        sc.renderer=initRenderer(div);
-        sc.controls=new THREE.OrbitControls(sc.camera,sc.renderer.domElement);
-        sc.controls.enableDamping=true;sc.controls.enableZoom=true;
+        sc.controls=new THREE.OrbitControls(sc.camera, sc.renderer.domElement);
+        sc.controls.enableDamping=true;
+        sc.controls.enableZoom=true;
         sc.scene.background=new THREE.Color(0x111111);
         sc.scene.add(new THREE.AmbientLight(0xffffff,0.8));
         const dir=new THREE.DirectionalLight(0xffffff,0.5);
@@ -753,88 +764,98 @@ Nada más.`, userPrompt=`Calificación actual: ${userRating||"sin calificar"}. S
         sc.scene.add(dir);
         sc.scene.add(new THREE.Mesh(
           new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
-          new THREE.MeshBasicMaterial({
-            color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide
-          })
+          new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
         ));
         sc.scene.add(sc.group);
         modularGroups.push(sc);
         div.addEventListener('click',()=>activeUniverseIndex=i);
       });
     }
+    function initSubRenderer(div){
+      const ren=new THREE.WebGLRenderer({antialias:true});
+      ren.setSize(div.clientWidth,div.clientHeight);
+      div.appendChild(ren.domElement);
+      return ren;
+    }
 
+    // — Animación Global / Modular —
     function animateAll(){
       requestAnimationFrame(animateAll);
-      if(currentMode!=="modular"&&!isPaused){
-        permutationGroup.children.forEach(o=>o.rotation.y+=o.userData.rotationSpeed||0);
+      if(currentMode!=='modular' && !isPaused){
+        permutationGroup.children.forEach(o=>{
+          o.rotation.y+=o.userData.rotationSpeed||0;
+        });
         controls.update();
         renderer.render(scene,camera);
       }
-      if(currentMode==="modular"){
+      if(currentMode==='modular'){
         modularGroups.forEach(sc=>{
-          sc.group.children.forEach(o=>o.rotation.y+=o.userData.rotationSpeed||0);
+          sc.group.children.forEach(o=>{
+            o.rotation.y+=o.userData.rotationSpeed||0;
+          });
           sc.controls.update();
           sc.renderer.render(sc.scene,sc.camera);
         });
       }
     }
 
+    // — Init Completo —
     function init(){
       initCustomCursor();
       populatePermutationList();
       populateAttributeMappingSelect();
       applyEmbedParams();
 
-      // Canvas global
+      // Global
       scene=new THREE.Scene();
       scene.background=new THREE.Color(0xffffff);
-      camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+      camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
       renderer=new THREE.WebGLRenderer({antialias:true});
-      renderer.setPixelRatio(devicePixelRatio);
-      renderer.setSize(innerWidth,innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth,window.innerHeight);
       document.body.appendChild(renderer.domElement);
       controls=new THREE.OrbitControls(camera,renderer.domElement);
-      controls.enableDamping=true;controls.enableZoom=true;
+      controls.enableDamping=true; controls.enableZoom=true;
       scene.add(new THREE.AmbientLight(0xffffff,0.8));
       const dirG=new THREE.DirectionalLight(0xffffff,0.5);
       dirG.position.set(1,1,1);
       scene.add(dirG);
       cubeUniverse=new THREE.Mesh(
         new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
-        new THREE.MeshBasicMaterial({
-          color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide
-        })
+        new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
       );
       scene.add(cubeUniverse);
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
       raycaster=new THREE.Raycaster();
       mouse=new THREE.Vector2();
-      window.addEventListener('mousemove',onMouseMove,false);
-      window.addEventListener('resize',onWindowResize,false);
+      window.addEventListener('mousemove',onMouseMove);
+      window.addEventListener('resize',onWindowResize);
 
-      // Sub-canvases modular
+      // Modular
       initSubCanvases();
 
-      // Inicio
-      setMode("manual");
+      // Modo inicial
+      setMode('manual');
       updateScene(false);
+
+      // Lanzar loop
       animateAll();
     }
 
     function onWindowResize(){
-      camera.aspect=innerWidth/innerHeight;
+      camera.aspect=window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth,innerHeight);
+      renderer.setSize(window.innerWidth,window.innerHeight);
       modularGroups.forEach(sc=>{
-        const w=sc.div.clientWidth,h=sc.div.clientHeight;
-        sc.camera.aspect=w/h;sc.camera.updateProjectionMatrix();
+        const w=sc.div.clientWidth, h=sc.div.clientHeight;
+        sc.camera.aspect=w/h; sc.camera.updateProjectionMatrix();
         sc.renderer.setSize(w,h);
       });
     }
 
-    // Arrancar
+    // Arranque
     init();
   </script>
 </body>
