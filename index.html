@@ -1,67 +1,46 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Visualizador 3D de Permutaciones - Manual, Evolutivo y Modo Modular</title>
+  <meta charset="UTF-8" />
+  <title>Visualizador 3D de Permutaciones - Manual, Evolutivo y Modular</title>
   <style>
-    /* ————— Global & Body ————— */
+    /* ———————————————————————— Global & Body ———————————————————————— */
     body {
-      margin: 0;
-      overflow: hidden;
+      margin: 0; overflow: hidden;
       background: #ffffff;
       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-      font-weight: 200;
-      font-size: 12px;
-      cursor: none;
+      font-weight: 200; font-size: 12px;
     }
     #customCursor {
-      position: fixed;
-      width:12px; height:12px;
-      border-radius:50%;
-      background:#000;
-      border:1px solid #fff;
-      pointer-events:none;
-      z-index:300;
-      transform:translate(-50%, -50%);
-    }
-    #hoverPopup {
-      position:absolute;
-      padding:5px 10px;
-      background:rgba(0,0,0,0.7);
-      color:#fff;
-      border-radius:4px;
-      pointer-events:none;
-      font-size:12px;
-      display:none; opacity:0;
-      transition:opacity .3s;
-      z-index:200;
+      position: fixed; width:12px; height:12px;
+      border-radius:50%; background:#000;
+      border:1px solid #fff; pointer-events:none; z-index:300;
+      transform: translate(-50%,-50%);
     }
     #topRightDisplay {
-      position:fixed; top:5px; right:10px; z-index:280;
-      font-size:12px; line-height:1.2; color:#000;
-      max-width:200px; overflow-y:auto; max-height:90vh;
+      position: fixed; top:5px; right:10px; z-index:280;
+      color:#000; font-size:12px; line-height:1.2;
+      max-width: 250px;
     }
 
-    /* ————— Botones flotantes ————— */
+    /* ———————————————————————— Botones flotantes ———————————————————————— */
     button {
-      cursor:pointer;
+      cursor: pointer;
       border:none; border-radius:4px;
-      padding:8px 12px; font-size:12px;
+      padding:8px 12px; font-size:12px; z-index:250;
       background:rgba(255,255,255,0.8);
-      z-index:250;
     }
-    #toggleTextButton  { position:fixed; bottom:10px;  right:10px; }
-    #randomConfigButton{ position:fixed; bottom:40px;  right:10px; }
-    #evolutionAIButton { position:fixed; bottom:70px;  right:10px; }
-    #startAutoEvoBtn   { position:fixed; bottom:100px; right:10px; }
-    #toggleModularButton{position:fixed; bottom:130px; right:10px;}
-    #mintNFTButton     { position:fixed; bottom:160px; right:10px; }
-    #saveImageButton   { position:fixed; bottom:190px; right:10px; }
-    #exportEmbedButton { position:fixed; bottom:220px; right:10px; }
+    #toggleTextButton  { bottom: 10px; right: 10px; position: fixed; }
+    #randomConfigButton{ bottom: 40px; right: 10px; position: fixed; }
+    #evolutionAIButton { bottom: 70px; right: 10px; position: fixed; }
+    #toggleModularButton{ bottom:100px; right: 10px; position: fixed; }
+    #saveImageButton   { bottom:130px; right: 10px; position: fixed; }
+    #exportEmbedButton { bottom:160px; right: 10px; position: fixed; }
+    #mintNFTButton     { bottom:190px; right: 10px; position: fixed; }
 
-    /* ————— Rating ————— */
+    /* ———————————————————————— Rating ———————————————————————— */
     #ratingContainer {
-      position:fixed; bottom:260px; right:10px; z-index:260;
+      position: fixed; bottom:220px; right: 10px; z-index:260;
       font-size:12px;
     }
     #ratingLabels, #ratingDots {
@@ -71,60 +50,63 @@
       font-size:20px; cursor:pointer; color:#000;
     }
 
-    /* ————— Controles laterales ————— */
+    /* ———————————————————————— Tooltip Hover ———————————————————————— */
+    #hoverPopup {
+      position:absolute; padding:5px 10px;
+      background:rgba(0,0,0,0.7); color:#fff;
+      border-radius:4px; pointer-events:none;
+      font-size:12px; display:none; opacity:0;
+      transition:opacity .3s; z-index:200;
+    }
+
+    /* ———————————————————————— Controles laterales ———————————————————————— */
     #controls {
-      position:absolute; top:10px; left:10px; z-index:100;
-      padding:10px;
+      position: absolute; top:10px; left:10px; z-index:100;
       background:rgba(255,255,255,0.9);
-      border-radius:5px;
-      max-width:350px;
-      max-height:calc(100vh-20px);
-      overflow-y:auto;
+      border-radius:5px; padding:10px;
+      max-width:300px; max-height:80vh; overflow-y:auto;
     }
     details { margin-bottom:10px; }
-    details summary {
-      font-weight:200; cursor:pointer; color:#333;
-    }
-    details summary:hover { color:#000; }
+    details summary { font-weight:200; cursor:pointer; }
+    details summary:hover { color:#333; }
     select, input[type="range"], input[type="color"] {
       width:100%; margin-top:4px;
     }
-    #permutationList { height:100px; }
 
-    /* ————— Modo Modular ————— */
+    /* ———————————————————————— Modular Grid 3×3 ———————————————————————— */
     #modularGrid {
-      display:none;
-      position:absolute; top:0; left:0; width:100%; height:100%;
+      display:none; /* sólo sale a grid en JS */
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
       display:grid;
-      grid-template-columns:repeat(3,1fr);
-      grid-template-rows:repeat(3,1fr);
+      grid-template-columns: repeat(3,1fr);
+      grid-template-rows:    repeat(3,1fr);
       gap:2px;
       background:#000;
       z-index:50;
     }
     .subCanvas {
-      position:relative;
-      background:#111;
-      cursor:pointer;
+      position:relative; width:100%; height:100%;
+      background:#111; cursor:pointer;
     }
   </style>
 </head>
 <body>
+  <!-- Cursor & Tooltips -->
   <div id="customCursor"></div>
   <div id="hoverPopup"></div>
   <div id="topRightDisplay"></div>
 
-  <!-- Botones flotantes -->
-  <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
-  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Aleatorio</button>
+  <!-- Floating Buttons -->
+  <button id="toggleTextButton"  onclick="toggleTexts()">Ocultar Textos</button>
+  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
   <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
-  <button id="startAutoEvoBtn" onclick="startAutoEvolution(20)">Auto Evolución</button>
-  <button id="toggleModularButton" onclick="setMode(currentMode==='modular'?'manual':'modular')">Modo Modular</button>
-  <button id="mintNFTButton" onclick="mintNFT()">Mint NFT 3D</button>
-  <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
-  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar Config</button>
+  <button id="toggleModularButton" onclick="toggleModular()">Modo Modular</button>
+  <button id="saveImageButton"   onclick="saveImage()">Guardar Imagen</button>
+  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar Configuración</button>
+  <button id="mintNFTButton"     onclick="mintNFT()">Mint 3D NFT</button>
 
-  <!-- Rating -->
+  <!-- Rating Panel -->
   <div id="ratingContainer">
     <details open>
       <summary>Calificar Configuración</summary>
@@ -141,91 +123,50 @@
     </details>
   </div>
 
-  <!-- Controles laterales -->
+  <!-- Side Controls -->
   <div id="controls">
     <details open>
       <summary>Modo de Operación</summary>
-      <label><input type="radio" name="mode" value="manual"   checked onchange="setMode(this.value)"> Manual</label><br>
-      <label><input type="radio" name="mode" value="evolution"        onchange="setMode(this.value)"> Evolutivo</label><br>
-      <label><input type="radio" name="mode" value="modular"          onchange="setMode(this.value)"> Modular</label>
+      <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label><br>
+      <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label><br>
+      <label><input type="radio" name="mode" value="modular" onchange="setMode(this.value)"> Modular</label>
     </details>
 
     <div id="manualControls">
       <details>
         <summary>Seleccionar Permutaciones</summary>
         <select id="permutationList" multiple></select>
-        <button onclick="updateScene()">Visualizar</button>
-      </details>
-      <details>
-        <summary>Reorganización de Atributos</summary>
-        <select id="attrMapping"></select>
-        <button onclick="updateMapping()">Aplicar</button>
-        <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
-      </details>
-      <details>
-        <summary>Seleccionar Colores Permutaciones</summary>
-        <div><label>1: <input type="color" id="color1" value="#ff0000"></label></div>
-        <div><label>2: <input type="color" id="color2" value="#00ff00"></label></div>
-        <div><label>3: <input type="color" id="color3" value="#0000ff"></label></div>
-        <div><label>4: <input type="color" id="color4" value="#ff00ff"></label></div>
-        <div><label>5: <input type="color" id="color5" value="#00ffff"></label></div>
-        <button onclick="updateColorMapping()">Actualizar Colores</button>
-      </details>
-      <details>
-        <summary>Seleccionar Fondo del Universo</summary>
-        <input type="color" id="bgColor" value="#ffffff">
-        <button onclick="updateBackground()">Actualizar Fondo</button>
-      </details>
-      <details>
-        <summary>Seleccionar Color de Pared del Cubo</summary>
-        <input type="color" id="cubeColor" value="#808080">
-        <button onclick="updateCubeColor()">Actualizar Pared</button>
-      </details>
-      <details>
-        <summary>Vistas Estándar</summary>
-        <select id="standardView">
-          <option value="isometric">Isométrica</option>
-          <option value="top">Superior</option>
-          <option value="front">Frontal</option>
-          <option value="side">Lateral</option>
-          <option value="diagonal">Diagonal</option>
-        </select>
-        <button onclick="applyStandardView()">Aplicar Vista</button>
-      </details>
-      <details>
-        <summary>Controles de Zoom y Movimiento</summary>
-        <button onclick="zoomIn()">Zoom In</button>
-        <button onclick="zoomOut()">Zoom Out</button>
-        <button onclick="togglePause()">⏸/▶</button>
-        <button onclick="resetMovement()">Reset Movimiento</button>
+        <button onclick="updateScene()">Visualizar Permutación</button>
       </details>
     </div>
 
-    <div id="evolutionControls" style="display:none;">
+    <div id="evolutionControls" style="display:none">
       <details open>
         <summary>Parámetros Evolutivos</summary>
         <p>Tasa de Mutación:<br>
-           <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
+          <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1">
+        </p>
         <p>Umbral de Cambio:<br>
-           <input type="range" id="threshold"    min="0" max="1" step="0.01" value="0.5"></p>
+          <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5">
+        </p>
         <button onclick="applyEvolution()">Aplicar Evolución</button>
-        <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
+        <div id="evolutionInfo" style="margin-top:8px;font-size:12px"></div>
       </details>
     </div>
 
-    <div id="modularControls" style="display:none;">
+    <div id="modularControls" style="display:none">
       <details>
         <summary>Global vs Individual</summary>
-        <label><input type="radio" name="modularMode" value="global"     checked onchange="setModularMode(this.value)"> Global</label><br>
+        <label><input type="radio" name="modularMode" value="global" checked onchange="setModularMode(this.value)"> Global</label><br>
         <label><input type="radio" name="modularMode" value="individual" onchange="setModularMode(this.value)"> Individual</label>
       </details>
-      <div id="individualPickers" style="display:none;">
-        <!-- Se rellenará con 9 selects idénticos a #permutationList -->
+      <div id="individualPickers" style="display:none">
+        <!-- 9 selectores en JS -->
       </div>
     </div>
   </div>
 
-  <!-- Grid 3×3 para Modo Modular -->
+  <!-- Modular 3×3 Canvas Grid -->
   <div id="modularGrid">
     <div class="subCanvas" data-index="0"></div>
     <div class="subCanvas" data-index="1"></div>
@@ -238,43 +179,41 @@
     <div class="subCanvas" data-index="8"></div>
   </div>
 
-  <!-- Dependencias Three.js -->
+  <!-- Three.js & OrbitControls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script>
-    // === 120 COLORES CUSTOM ===
+    // === LISTA DE 120 COLORES ===
     const CUSTOM_COLORS = [
       "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
-      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0","#fafcff",
-      "#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8","#f6f5ea",
-      "#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7","#350b0c",
-      "#9e4031","#820707","#eeb049","#120607","#f6f1ed","#300809","#8c2d18",
-      "#6a6620","#b99c5c","#110505","#5f2423","#400909","#a04b37","#180506",
-      "#e1b055","#6f2919","#170607","#000000","#9c822b","#3e1b2c","#edce83",
-      "#1b0408","#8a4667","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
-      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e","#0b0304",
-      "#a4735a","#4e272a","#cab296","#923930","#1d0709","#f4c061","#963326",
-      "#d89048","#430f0c","#ce5830","#72121a","#fefffe","#c0b280","#57231d",
-      "#99541e","#210d0a","#8a5d2f","#e2a33f","#a24a2c","#591e14","#8f2e1c",
-      "#1e0809","#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
-      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100","#6d4d2c",
-      "#2d060a","#000005","#2d0006","#17120a","#451e18","#42401c","#7c4934",
-      "#8c7640","#c0b468"
+      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
+      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
+      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
+      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
+      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
+      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
+      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
+      "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
+      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
+      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
+      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
+      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
+      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
+      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
+      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
+      "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
+      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
     ];
 
-    // === Variables Globales ===
+    // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
-    let modularGroups = [];
-    let activeUniverseIndex = 0;
+    let modularGroups = [], activeUniverseIndex = 0;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
-    let isPaused = false;
-    let currentMode = "manual";
-    let modularMode = "global";
-    let userRating = null;
-    let textsVisible = true;
+    let isPaused = false, currentMode = "manual", modularMode = "global";
+    let userRating = null, textsVisible = true;
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
-    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
+    let colorMapping = {1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff"};
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -284,125 +223,108 @@
       5:{w:4.5,h:4.5*Math.sqrt(5)}
     };
 
-    // — Utilidades —
+    // — Utilidades genéricas —
     const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
-    const mapRangeToSpeed = (r,mn,mx)=>0.001+(r-mn)*(0.005-0.001)/(mx-mn);
-    const shuffle = a => {
-      for(let i=a.length-1;i>0;i--){
-        let j=Math.floor(Math.random()*(i+1));
-        [a[i],a[j]]=[a[j],a[i]];
+    const mapRangeToSpeed = (r,mn,mx)=>0.001 + (r-mn)*(0.005-0.001)/(mx-mn);
+    const shuffle = arr=>{
+      for(let i=arr.length-1;i>0;i--){
+        let j=Math.floor(Math.random()* (i+1));
+        [arr[i],arr[j]]=[arr[j],arr[i]];
       }
-      return a;
+      return arr;
     };
 
-    // — Permutaciones —
+    // — Permutaciones & Mapeos —
     function getPermutations(arr){
       if(arr.length===1) return [arr];
       let res=[];
-      for(let i=0;i<arr.length;i++){
-        let c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
-        for(let p of getPermutations(rem)) res.push([c].concat(p));
-      }
+      arr.forEach((v,i)=>{
+        let rem = arr.slice(0,i).concat(arr.slice(i+1));
+        getPermutations(rem).forEach(p=>res.push([v].concat(p)));
+      });
       return res;
     }
     const allPermutations = getPermutations([1,2,3,4,5]);
-    const permutationStrings= allPermutations.map(p=>p.join(','));
+    const permutationStrings = allPermutations.map(p=>p.join(','));
 
     function getAttributeMappings(a){
       if(a.length===1) return [a];
       let res=[];
-      for(let i=0;i<a.length;i++){
-        let c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
-        for(let m of getAttributeMappings(rem)) res.push([c].concat(m));
-      }
+      a.forEach((v,i)=>{
+        let rem = a.slice(0,i).concat(a.slice(i+1));
+        getAttributeMappings(rem).forEach(m=>res.push([v].concat(m)));
+      });
       return res;
     }
 
     // — Poblado de selects —
     function populatePermutationList(){
-      const sel=document.getElementById('permutationList');
+      let sel = document.getElementById('permutationList');
       sel.innerHTML='';
       permutationStrings.forEach((ps,i)=>{
-        const o=document.createElement('option');
-        o.value=ps;
-        o.text=`Perm ${i+1}: (${ps})`;
+        let o=document.createElement('option');
+        o.value=ps; o.text=`Permutación ${i+1}: (${ps})`;
         if(i===0) o.selected=true;
         sel.appendChild(o);
       });
     }
     function populateAttributeMappingSelect(){
-      const sel=document.getElementById('attrMapping');
+      let sel=document.getElementById('attrMapping');
       sel.innerHTML='';
       getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        const s=m.join(','), o=document.createElement('option');
-        o.value=s; o.text=`[${s}]`;
+        let s=m.join(','), o=document.createElement('option');
+        o.value=s; o.text=`Opción: [${s}]`;
         if(s==='0,1,2,3,4') o.selected=true;
         sel.appendChild(o);
       });
       updateTopRightDisplay();
     }
-    // — Display Superior —
+
+    // — Display superior —
     function computeSignature(a){
-      return a.map((v,i)=>v+a[(i+1)%a.length]);
+      return a.map((v,i)=>v + a[(i+1)%a.length]);
     }
     function computeRange(sig){
-      return Math.max(...sig)-Math.min(...sig);
+      return Math.max(...sig) - Math.min(...sig);
     }
     function updateTopRightDisplay(){
-      const cfg=`Atributos:[${Object.values(attributeMapping).join(',')}]`;
-      const rt =`Calificación:${userRating||'–'}`;
+      let cfg=`Atributos: [${Object.values(attributeMapping).join(',')}]`;
+      let rt =`Calificación: ${userRating||'Aún no calificada'}`;
       let info='';
       Array.from(document.getElementById('permutationList').selectedOptions)
         .forEach(o=>{
-          const pa=o.value.split(',').map(Number),
-                sig=computeSignature(pa),
-                rg=computeRange(sig);
-          info+=`<div style="margin:2px 0;">(${pa.join(',')}) F[${sig.join(',')}] R${rg}</div>`;
+          let pa=o.value.split(',').map(Number),
+              sig=computeSignature(pa),
+              rg=computeRange(sig);
+          info+=`<div>Perm(${o.value}) | Firma[${sig.join(',')}] | Rango ${rg}</div>`;
         });
       document.getElementById('topRightDisplay').innerHTML=cfg+'<br>'+rt+'<br>'+info;
     }
 
-    // — Crear cubitos 3D —
+    // — Crear objeto 3D con mapeo y clamp en 3 ejes —
     function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map.forma],
-            cv=pa[map.color],
-            px=pa[map.x],
-            py=pa[map.y],
-            pz=pa[map.z],
-            {w,h}=shapeMapping[fv],
-            t=0.5;
-      const geo=new THREE.BoxGeometry(w,h,t),
-            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50 }),
-            mesh=new THREE.Mesh(geo,mat);
-      // Posición base:
+      let fv=pa[map.forma], cv=pa[map.color],
+          px=pa[map.x], py=pa[map.y], pz=pa[map.z],
+          {w,h}=shapeMapping[fv], t=0.5;
+      let geo=new THREE.BoxGeometry(w,h,t),
+          mat=new THREE.MeshPhongMaterial({color:new THREE.Color(colorMapping[cv]),shininess:50}),
+          mesh=new THREE.Mesh(geo,mat);
       mesh.position.set(
-        (px-1)*segment-halfCube+segment/2,
-        (py-1)*segment-halfCube+segment/2,
-        (pz-1)*segment-halfCube+segment/2
+        clamp((px-1)*segment - halfCube + segment/2, -halfCube+w/2, halfCube-w/2),
+        clamp((py-1)*segment - halfCube + segment/2, -halfCube+h/2, halfCube-h/2),
+        clamp((pz-1)*segment - halfCube + segment/2, -halfCube+t/2, halfCube-t/2)
       );
-      // clamp para mantener dentro:
-      mesh.position.x = clamp(mesh.position.x, -halfCube+w/2, halfCube-w/2);
-      mesh.position.y = clamp(mesh.position.y, -halfCube+h/2, halfCube-h/2);
-      mesh.position.z = clamp(mesh.position.z, -halfCube+t/2, halfCube-t/2);
-
-      // metadata para hover, rotación, rating:
-      const sig=computeSignature(pa),
-            rg =computeRange(sig);
-      mesh.userData = {
-        permStr: pa.join(','),
-        signature: sig,
-        range: rg,
-        rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue),
-        ratingHistory: [],
-        avgRating: null
-      };
+      let sig=computeSignature(pa), rg=computeRange(sig);
+      mesh.userData={permStr:pa.join(','), signature:sig, range:rg,
+                     rotationSpeed: mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
     }
     function createPermutationObject(pa){
-      return createPermutationObjectWithMapping(pa, attributeMapping);
+      return createPermutationObjectWithMapping(pa,attributeMapping);
     }
-
-    // — Colisiones y auto-resolve —
+  </script>
+  <script>
+    // — Colisiones & Auto-resolve —
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
         let b1=new THREE.Box3().setFromObject(g.children[i]);
@@ -416,71 +338,59 @@
     function autoResolveColisionesGlobal(){
       let found=null;
       getAttributeMappings([0,1,2,3,4]).some(m=>{
-        const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
-              tg=new THREE.Group(),
-              opts=Array.from(document.getElementById('permutationList').selectedOptions);
+        let cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
+            tg=new THREE.Group(),
+            opts=Array.from(document.getElementById('permutationList').selectedOptions);
         opts.forEach((o,i)=>{
-          const pa=o.value.split(',').map(Number),
-                mo=createPermutationObjectWithMapping(pa,cm);
+          let pa=o.value.split(',').map(Number),
+              mo=createPermutationObjectWithMapping(pa,cm);
           if(opts.length>1){
-            const ang=2*Math.PI*i/opts.length, rad=1.5;
+            let ang=2*Math.PI*i/opts.length, rad=1.5;
             mo.position.x+=rad*Math.cos(ang);
             mo.position.y+=rad*Math.sin(ang);
-            mo.position.x = clamp(mo.position.x, -halfCube+mo.geometry.parameters.width/2, halfCube-mo.geometry.parameters.width/2);
-            mo.position.y = clamp(mo.position.y, -halfCube+mo.geometry.parameters.height/2,halfCube-mo.geometry.parameters.height/2);
           }
           tg.add(mo);
         });
-        if(!checkCollisionsInGroup(tg)){
-          found=cm;
-          return true;
-        }
+        if(!checkCollisionsInGroup(tg)){ found=cm; return true; }
       });
       if(found){
         attributeMapping=found;
         document.getElementById('attrMapping').value=Object.values(found).join(',');
-        updateScene(false);
-        updateTopRightDisplay();
-      } else {
-        showPopup("No hay mapping sin colisiones",3000);
-      }
+        updateScene(false); updateTopRightDisplay();
+      } else showPopup("No se encontró reorganización sin colisiones.",4000);
     }
 
-    // — Mostrar/Ocultar Textos —
-    function toggleTexts(){
-      ['controls','topRightDisplay','ratingContainer',
-       'randomConfigButton','evolutionAIButton','startAutoEvoBtn',
-       'toggleModularButton','mintNFTButton','saveImageButton','exportEmbedButton']
-      .forEach(id=>{
-        const el=document.getElementById(id);
-        el.style.display = textsVisible ? 'none' : 'block';
-      });
-      document.getElementById('toggleTextButton').textContent = textsVisible ? 'Mostrar Textos' : 'Ocultar Textos';
-      textsVisible = !textsVisible;
+    // — Popup hover —
+    function showPopup(msg,dur=2000){
+      let p=document.getElementById('hoverPopup');
+      p.style.display="block"; p.style.opacity=1;
+      p.style.left=`${window.innerWidth/2-150}px`;
+      p.style.top="20px"; p.innerHTML=msg;
+      setTimeout(()=>{
+        p.style.opacity=0;
+        setTimeout(()=>{ p.style.display="none"; },300);
+      },dur);
     }
 
-    // — Actualizar escena —
+    // — Update Scene (global o modular) —
     function updateScene(attemptResolve=true){
-      const group = currentMode==='modular'
-                    ? modularGroups[activeUniverseIndex].group
-                    : permutationGroup;
+      let group = (currentMode==="modular")
+                ? modularGroups[activeUniverseIndex].group
+                : permutationGroup;
       // limpiar
       while(group.children.length){
-        const o=group.children.shift();
-        o.geometry.dispose();
-        o.material.dispose();
+        let o=group.children.shift();
+        o.geometry.dispose(); o.material.dispose();
       }
       // añadir
-      const opts=Array.from(document.getElementById('permutationList').selectedOptions);
+      let opts = Array.from(document.getElementById('permutationList').selectedOptions);
       opts.forEach((o,i)=>{
-        const pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
+        let pa=o.value.split(',').map(Number),
+            obj=createPermutationObject(pa);
         if(opts.length>1){
-          const ang=2*Math.PI*i/opts.length, rad=1.5;
+          let ang=2*Math.PI*i/opts.length, rad=1.5;
           obj.position.x+=rad*Math.cos(ang);
           obj.position.y+=rad*Math.sin(ang);
-          obj.position.x = clamp(obj.position.x, -halfCube+obj.geometry.parameters.width/2, halfCube-obj.geometry.parameters.width/2);
-          obj.position.y = clamp(obj.position.y, -halfCube+obj.geometry.parameters.height/2,halfCube-obj.geometry.parameters.height/2);
         }
         group.add(obj);
       });
@@ -488,155 +398,155 @@
       else updateTopRightDisplay();
     }
 
-    // — Raycast Hover —
+    // — Raycast hover —
     function onMouseMove(e){
-      mouse.x = (e.clientX/window.innerWidth)*2-1;
-      mouse.y = -(e.clientY/window.innerHeight)*2+1;
-      raycaster.setFromCamera(mouse, camera);
-      const ints = raycaster.intersectObjects(permutationGroup.children);
-      const pop  = document.getElementById('hoverPopup');
+      mouse.x=(e.clientX/window.innerWidth)*2-1;
+      mouse.y=-(e.clientY/window.innerHeight)*2+1;
+      raycaster.setFromCamera(mouse,camera);
+      let ints=raycaster.intersectObjects(permutationGroup.children),
+          pop=document.getElementById('hoverPopup');
       if(ints.length){
-        const d=ints[0].object.userData;
-        pop.style.display='block';
-        pop.style.opacity=1;
+        let d=ints[0].object.userData;
+        pop.style.display="block"; pop.style.opacity=1;
         pop.style.left=`${e.clientX+20}px`;
         pop.style.top=`${e.clientY+20}px`;
-        pop.innerHTML=`Perm(${d.permStr})<br>F[${d.signature.join(',')}] R${d.range}`;
+        pop.innerHTML=`Perm(${d.permStr})<br>Firma[${d.signature.join(',')}]/Rango ${d.range}`;
       } else {
         pop.style.opacity=0;
-        setTimeout(()=>pop.style.display='none',300);
+        setTimeout(()=>pop.style.display="none",300);
       }
     }
 
-    // — Zoom, Movimiento, Pausa —
+    // — Zoom & Movimiento —
     function zoomIn(){ camera.position.z-=5; controls.update(); }
     function zoomOut(){ camera.position.z+=5; controls.update(); }
-    function togglePause(){ isPaused = !isPaused; }
-    function resetMovement(){ isPaused=true; updateScene(false); }
 
     // — Guardar Imagen —
     function saveImage(){
       renderer.render(scene,camera);
-      const url=renderer.domElement.toDataURL("image/png"),
-            a=document.createElement('a');
-      a.href=url; a.download="config.png";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      let url=renderer.domElement.toDataURL("image/png"),
+          a=document.createElement('a');
+      a.href=url; a.download="configuracion.png";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
 
-    // — Update Colores Manual —
+    // — Colores & Fondo —
     function updateColorMapping(){
       for(let i=1;i<=5;i++){
-        colorMapping[i] = document.getElementById('color'+i).value;
+        colorMapping[i]=document.getElementById('color'+i).value;
       }
       updateScene(false);
     }
     function updateBackground(){
-      const c=document.getElementById('bgColor').value;
+      let c=document.getElementById('bgColor').value;
       scene.background=new THREE.Color(c);
-      const lum = (parseInt(c.slice(1,3),16)*299 +
-                   parseInt(c.slice(3,5),16)*587 +
-                   parseInt(c.slice(5,7),16)*114) /1000;
-      const txtCol = lum<128 ? '#fff' : '#000';
-      document.querySelectorAll('details summary, #topRightDisplay')
-        .forEach(el=>el.style.color=txtCol);
-      document.getElementById('hoverPopup').style.color=txtCol;
+      let lum=(parseInt(c.slice(1,3),16)*299+
+               parseInt(c.slice(3,5),16)*587+
+               parseInt(c.slice(5,7),16)*114)/1000;
+      document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
     function updateCubeColor(){
-      const c=document.getElementById('cubeColor').value;
+      let c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
     }
 
-    // — Manual / Evolución / Modular —
-    function setMode(m){
-      currentMode=m;
-      document.getElementById('manualControls').style.display    = m==='manual'   ? 'block' : 'none';
-      document.getElementById('evolutionControls').style.display = m==='evolution'? 'block' : 'none';
-      document.getElementById('modularControls').style.display   = m==='modular'  ? 'block' : 'none';
-      document.getElementById('modularGrid').style.display       = m==='modular'  ? 'grid'  : 'none';
-      updateScene(false);
-    }
-    function setModularMode(mm){
-      modularMode=mm;
-      document.getElementById('individualPickers').style.display = mm==='individual'?'block':'none';
+    // — Toggle Textos UI —
+    function toggleTexts(){
+      ['controls','topRightDisplay','ratingContainer',
+       'randomConfigButton','evolutionAIButton','toggleModularButton',
+       'saveImageButton','exportEmbedButton','mintNFTButton']
+      .forEach(id=>{
+        let e=document.getElementById(id);
+        e.style.display = textsVisible?'none':'block';
+      });
+      document.getElementById('toggleTextButton').textContent=
+        textsVisible?'Mostrar Textos':'Ocultar Textos';
+      textsVisible=!textsVisible;
     }
 
-    // — Evolución Simple —
+    // — setMode & toggleModular —
+    function setMode(m){
+      currentMode=m;
+      document.getElementById('manualControls').style.display    = m==='manual'?   'block':'none';
+      document.getElementById('evolutionControls').style.display = m==='evolution'?'block':'none';
+      document.getElementById('modularControls').style.display   = m==='modular'?  'block':'none';
+      document.getElementById('modularGrid').style.display       = m==='modular'?  'grid':'none';
+      updateScene(false);
+    }
+    function toggleModular(){
+      setMode(currentMode==='modular'?'manual':'modular');
+      document.getElementById('toggleModularButton').textContent=
+        currentMode==='modular'?'Salir Modo Modular':'Modo Modular';
+    }
+
+    // — Generación Aleatoria —
+    function generateRandomConfiguration(){
+      let sel=document.getElementById('permutationList');
+      Array.from(sel.options).forEach(o=>o.selected=false);
+      let n=Math.floor(Math.random()*5)+1;
+      for(let i=0;i<n;i++){
+        let val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        sel.querySelector(`option[value="${val}"]`).selected=true;
+      }
+      let bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
+          wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
+      document.getElementById('bgColor').value=bg; updateBackground();
+      document.getElementById('cubeColor').value=wall; updateCubeColor();
+      let pool=shuffle([...CUSTOM_COLORS]);
+      for(let i=1;i<=5;i++){
+        colorMapping[i]=pool.shift();
+        document.getElementById('color'+i).value=colorMapping[i];
+      }
+      updateScene(false);
+    }
+
+    // — Rating interactividad —
+    document.querySelectorAll('.ratingBtn').forEach(el=>{
+      let r=+el.dataset.rating;
+      el.addEventListener('click',()=>{
+        userRating=r;
+        let cols={1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
+        document.querySelectorAll('.ratingBtn')
+          .forEach((b,i)=>b.style.color=(i<r?cols[r]:"#000"));
+        updateTopRightDisplay();
+      });
+      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
+    });
+
+    // — Evolución simple —
     function applyEvolution(){
-      const mr=parseFloat(document.getElementById('mutationRate').value),
-            th=parseFloat(document.getElementById('threshold').value),
-            cf=0.02;
-      const group = currentMode==='modular'
-                    ? modularGroups[activeUniverseIndex].group
-                    : permutationGroup;
-      let log='';
+      let mr=parseFloat(document.getElementById('mutationRate').value),
+          th=parseFloat(document.getElementById('threshold').value),
+          cf=0.02, log="";
+      let group=currentMode==="modular"
+                ? modularGroups[activeUniverseIndex].group
+                : permutationGroup;
       group.children.forEach(o=>{
-        const rf=(Math.random()-0.5)*mr,
-              sf=1+(Math.random()-0.5)*th;
+        let rf=(Math.random()-0.5)*mr,
+            sf=1+(Math.random()-0.5)*th;
         o.rotation.y+=rf;
         o.scale.set(sf,sf,sf);
-        o.material.color.offsetHSL(
-          (Math.random()-0.5)*cf,
-          (Math.random()-0.5)*cf,
-          (Math.random()-0.5)*cf
-        );
-        log+=`${o.userData.permStr}: rot${rf.toFixed(3)} scl${sf.toFixed(3)}<br>`;
+        o.material.color.offsetHSL((Math.random()-0.5)*cf,(Math.random()-0.5)*cf,(Math.random()-0.5)*cf);
+        log+=`(${o.userData.permStr}) Rot:${rf.toFixed(3)},Esc:${sf.toFixed(3)}<br>`;
       });
       document.getElementById('evolutionInfo').innerHTML=log;
     }
 
-    // — Rating & Broadcast Ligero —
-    document.querySelectorAll('.ratingBtn').forEach(el=>{
-      const r=+el.dataset.rating;
-      el.addEventListener('click',()=>{
-        userRating=r;
-        // guardar history
-        const group=permutationGroup.children;
-        group.forEach(o=>{
-          o.userData.ratingHistory.push(r);
-          if(o.userData.ratingHistory.length>20) o.userData.ratingHistory.shift();
-          o.userData.avgRating = o.userData.ratingHistory.reduce((a,b)=>a+b,0)/o.userData.ratingHistory.length;
-        });
-        // ajustar vecinos
-        group.forEach(o=>{
-          group.forEach(n=>{
-            if(n!==o && n.position.distanceTo(o.position)<5){
-              if(o.userData.avgRating< n.userData.avgRating){
-                o.scale.multiplyScalar(1.02);
-              } else {
-                o.scale.multiplyScalar(0.98);
-              }
-            }
-          });
-        });
-        // refrescar UI
-        document.querySelectorAll('.ratingBtn').forEach((b,i)=>{
-          b.style.color = i<r ? '#008000' : '#000';
-        });
-        updateTopRightDisplay();
-      });
-      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,800));
-    });
-
-    // — Evolución AI & Background Scheduler —
+    // — Evolución AI —
     async function applyEvolutionAI(){
-      const systemPrompt = `Eres un asistente que devuelve JSON con propiedades opcionales:
-  colors:{1:"#rrggbb",…}, bg:"#rrggbb", cube:"#rrggbb",
-  permCount:número, scale:número, positions:{…}, rotationSpeeds:{…}`;
-      const userPrompt = `Calificación:${userRating||'–'}. Sugiere evolución.`;
-      try {
-        showPopup("Consultando AI…",1500);
-        const resp = await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT',{
+      let sys=`Eres un asistente que devuelve JSON con propiedades opcionales: colors,bg,cube,permCount,scale,positions,rotationSpeeds.`,
+          usr=`Calificación actual: ${userRating||"sin calificar"}. Sugiéreme evolución estética.`;
+      try{
+        showPopup("Consultando Evolution AI…",2000);
+        let resp=await fetch('https://us-central1-prmtcns.cloudfunctions.net/askChatGPT',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({system:systemPrompt,user:userPrompt})
+          body:JSON.stringify({system:sys,user:usr})
         });
-        const {text,error}=await resp.json();
-        if(error) throw new Error(error);
-        let jt=text.trim().replace(/^```[\s\S]*?```$/,'').trim();
-        const instr=JSON.parse(jt);
-        // aplicar deltas...
+        let {text,error}=await resp.json();
+        if(error) return showPopup("Error: "+error,4000);
+        let jt=text.trim().replace(/^```.*\n/,"").replace(/```$/,"").trim();
+        let instr=JSON.parse(jt);
         if(instr.bg){ document.getElementById('bgColor').value=instr.bg; updateBackground(); }
         if(instr.cube){ document.getElementById('cubeColor').value=instr.cube; updateCubeColor(); }
         if(instr.colors){
@@ -650,118 +560,95 @@
           updateScene(false);
         }
         if(instr.scale){
-          const group=currentMode==='modular'
-            ? modularGroups[activeUniverseIndex].group
-            : permutationGroup;
-          group.children.forEach(o=>{
-            o.scale.set(instr.scale,instr.scale,instr.scale);
-          });
+          let g=currentMode==="modular"?modularGroups[activeUniverseIndex].group:permutationGroup;
+          g.children.forEach(o=>o.scale.set(instr.scale,instr.scale,instr.scale));
         }
         if(instr.rotationSpeeds){
-          const group=currentMode==='modular'
-            ? modularGroups[activeUniverseIndex].group
-            : permutationGroup;
+          let g=currentMode==="modular"?modularGroups[activeUniverseIndex].group:permutationGroup;
           Object.entries(instr.rotationSpeeds).forEach(([i,spd])=>{
-            group.children.forEach(o=>{
-              if(o.userData.permStr.startsWith(i+',')){
-                o.userData.rotationSpeed=spd;
-              }
+            g.children.forEach(o=>{
+              if(o.userData.permStr.startsWith(i+",")) o.userData.rotationSpeed=spd;
             });
           });
         }
         if(instr.positions){
-          const group=currentMode==='modular'
-            ? modularGroups[activeUniverseIndex].group
-            : permutationGroup;
+          let g=currentMode==="modular"?modularGroups[activeUniverseIndex].group:permutationGroup;
           Object.entries(instr.positions).forEach(([i,pos])=>{
-            const o=group.children.find(o=>o.userData.permStr.startsWith(i+','));
+            let o=g.children.find(x=>x.userData.permStr.startsWith(i+","));
             if(o) o.position.set(pos[0],pos[1],pos[2]);
           });
         }
         if(instr.permCount){
-          const sel=document.getElementById('permutationList');
-          Array.from(sel.options).forEach(o=>o.selected=false);
-          shuffle(Array.from(sel.options)).slice(0,instr.permCount)
-            .forEach(o=>o.selected=true);
+          let opts=Array.from(document.getElementById('permutationList').options);
+          opts.forEach(o=>o.selected=false);
+          shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
           updateScene(false);
         }
-        showPopup("AI aplicada.",1200);
-      } catch(e){
+        showPopup("Evolución AI aplicada.",2000);
+      }catch(e){
         console.error(e);
-        showPopup("Error AI",2000);
+        showPopup("Error en Evolución AI",4000);
       }
     }
+
+    // — Scheduler Evolución Fluida —
     let autoEvolutionInterval=null;
     function startAutoEvolution(sec=30){
-      clearInterval(autoEvolutionInterval);
-      autoEvolutionInterval=setInterval(applyEvolutionAI,sec*1000);
+      if(autoEvolutionInterval) clearInterval(autoEvolutionInterval);
+      autoEvolutionInterval=setInterval(applyEvolutionAI, sec*1000);
     }
     function stopAutoEvolution(){
-      clearInterval(autoEvolutionInterval);
+      if(autoEvolutionInterval) clearInterval(autoEvolutionInterval);
+      autoEvolutionInterval=null;
     }
 
-    // — Mint 3D NFT (Ethers.js + Pinata) —
+    // — Mint 3D NFT (stub Ethers.js/MetaMask) —
     async function mintNFT(){
-      try {
-        await ethereum.request({method:'eth_requestAccounts'});
-        const provider=new ethers.providers.Web3Provider(window.ethereum);
-        const signer=provider.getSigner();
-        const contractAddress="<TU_CONTRACT>";
-        const abi=[ /* tu ABI ERC721 */ ];
-        const contract=new ethers.Contract(contractAddress,abi,signer);
-
-        const metadata={
-          name:"Permutaciones 3D",
-          description:"Configuración 3D interactiva",
-          model:"<URL o IPFS GLTF>" 
-        };
+      try{
+        await window.ethereum.request({method:'eth_requestAccounts'});
+        const provider=new ethers.providers.Web3Provider(window.ethereum),
+              signer=provider.getSigner(),
+              address="TU_CONTRACT_ADDRESS",
+              abi=[ /* ABI ERC721 mint(tokenURI) */ ],
+              contract=new ethers.Contract(address,abi,signer);
+        const metadata={name:"Permutaciones NFT",description:"3D config",model:"<URL GLTF>"};
         const tokenURI=await pinJSONToIPFS(metadata);
-        const tx=await contract.mint(tokenURI);
+        let tx=await contract.mint(tokenURI);
         await tx.wait();
         alert("Mint OK: "+tx.hash);
-      } catch(e){
+      }catch(e){
         console.error(e);
-        alert("Mint error: "+e.message);
+        alert("Error mint NFT: "+e.message);
       }
     }
 
-    // — Vistas estándar —
-    function applyStandardView(){
-      const v=document.getElementById('standardView').value;
-      const pos=new THREE.Vector3();
-      switch(v){
-        case "isometric": pos.set(50,50,50); break;
-        case "top":       pos.set(0,80,0);   break;
-        case "front":     pos.set(0,0,50);   break;
-        case "side":      pos.set(50,0,0);   break;
-        case "diagonal":  pos.set(-50,50,-50);break;
-        default:          pos.set(0,0,50);
-      }
-      camera.position.copy(pos);
-      camera.lookAt(0,0,0);
-      controls.update();
+    // — Init Three.js & UI —
+    function initCustomCursor(){
+      const c=document.getElementById('customCursor');
+      window.addEventListener('mousemove',e=>{
+        c.style.left=e.clientX+"px";
+        c.style.top=e.clientY+"px";
+      });
     }
-
-    // — Init Sub-Canvases Modular —
     function initSubCanvases(){
       document.querySelectorAll('.subCanvas').forEach((div,i)=>{
-        const sc = {
+        let sc={
           div,
           scene:new THREE.Scene(),
           camera:new THREE.PerspectiveCamera(75,1,0.1,1000),
           group:new THREE.Group(),
-          renderer:initSubRenderer(div),
+          renderer:new THREE.WebGLRenderer({antialias:true}),
           controls:null
         };
+        sc.renderer.setSize(div.clientWidth,div.clientHeight);
+        div.appendChild(sc.renderer.domElement);
         sc.camera.position.set(0,0,50);
-        sc.controls=new THREE.OrbitControls(sc.camera, sc.renderer.domElement);
-        sc.controls.enableDamping=true;
-        sc.controls.enableZoom=true;
+        sc.controls=new THREE.OrbitControls(sc.camera,sc.renderer.domElement);
+        sc.controls.enableDamping=true; sc.controls.enableZoom=true;
         sc.scene.background=new THREE.Color(0x111111);
         sc.scene.add(new THREE.AmbientLight(0xffffff,0.8));
-        const dir=new THREE.DirectionalLight(0xffffff,0.5);
-        dir.position.set(1,1,1);
-        sc.scene.add(dir);
+        let dir=new THREE.DirectionalLight(0xffffff,0.5);
+        dir.position.set(1,1,1); sc.scene.add(dir);
         sc.scene.add(new THREE.Mesh(
           new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
           new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
@@ -771,44 +658,28 @@
         div.addEventListener('click',()=>activeUniverseIndex=i);
       });
     }
-    function initSubRenderer(div){
-      const ren=new THREE.WebGLRenderer({antialias:true});
-      ren.setSize(div.clientWidth,div.clientHeight);
-      div.appendChild(ren.domElement);
-      return ren;
-    }
-
-    // — Animación Global / Modular —
     function animateAll(){
       requestAnimationFrame(animateAll);
-      if(currentMode!=='modular' && !isPaused){
-        permutationGroup.children.forEach(o=>{
-          o.rotation.y+=o.userData.rotationSpeed||0;
-        });
-        controls.update();
-        renderer.render(scene,camera);
+      if(currentMode!=="modular" && !isPaused){
+        permutationGroup.children.forEach(o=>{ o.rotation.y+=o.userData.rotationSpeed||0; });
+        controls.update(); renderer.render(scene,camera);
       }
-      if(currentMode==='modular'){
+      if(currentMode==="modular"){
         modularGroups.forEach(sc=>{
-          sc.group.children.forEach(o=>{
-            o.rotation.y+=o.userData.rotationSpeed||0;
-          });
-          sc.controls.update();
-          sc.renderer.render(sc.scene,sc.camera);
+          sc.group.children.forEach(o=>{ o.rotation.y+=o.userData.rotationSpeed||0; });
+          sc.controls.update(); sc.renderer.render(sc.scene, sc.camera);
         });
       }
     }
 
-    // — Init Completo —
     function init(){
       initCustomCursor();
       populatePermutationList();
       populateAttributeMappingSelect();
       applyEmbedParams();
 
-      // Global
-      scene=new THREE.Scene();
-      scene.background=new THREE.Color(0xffffff);
+      // Global canvas
+      scene=new THREE.Scene(); scene.background=new THREE.Color(0xffffff);
       camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
       renderer=new THREE.WebGLRenderer({antialias:true});
@@ -818,43 +689,36 @@
       controls=new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableDamping=true; controls.enableZoom=true;
       scene.add(new THREE.AmbientLight(0xffffff,0.8));
-      const dirG=new THREE.DirectionalLight(0xffffff,0.5);
-      dirG.position.set(1,1,1);
+      let dirG=new THREE.DirectionalLight(0xffffff,0.5); dirG.position.set(1,1,1);
       scene.add(dirG);
       cubeUniverse=new THREE.Mesh(
         new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
         new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide})
       );
       scene.add(cubeUniverse);
-      permutationGroup=new THREE.Group();
-      scene.add(permutationGroup);
-      raycaster=new THREE.Raycaster();
-      mouse=new THREE.Vector2();
+      permutationGroup=new THREE.Group(); scene.add(permutationGroup);
+      raycaster=new THREE.Raycaster(); mouse=new THREE.Vector2();
       window.addEventListener('mousemove',onMouseMove);
       window.addEventListener('resize',onWindowResize);
 
-      // Modular
+      // Modular canvases
       initSubCanvases();
 
-      // Modo inicial
-      setMode('manual');
+      // Inicio
+      setMode("manual");
       updateScene(false);
-
-      // Lanzar loop
       animateAll();
     }
-
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
       modularGroups.forEach(sc=>{
-        const w=sc.div.clientWidth, h=sc.div.clientHeight;
+        let w=sc.div.clientWidth, h=sc.div.clientHeight;
         sc.camera.aspect=w/h; sc.camera.updateProjectionMatrix();
         sc.renderer.setSize(w,h);
       });
     }
-
     // Arranque
     init();
   </script>
