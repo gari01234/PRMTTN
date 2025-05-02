@@ -88,7 +88,14 @@
         <button onclick="updateScene()">Visualizar Permutación</button>
       </details>
     </div>
-        <details>
+    <div id="evolutionControls" style="display:none;">
+      <details open>
+        <summary>Parámetros Evolutivos</summary>
+        <button onclick="applyEvolution()">Aplicar Evolución</button>
+        <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
+      </details>
+    </div>
+    <details>
       <summary>Seleccionar Colores Permutaciones</summary>
       <div><label>1: <input type="color" id="color1" value="#ff0000"></label></div>
       <div><label>2: <input type="color" id="color2" value="#00ff00"></label></div>
