@@ -70,10 +70,27 @@
   <div id="customCursor"></div>
   <div id="topRightDisplay"></div>
 
-  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
-  <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
-  <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
-  <button id="exportEmbedButton" disabled title="Próximamente">Guardar (embed)</button>
+  <button id="randomConfigButton" onclick="generateRandomConfiguration()">
+    Configuración Aleatoria
+  </button>
+  <button id="evolutionAIButton" onclick="applyEvolutionAI()">
+    Evolución AI
+  </button>
+  <button id="saveImageButton" onclick="saveImage()">
+    Guardar Imagen
+  </button>
+  <button id="exportEmbedButton">
+    Exportar Configuración
+  </button>
+  <button id="importEmbedButton">
+    Cargar Configuración
+  </button>
+  <input
+    type="file"
+    id="importEmbedInput"
+    accept="application/json"
+    style="display: none;"
+  />
 
   <div id="controls">
     <details open>
