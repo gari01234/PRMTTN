@@ -456,26 +456,42 @@
     }
 
     // — Generación Aleatoria —
-    function generateRandomConfiguration(){
-      const sel=document.getElementById('permutationList');
-      Array.from(sel.options).forEach(o=>o.selected=false);
-      const n=Math.floor(Math.random()*5)+1;
-      for(let i=0;i<n;i++){
-        const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
-        sel.querySelector(`option[value="${val}"]`).selected=true;
-      }
-      const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
-            wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      document.getElementById('bgColor').value=bg; updateBackground();
-      document.getElementById('cubeColor').value=wall; updateCubeColor();
-      let pool=shuffle(CUSTOM_COLORS.slice());
-      for(let i=1;i<=5;i++){
-        const hex=pool.shift();
-        colorMapping[i]=hex;
-        document.getElementById('color'+i).value=hex;
-      }
-      updateScene(false);
-    }
+    function generateRandomConfiguration() {
+  const sel = document.getElementById("permutationList");
+
+  Array.from(sel.options).forEach(o => (o.selected = false));
+
+  const pool = shuffle(permutationStrings.slice());
+
+  const n = Math.floor(Math.random() * pool.length) + 1;
+
+  const selection = pool.slice(0, n);
+
+  selection.forEach(val => {
+    const opt = sel.querySelector(`option[value="${val}"]`);
+    if (opt) opt.selected = true;
+  });
+
+  const bg =
+    CUSTOM_COLORS[Math.floor(Math.random() * CUSTOM_COLORS.length)];
+  const wall =
+    CUSTOM_COLORS[Math.floor(Math.random() * CUSTOM_COLORS.length)];
+  document.getElementById("bgColor").value = bg;
+  updateBackground();
+  document.getElementById("cubeColor").value = wall;
+  updateCubeColor();
+
+  const colorPool = shuffle(CUSTOM_COLORS.slice());
+  for (let i = 1; i <= 5; i++) {
+    const hex = colorPool.shift();
+    colorMapping[i] = hex;
+    const inp = document.getElementById("color" + i);
+    if (inp) inp.value = hex;
+  }
+  updateColorMapping();
+
+  updateScene(false);
+}
 
     // — Rating interactividad —
     document.querySelectorAll('.ratingBtn').forEach(el=>{
@@ -525,8 +541,8 @@ estas propiedades opcionales:
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
-      const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Sugiéreme evolución estética basándote en teorías de color, proporción y armonía.`;
+      const userPrompt = 
+                        `Sugiéreme evolución estética basándote en teorías de color, proporción, arte, belleza, estética y armonía.`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
