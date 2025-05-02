@@ -75,14 +75,7 @@
   <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
   <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
   <button id="exportEmbedButton" onclick="exportEmbed()">Guardar</button>
-  <button id="exportEmbedButton">Exportar Configuración</button>
-  <button id="importEmbedButton">Cargar Configuración</button>
-  <input
-    type="file"
-    id="importEmbedInput"
-    accept="application/json"
-    style="display:none;"
-  />
+
   <div id="ratingContainer">
     <details open>
       <summary>Calificar Configuración</summary>
@@ -752,95 +745,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       renderer.render(scene,camera);
     }
     init();
-// — Embed real: export/import de configuración —
-
-function collectEmbedConfig() {
-  const permSelect = document.getElementById("permutationList");
-  const perms = Array.from(permSelect.selectedOptions).map(o => o.value);
-
-  const attrMapSelect = document.getElementById("attrMapping");
-  const attrMap = Array.from(attrMapSelect.selectedOptions).map(o => o.value);
-
-  const colors = {};
-  for (let i = 1; i <= 5; i++) {
-    const inp = document.getElementById("color" + i);
-    colors[i] = inp ? inp.value : null;
-  }
-
-  return {
-    perms,
-    attrMap,
-    colors,
-    bgColor: document.getElementById("bgColor").value,
-    cubeColor: document.getElementById("cubeColor").value,
-    view: document.getElementById("standardView").value
-  };
-}
-
-function exportEmbed() {
-  const cfg = collectEmbedConfig();
-  const blob = new Blob([JSON.stringify(cfg, null, 2)], {
-    type: "application/json"
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "config.json";
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function importEmbed(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const cfg = JSON.parse(reader.result);
-
-      const permSelect = document.getElementById("permutationList");
-      Array.from(permSelect.options).forEach(o => {
-        o.selected = cfg.perms.includes(o.value);
-      });
-
-      const attrMapSelect = document.getElementById("attrMapping");
-      Array.from(attrMapSelect.options).forEach(o => {
-        o.selected = cfg.attrMap.includes(o.value);
-      });
-
-      for (let i = 1; i <= 5; i++) {
-        const inp = document.getElementById("color" + i);
-        if (inp && cfg.colors[i]) inp.value = cfg.colors[i];
-      }
-
-      document.getElementById("bgColor").value = cfg.bgColor;
-      updateBackground();
-      document.getElementById("cubeColor").value = cfg.cubeColor;
-      updateCubeColor();
-      document.getElementById("standardView").value = cfg.view;
-      applyStandardView();
-
-      updateScene();
-    } catch (err) {
-      alert("Error al importar config: " + err.message);
-    }
-  };
-  reader.readAsText(file);
-}
-
-document
-  .getElementById("exportEmbedButton")
-  .addEventListener("click", exportEmbed);
-document
-  .getElementById("importEmbedButton")
-  .addEventListener("click", () =>
-    document.getElementById("importEmbedInput").click()
-  );
-document
-  .getElementById("importEmbedInput")
-  .addEventListener("change", importEmbed);
-
-// — fin embed real —
   </script>
 </body>
 </html>
