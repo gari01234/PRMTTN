@@ -70,27 +70,27 @@
   <div id="customCursor"></div>
   <div id="topRightDisplay"></div>
 
-  <button id="randomConfigButton" onclick="generateRandomConfiguration()">
-    Configuración Aleatoria
-  </button>
-  <button id="evolutionAIButton" onclick="applyEvolutionAI()">
-    Evolución AI
-  </button>
-  <button id="saveImageButton" onclick="saveImage()">
-    Guardar Imagen
-  </button>
-  <button id="exportEmbedButton">
-    Exportar Configuración
-  </button>
-  <button id="importEmbedButton">
-    Cargar Configuración
-  </button>
-  <input
-    type="file"
-    id="importEmbedInput"
-    accept="application/json"
-    style="display: none;"
-  />
+  <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
+  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
+  <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
+  <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
+  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar</button>
+
+  <div id="ratingContainer">
+    <details open>
+      <summary>Calificar Configuración</summary>
+      <div id="ratingControls">
+        <div id="ratingLabels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+        <div id="ratingDots">
+          <span class="ratingBtn" data-rating="1">●</span>
+          <span class="ratingBtn" data-rating="2">●</span>
+          <span class="ratingBtn" data-rating="3">●</span>
+          <span class="ratingBtn" data-rating="4">●</span>
+          <span class="ratingBtn" data-rating="5">●</span>
+        </div>
+      </div>
+    </details>
+  </div>
 
   <div id="controls">
     <details open>
@@ -108,6 +108,8 @@
     <div id="evolutionControls" style="display:none;">
       <details open>
         <summary>Parámetros Evolutivos</summary>
+        <p>Tasa de Mutación: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
+        <p>Umbral de Cambio: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
         <button onclick="applyEvolution()">Aplicar Evolución</button>
         <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
       </details>
@@ -456,42 +458,26 @@
     }
 
     // — Generación Aleatoria —
-    function generateRandomConfiguration() {
-  const sel = document.getElementById("permutationList");
-
-  Array.from(sel.options).forEach(o => (o.selected = false));
-
-  const pool = shuffle(permutationStrings.slice());
-
-  const n = Math.floor(Math.random() * pool.length) + 1;
-
-  const selection = pool.slice(0, n);
-
-  selection.forEach(val => {
-    const opt = sel.querySelector(`option[value="${val}"]`);
-    if (opt) opt.selected = true;
-  });
-
-  const bg =
-    CUSTOM_COLORS[Math.floor(Math.random() * CUSTOM_COLORS.length)];
-  const wall =
-    CUSTOM_COLORS[Math.floor(Math.random() * CUSTOM_COLORS.length)];
-  document.getElementById("bgColor").value = bg;
-  updateBackground();
-  document.getElementById("cubeColor").value = wall;
-  updateCubeColor();
-
-  const colorPool = shuffle(CUSTOM_COLORS.slice());
-  for (let i = 1; i <= 5; i++) {
-    const hex = colorPool.shift();
-    colorMapping[i] = hex;
-    const inp = document.getElementById("color" + i);
-    if (inp) inp.value = hex;
-  }
-  updateColorMapping();
-
-  updateScene(false);
-}
+    function generateRandomConfiguration(){
+      const sel=document.getElementById('permutationList');
+      Array.from(sel.options).forEach(o=>o.selected=false);
+      const n=Math.floor(Math.random()*5)+1;
+      for(let i=0;i<n;i++){
+        const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        sel.querySelector(`option[value="${val}"]`).selected=true;
+      }
+      const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
+            wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
+      document.getElementById('bgColor').value=bg; updateBackground();
+      document.getElementById('cubeColor').value=wall; updateCubeColor();
+      let pool=shuffle(CUSTOM_COLORS.slice());
+      for(let i=1;i<=5;i++){
+        const hex=pool.shift();
+        colorMapping[i]=hex;
+        document.getElementById('color'+i).value=hex;
+      }
+      updateScene(false);
+    }
 
     // — Rating interactividad —
     document.querySelectorAll('.ratingBtn').forEach(el=>{
@@ -541,8 +527,8 @@ estas propiedades opcionales:
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
-      const userPrompt = 
-                        `Sugiéreme evolución estética basándote en teorías de color, proporción, arte, belleza, estética y armonía.`;
+      const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
+                       + `Sugiéreme evolución estética basándote en teorías de color, proporción y armonía.`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
