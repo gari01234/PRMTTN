@@ -160,6 +160,11 @@
       <button onclick="togglePause()">Pausar Movimiento</button>
       <button onclick="resetMovement()">Resetear Movimiento</button>
     </details>
+<details>
+  <summary>⋆ NFT</summary>
+  <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
+</details>
+  
   </div>
 
   <div id="hoverPopup"></div>
@@ -167,6 +172,8 @@
   <!-- Three.js & OrbitControls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Ethers.js -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
 
   <script>
     // === LISTA DE 120 COLORES ===
@@ -745,6 +752,39 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       renderer.render(scene,camera);
     }
     init();
+  </script>
+  <script>
+    // --- Web3 Initialization ---
+    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
+    const contractABI = [/* ABI JSON here */];
+    let provider, signer, contract;
+    async function initWeb3() {
+      if (window.ethereum) {
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
+      } else {
+        console.warn("MetaMask no detectado");
+      }
+    }
+    window.addEventListener("load", initWeb3);
+
+    // --- Mint NFT Function ---
+    async function mintNFT() {
+      if (!contract) { alert("Wallet no conectada"); return; }
+      try {
+        const hash = await computeConfigHash();
+        const tokenURI = `https://my-server.com/metadata/${hash}.json`;
+        const tx = await contract.mint(await signer.getAddress(), tokenURI);
+        await tx.wait();
+        alert("NFT acuñado! Hash: " + hash);
+      } catch(e) {
+        console.error(e);
+        alert("Error mint NFT: " + e.message);
+      }
+    }
+    document.getElementById("btn-mint").addEventListener("click", mintNFT);
   </script>
 </body>
 </html>
