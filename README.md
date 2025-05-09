@@ -2,12 +2,6 @@
 
 https://gari01234.github.io/PRMTTN/
 
-Perfecto. Ya he releído a fondo todos los textos del documento Word que me compartiste, los he cruzado con tus instrucciones recientes, y he consultado material externo para enriquecer las partes técnicas y conceptuales más críticas del proyecto.
-
-Comenzaré con la **Sección 1 del marco teórico detallado**, redactada con estilo realista y estructural, con subtítulos internos, integrando todos los planos del proyecto (matemático, visual, biológico, criptográfico, tecnológico, artístico) y dejando claro que el lenguaje visual para IA es solo una parte —importante pero no única— del sistema. Esta sección será sólida y funcionará como base para el resto.
-
-Aquí tienes la **Sección 1: Fundamentos y Estructura General del Proyecto**.
-
 ---
 
 ### 1. Fundamentos y Estructura General del Proyecto
