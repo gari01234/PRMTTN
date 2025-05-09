@@ -786,5 +786,60 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
   </script>
+<script>
+/* ───────── 1. Constante global  ───────── */
+window.MAX_PERMUTATIONS = 25;
+
+/* ───────── 2. Utilidades WCAG  ───────── */
+function _srgbLin(v){v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4;}
+function _lum(r,g,b){return 0.2126*_srgbLin(r)+0.7152*_srgbLin(g)+0.0722*_srgbLin(b);}
+function _best(r,g,b){return _lum(r,g,b)>0.179?'#000':'#fff';}
+function _applyColor(c){
+  document.querySelectorAll(
+    'details>summary,.popup,.label,#topRightDisplay,button'
+  ).forEach(el=>el.style.color=c);
+}
+
+/* ───────── 3. Reenvuelve updateBackground  ───────── */
+if(typeof updateBackground==='function'){
+  const _origUB=updateBackground;
+  window.updateBackground=function(){
+    _origUB();                               // tu color habitual
+    const col=scene.background;
+    if(col instanceof THREE.Color){
+      const r=Math.round(col.r*255),g=Math.round(col.g*255),b=Math.round(col.b*255);
+      _applyColor(_best(r,g,b));
+    }
+  };
+}
+
+/* ───────── 4. Límite en addPermutation  ───────── */
+if(typeof addPermutation==='function'){
+  const _origAdd=addPermutation;
+  window.addPermutation=function(perm){
+    if(window.permutationMeshes && permutationMeshes.length>=MAX_PERMUTATIONS){
+      alert('Máximo de 25 permutaciones alcanzado');
+      return;
+    }
+    return _origAdd(perm);
+  };
+}
+
+/* ───────── 5. Límite en Evolución AI  ───────── */
+['applyEvolutionAI','evolveAI'].forEach(fnName=>{
+  if(typeof window[fnName]==='function'){
+    const _orig=window[fnName];
+    window[fnName]=function(...args){
+      _orig.apply(this,args);
+      if(window.permutationMeshes){
+        while(permutationMeshes.length>MAX_PERMUTATIONS){
+          const m=permutationMeshes.pop();
+          scene.remove(m);
+        }
+      }
+    };
+  }
+});
+</script>
 </body>
 </html>
