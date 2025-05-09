@@ -787,51 +787,58 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
   </script>
 <script>
-/* ───────── 1. Constante global  ───────── */
-window.MAX_PERMUTATIONS = 25;
-
-/* ───────── 2. Utilidades WCAG  ───────── */
-function _srgbLin(v){v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4;}
-function _lum(r,g,b){return 0.2126*_srgbLin(r)+0.7152*_srgbLin(g)+0.0722*_srgbLin(b);}
-function _best(r,g,b){return _lum(r,g,b)>0.179?'#000':'#fff';}
-function _applyColor(c){
-  document.querySelectorAll(
-    'details>summary,.popup,.label,#topRightDisplay,button'
-  ).forEach(el=>el.style.color=c);
+/* 1. Constante global (solo si no existe) */
+if(typeof window.MAX_PERMUTATIONS==='undefined'){
+  window.MAX_PERMUTATIONS = 25;
 }
 
-/* ───────── 3. Reenvuelve updateBackground  ───────── */
-if(typeof updateBackground==='function'){
-  const _origUB=updateBackground;
-  window.updateBackground=function(){
-    _origUB();                               // tu color habitual
-    const col=scene.background;
-    if(col instanceof THREE.Color){
-      const r=Math.round(col.r*255),g=Math.round(col.g*255),b=Math.round(col.b*255);
-      _applyColor(_best(r,g,b));
-    }
+/* 2. Funciones de contraste */
+function _srgbLin(v){v/=255;return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);}
+function _lum(r,g,b){return 0.2126*_srgbLin(r)+0.7152*_srgbLin(g)+0.0722*_srgbLin(b);} 
+function _bestText(r,g,b){return _lum(r,g,b)>0.179?'#000':'#fff';}
+function _applyTextColor(col){
+  document.querySelectorAll('details>summary,.popup,.label,#topRightDisplay,button')
+          .forEach(el=>el.style.color=col);
+}
+
+/* 3. Envoltura de setUniverseBg() para cambiar texto */
+if(typeof window.setUniverseBg==='function'){
+  const _origBg=window.setUniverseBg;
+  window.setUniverseBg=function(c){
+    _origBg(c);                                         // llamada original
+    const r=parseInt(c.substr(1,2),16),
+          g=parseInt(c.substr(3,2),16),
+          b=parseInt(c.substr(5,2),16);
+    _applyTextColor(_bestText(r,g,b));
   };
 }
 
-/* ───────── 4. Límite en addPermutation  ───────── */
-if(typeof addPermutation==='function'){
-  const _origAdd=addPermutation;
-  window.addPermutation=function(perm){
-    if(window.permutationMeshes && permutationMeshes.length>=MAX_PERMUTATIONS){
-      alert('Máximo de 25 permutaciones alcanzado');
-      return;
+/* 4. Límite en updateScene() */
+if(typeof window.updateScene==='function'){
+  const _origUpdateScene=window.updateScene;
+  window.updateScene=function(recomputeLabels=true){
+    // Antes de llamar a la versión original, recorta selección a 25
+    const sel=document.getElementById('permutationList');
+    if(sel){
+      const opts=Array.from(sel.selectedOptions);
+      if(opts.length>MAX_PERMUTATIONS){
+        alert('Máximo de 25 permutaciones alcanzado');
+        // deselecciona excedentes
+        opts.slice(MAX_PERMUTATIONS).forEach(o=>o.selected=false);
+      }
     }
-    return _origAdd(perm);
+    _origUpdateScene(recomputeLabels);
   };
 }
 
-/* ───────── 5. Límite en Evolución AI  ───────── */
-['applyEvolutionAI','evolveAI'].forEach(fnName=>{
-  if(typeof window[fnName]==='function'){
-    const _orig=window[fnName];
-    window[fnName]=function(...args){
+/* 5. Límite en applyEvolutionAI() / evolveAI() */
+['applyEvolutionAI','evolveAI'].forEach(fn=>{
+  if(typeof window[fn]==='function'){
+    const _orig=window[fn];
+    window[fn]=function(...args){
       _orig.apply(this,args);
-      if(window.permutationMeshes){
+      if(window.permutationMeshes && permutationMeshes.length>MAX_PERMUTATIONS){
+        // elimina los extra
         while(permutationMeshes.length>MAX_PERMUTATIONS){
           const m=permutationMeshes.pop();
           scene.remove(m);
@@ -840,6 +847,9 @@ if(typeof addPermutation==='function'){
     };
   }
 });
+
+// 6. Aplica color de texto inicial (negro sobre gris por defecto)
+_applyTextColor('#000');
 </script>
 </body>
 </html>
