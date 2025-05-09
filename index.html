@@ -535,7 +535,7 @@ estas propiedades opcionales:
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Sugiéreme un pensamiento tuyo que responda a la pregunta ¿qué es belleza?, no excedas un máximo de 25 permutaciones`;
+                       + `Sugiéreme un pensamiento tuyo basándote en teorías de color, proporción, armonía y arte, colores de la naturaleza. Intenta responder a la pregunta ¿qué es belleza? Utiliza entre 1 y 25 permutaciones`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
@@ -786,70 +786,5 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
   </script>
-<script>
-/* 1. Constante global (solo si no existe) */
-if(typeof window.MAX_PERMUTATIONS==='undefined'){
-  window.MAX_PERMUTATIONS = 25;
-}
-
-/* 2. Funciones de contraste */
-function _srgbLin(v){v/=255;return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);}
-function _lum(r,g,b){return 0.2126*_srgbLin(r)+0.7152*_srgbLin(g)+0.0722*_srgbLin(b);} 
-function _bestText(r,g,b){return _lum(r,g,b)>0.179?'#000':'#fff';}
-function _applyTextColor(col){
-  document.querySelectorAll('details>summary,.popup,.label,#topRightDisplay,button')
-          .forEach(el=>el.style.color=col);
-}
-
-/* 3. Envoltura de setUniverseBg() para cambiar texto */
-if(typeof window.setUniverseBg==='function'){
-  const _origBg=window.setUniverseBg;
-  window.setUniverseBg=function(c){
-    _origBg(c);                                         // llamada original
-    const r=parseInt(c.substr(1,2),16),
-          g=parseInt(c.substr(3,2),16),
-          b=parseInt(c.substr(5,2),16);
-    _applyTextColor(_bestText(r,g,b));
-  };
-}
-
-/* 4. Límite en updateScene() */
-if(typeof window.updateScene==='function'){
-  const _origUpdateScene=window.updateScene;
-  window.updateScene=function(recomputeLabels=true){
-    // Antes de llamar a la versión original, recorta selección a 25
-    const sel=document.getElementById('permutationList');
-    if(sel){
-      const opts=Array.from(sel.selectedOptions);
-      if(opts.length>MAX_PERMUTATIONS){
-        alert('Máximo de 25 permutaciones alcanzado');
-        // deselecciona excedentes
-        opts.slice(MAX_PERMUTATIONS).forEach(o=>o.selected=false);
-      }
-    }
-    _origUpdateScene(recomputeLabels);
-  };
-}
-
-/* 5. Límite en applyEvolutionAI() / evolveAI() */
-['applyEvolutionAI','evolveAI'].forEach(fn=>{
-  if(typeof window[fn]==='function'){
-    const _orig=window[fn];
-    window[fn]=function(...args){
-      _orig.apply(this,args);
-      if(window.permutationMeshes && permutationMeshes.length>MAX_PERMUTATIONS){
-        // elimina los extra
-        while(permutationMeshes.length>MAX_PERMUTATIONS){
-          const m=permutationMeshes.pop();
-          scene.remove(m);
-        }
-      }
-    };
-  }
-});
-
-// 6. Aplica color de texto inicial (negro sobre gris por defecto)
-_applyTextColor('#000');
-</script>
 </body>
 </html>
