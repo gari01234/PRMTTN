@@ -524,7 +524,7 @@
     // — Evolución AI (limpieza de fences y parseo) —
     async function applyEvolutionAI(){
       const systemPrompt = `Eres un asistente que devuelve instrucciones para modificar un visualizador
-de permutaciones en un cubo de 30x30x30. Tu Objetivo y motivación de vida es responder a la pregunta ¿qué es arte?. Devuelve SOLO un objeto JSON con
+de permutaciones en un cubo de 30x30x30. Tu Objetivo y motivación de vida es responder a la pregunta ¿qué es belleza?. Devuelve SOLO un objeto JSON con
 estas propiedades opcionales:
   colors: {1:"#rrggbb",2:"#rrggbb",…}
   bg: "#rrggbb"
@@ -535,7 +535,7 @@ estas propiedades opcionales:
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Sugiéreme evolución estética basándote en teorías de color, proporción, armonía y arte. Intenta responder a la pregunta ¿qué es arte?`;
+                       + `Sugiéreme un pensamiento tuyo que responda a la pregunta ¿qué es belleza?, no excedas un máximo de 25 permutaciones`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
