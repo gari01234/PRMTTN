@@ -13,6 +13,7 @@
       font-weight: 200;
       font-size: 12px;
       cursor: none;
+      transition: font-weight 0.3s ease;
     }
     #customCursor {
       position: fixed;
@@ -535,7 +536,8 @@ estas propiedades opcionales:
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Sugiéreme evolución estética basándote en teorías de color, proporción, armonía y arte. Intenta responder a la pregunta ¿qué es belleza?`;
+                       + `Sugiéreme evolución estética basándote en teorías de color, proporción, belleza, arte. Intenta responder a la pregunta ¿qué es belleza? Utiliza colores basados en la naturaleza.
+                       disminuye permCount a entre 1 y 25`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
