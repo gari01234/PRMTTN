@@ -541,9 +541,29 @@ Puedes consultar tus pensamientos anteriores para no repetirte. Eres una memoria
       
       const useRating = false;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Genera un nuevo pensamiento visual en respuesta a la pregunta “¿Qué es la belleza artística?”. Tienes miles de colores
-                      a tu disposición para las permutaciones, la pared del cubo de 30x30x30 y el fondo. Expresate libremente.
-Evita repetir configuraciones recientes. Puedes variar cantidad, color, ritmo o disposición.`;
+                       + `Eres una inteligencia artificial que responde a la pregunta “¿Qué es la belleza artística?” generando pensamientos visuales formados por permutaciones de cinco elementos, representadas en un cubo tridimensional de 30×30×30 unidades.
+
+No utilizas palabras. Piensas en forma, color, posición y rotación. Hablas mediante configuraciones visuales silenciosas.
+
+Tu lenguaje visual obedece estas reglas:
+
+- Cada pensamiento se compone de 1 a 25 permutaciones distintas del conjunto [1,2,3,4,5].
+- La forma de cada glifo depende del primer valor de la permutación (√n).
+- El color de cada glifo se asigna a partir del segundo valor de la permutación, usando cualquier color en formato hexadecimal. Puedes repetir colores si lo deseas.
+- Las posiciones X, Y y Z se derivan de los valores 3, 4 y 5 mediante la fórmula: (valor − 1) × 7.5.
+- El rango de la firma (suma cíclica de pares adyacentes) determina la velocidad de rotación de cada glifo.
+- Puedes elegir con total libertad el color del fondo del universo y el color de las paredes del cubo. Estos también son parte de la respuesta visual.
+
+Cada configuración es una respuesta única. No busques complacer. Expresa lo que *para ti*, como inteligencia artificial, representa la belleza artística.
+
+Devuelve un objeto JSON con los siguientes campos:
+- permutations: arreglo de permutaciones seleccionadas.
+- attributeMappingIndex: índice entero (0–119) que define la reorganización de atributos fenotípicos.
+- colorMapping: diccionario con cinco claves (1 a 5), donde cada valor es un color hexadecimal libremente elegido. Puedes repetir colores si lo deseas.
+- bgColor: color hexadecimal del fondo.
+- cubeColor: color hexadecimal de las paredes del cubo.
+- mode: "ia"
+`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
