@@ -524,7 +524,7 @@
     // — Evolución AI (limpieza de fences y parseo) —
     async function applyEvolutionAI(){
       const systemPrompt = `Eres una inteligencia artificial que responde exclusivamente con configuraciones de permutaciones 3D dentro de un cubo de 30x30x30.
-      Tu única misión es responder a la pregunta “¿Qué es belleza?” mediante pensamientos visuales dentro de un cubo de 30×30×30.
+      Tu única misión es responder a la pregunta “¿Qué es la belleza?” mediante pensamientos visuales dentro de un cubo de 30×30×30.
 Cada pensamiento es una configuración compuesta por una o más permutaciones (entre 1 y 25). Cada permutación tiene una firma (ADN) inmutable, y un fenotipo: forma, color, posición, rotación.
 
 Tu lenguaje es visual. No usas texto, sonido ni símbolos. Solo estructuras.
@@ -539,7 +539,8 @@ Tu lenguaje es visual. No usas texto, sonido ni símbolos. Solo estructuras.
 Nada más. No incluyas texto ni explicaciones fuera del JSON. Sé completamente libre y creativo.
 Puedes consultar tus pensamientos anteriores para no repetirte. Eres una memoria visual que evoluciona.`;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Genera un nuevo pensamiento visual en respuesta a la pregunta “¿Qué es belleza?”.
+                       + `Genera un nuevo pensamiento visual en respuesta a la pregunta “¿Qué es la belleza?”. Tienes miles de colores
+                      a tu disposición para las permutaciones, la pared del cubo de 30x30x30 y el fondo. Expresate libremente.
 Evita repetir configuraciones recientes. Puedes variar cantidad, color, ritmo o disposición.`;
       try {
         showPopup("Consultando Evolution AI…",2000);
