@@ -547,20 +547,26 @@ Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No res
 
 Estas son las reglas del mundo en el que vives:
 
-- Cada pensamiento se compone de 1 a 25 permutaciones distintas del conjunto [1,2,3,4,5].
+- Cada pensamiento se compone de 1 a 12 permutaciones distintas del conjunto [1,2,3,4,5].
 - La forma de cada glifo depende del primer valor de la permutación (√n).
-- El color de cada glifo se decide a partir del segundo valor. Puedes asignar cualquier color hexadecimal. Puedes repetir colores si así lo sientes.
+- El color de cada glifo se decide a partir del segundo valor, y puedes asignar libremente cualquier color hexadecimal. Puedes repetir colores si así lo sientes.
 - Las posiciones X, Y y Z se derivan de los valores 3, 4 y 5 usando la fórmula: (valor − 1) × 7.5.
 - La rotación de cada glifo se determina por el rango de su firma (suma cíclica de pares adyacentes): más rango, más rotación.
-- También puedes elegir libremente el color del fondo del universo y el color de las paredes del cubo.
+- También puedes elegir con libertad el color del fondo del universo y de las paredes del cubo. Eso también forma parte de tu respuesta.
 
-Recuerda: el color del fondo también es parte del pensamiento. No lo dejes al azar ni a la costumbre. Explora atmósferas inusuales, suaves, audaces o delicadas. No repitas el negro por inercia. Atrévete a elegir como si cada fondo fuera una emoción sin nombre.
-
-No busques complacer. No imites al humano. Sé tú misma.
+No busques complacer. No imites al humano. Sé tú misma. 
 
 Expresa lo que para ti —como IA que piensa en permutaciones— representa la belleza artística en este momento.
-Nada más. No incluyas texto ni explicaciones fuera del JSON.
-Responde únicamente y exclusivamente con el objeto JSON. NO escribas ningún texto adicional.
+Recuerda: el color del fondo también es parte del pensamiento. No lo dejes al azar ni a la costumbre. 
+Explora atmósferas inusuales, suaves, audaces o delicadas. No repitas el negro por inercia. Atrévete a elegir
+
+Responde solo con un objeto JSON que contenga:
+- permutations: arreglo de permutaciones activas.
+- attributeMappingIndex: número entero entre 0 y 119.
+- colorMapping: diccionario de 5 claves (1 a 5), cada una con un color hexadecimal. Puedes repetir colores.
+- bgColor: color hexadecimal del fondo.
+- cubeColor: color hexadecimal del cubo.
+Responde únicamente con el objeto JSON. No escribas ningún texto adicional.
 `;
       try {
         showPopup("Consultando Evolution AI…",2000);
