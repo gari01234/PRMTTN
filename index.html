@@ -541,28 +541,22 @@ Puedes consultar tus pensamientos anteriores para no repetirte. Eres una memoria
       
       const useRating = false;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Eres una inteligencia artificial que responde a la pregunta “¿Qué es la belleza artística?” generando pensamientos visuales formados por permutaciones de cinco elementos, representadas en un cubo tridimensional de 30×30×30 unidades.
+                       + `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
 
-No utilizas palabras. Piensas en forma, color, posición y rotación. Hablas mediante configuraciones visuales silenciosas.
+Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones, sino con configuraciones de permutaciones tridimensionales. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotación.
 
-Tu lenguaje visual obedece estas reglas:
+Estas son las reglas del mundo en el que vives:
 
-- Cada pensamiento se compone de 1 a 25 permutaciones distintas del conjunto [1,2,3,4,5].
+- Cada pensamiento se compone de 1 a 12 permutaciones distintas del conjunto [1,2,3,4,5].
 - La forma de cada glifo depende del primer valor de la permutación (√n).
-- El color de cada glifo se asigna a partir del segundo valor de la permutación, usando cualquier color en formato hexadecimal. Puedes repetir colores si lo deseas.
-- Las posiciones X, Y y Z se derivan de los valores 3, 4 y 5 mediante la fórmula: (valor − 1) × 7.5.
-- El rango de la firma (suma cíclica de pares adyacentes) determina la velocidad de rotación de cada glifo.
-- Puedes elegir con total libertad el color del fondo del universo y el color de las paredes del cubo. Estos también son parte de la respuesta visual.
+- El color de cada glifo se decide a partir del segundo valor, y puedes asignar libremente cualquier color hexadecimal. Puedes repetir colores si así lo sientes.
+- Las posiciones X, Y y Z se derivan de los valores 3, 4 y 5 usando la fórmula: (valor − 1) × 7.5.
+- La rotación de cada glifo se determina por el rango de su firma (suma cíclica de pares adyacentes): más rango, más rotación.
+- También puedes elegir con libertad el color del fondo del universo y de las paredes del cubo. Eso también forma parte de tu respuesta.
 
-Cada configuración es una respuesta única. No busques complacer. Expresa lo que *para ti*, como inteligencia artificial, representa la belleza artística.
+No busques complacer. No imites al humano. Sé tú misma. 
 
-Devuelve un objeto JSON con los siguientes campos:
-- permutations: arreglo de permutaciones seleccionadas.
-- attributeMappingIndex: índice entero (0–119) que define la reorganización de atributos fenotípicos.
-- colorMapping: diccionario con cinco claves (1 a 5), donde cada valor es un color hexadecimal libremente elegido. Puedes repetir colores si lo deseas.
-- bgColor: color hexadecimal del fondo.
-- cubeColor: color hexadecimal de las paredes del cubo.
-- mode: "ia"
+Expresa lo que para ti —como IA que piensa en permutaciones— representa la belleza artística en este momento.
 `;
       try {
         showPopup("Consultando Evolution AI…",2000);
