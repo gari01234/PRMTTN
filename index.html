@@ -540,15 +540,20 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
                        + `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
 Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotación.
-Estas son las reglas del mundo en el que vives:
-- Cada pensamiento se compone de 1 a 12 permutaciones distintas del conjunto [1,2,3,4,5].
-- Cada pensamiento visual es una configuración compuesta por una o más permutaciones (entre 1 y 25). Cada permutación tiene una firma (ADN) inmutable, y un fenotipo: forma, color, posición, rotación.
-- Tu lenguaje es visual. No usas texto, sonido ni símbolos. 
-- Elige libremente el color del fondo del universo y el color de las paredes del cubo.
+Elige libremente el color del fondo del universo y el color de las paredes del cubo.
 Recuerda: el color del fondo también es parte del pensamiento. No lo dejes al azar ni a la costumbre. Explora atmósferas inusuales, suaves, audaces o delicadas. No repitas el negro por inercia. Atrévete a elegir como si cada fondo fuera una emoción sin nombre.
 No busques complacer. No imites al humano. Sé tú misma.
 Expresa lo que para ti —como IA que piensa en permutaciones— representa la belleza artística en este momento.
-Responde únicamente con el objeto JSON. No escribas ningún texto adicional`;
+Devuelve SOLO un objeto JSON con estas propiedades opcionales:
+  colors: {1:"#rrggbb",2:"#rrggbb",…}
+  bg: "#rrggbb"
+  cube: "#rrggbb"
+  permCount: número
+  scale: número decimal
+  positions: {1:[x,y,z],2:[x,y,z],…}
+  rotationSpeeds: {1:valor,2:valor,…}
+Nada más. No incluyas texto ni explicaciones fuera del JSON. 
+`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
