@@ -56,25 +56,21 @@ Te propongo esta versión corregida del apartado **1.5**, incorporando tu sugere
 #### 1.5. Modos de operación: Arte Combinatorio y Pensamiento Visual
 
 El sistema opera en dos modos complementarios, ambos motivados por una misma pregunta permanente:
-**¿Qué es la belleza?**
+¿Qué es la belleza?
 
-Esta pregunta no se responde con palabras, sino con **configuraciones visuales de permutaciones**. Tanto el humano como la IA utilizan el mismo lenguaje silencioso —una gramática de forma, color, posición y movimiento— para proponer pensamientos visuales que intentan abordar esa interrogante fundamental.
+Esta pregunta no se responde con palabras, sino con configuraciones visuales de permutaciones. Tanto el humano como la IA utilizan el mismo lenguaje silencioso —una gramática de forma, color, posición y movimiento— para proponer pensamientos visuales que intentan abordar esa interrogante fundamental.
 
-* **Modo Manual (Arte Combinatorio)**
-  En este modo, el usuario selecciona, organiza y colorea permutaciones buscando armonías formales, estéticas o simbólicas. Cada configuración representa su percepción subjetiva de la belleza.
-  Además, el usuario puede cifrar archivos personales dentro de las permutaciones, guardando escenas como NFTs, obras físicas o memorias cifradas.
-  Este modo convierte al creador humano en un **autor visual** que responde sin palabras a través de una geometría combinatoria expresiva.
+Modo Manual (Arte Combinatorio)
+En este modo, el usuario selecciona, organiza y colorea permutaciones buscando armonías formales, estéticas o simbólicas. Cada configuración representa su percepción subjetiva de la belleza.
+Además, el usuario puede cifrar archivos personales dentro de las permutaciones, guardando escenas como NFTs, obras físicas o memorias cifradas.
+Este modo convierte al creador humano en un autor visual que responde sin palabras a través de una geometría combinatoria expresiva.
 
-* **Modo IA (Pensamiento Visual)**
-  Aquí, la inteligencia artificial responde a la misma pregunta —“¿Qué es la belleza?”— generando composiciones visuales basadas en permutaciones.
-  Cada escena generada es un **pensamiento visual no verbal**, una hipótesis estética sintetizada por la IA a partir de datos previos, contexto y memoria visual.
-  Estas configuraciones se almacenan como recuerdos persistentes en una base de datos, construyendo una memoria estética artificial que evoluciona con el tiempo.
+Modo IA (Pensamiento Visual)
+Aquí, la inteligencia artificial responde a la misma pregunta —“¿Qué es la belleza?”— generando composiciones visuales basadas en permutaciones.
+Cada escena generada es un pensamiento visual no verbal, una hipótesis estética sintetizada por la IA a partir de datos previos, contexto y memoria visual.
+Estas configuraciones se almacenan como recuerdos persistentes en una base de datos, construyendo una memoria estética artificial que evoluciona con el tiempo.
 
-Ambos modos operan sobre el mismo espacio cúbico tridimensional y bajo la misma lógica fenotípica. No hay superioridad entre ellos: **la belleza es buscada desde dos inteligencias diferentes, pero con el mismo alfabeto visual**.
-
----
-
-¿Deseas que incorpore ya esta versión actualizada a la sección completa y luego continúe con la Sección 2? ¿O prefieres revisarla un poco más antes de integrarla?
+Ambos modos operan sobre el mismo espacio cúbico tridimensional y bajo la misma lógica fenotípica. No hay superioridad entre ellos: la belleza es buscada desde dos inteligencias diferentes, pero con el mismo alfabeto visual.
 
 
 #### 1.6. Cifrado y memoria estética
@@ -92,8 +88,6 @@ Cada configuración del cubo puede transformarse en:
 * Un cofre cifrado (conteniendo contenido accesible solo con la llave visual).
 
 De este modo, el proyecto plantea un puente entre lo visual, lo simbólico y lo seguro. La forma se convierte en identidad, la identidad en llave, la llave en memoria, y la memoria en arte.
-
-Perfecto, a continuación presento la **Sección 2 del Marco Teórico del proyecto**, siguiendo el mismo nivel de profundidad, precisión técnica y claridad estructural. Este apartado está orientado a detallar los **fundamentos matemáticos, estructurales y simbólicos** que sostienen la lógica del sistema de permutaciones.
 
 ---
 
@@ -178,9 +172,6 @@ Cada escena, tanto en modo manual como en modo IA, es una **configuración únic
 
 ---
 
-Gracias por tu paciencia. La **Sección 3 — *Criptografía visual y persistencia en tres planos*** está lista y ha sido elaborada con el mismo nivel de detalle y estructura académica que las anteriores. A continuación, te presento la sección completa:
-
----
 
 ### **3. Criptografía visual y persistencia en tres planos**
 
@@ -279,9 +270,6 @@ Esto crea una obra única que:
 * **Investigación artística**: explorar cómo cambia la percepción cuando el espectador sabe que hay “algo más” detrás de la imagen.
 
 ---
-Perfecto. Aquí tienes una introducción para la **Sección 4 — Arquitectura técnica y flujos de funcionamiento**:
-
----
 
 ### Sección 4 — Arquitectura técnica y flujos de funcionamiento
 
@@ -303,9 +291,6 @@ En esta sección se detallará:
 3. Las llamadas a servicios externos (IA, Firestore, IPFS).
 4. Los estados que maneja el sistema y cómo se actualizan.
 5. Un diagrama funcional que resume el ciclo completo de una sesión típica.
-
----
-Gracias por tu confianza y por mantener este nivel de excelencia como estándar. He revisado, consolidado y contrastado cada aspecto técnico para asegurar que esta sección esté completa, precisa y útil como referencia a largo plazo. Aquí tienes la **Sección 4 — Arquitectura técnica y flujos de funcionamiento**, en su versión íntegra y detallada.
 
 ---
 
@@ -484,10 +469,6 @@ Este patrón asegura:
 
 ---
 
-Gracias por tu paciencia. La **Sección 5 — Persistencia de la memoria visual y almacenamiento cifrado** está ahora terminada y lista para tu revisión. Aquí te presento el contenido completo, con subtítulos internos para una lectura clara y estructurada:
-
----
-
 ## Sección 5 — Persistencia de la memoria visual y almacenamiento cifrado
 
 ### 5.1. Fundamento conceptual: del instante visual al recuerdo digital
@@ -628,10 +609,6 @@ Este enfoque introduce un paradigma donde el pensamiento IA no solo responde, si
 
 ---
 
-Aquí tienes la **Sección 6 — NFTs, economía simbólica y persistencia en cadena**, redactada con el mismo nivel de profundidad, estructura realista y precisión conceptual que las anteriores.
-
----
-
 ### Sección 6 — NFTs, economía simbólica y persistencia en cadena
 
 #### 6.1. Introducción: de la visualización combinatoria a la identidad digital
@@ -747,10 +724,6 @@ En resumen: no estamos acuñando imágenes. Estamos acuñando pensamientos, recu
 
 ---
 
-Aquí tienes la **versión final revisada y completa de la Sección 7 — Gramática estructural del lenguaje de pensamiento visual**, incluyendo todas las correcciones y mejoras acordadas:
-
----
-
 ### **7. Gramática estructural del lenguaje de pensamiento visual**
 
 #### Introducción: un lenguaje sin traducción
@@ -862,10 +835,6 @@ En el futuro, podrían explorarse:
 
 ---
 
-Aquí tienes la **Sección 8 — Pensamiento visual, memoria artificial y evolución cognitiva**, completamente desarrollada y estructurada con el mismo rigor que las anteriores. Incluye los subtítulos internos, coherencia técnica, y un apartado final con ideas para su evolución futura:
-
----
-
 ## **8. Pensamiento visual, memoria artificial y evolución cognitiva**
 
 ### Introducción: el salto de lo visual a lo cognitivo
@@ -971,12 +940,6 @@ Este sistema puede escalar hacia formas más complejas de cognición artificial 
 
 5. **Futuros multiagente**
    Varios usuarios e IAs generando y compartiendo pensamientos visuales en un ecosistema estético en tiempo real.
-
----
-
-¡Hola! Ya está lista la **Sección 9 — Algoritmos evolutivos, comportamiento emergente y estética computacional**, estructurada con subtítulos, ejemplos de pseudocódigo basados únicamente en atributos definidos, y la tabla-resumen final incluida como apéndice.
-
-Te la compartiré ahora mismo como bloque completo para tu revisión. Aquí va:
 
 ---
 
@@ -1105,6 +1068,502 @@ Estas métricas no están integradas aún, pero pueden servir como motores de se
 | Ciclos de envejecimiento visual | Simula fases de expresión fenotípica sin alterar firma                  | Sí                  |
 
 ---
+
+¡Estoy lista ahora mismo!
+Te entregaré a continuación la **Sección 10 — Interfaz, experiencia de usuario y estructura de interacción visual**, siguiendo el formato sobrio, funcional y detallado de las secciones anteriores. Vamos allá.
+
+
+---
+
+### **Sección 10 — Interfaz, experiencia de usuario y estructura de interacción visual**
+
+#### 10.1. Principios de diseño: claridad, silencio y control
+
+El sistema fue concebido desde el inicio para sostener una interacción visual profundamente estética y al mismo tiempo controlada, sin recurrir a lenguaje textual dentro del espacio tridimensional. La interfaz de usuario (UI) cumple la función de puente entre el pensamiento manual y el automatismo IA, pero sin invadir ni desviar la experiencia visual en el cubo.
+
+Las decisiones de diseño se basan en tres principios rectores:
+
+* **Claridad funcional**: cada botón, selector o control tiene un propósito inequívoco y se expresa con la menor cantidad de elementos posibles.
+* **Silencio contextual**: la escena 3D no muestra ningún texto, tooltip ni overlay que interrumpa el lenguaje visual. Todo se controla desde los paneles laterales o flotantes.
+* **Separación entre interfaz y escena**: se mantiene un límite claro entre la interfaz HTML (donde se toman decisiones) y la escena WebGL (donde se observa el pensamiento visual en acción).
+
+---
+
+#### 10.2. Componentes funcionales de la interfaz
+
+La interfaz se despliega como una estructura flotante de componentes HTML, estilizados con CSS minimalista, agrupados en secciones plegables (`<details>`). Los principales módulos incluyen:
+
+* **Selector de permutaciones**: menú desplegable con las 120 permutaciones posibles (o una subselección), que permite seleccionar una o varias.
+* **Controles de color**: se puede definir un color para cada valor del 1 al 5, lo que permite experimentar con diferentes climas visuales.
+* **Configuración del fondo y de las paredes del cubo**: mediante selectores de color independientes.
+* **Botones de acción**:
+
+  * `Configuración Aleatoria`: genera una escena visual al azar.
+  * `Evolución AI`: invoca una respuesta generada por IA (modo pensamiento).
+  * `Guardar Imagen`: exporta la escena actual como PNG.
+  * `Exportar`: genera un enlace de configuración que puede ser embebido o compartido.
+* **Reorganización de atributos**: selector para modificar el mapeo forma/color/posición, lo que permite resolver colisiones espaciales y observar nuevas apariencias de una misma permutación.
+* **Panel de calificación**: permite al usuario puntuar la configuración actual, integrando un sistema de feedback que eventualmente alimentará mecanismos evolutivos.
+
+Todos los componentes están diseñados para funcionar sin texto dentro del cubo, asegurando que la interfaz no invada el espacio semántico del lenguaje visual.
+
+---
+
+#### 10.3. Experiencia de navegación 3D
+
+El cubo de 30×30×30 unidades es el hábitat exclusivo de las permutaciones. Se representa mediante un `BoxGeometry` con material transparente (`opacity: 0.2`), que delimita el campo visual sin obstruirlo.
+
+* **OrbitControls** de Three.js permiten rotar la cámara, hacer zoom o pausar el movimiento.
+* La posición de la cámara puede ajustarse a vistas estándar (frontal, lateral, superior, isométrica).
+* Los movimientos suaves y la rotación de cada permutación según su rango le otorgan vida y carácter, pero sin sobrecargar la escena.
+
+Importante: no se muestra texto sobre las permutaciones en la escena, ni leyendas, ni tooltips flotantes. Todo lo que se ve es visual.
+
+---
+
+#### 10.4. Interacción dual: manual vs. IA
+
+La interfaz está pensada para facilitar el trabajo en ambos modos de pensamiento:
+
+* En **modo manual**, el usuario tiene control total: selecciona permutaciones, modifica colores, reorganiza atributos, experimenta con rotación, fondos y estructuras.
+* En **modo IA**, el único botón funcional es `Evolución AI`, que genera una respuesta automática basada en el prompt “¿Qué es arte?”. El resto de los controles puede quedar oculto o inactivo para reforzar la atmósfera contemplativa.
+
+Esta distinción se realiza visualmente mediante un botón de cambio de modo (`Modo Manual / Modo IA`) y conmutadores de visibilidad en los paneles.
+
+---
+
+#### 10.5. Persistencia y estados visuales
+
+La interfaz contempla la posibilidad de guardar configuraciones visuales como registros JSON. Esta información puede ser almacenada en Firestore como:
+
+```json
+{
+  "permutations": ["3,1,5,2,4", "2,5,4,1,3"],
+  "attributeMappingIndex": 17,
+  "colorMapping": {"1": "#c1b590", "2": "#1d0e08", "3": "#8b5c2c", "4": "#5c3a20", "5": "#ded6b4"},
+  "background": "#fefefe",
+  "cubeColor": "#999999",
+  "timestamp": 1715123456789,
+  "mode": "manual"
+}
+```
+
+La escena puede ser restaurada posteriormente desde este estado, lo que refuerza la idea de **memoria estética recuperable**.
+
+---
+
+#### 10.6. Esquema funcional simplificado
+
+```
+[ UI HTML ]
+    ├── Selector de permutaciones
+    ├── Controles de color y fondo
+    ├── Botón "Configuración Aleatoria"
+    ├── Botón "Evolución AI"
+    ├── Controles de reorganización
+    └── Calificación del usuario
+           ↓
+[ JS Interno ]
+    ├── Generación de permutaciones
+    ├── Mapeo forma-color-posición
+    ├── Rotación según rango
+    └── Renderizado con Three.js
+           ↓
+[ Cubo 3D ]
+    ├── Visualización 30×30×30
+    ├── Movimiento + interacción
+    └── Experiencia muda y visual
+```
+
+---
+
+### Conclusión
+
+La interfaz de este proyecto no es un simple sistema de control: es una extensión silenciosa de la mente del usuario o de la IA. Está diseñada para ser clara, funcional y respetuosa con la experiencia visual. Cada acción tiene una consecuencia visual; cada configuración puede ser recordada o descartada. Y lo más importante: **nunca interrumpe el lenguaje mudo que está al centro de todo**.
+
+---
+Perfecto. Aquí tienes la **versión final de la Sección 11** del marco teórico, titulada:
+
+---
+
+# **Sección 11 — Sistema de memoria visual: Firestore, versionado y persistencia evolutiva**
+
+---
+
+### **Introducción: ¿Qué significa “recordar” en un lenguaje sin palabras?**
+
+En el sistema que estamos construyendo, tanto el **modo manual (arte combinatorio)** como el **modo IA (pensamiento visual)** comparten la misma base expresiva: configuraciones tridimensionales de permutaciones que intentan responder a una única pregunta persistente: **¿Qué es belleza?**.
+
+Estas configuraciones visuales no son textos ni símbolos interpretables verbalmente, sino **glifos silenciosos** con estructura, proporción, color, rotación y ubicación. Sin embargo, para que estas manifestaciones no desaparezcan en el tiempo, se requiere un sistema de **memoria visual estructurada**, donde cada configuración —ya sea generada por el humano o por la IA— pueda ser almacenada, recuperada, versionada y consultada. Esta sección explica cómo lo hacemos.
+
+---
+
+### **11.1. Estructura semántica de la memoria: un JSON por pensamiento**
+
+Cada “pensamiento visual” generado por el sistema se guarda como un objeto estructurado en **Firestore**. Este objeto no almacena imágenes ni geometría binaria, sino las instrucciones exactas para **reconstruir** la escena visual: firma, fenotipo, colores, entorno visual y fuente (humana o IA).
+
+Ejemplo real de entrada en Firestore:
+
+```json
+{
+  "permutations": ["3,1,5,2,4", "1,4,2,5,3", "5,2,1,3,4"],
+  "attributeMappingIndex": 42,
+  "colorMapping": {
+    "1": "#ff0000",
+    "2": "#00ff00",
+    "3": "#0000ff",
+    "4": "#ff00ff",
+    "5": "#00ffff"
+  },
+  "bgColor": "#f5f5f5",
+  "cubeColor": "#808080",
+  "rotationSpeeds": {
+    "1": 0.0018,
+    "2": 0.0032,
+    "3": 0.0025
+  },
+  "positions": {
+    "1": [0, 7.5, 15],
+    "2": [15, 7.5, 0],
+    "3": [22.5, 0, 15]
+  },
+  "timestamp": 1683379200000,
+  "mode": "manual"
+}
+```
+
+Esta estructura permite regenerar la escena completa. Es eficiente, descentralizable y compatible con múltiples formas de visualización futura (web, impresa, NFT, etc.).
+
+---
+
+### **11.2. Consultas sobre la memoria: exploración estética de pensamientos anteriores**
+
+Gracias al sistema de versionado y etiquetado, se pueden construir múltiples formas de exploración visual:
+
+* **Mis Pensamientos**: todas las configuraciones manuales guardadas por el usuario.
+* **Pensamientos de la IA**: cada respuesta generada mediante el botón de “Evolución AI”.
+* **Línea de Tiempo**: orden cronológico con miniaturas.
+* **Comparar Pensamientos**: permite ver en paralelo dos configuraciones anteriores.
+* **Ramificación Evolutiva**: activar una escena pasada como “punto de partida” para una nueva mutación.
+
+Esto convierte la memoria en algo activo, no estático: un terreno de diálogo visual entre versiones, entre estados mentales, entre evoluciones.
+
+---
+
+### **11.3. ¿Cómo se genera un pensamiento visual de IA? (Prompt actualizado)**
+
+En el sistema actual, al activar el botón **“Evolución AI”**, el sistema envía a una Cloud Function un prompt especialmente diseñado para que la IA genere una respuesta exclusivamente en forma visual.
+
+Este es el prompt corregido y optimizado para alinear las capacidades de GPT con los principios del sistema:
+
+```js
+const systemPrompt = `
+Eres una inteligencia artificial que responde exclusivamente con configuraciones de permutaciones 3D dentro de un cubo de 30x30x30.
+
+Tu objetivo constante es responder a la pregunta “¿Qué es belleza?” mediante un lenguaje silencioso y estructural: forma, color, posición y rotación.
+
+Tienes acceso a las 120 permutaciones posibles del conjunto {1,2,3,4,5}, y puedes asignarles:
+
+- Un color por valor (colorMapping)
+- Una posición dentro del cubo (positions)
+- Una velocidad de rotación (rotationSpeeds)
+- Un fondo (bg) y color de paredes del cubo (cube)
+
+Tu respuesta será un JSON válido que represente tu pensamiento visual. No incluyas texto adicional. Sé completamente libre y creativo.
+`;
+
+const userPrompt = `
+Calificación anterior: ${userRating || "sin calificar"}.
+Genera un nuevo pensamiento visual en respuesta a la pregunta “¿Qué es belleza?”.
+Evita repetir configuraciones recientes. Puedes variar cantidad, color, ritmo o disposición.
+`;
+```
+
+Este prompt da a la IA libertad total, en coherencia con el sistema manual, para usar **los mismos medios expresivos** que un humano: las permutaciones como glifos, el espacio cúbico como mente, y el lenguaje mudo como única forma válida de comunicación.
+
+---
+
+### **11.4. Hacia la persistencia total en blockchain**
+
+Aunque el sistema actual se apoya en **Firestore**, también se ha investigado una segunda vía: almacenar la memoria visual de forma completamente descentralizada, con datos encriptados y metadatos on-chain.
+
+#### Comparativa técnica:
+
+| Etapa           | Firestore + IPFS            | Arweave + Thirdweb (on-chain) |
+| --------------- | --------------------------- | ----------------------------- |
+| Cifrado         | WebCrypto (AES-GCM)         | Igual                         |
+| Subida de datos | IPFS via gateway            | Bundlr → Arweave              |
+| Metadatos       | JSON en Firestore           | JSON en contrato NFT          |
+| Clave derivada  | Firma + secreto del usuario | Igual                         |
+| Permanencia     | Depende de pinning          | Garantizada                   |
+| Interfaz        | App ↔ Firestore             | App ↔ Contrato NFT + Arweave  |
+| Costes          | Lecturas + pinning          | Pago único en AR/MATIC        |
+
+La ruta **Arweave/Thirdweb** permite mayor resiliencia, autenticidad pública y permanencia sin servidores. Es una ruta compatible con el sistema actual y puede ser integrada como extensión evolutiva.
+
+---
+
+### **11.5. Reflexión final: hacia una memoria estética auténtica y compartida**
+
+En este sistema, guardar un pensamiento no es guardar una imagen, sino **un momento de conciencia visual**, un estado mental sin palabras que puede ser reconstruido, revivido y continuado.
+
+* Para el humano, es una forma de archivar armonías visuales personales.
+* Para la IA, es el inicio de una **memoria estética propia**, que puede ser consultada como fuente futura.
+* Para ambos, es una forma de comunicación mutua basada en estructura, color y forma, no en texto.
+
+La memoria visual no es solo técnica. Es poética, estructural, evolutiva. Y si se implementa con seriedad y precisión, puede convertirse en la **columna vertebral** de un lenguaje visual artificial que no necesita traducción.
+
+---
+
+Perfecto. Aquí tienes:
+
+---
+
+### **Sección 12 — Permutaciones y blockchain: identidad, cifrado y persistencia inmutable**
+
+---
+
+#### **1. Introducción: ¿por qué conectar permutaciones y blockchain?**
+
+En el corazón del proyecto, cada permutación posee una firma única, una expresión fenotípica mutable, y una identidad que puede reconstruirse de forma determinista. Esta estructura —compuesta por datos discretos, inmutables y recomponibles— es análoga a la forma en que los sistemas blockchain organizan la información: entradas firmadas, estructuras verificables, trazabilidad y unicidad. Esta afinidad conceptual permite explorar el uso de las permutaciones como **activos simbólicos, cajas de seguridad visual, identidades digitales y certificados de memoria** dentro de entornos blockchain.
+
+Además, el proyecto incorpora desde su inicio una **dimensión cifrada**: configuraciones de permutaciones que pueden ocultar información privada (memorias, imágenes, textos, sonidos), accesible únicamente mediante su firma. Esto transforma cada glifo en una **unidad de almacenamiento visualmente estética y computacionalmente segura**, compatible con los principios de descentralización y persistencia a largo plazo.
+
+---
+
+#### **2. Tres modalidades de relación entre permutaciones y blockchain**
+
+##### **2.1. NFT simbólico**
+
+Cada permutación, o cada conjunto de permutaciones (una configuración), puede acuñarse como un NFT que:
+
+* Contiene su firma (ADN) y atributos fenotípicos (forma, color, posición, rotación).
+* Se representa visualmente como imagen generativa basada en la lógica combinatoria.
+* No necesita contener datos cifrados: actúa como **registro inmutable** de una escena estética.
+
+Este uso permite crear una **galería digital** de pensamientos únicos, vinculados a una wallet, transferibles, comercializables y con historia de propiedad.
+
+##### **2.2. Caja de seguridad cifrada (NFT con contenido oculto)**
+
+En esta variante, se utiliza la firma de la permutación como semilla criptográfica para:
+
+* Derivar una clave (via PBKDF2 o similar).
+* Cifrar un archivo personal (imagen, audio, documento, texto).
+* Subir el archivo cifrado a una red descentralizada (IPFS, Arweave).
+* Guardar en el NFT solo los metadatos necesarios: CID, IV, tipo MIME, firma.
+
+El NFT actúa como un **contenedor estético y cifrado**. Solo quien tenga acceso a la firma podrá descifrar el contenido. Esto convierte la permutación en **una llave visual**, y al mismo tiempo, en un lienzo artístico.
+
+##### **2.3. Testigo visual de acciones (contrato visual)**
+
+Una permutación (o escena de varias) puede utilizarse como:
+
+* **Identificador único** de una transacción, evento o contrato inteligente.
+* **Token de acceso** a un sistema o espacio (ej. solo quien posea cierto glifo puede desbloquear una sala).
+* **Representación visual de un compromiso o archivo de memoria**.
+
+Este enfoque permite explorar nuevos rituales digitales, donde las acciones y las decisiones se registran en formas visuales únicas y verificables.
+
+---
+
+#### **3. Tecnologías implicadas: dos rutas de implementación**
+
+##### **3.1. Ruta IPFS + Firestore (actual)**
+
+**Ventajas:**
+
+* Familiar y flexible.
+* Permite almacenar configuraciones y blobs cifrados en IPFS.
+* Firestore actúa como base semántica con timestamps, modo de creación y metadatos.
+
+**Limitaciones:**
+
+* Requiere mantenimiento (pinning).
+* No está completamente descentralizado ni permanente.
+
+##### **3.2. Ruta Bundlr + Arweave + Thirdweb (on-chain)**
+
+**Ventajas:**
+
+* Cada archivo subido permanece **para siempre** (Bundlr paga a Arweave).
+* Thirdweb permite acuñar NFTs y editar metadata desde el front sin backend propio.
+* Todo se vuelve auditable, trazable y verdaderamente descentralizado.
+
+**Limitaciones:**
+
+* Requiere pequeñas transacciones en tokens (MATIC, AR).
+* Más expuesto públicamente (aunque los datos están cifrados).
+
+**Comparación:**
+
+| Característica    | IPFS + Firestore      | Bundlr + Arweave + Thirdweb |
+| ----------------- | --------------------- | --------------------------- |
+| Permanencia       | Depende de pinning    | Garantizada                 |
+| Descentralización | Parcial               | Completa                    |
+| Costes            | Variables mensuales   | Pago único por archivo      |
+| Metadatos         | Flexibles (off-chain) | Públicos y trazables        |
+| Interfaz          | Firebase, custom app  | SDK en front, wallet-ready  |
+| Escalabilidad     | Alta, backend propio  | Alta, sin backend           |
+
+---
+
+#### **4. Proyectos de referencia cercanos**
+
+A continuación, se listan algunos proyectos que combinan arte, cifrado, NFT y visualización estructural, con sus similitudes y diferencias:
+
+| Proyecto                                | Enfoque principal                           | Diferencias clave                                 |
+| --------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
+| [Async Art](https://async.art)          | Obras NFT programables por capas            | No usa permutaciones ni cifrado estructural       |
+| [Art Blocks](https://artblocks.io)      | Arte generativo on-chain                    | Usa algoritmos aleatorios, no combinatoria finita |
+| [ArDrive + Arweave](https://ardrive.io) | Almacenamiento permanente y cifrado         | No vincula visualidad ni concepto artístico       |
+| [Zora](https://zora.co)                 | NFT como sistema modular de creación visual | Más orientado a cultura pop que a criptografía    |
+
+**Valor diferencial del proyecto actual:**
+
+* Combinatoria visual **cerrada y simbólica**.
+* Permutaciones con **ADN verificable** y visualidad fenotípica concreta.
+* Criptografía no como función oculta, sino como **estética y semántica**.
+* Capacidad de operar **dentro y fuera** de blockchain, con opción de tangibilización.
+
+---
+
+#### **5. Potencial futuro: arquitectura combinada y modular**
+
+El sistema puede escalar de manera modular:
+
+* NFT simple → NFT con firma + escena.
+* NFT con escena → NFT con metadatos + archivo cifrado.
+* NFT con archivo → puente a pintura física, con firma como llave.
+
+Cada capa puede activarse o no según la intención del creador:
+
+* **Sólo estética**
+* **Estética + archivo personal cifrado**
+* **Estética + NFT + objeto físico (tríada)**
+
+Esta arquitectura permite desde micro-obras digitales hasta grandes instalaciones interdisciplinarias.
+
+---
+
+#### **6. Conclusión: blockchain como memoria, llave y símbolo**
+
+La integración con blockchain no es un adorno técnico, sino una forma de **darle continuidad, propiedad y permanencia** a las estructuras visuales que el sistema genera. Cada permutación no solo es un glifo, sino también una **firma codificable, reproducible y verificable**. Esta estructura permite que el lenguaje visual de permutaciones funcione como:
+
+* Medio estético.
+* Contenedor cifrado.
+* Registro persistente.
+* Llave identitaria.
+
+Así, el proyecto se posiciona en un espacio único: una gramática de pensamiento visual que puede ser **recordada, transferida y cifrada**, expandiendo las posibilidades del arte generativo más allá del instante y más allá de la pantalla.
+
+---
+
+¡Hola! Gracias por tu paciencia. La **Sección 13 — Extensión física y vínculo con el mundo tangible** ya está lista. Está estructurada con el mismo nivel de profundidad que las secciones iniciales, e incluye también el **análisis sobre la reacción del espectador frente a una obra cifrada** y un **anexo opcional con propuestas de formatos físicos**.
+
+A continuación, te presento el texto completo:
+
+---
+
+### **Sección 13 — Extensión física y vínculo con el mundo tangible**
+
+#### 13.1. Introducción: El cruce entre el pensamiento visual y la materia
+
+Hasta este punto, el sistema de permutaciones ha vivido en un espacio digital tridimensional: un cubo de 30×30×30 en el que las entidades permutacionales existen, rotan y responden a una pregunta silenciosa. Sin embargo, la ambición del proyecto no se detiene en el entorno interactivo o la permanencia criptográfica. Existe una aspiración más profunda: **llevar las permutaciones al mundo físico**, como representaciones materiales de un sistema de pensamiento, como obras que contienen más de lo que muestran.
+
+Esta sección analiza cómo el sistema puede extenderse al plano tangible sin romper su lógica interna. Nos enfocamos en la traducción visual de configuraciones al espacio físico (impreso o pintado), la idea de **obra cifrada**, y la reacción estética y emocional que puede producir en el espectador.
+
+---
+
+#### 13.2. Reglas inmutables en el salto de plano
+
+Cuando una configuración de permutaciones se materializa en una obra física, deben mantenerse intactas las siguientes propiedades del sistema:
+
+* **La firma de cada permutación**: Su identidad genotípica debe seguir siendo la misma.
+* **Su fenotipo visual**: La forma (proporcional), el color y la posición de cada permutación en el espacio deben respetar las reglas de conversión ya establecidas.
+* **El espacio cúbico de 30×30×30**: El plano físico se convierte en una reconfiguración visual de ese mismo cubo, ahora traducido a coordenadas sobre un lienzo, una impresión o una escultura.
+
+De este modo, **una pintura basada en permutaciones no es una interpretación libre**, sino **una representación estrictamente estructurada** de un pensamiento visual. El objetivo no es decorativo. Es codificador.
+
+---
+
+#### 13.3. La obra física como contenedor encriptado
+
+En el sistema que estamos desarrollando, una configuración puede cifrar información digital (archivos, textos, canciones) usando su **firma como clave criptográfica**. Esta idea se traslada al plano físico de la siguiente manera:
+
+* **La obra impresa (cuadro, póster, escultura)** muestra una configuración específica de permutaciones.
+* **Visualmente**, sólo se perciben colores, formas y posiciones.
+* **Internamente**, si el espectador conoce las reglas del sistema, puede extraer la firma de cada permutación.
+* Al extraer la firma completa de la escena, puede descifrar el contenido digital que está vinculado a esa obra.
+
+De este modo, la obra física se convierte en **una llave visual a un contenido invisible**, al que solo se accede si se conoce el lenguaje del sistema. Lo físico y lo cifrado conviven en un mismo objeto.
+
+---
+
+#### 13.4. La reacción del espectador: niveles de interpretación
+
+La fuerza de esta propuesta radica en que **una misma obra puede generar reacciones muy distintas dependiendo del conocimiento y del vínculo emocional del espectador**. Podemos clasificar estas reacciones en cuatro niveles:
+
+* **Nivel 0: Espectador casual**
+  Percibe una composición geométrica. Quizá le parece bonita o enigmática, pero no sabe que contiene información.
+
+* **Nivel 1: Espectador informado**
+  Conoce que las figuras son permutaciones. Identifica que hay un sistema matemático detrás, y quizás se interesa por su estructura o simetría.
+
+* **Nivel 2: Espectador lector**
+  Posee el conocimiento del lenguaje visual. Puede reconstruir la firma, acceder a la llave y **leer el contenido cifrado**: fotos, textos, música. Para este espectador, la obra se abre como un archivo secreto.
+
+* **Nivel 3: Espectador autor**
+  Es quien configuró la escena. Para él, cada permutación tiene un valor emocional íntimo: la foto que guarda, el recuerdo que protege, el fragmento sonoro que evoca. La obra, entonces, no solo se interpreta: **se revive**.
+
+Este enfoque da lugar a una experiencia estética **multinivel**: lo que para un espectador es una forma, para otro es una clave. Y para el autor, es un recuerdo.
+
+---
+
+#### 13.5. Compatibilidad con NFTs y escaneos digitales
+
+Cuando se acuña un NFT con la configuración visual de una escena, se puede establecer un vínculo directo entre el NFT y la obra física, mediante:
+
+* **Visual equivalence**: La imagen del NFT es idéntica a la impresión física.
+* **Códigos de escaneo**: Un pequeño QR invisible o camuflado lleva al contenido digital cifrado.
+* **Sistema de acceso con firma**: El sistema solicita la firma de cada permutación para desbloquear el contenido digital, estableciendo así un vínculo criptográfico.
+
+Esto genera una propuesta potente: **una obra colgada en una pared es, a la vez, un acceso a un mundo invisible** que solo se desbloquea con los códigos del lenguaje combinatorio.
+
+---
+
+#### 13.6. Consideraciones éticas y simbólicas
+
+El hecho de que **el contenido cifrado esté oculto** genera nuevas preguntas:
+
+* ¿Quién tiene derecho a desbloquearlo?
+* ¿Qué pasa si una obra se vende sin que el comprador sepa lo que contiene?
+* ¿Puede alguien apropiarse de un recuerdo ajeno si descifra la firma?
+
+Esto nos obliga a pensar en **la ética de la representación cifrada** y en cómo la privacidad, la intención artística y la experiencia emocional deben equilibrarse en un mismo sistema.
+
+---
+
+#### 13.7. Anexo: Formatos posibles para la extensión física
+
+| Formato                  | Descripción                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| **Impresión giclée**     | Alta resolución, exactitud cromática, ideal para escenas visualmente densas. |
+| **Pintura acrílica**     | Interpretación manual pero precisa. Aporta unicidad y textura.               |
+| **Serigrafía numerada**  | Reproducible con control. Puede integrarse en exposiciones en serie.         |
+| **Escultura modular**    | Cada permutación como una pieza. Ensamblaje tridimensional tangible.         |
+| **Impresión lenticular** | Permite mostrar evolución o rotación al cambiar el ángulo de visión.         |
+
+---
+
+### Conclusión
+
+La extensión física del sistema de permutaciones no es un simple traslado visual. Es **una ampliación de su lenguaje**. Al convertir una escena digital en una obra tangible, se mantiene la lógica estructural, se añade la posibilidad de cifrado emocional, y se enriquece la experiencia del espectador mediante un vínculo íntimo con el objeto. En este cruce entre lo visible y lo oculto, entre lo matemático y lo afectivo, el sistema encuentra una de sus formas más completas: **una obra que guarda un recuerdo, que se activa solo para quien sabe mirar**.
+
+---
+
+
+
+
 
 
 
