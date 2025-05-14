@@ -699,60 +699,17 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     // — Export embed —
-function exportEmbed() {
-  const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value).join(';');
-  const mapping = [attributeMapping.forma, attributeMapping.color, attributeMapping.x, attributeMapping.y, attributeMapping.z].join(',');
-  const colors = [1,2,3,4,5].map(i => document.getElementById('color'+i).value.substring(1)).join(',');
-  const bg = document.getElementById('bgColor').value.substring(1);
-  const cube = document.getElementById('cubeColor').value.substring(1);
-  const view = document.getElementById('standardView').value;
-  const src = `${location.pathname}?perms=${encodeURIComponent(perms)}&mapping=${mapping}&colors=${encodeURIComponent(colors)}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
-  const embed = `<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
-  prompt("Copia este código para embeber:", embed);
-}
-
-function downloadConfig() {
-  const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value);
-  const mapping = [attributeMapping.forma, attributeMapping.color, attributeMapping.x, attributeMapping.y, attributeMapping.z];
-  const colors = {};
-  [1, 2, 3, 4, 5].forEach(i => {
-      colors[i] = document.getElementById('color' + i).value;
-  });
-  const bgColor = document.getElementById('bgColor').value;
-  const cubeColor = document.getElementById('cubeColor').value;
-  const positions = {};
-  const rotationSpeedsOut = {};
-  perms.forEach((perm, index) => {
-      positions[index + 1] = posiciones[perm];
-      rotationSpeedsOut[index + 1] = rotationSpeeds[perm] || 0.002;
-  });
-  const escena = {
-      permutations: perms,
-      attributeMappingIndex: attributeMappingIndex,
-      colorMapping: colors,
-      bgColor: bgColor,
-      cubeColor: cubeColor,
-      rotationSpeeds: rotationSpeedsOut,
-      positions: positions,
-      timestamp: Date.now(),
-      mode: mode || "manual"
-  };
-  const jsonBlob = new Blob([JSON.stringify(escena, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(jsonBlob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'escena_PRMTTN.json';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
-// Asociar botón "Guardar" a la nueva función de descarga JSON
-const saveButton = document.getElementById('saveButton');
-if (saveButton) {
-  saveButton.onclick = downloadConfig;
-}
+    function exportEmbed(){
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value).join(';');
+      const mapping=[attributeMapping.forma,attributeMapping.color,attributeMapping.x,attributeMapping.y,attributeMapping.z].join(',');
+      const colors=[1,2,3,4,5].map(i=>document.getElementById('color'+i).value.substring(1)).join(',');
+      const bg=document.getElementById('bgColor').value.substring(1);
+      const cube=document.getElementById('cubeColor').value.substring(1);
+      const view=document.getElementById('standardView').value;
+      const src=`${location.pathname}?perms=${encodeURIComponent(perms)}&mapping=${mapping}&colors=${encodeURIComponent(colors)}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
+      const embed=`<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
+      prompt("Copia este código para embeber:",embed);
+    }
 
     // — Inicialización Three.js & UI —
     function initCustomCursor(){
