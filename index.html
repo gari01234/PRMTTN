@@ -833,20 +833,24 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
 <script src="https://cdn.jsdelivr.net/npm/@bundlr-network/client@0.12.1/build/bundlr.web.min.js"></script>
 <script>
-  async function initBundlr() {
-    const bundlr = new window.bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
-    await bundlr.ready();
-    const balance = await bundlr.getLoadedBalance();
-    console.log("✅ Bundlr listo, balance:", balance.toString());
+  window.addEventListener("load", async () => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/@bundlr-network/client@0.12.1/build/bundlr.web.min.js";
+    script.onload = async () => {
+      const bundlr = new window.bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+      await bundlr.ready();
+      const balance = await bundlr.getLoadedBalance();
+      console.log("✅ Bundlr listo, balance:", balance.toString());
 
-    window.uploadToBundlr = async function(blob) {
-      const tx = await bundlr.upload(blob, {
-        tags: [{ name: "Content-Type", value: blob.type }]
-      });
-      return tx.id;
+      window.uploadToBundlr = async function(blob) {
+        const tx = await bundlr.upload(blob, {
+          tags: [{ name: "Content-Type", value: blob.type }]
+        });
+        return tx.id;
+      };
     };
-  }
-  initBundlr();
+    document.body.appendChild(script);
+  });
 </script>
   </script>
   </script>
