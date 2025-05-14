@@ -832,13 +832,15 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
 <!-- Bundlr script clásico desde CDN -->
-<script src="https://cdn.jsdelivr.net/npm/web-bundlr@0.1.1/dist/web-bundlr.min.js"></script>
-<script>
+<!-- Bundlr desde Skypack -->
+<script type="module">
+  import { WebBundlr } from 'https://cdn.skypack.dev/web-bundlr';
+
   window.addEventListener("load", async () => {
-    const bundlr = new Bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+    const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
     await bundlr.ready();
     const balance = await bundlr.getLoadedBalance();
-    console.log("✅ Bundlr listo, balance:", balance.toString());
+    console.log("✅ Bundlr listo (Skypack), balance:", balance.toString());
 
     window.uploadToBundlr = async function(blob) {
       const tx = await bundlr.upload(blob, {
@@ -848,5 +850,3 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     };
   });
 </script>
-</body>
-</html>
