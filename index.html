@@ -831,8 +831,9 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
-<script src="https://unpkg.com/@bundlr-network/client@0.12.1/build/bundlr.web.min.js"></script>
-<script>
+<script type="module">
+  import { WebBundlr } from "https://esm.sh/@bundlr-network/client";
+
   window.addEventListener("load", async () => {
     const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
     await bundlr.ready();
