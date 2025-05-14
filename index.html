@@ -834,17 +834,27 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 <!-- Bundlr script clásico desde CDN -->
 <script src="https://bundlr.network/bundlr.browser.umd.js"></script>
 <script>
-  window.addEventListener("load", async () => {
-    const bundlr = new bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
-    await bundlr.ready();
-    const balance = await bundlr.getLoadedBalance();
-    console.log("✅ Bundlr listo, balance:", balance.toString());
+  window.bundlr = null;
 
-    window.uploadToBundlr = async function(blob) {
-      const tx = await bundlr.upload(blob, {
-        tags: [{ name: "Content-Type", value: blob.type }]
-      });
-      return tx.id;
-    };
+  window.addEventListener("load", async () => {
+    try {
+      window.bundlr = new bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+      await window.bundlr.ready();
+      const balance = await window.bundlr.getLoadedBalance();
+      console.log("✅ Bundlr listo, balance:", balance.toString());
+    } catch (err) {
+      console.error("❌ Error inicializando Bundlr:", err);
+    }
   });
+
+  window.uploadToBundlr = async function(blob) {
+    if (!window.bundlr) {
+      console.error("❌ Bundlr no está listo aún.");
+      return;
+    }
+    const tx = await window.bundlr.upload(blob, {
+      tags: [{ name: "Content-Type", value: blob.type }]
+    });
+    return tx.id;
+  };
 </script>
