@@ -834,25 +834,18 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 <script src="https://unpkg.com/@bundlr-network/client@0.12.1/build/bundlr.web.min.js"></script>
 <script>
   window.addEventListener("load", async () => {
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/@bundlr-network/client@0.12.1/build/bundlr.web.min.js";
-    script.onload = async () => {
-      const bundlr = new window.bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
-      await bundlr.ready();
-      const balance = await bundlr.getLoadedBalance();
-      console.log("✅ Bundlr listo, balance:", balance.toString());
+    const bundlr = new window.bundlr.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+    await bundlr.ready();
+    const balance = await bundlr.getLoadedBalance();
+    console.log("✅ Bundlr listo, balance:", balance.toString());
 
-      window.uploadToBundlr = async function(blob) {
-        const tx = await bundlr.upload(blob, {
-          tags: [{ name: "Content-Type", value: blob.type }]
-        });
-        return tx.id;
-      };
+    window.uploadToBundlr = async function(blob) {
+      const tx = await bundlr.upload(blob, {
+        tags: [{ name: "Content-Type", value: blob.type }]
+      });
+      return tx.id;
     };
-    document.body.appendChild(script);
   });
 </script>
-  </script>
-  </script>
 </body>
 </html>
