@@ -831,10 +831,10 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
-  <script src="https://bundlr.network/sdk/web.bundle.min.js"></script>
+  <script src="https://unpkg.com/@bundlr-network/client/build/web.bundle.min.js"></script>
   <script>
     async function initBundlr() {
-      const bundlr = new bundlrSdk.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+      const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
       await bundlr.ready();
       const balance = await bundlr.getLoadedBalance();
       console.log("✅ Bundlr listo, balance:", balance.toString());
@@ -846,6 +846,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       };
     }
     initBundlr();
+  </script>
   </script>
   </script>
 </body>
