@@ -700,15 +700,40 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
     // — Export embed —
     function exportEmbed(){
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value).join(';');
-      const mapping=[attributeMapping.forma,attributeMapping.color,attributeMapping.x,attributeMapping.y,attributeMapping.z].join(',');
-      const colors=[1,2,3,4,5].map(i=>document.getElementById('color'+i).value.substring(1)).join(',');
-      const bg=document.getElementById('bgColor').value.substring(1);
-      const cube=document.getElementById('cubeColor').value.substring(1);
-      const view=document.getElementById('standardView').value;
-      const src=`${location.pathname}?perms=${encodeURIComponent(perms)}&mapping=${mapping}&colors=${encodeURIComponent(colors)}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
-      const embed=`<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
-      prompt("Copia este código para embeber:",embed);
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+      const mapping = {
+        forma: attributeMapping.forma,
+        color: attributeMapping.color,
+        x: attributeMapping.x,
+        y: attributeMapping.y,
+        z: attributeMapping.z
+      };
+      const colors = {};
+      for(let i=1;i<=5;i++){
+        colors[i] = document.getElementById('color'+i).value;
+      }
+      const bg = document.getElementById('bgColor').value;
+      const cube = document.getElementById('cubeColor').value;
+      const view = document.getElementById('standardView').value;
+
+      const config = {
+        perms,
+        mapping,
+        colors,
+        bg,
+        cube,
+        view
+      };
+
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'configuracion.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
 
     // — Inicialización Three.js & UI —
