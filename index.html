@@ -699,74 +699,18 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     // — Export embed —
-   function exportEmbed() {
-    // Obtener las permutaciones seleccionadas
-    const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value);
-    
-    // Obtener el mapeo de atributos
-    const mapping = [attributeMapping.forma, attributeMapping.color, attributeMapping.x, attributeMapping.y, attributeMapping.z];
-    
-    // Obtener los colores asignados
-    const colors = {};
-    [1, 2, 3, 4, 5].forEach(i => {
-        colors[i] = document.getElementById('color' + i).value;
-    });
+    function exportEmbed(){
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value).join(';');
+      const mapping=[attributeMapping.forma,attributeMapping.color,attributeMapping.x,attributeMapping.y,attributeMapping.z].join(',');
+      const colors=[1,2,3,4,5].map(i=>document.getElementById('color'+i).value.substring(1)).join(',');
+      const bg=document.getElementById('bgColor').value.substring(1);
+      const cube=document.getElementById('cubeColor').value.substring(1);
+      const view=document.getElementById('standardView').value;
+      const src=`${location.pathname}?perms=${encodeURIComponent(perms)}&mapping=${mapping}&colors=${encodeURIComponent(colors)}&bg=${bg}&cube=${cube}&view=${view}&hide=1`;
+      const embed=`<iframe src="${src}" width="800" height="600" frameborder="0"></iframe>`;
+      prompt("Copia este código para embeber:",embed);
+    }
 
-    // Obtener los colores de fondo y del cubo
-    const bgColor = document.getElementById('bgColor').value;
-    const cubeColor = document.getElementById('cubeColor').value;
-
-    // Obtener las posiciones y velocidades de rotación
-    const positions = {};
-    const rotationSpeeds = {};
-    perms.forEach((perm, index) => {
-        positions[index + 1] = posiciones[perm];
-        rotationSpeeds[index + 1] = rotationSpeeds[perm] || 0.002;
-    });
-
-    // Construir el objeto de configuración
-    const escena = {
-        permutations: perms,
-        attributeMappingIndex: attributeMappingIndex,
-        colorMapping: colors,
-        bgColor: bgColor,
-        cubeColor: cubeColor,
-        rotationSpeeds: rotationSpeeds,
-        positions: positions,
-        timestamp: Date.now(),
-        mode: mode || "manual"
-    };
-
-    // Crear un Blob con el contenido JSON
-    const jsonBlob = new Blob([JSON.stringify(escena, null, 2)], { type: "application/json" });
-
-    // Crear una URL para el Blob y un enlace temporal para descargarlo
-    const url = URL.createObjectURL(jsonBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'escena_PRMTTN.json';
-
-    // Agregar el enlace al documento y simular un clic para iniciar la descarga
-    document.body.appendChild(link);
-    link.click();
-
-    // Limpiar el enlace y revocar la URL del Blob
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-};
-
-    const jsonBlob = new Blob([JSON.stringify(escena, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(jsonBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'escena_PRMTTN.json';
-
-    document.body.appendChild(link);
-    link.click();
-
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-}
     // — Inicialización Three.js & UI —
     function initCustomCursor(){
       const c=document.getElementById('customCursor');
@@ -861,7 +805,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         alert("Error mint NFT: " + e.message);
       }
     }
-    document.getElementById("btn-mint").addEventListener("click", mintNFT);  
+    document.getElementById("btn-mint").addEventListener("click", mintNFT);
   </script>
 </body>
 </html>
