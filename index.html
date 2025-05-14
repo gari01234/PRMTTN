@@ -699,24 +699,32 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     // — Export embed —
-    function exportEmbed(){
+   function exportEmbed() {
+    // Obtener las permutaciones seleccionadas
     const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value);
+    
+    // Obtener el mapeo de atributos
     const mapping = [attributeMapping.forma, attributeMapping.color, attributeMapping.x, attributeMapping.y, attributeMapping.z];
+    
+    // Obtener los colores asignados
     const colors = {};
-    [1,2,3,4,5].forEach(i => {
-        colors[i] = "#" + document.getElementById('color'+i).value.substring(1);
+    [1, 2, 3, 4, 5].forEach(i => {
+        colors[i] = document.getElementById('color' + i).value;
     });
 
-    const bgColor = "#" + document.getElementById('bgColor').value.substring(1);
-    const cubeColor = "#" + document.getElementById('cubeColor').value.substring(1);
+    // Obtener los colores de fondo y del cubo
+    const bgColor = document.getElementById('bgColor').value;
+    const cubeColor = document.getElementById('cubeColor').value;
+
+    // Obtener las posiciones y velocidades de rotación
     const positions = {};
     const rotationSpeeds = {};
-
     perms.forEach((perm, index) => {
         positions[index + 1] = posiciones[perm];
-        rotationSpeeds[index + 1] = rotationSpeeds[perm] || 0.002; // valor predeterminado si no existe
+        rotationSpeeds[index + 1] = rotationSpeeds[perm] || 0.002;
     });
 
+    // Construir el objeto de configuración
     const escena = {
         permutations: perms,
         attributeMappingIndex: attributeMappingIndex,
@@ -728,6 +736,24 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         timestamp: Date.now(),
         mode: mode || "manual"
     };
+
+    // Crear un Blob con el contenido JSON
+    const jsonBlob = new Blob([JSON.stringify(escena, null, 2)], { type: "application/json" });
+
+    // Crear una URL para el Blob y un enlace temporal para descargarlo
+    const url = URL.createObjectURL(jsonBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'escena_PRMTTN.json';
+
+    // Agregar el enlace al documento y simular un clic para iniciar la descarga
+    document.body.appendChild(link);
+    link.click();
+
+    // Limpiar el enlace y revocar la URL del Blob
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
 
     const jsonBlob = new Blob([JSON.stringify(escena, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(jsonBlob);
