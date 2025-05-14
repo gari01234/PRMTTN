@@ -831,20 +831,21 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
-  <script type="module">
-    import { WebBundlr } from "https://esm.sh/@bundlr-network/client";
-
-    const provider = window.ethereum;
-    const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", provider);
-    await bundlr.ready();
-    console.log("Bundlr listo, balance:", await bundlr.getLoadedBalance());
-
-    window.uploadToBundlr = async function(blob) {
-      const tx = await bundlr.upload(blob, {
-        tags: [{ name: "Content-Type", value: blob.type }]
-      });
-      return tx.id;
-    };
+  <script src="https://bundlr.network/sdk/web.bundle.min.js"></script>
+  <script>
+    async function initBundlr() {
+      const bundlr = new bundlrSdk.WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+      await bundlr.ready();
+      const balance = await bundlr.getLoadedBalance();
+      console.log("✅ Bundlr listo, balance:", balance.toString());
+      window.uploadToBundlr = async function(blob) {
+        const tx = await bundlr.upload(blob, {
+          tags: [{ name: "Content-Type", value: blob.type }]
+        });
+        return tx.id;
+      };
+    }
+    initBundlr();
   </script>
   </script>
 </body>
