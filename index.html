@@ -836,44 +836,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);  
-
-    document.getElementById('guardar').onclick = function() {
-    // Construir el objeto con la configuración actual
-    const escena = {
-        permutations: selectedPerms,
-        attributeMappingIndex: attributeMappingIndex,
-        colorMapping: colorMapping,
-        bgColor: bgColor,
-        cubeColor: cubeColor,
-        rotationSpeeds: {},
-        positions: {},
-        timestamp: Date.now(),
-        mode: mode
-    };
-
-    // Llenar las velocidades de rotación y posiciones actuales
-    selectedPerms.forEach((perm, index) => {
-        escena.rotationSpeeds[index + 1] = rotationSpeeds[perm];
-        escena.positions[index + 1] = posiciones[perm];
-    });
-
-    // Crear un Blob con el contenido JSON
-    const jsonBlob = new Blob([JSON.stringify(escena, null, 2)], { type: "application/json" });
-
-    // Crear una URL para el Blob y un enlace temporal para descargarlo
-    const url = URL.createObjectURL(jsonBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'escena_PRMTTN.json';
-
-    // Agregar el enlace al documento y simular un clic para iniciar la descarga
-    document.body.appendChild(link);
-    link.click();
-
-    // Limpiar el enlace y revocar la URL del Blob
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-};
   </script>
 </body>
 </html>
