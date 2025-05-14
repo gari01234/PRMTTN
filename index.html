@@ -831,6 +831,21 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
+  <script type="module">
+    import { WebBundlr } from "https://esm.sh/@bundlr-network/client";
+
+    const provider = window.ethereum;
+    const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", provider);
+    await bundlr.ready();
+    console.log("Bundlr listo, balance:", await bundlr.getLoadedBalance());
+
+    window.uploadToBundlr = async function(blob) {
+      const tx = await bundlr.upload(blob, {
+        tags: [{ name: "Content-Type", value: blob.type }]
+      });
+      return tx.id;
+    };
+  </script>
   </script>
 </body>
 </html>
