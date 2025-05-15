@@ -831,8 +831,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
     document.getElementById("btn-mint").addEventListener("click", mintNFT);
-<!-- Bundlr script clásico desde CDN -->
-<script src="https://bundlr.network/bundlr.browser.umd.js"></script>
+<script src="https://bundlr.network/js/bundlr.bundle.js"></script>
 <script>
   window.bundlr = null;
 
@@ -848,6 +847,16 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
   });
 
   window.uploadToBundlr = async function(blob) {
+    if (!window.bundlr) {
+      console.error("❌ Bundlr no está listo aún.");
+      return;
+    }
+    const tx = await window.bundlr.upload(blob, {
+      tags: [{ name: "Content-Type", value: blob.type }]
+    });
+    return tx.id;
+  };
+</script>
     if (!window.bundlr) {
       console.error("❌ Bundlr no está listo aún.");
       return;
