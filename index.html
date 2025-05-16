@@ -850,6 +850,36 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     } catch (err) {
       console.error("Error inicializando Bundlr:", err);
     }
+<!-- Bundlr Module Initialization -->
+<script type="module">
+  import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
+
+  async function initBundlr() {
+    try {
+      const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+      await bundlr.ready();
+      const balance = await bundlr.getLoadedBalance();
+      console.log("Bundlr listo, balance:", balance.toString());
+      window.bundlr = bundlr;
+    } catch (err) {
+      console.error("Error inicializando Bundlr:", err);
+    }
+  }
+
+  window.addEventListener("load", () => initBundlr());
+  window.initBundlr = initBundlr;
+
+  window.uploadToBundlr = async function(blob) {
+    if (!window.bundlr) {
+      console.error("Bundlr no está listo aún.");
+      return;
+    }
+    const tx = await window.bundlr.upload(blob, {
+      tags: [{ name: "Content-Type", value: blob.type }]
+    });
+    return tx.id;
+  };
+</script>
   });
 
   window.uploadToBundlr = async function(blob) {
