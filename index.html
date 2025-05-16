@@ -831,6 +831,53 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
 </script>
+<script>
+// Cifrado AES-GCM usando WebCrypto API
+async function encryptBlob(blob) {
+  const key = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12)); // Initialization vector
+  const data = new Uint8Array(await blob.arrayBuffer());
+
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    data
+  );
+
+  // Exportamos la clave para guardarla o mostrarla después (por ahora sólo en consola)
+  const exportedKey = await crypto.subtle.exportKey("jwk", key);
+  console.log("🔐 Clave secreta (guárdala para descifrar):", exportedKey);
+  console.log("🔑 IV usado:", Array.from(iv));
+
+  const combined = new Uint8Array(iv.byteLength + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.byteLength);
+
+  return new Blob([combined], { type: blob.type });
+}
+
+window.uploadToBundlr = async function(blob) {
+  if (!window.bundlr) {
+    console.error("Bundlr no está listo aún.");
+    return;
+  }
+
+  try {
+    const encryptedBlob = await encryptBlob(blob);
+    const tx = await window.bundlr.upload(encryptedBlob, {
+      tags: [{ name: "Content-Type", value: blob.type }]
+    });
+    console.log("✅ Subida exitosa. CID:", tx.id);
+    return tx.id;
+  } catch (err) {
+    console.error("Error subiendo archivo cifrado:", err);
+  }
+};
+</script>
   import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
 
   window.addEventListener("load", async () => {
