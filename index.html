@@ -343,31 +343,38 @@
     }
 
     // — Popup tooltip —
-    function showPopup(msg,dur=2000){
-      const p=document.getElementById('hoverPopup');
-      p.style.display="block"; p.style.opacity=1;
-      p.style.left=(window.innerWidth/2-150)+"px"; p.style.top="20px";
-      p.innerHTML=msg;
-      setTimeout(()=>{
-        p.style.opacity=0;
-        setTimeout(()=>{p.style.display="none";p.innerHTML="";},300);
-      },dur);
-    }
+<script type="module">
+  import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
 
-    // — Actualizar escena —
-    function updateScene(attemptResolve=true){
-      while(permutationGroup.children.length>0){
-        const o=permutationGroup.children[0];
-        permutationGroup.remove(o);
-        o.geometry.dispose(); o.material.dispose();
-      }
-      const opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      opts.forEach((o,i)=>{
-        const pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
-        if(opts.length>1){
-          const ang=2*Math.PI*i/opts.length, rad=1.5;
-          obj.position.x+=rad*Math.cos(ang);
+  async function initBundlr() {
+    try {
+      const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+      await bundlr.ready();
+      const balance = await bundlr.getLoadedBalance();
+      console.log("Bundlr listo, balance:", balance.toString());
+      window.bundlr = bundlr;
+    } catch (err) {
+      console.error("Error inicializando Bundlr:", err);
+    }
+  }
+
+  window.addEventListener("load", () => {
+    initBundlr();
+  });
+
+  window.initBundlr = initBundlr;
+
+  window.uploadToBundlr = async function(blob) {
+    if (!window.bundlr) {
+      console.error("Bundlr no está listo aún.");
+      return;
+    }
+    const tx = await window.bundlr.upload(blob, {
+      tags: [{ name: "Content-Type", value: blob.type }]
+    });
+    return tx.id;
+  };
+</script>
           obj.position.y+=rad*Math.sin(ang);
           const ww=obj.geometry.parameters.width, hh=obj.geometry.parameters.height;
           obj.position.x=clamp(obj.position.x,-halfCube+ww/2,halfCube-ww/2);
