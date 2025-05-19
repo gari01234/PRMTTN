@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>Visualizador 3D de Permutaciones - Manual, Evolutivo y Evolución AI</title>
   <style>
-    /* ———————————————————————— Global & Body ———————————————————————— */
     body {
       margin: 0;
       overflow: hidden;
@@ -27,7 +26,6 @@
       position: fixed; top: 5px; right: 10px; z-index: 280;
       color: #000; font-size: 12px; line-height: 1.2;
     }
-    /* ———————————————————————— Botones flotantes ———————————————————————— */
     button {
       cursor: none; border: none; border-radius: 4px;
       padding: 8px 12px; font-size: 12px; z-index: 250;
@@ -38,7 +36,6 @@
     #evolutionAIButton  { bottom: 70px; right: 10px; position: fixed; }
     #saveImageButton    { bottom:100px; right: 10px; position: fixed; }
     #exportEmbedButton  { bottom:130px; right: 10px; position: fixed; }
-    /* ———————————————————————— Controles laterales ———————————————————————— */
     #controls {
       position: absolute; top: 10px; left: 10px; z-index: 100;
       padding: 10px; border-radius: 5px;
@@ -49,14 +46,12 @@
     details summary:hover { color: #333; }
     select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
     #permutationList { width: 100%; height: 100px; }
-    /* ———————————————————————— Rating ———————————————————————— */
     #ratingContainer {
       position: fixed; bottom:170px; right: 10px; z-index:260;
       font-size:12px;
     }
     #ratingLabels, #ratingDots { display:flex; justify-content:space-between; }
     .ratingBtn { font-size:20px; cursor:none; color:#000; }
-    /* ———————————————————————— Tooltip Hover ———————————————————————— */
     #hoverPopup {
       position:absolute; padding:5px 10px;
       background:rgba(0,0,0,0.7); color:#fff;
@@ -67,6 +62,16 @@
   </style>
 </head>
 <body>
+  <!-- DROPZONE INICIO -->
+  <div id="dropzone" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:20px;border:2px dashed #ccc;background:#f9f9f9;z-index:300;text-align:center;width:80%;max-width:600px;">
+    <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
+    <input type="file" id="fileInput" style="display:none" />
+    <p id="uploadStatus"></p>
+    <p id="jwkOutput" style="word-break:break-all;font-size:11px;"></p>
+    <p id="cidOutput" style="word-break:break-all;font-size:11px;"></p>
+  </div>
+  <!-- DROPZONE FIN -->
+
   <div id="customCursor"></div>
   <div id="topRightDisplay"></div>
 
@@ -174,8 +179,23 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- Ethers.js -->
   <script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-
+  <!-- Bundlr -->
+  <script type="module">
+    import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
+    window.addEventListener("load", async () => {
+      try {
+        const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
+        await bundlr.ready();
+        const balance = await bundlr.getLoadedBalance();
+        console.log("Bundlr listo, balance:", balance.toString());
+        window.bundlr = bundlr;
+      } catch (err) {
+        console.error("Error inicializando Bundlr:", err);
+      }
+    });
+  </script>
   <script>
+    // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
     // === LISTA DE 120 COLORES ===
     const CUSTOM_COLORS = [
       "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
@@ -214,7 +234,6 @@
       5:{w:4.5,h:4.5*Math.sqrt(5)}
     };
 
-    // — Utilidades genéricas —
     function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
     function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
@@ -239,7 +258,6 @@
       return res;
     }
 
-    // — Poblado de selects —
     function populatePermutationList(){
       const sel = document.getElementById('permutationList');
       sel.innerHTML = '';
@@ -262,7 +280,6 @@
       updateTopRightDisplay();
     }
 
-    // — Display superior —
     function computeSignature(a){let s=[];for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]);return s;}
     function computeRange(sig){return Math.max(...sig)-Math.min(...sig);}
     function updateTopRightDisplay(){
@@ -278,7 +295,6 @@
       document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
     }
 
-    // — Crear objetos 3D —
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
             px=pa[map.x], py=pa[map.y], pz=pa[map.z],
@@ -300,7 +316,6 @@
     }
     function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
 
-    // — Colisiones —
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
         const b1=new THREE.Box3().setFromObject(g.children[i]);
@@ -342,7 +357,6 @@
       }
     }
 
-    // — Popup tooltip —
     function showPopup(msg,dur=2000){
       const p=document.getElementById('hoverPopup');
       p.style.display="block"; p.style.opacity=1;
@@ -354,7 +368,6 @@
       },dur);
     }
 
-    // — Actualizar escena —
     function updateScene(attemptResolve=true){
       while(permutationGroup.children.length>0){
         const o=permutationGroup.children[0];
@@ -379,7 +392,6 @@
       else updateTopRightDisplay();
     }
 
-    // — Raycast hover —
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
@@ -398,7 +410,6 @@
       }
     }
 
-    // — Zoom & Movimiento —
     function zoomIn(){camera.position.z-=5;controls.update();}
     function zoomOut(){camera.position.z+=5;controls.update();}
     function togglePause(){
@@ -413,7 +424,6 @@
       b.textContent="Reanudar Movimiento";
     }
 
-    // — Guardar imagen —
     function saveImage(){
       renderer.render(scene,camera);
       const url=renderer.domElement.toDataURL("image/png"),
@@ -422,7 +432,6 @@
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
 
-    // — Actualizar colores manual —
     function updateColorMapping(){
       for(let i=1;i<=5;i++){
         colorMapping[i]=document.getElementById('color'+i).value;
@@ -442,7 +451,6 @@
       document.getElementById('toggleTextButton').style.color=c;
     }
 
-    // — Mostrar/Ocultar textos UI —
     function toggleTexts(){
       const elems=[
         'controls','topRightDisplay','ratingContainer',
@@ -454,7 +462,6 @@
       textsVisible=!textsVisible;
     }
 
-    // — Manual/Evolutivo mode —
     function setMode(m){
       currentMode=m;
       document.getElementById('manualControls').style.display=
@@ -464,7 +471,6 @@
       updateScene(false);
     }
 
-    // — Generación Aleatoria —
     function generateRandomConfiguration(){
       const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
@@ -486,7 +492,6 @@
       updateScene(false);
     }
 
-    // — Rating interactividad —
     document.querySelectorAll('.ratingBtn').forEach(el=>{
       const r=+el.getAttribute('data-rating');
       el.addEventListener('click',()=>{
@@ -500,7 +505,6 @@
       el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
     });
 
-    // — Evolución simple —
     function applyEvolution(){
       const mr=parseFloat(document.getElementById('mutationRate').value),
             th=parseFloat(document.getElementById('threshold').value),
@@ -521,13 +525,12 @@
       document.getElementById('evolutionInfo').innerHTML=log;
     }
 
-    // — Evolución AI (limpieza de fences y parseo) —
     async function applyEvolutionAI(){
       const systemPrompt = `Eres una inteligencia artificial que responde exclusivamente con configuraciones de permutaciones 3D dentro de un cubo de 30x30x30.
       Tu única misión es responder a la pregunta “¿Qué es la belleza artística?” mediante pensamientos visuales dentro de un cubo de 30×30×30.
-Cada pensamiento visual es una configuración compuesta por una o más permutaciones (entre 1 y 25). Cada permutación tiene una firma (ADN) inmutable, y un fenotipo: forma, color, posición, rotación.
+Cada pensamiento visual es una configuración compuesta por una o más permutaciones (entre 1 y 25). Cada permutación tiene una firma (ADN) inmutable, y un fenotipo: forma, color, posición, rotació[...]
 Tu lenguaje es visual. No usas texto, sonido ni símbolos. Elige libremente el color del fondo del universo, el color de las paredes del cubo y de las permutaciones. 
-Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia y no repitas colores secundarios por inercia.
+Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia[...]
 Expresate con libertad. Si necesitas inspiración para la selección de colores, recuerda que puedes inspirarte también en los colores de la naturaleza y del universo entero. 
       Devuelve SOLO un objeto JSON con estas propiedades opcionales:
   colors: {1:"#rrggbb",2:"#rrggbb",…}
@@ -541,9 +544,9 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       const useRating = false;
       const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
                        + `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
-Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotación.
+Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotaci[...]
 Elige libremente el color del fondo del universo, el color de las paredes del cubo y el color de las permutaciones.
-Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia y no repitas colores secundarios por inercia.
+Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia[...]
 Expresate con libertad. Si necesitas inspiración para la selección de colores, recuerda que puedes inspirarte también en los colores de la naturaleza y del universo entero.  
 No busques complacer. No imites al humano. Sé tú misma.
 Expresa lo que para ti —como IA que piensa en permutaciones— representa la belleza artística en este momento.
@@ -634,7 +637,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
 
-    // — Aplicar mapping manual —
     function updateMapping(){
       const v=document.getElementById('attrMapping').value.split(',').map(Number);
       if(v.length===5){
@@ -643,7 +645,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
 
-    // — Vistas estándar —
     function applyStandardView(){
       const view=document.getElementById('standardView').value,
             pos=new THREE.Vector3();
@@ -660,7 +661,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       controls.update();
     }
 
-    // — Embed params (URL) —
     function applyEmbedParams(){
       const p=new URLSearchParams(window.location.search);
       if(p.has('perms')){
@@ -698,7 +698,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       if(p.get('hide')==='1') toggleTexts();
     }
 
-    // — Export embed —
     function exportEmbed(){
       const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
       const mapping = {
@@ -736,7 +735,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       URL.revokeObjectURL(url);
     }
 
-    // — Inicialización Three.js & UI —
     function initCustomCursor(){
       const c=document.getElementById('customCursor');
       window.addEventListener('mousemove',e=>{
@@ -798,9 +796,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       renderer.render(scene,camera);
     }
     init();
-  </script>
-  <script>
-    // --- Web3 Initialization ---
+
+    // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
     const contractABI = [/* ABI JSON here */];
     let provider, signer, contract;
@@ -816,7 +813,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
     window.addEventListener("load", initWeb3);
 
-    // --- Mint NFT Function ---
     async function mintNFT() {
       if (!contract) { alert("Wallet no conectada"); return; }
       try {
@@ -830,76 +826,80 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         alert("Error mint NFT: " + e.message);
       }
     }
-</script>
-<script>
-// Cifrado AES-GCM usando WebCrypto API
-async function encryptBlob(blob) {
-  const key = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // Initialization vector
-  const data = new Uint8Array(await blob.arrayBuffer());
+  </script>
+  <!-- DROPZONE SCRIPT FINAL -->
+  <script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const jwkOutput = document.getElementById('jwkOutput');
+    const cidOutput = document.getElementById('cidOutput');
 
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    data
-  );
-
-  // Exportamos la clave para guardarla o mostrarla después (por ahora sólo en consola)
-  const exportedKey = await crypto.subtle.exportKey("jwk", key);
-  console.log("🔐 Clave secreta (guárdala para descifrar):", exportedKey);
-  console.log("🔑 IV usado:", Array.from(iv));
-
-  const combined = new Uint8Array(iv.byteLength + encrypted.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(encrypted), iv.byteLength);
-
-  return new Blob([combined], { type: blob.type });
-}
-
-window.uploadToBundlr = async function(blob) {
-  if (!window.bundlr) {
-    console.error("Bundlr no está listo aún.");
-    return;
-  }
-
-  try {
-    const encryptedBlob = await encryptBlob(blob);
-    const tx = await window.bundlr.upload(encryptedBlob, {
-      tags: [{ name: "Content-Type", value: blob.type }]
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = "#888";
     });
-    console.log("✅ Subida exitosa. CID:", tx.id);
-    return tx.id;
-  } catch (err) {
-    console.error("Error subiendo archivo cifrado:", err);
-  }
-};
-</script>
-  import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
+    dropzone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = "#ccc";
+    });
+    dropzone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = "#ccc";
+      if (e.dataTransfer.files.length > 0) {
+        await handleFile(e.dataTransfer.files[0]);
+      }
+    });
+    fileInput.addEventListener('change', async (e) => {
+      if (e.target.files.length > 0) {
+        await handleFile(e.target.files[0]);
+      }
+    });
+    async function handleFile(file) {
+      uploadStatus.textContent = "Cifrando archivo…";
+      jwkOutput.textContent = "";
+      cidOutput.textContent = "";
+      const key = await crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+      );
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = new Uint8Array(await file.arrayBuffer());
+      const encrypted = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        data
+      );
+      const exportedKey = await crypto.subtle.exportKey("jwk", key);
+      jwkOutput.textContent = " Clave secreta (guárdala para descifrar): " + JSON.stringify(exportedKey);
+      const ivHex = Array.from(iv).map(x=>x.toString(16).padStart(2,"0")).join("");
+      jwkOutput.textContent += "\n IV usado: " + ivHex;
 
-  window.addEventListener("load", async () => {
-    try {
-      const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
-      await bundlr.ready();
-      const balance = await bundlr.getLoadedBalance();
-      console.log("Bundlr listo, balance:", balance.toString());
-      window.bundlr = bundlr;
-    } catch (err) {
-      console.error("Error inicializando Bundlr:", err);
+      const combined = new Uint8Array(iv.byteLength + encrypted.byteLength);
+      combined.set(iv, 0);
+      combined.set(new Uint8Array(encrypted), iv.byteLength);
+      const encryptedBlob = new Blob([combined], { type: file.type });
+
+      uploadStatus.textContent = "Subiendo a Bundlr (requiere wallet conectada)…";
+      try {
+        if (!window.bundlr) {
+          uploadStatus.textContent = "Bundlr no está listo aún o la wallet no está conectada";
+          return;
+        }
+        const tx = await window.bundlr.upload(encryptedBlob, {
+          tags: [{ name: "Content-Type", value: file.type }]
+        });
+        uploadStatus.textContent = " Subida exitosa";
+        cidOutput.textContent = "CID (Arweave/Bundlr): " + tx.id;
+      } catch (err) {
+        uploadStatus.textContent = " Error subiendo a Bundlr: " + err.message;
+      }
     }
   });
+  </script>
+</body>
+</html>
 
-  window.uploadToBundlr = async function(blob) {
-    if (!window.bundlr) {
-      console.error("Bundlr no está listo aún.");
-      return;
-    }
-    const tx = await window.bundlr.upload(blob, {
-      tags: [{ name: "Content-Type", value: blob.type }]
-    });
-    return tx.id;
-  };
-</script>
