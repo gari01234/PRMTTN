@@ -62,16 +62,6 @@
   </style>
 </head>
 <body>
-  <!-- DROPZONE INICIO -->
-  <div id="dropzone" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:20px;border:2px dashed #ccc;background:#f9f9f9;z-index:300;text-align:center;width:80%;max-width:600px;">
-    <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
-    <input type="file" id="fileInput" style="display:none" />
-    <p id="uploadStatus"></p>
-    <p id="jwkOutput" style="word-break:break-all;font-size:11px;"></p>
-    <p id="cidOutput" style="word-break:break-all;font-size:11px;"></p>
-  </div>
-  <!-- DROPZONE FIN -->
-
   <div id="customCursor"></div>
   <div id="topRightDisplay"></div>
 
@@ -169,7 +159,17 @@
   <summary>⋆ NFT</summary>
   <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
 </details>
-  
+    
+    <details open>
+  <summary>📁 Añadir Archivo Secreto</summary>
+  <div id="dropzone" style="padding:10px;border:2px dashed #ccc;background:#f9f9f9;margin-top:10px;text-align:center;cursor:pointer;transition:border-color 0.2s;">
+    <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
+    <input type="file" id="fileInput" style="display:none" />
+    <p id="uploadStatus"></p>
+    <p id="jwkOutput" style="word-break:break-all;font-size:11px;"></p>
+    <p id="cidOutput" style="word-break:break-all;font-size:11px;"></p>
+  </div>
+</details>
   </div>
 
   <div id="hoverPopup"></div>
