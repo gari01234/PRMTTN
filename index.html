@@ -19,7 +19,7 @@
       border-radius: 50%;
       background: #000;
       border: 1px solid #fff;
-      pointer-events: none; z-index: 300;
+import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/build/web.bundle.min.js";
       transform: translate(-50%, -50%);
     }
     #topRightDisplay {
@@ -820,6 +820,14 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         const tokenURI = `https://my-server.com/metadata/${hash}.json`;
         const tx = await contract.mint(await signer.getAddress(), tokenURI);
         await tx.wait();
+        const nft = {
+          tokenId: hash,
+          tokenURI,
+          owner: await signer.getAddress(),
+          config: exportCurrentConfiguration()
+        };
+        localStorage.setItem("mintedNFT_" + hash, JSON.stringify(nft));
+        console.log("NFT guardado localmente:", nft);
         alert("NFT acuñado! Hash: " + hash);
       } catch(e) {
         console.error(e);
@@ -893,6 +901,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           tags: [{ name: "Content-Type", value: file.type }]
         });
         uploadStatus.textContent = " Subida exitosa";
+        window.lastUploadedTxId = tx.id;
         cidOutput.textContent = "CID (Arweave/Bundlr): " + tx.id;
       } catch (err) {
         uploadStatus.textContent = " Error subiendo a Bundlr: " + err.message;
