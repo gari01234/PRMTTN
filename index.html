@@ -820,6 +820,14 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         const tokenURI = `https://my-server.com/metadata/${hash}.json`;
         const tx = await contract.mint(await signer.getAddress(), tokenURI);
         await tx.wait();
+        const nft = {
+          tokenId: hash,
+          tokenURI,
+          owner: await signer.getAddress(),
+          config: exportCurrentConfiguration()
+        };
+        localStorage.setItem("mintedNFT_" + hash, JSON.stringify(nft));
+        console.log("NFT guardado localmente:", nft);
         alert("NFT acuñado! Hash: " + hash);
       } catch(e) {
         console.error(e);
