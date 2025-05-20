@@ -901,6 +901,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           tags: [{ name: "Content-Type", value: file.type }]
         });
         uploadStatus.textContent = " Subida exitosa";
+        window.lastUploadedTxId = tx.id;
         cidOutput.textContent = "CID (Arweave/Bundlr): " + tx.id;
       } catch (err) {
         uploadStatus.textContent = " Error subiendo a Bundlr: " + err.message;
