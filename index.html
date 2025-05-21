@@ -141,128 +141,27 @@ import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/b
         <option value="isometric">Isométrica</option>
         <option value="top">Superior</option>
         <option value="front">Frontal</option>
-        <option value="side">Lateral</option>
-        <option value="diagonal">Diagonal opuesta</option>
-      </select>
-      <button onclick="applyStandardView()">Aplicar Vista</button>
-    </details>
-    <details>
-      <summary>Controles de Zoom</summary>
-      <button onclick="zoomIn()">Zoom In</button>
-      <button onclick="zoomOut()">Zoom Out</button>
-    </details>
-    <details>
-      <summary>Controles de Movimiento</summary>
-      <button onclick="togglePause()">Pausar Movimiento</button>
-      <button onclick="resetMovement()">Resetear Movimiento</button>
-    </details>
-<details>
-  <summary>⋆ NFT</summary>
-  <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
-</details>
-    
-    <details open>
-  <summary>📁 Añadir Archivo Secreto</summary>
-  <div id="dropzone" style="padding:10px;border:2px dashed #ccc;background:#f9f9f9;margin-top:10px;text-align:center;cursor:pointer;transition:border-color 0.2s;">
-    <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
-    <input type="file" id="fileInput" style="display:none" />
-    <p id="uploadStatus"></p>
-    <p id="jwkOutput" style="word-break:break-all;font-size:11px;"></p>
-    <p id="cidOutput" style="word-break:break-all;font-size:11px;"></p>
-  </div>
-</details>
-  </div>
-
-  <div id="hoverPopup"></div>
-
-  <!-- Three.js & OrbitControls -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <!-- Ethers.js -->
-  <script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  <!-- Bundlr -->
-  <script type="module">
-    import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
-    window.addEventListener("load", async () => {
-      try {
-        const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
-        await bundlr.ready();
-        const balance = await bundlr.getLoadedBalance();
-        console.log("Bundlr listo, balance:", balance.toString());
-        window.bundlr = bundlr;
-      } catch (err) {
-        console.error("Error inicializando Bundlr:", err);
-      }
-    });
-  </script>
-  <script>
-    // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
-    // === LISTA DE 120 COLORES ===
-    const CUSTOM_COLORS = [
-      "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
-      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
-      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
-      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
-      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
-      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
-      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
-      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
-      "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
-      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
-      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
-      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
-      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
-      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
-      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
-      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
-      "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
-      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
-    ];
-
-    // === Variables globales ===
-    let scene, camera, renderer, controls, raycaster, mouse;
-    let cubeUniverse, permutationGroup;
-    const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
-    let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
-    let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
-    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
-    const minRangeValue = 2, maxRangeValue = 6;
-    const shapeMapping = {
-      1:{w:4.5,h:4.5},
-      2:{w:4.5,h:4.5*Math.sqrt(2)},
-      3:{w:4.5,h:4.5*Math.sqrt(3)},
-      4:{w:4.5,h:4.5*Math.sqrt(4)},
-      5:{w:4.5,h:4.5*Math.sqrt(5)}
-    };
-
-    function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-    function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
-    function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
-
-    function getPermutations(arr){
-      if(arr.length===1) return [arr];
-      let res=[]; for(let i=0;i<arr.length;i++){
-        const c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
-        for(const p of getPermutations(rem)) res.push([c].concat(p));
-      }
-      return res;
-    }
-    const allPermutations = getPermutations([1,2,3,4,5]);
-    const permutationStrings = allPermutations.map(p=>p.join(','));
-
-    function getAttributeMappings(a){
-      if(a.length===1) return [a];
-      let res=[]; for(let i=0;i<a.length;i++){
-        const c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
-        for(const m of getAttributeMappings(rem)) res.push([c].concat(m));
-      }
-      return res;
-    }
-
-    function populatePermutationList(){
-      const sel = document.getElementById('permutationList');
-      sel.innerHTML = '';
-      permutationStrings.forEach((ps,i)=>{
+      // === LISTA DE 120 COLORES ===
+      // const CUSTOM_COLORS = [
+      //   "#070709", "#898052", "#3E7471", "#9E513A", "#732F36", "#826C9C", "#6651A4",
+      //   "#735E72", "#A593A5", "#263456", "#4B2B3F", "#8E6F4D", "#C35D2C", "#AF443E",
+      //   "#5C355C", "#352A47", "#6E2E2A", "#704331", "#A66F2C", "#BA3E36", "#B25D53",
+      //   "#AB9E8C", "#9B8D84", "#8F706E", "#726462", "#433636", "#3D2D2D", "#181818",
+      //   "#2F2F2F", "#3C3C3C", "#AFAFAF", "#C7C7C7", "#E0E0E0", "#F0F0F0", "#FFFFFF",
+      //   "#FAFAFA", "#F5F5F5", "#EDEDED", "#DCDCDC", "#A9A9A9", "#808080", "#696969",
+      //   "#585858", "#404040", "#282828", "#1C1C1C", "#121212", "#0A0A0A", "#000000",
+      //   "#FF0000", "#FF7F00", "#FFFF00", "#7FFF00", "#00FF00", "#00FF7F", "#00FFFF",
+      //   "#007FFF", "#0000FF", "#7F00FF", "#FF00FF", "#FF007F", "#7F0000", "#7F3F00",
+      //   "#7F7F00", "#3F7F00", "#007F00", "#007F3F", "#007F7F", "#003F7F", "#00007F",
+      //   "#3F007F", "#7F007F", "#7F003F", "#FFAAAA", "#FFD4AA", "#FFFFAA", "#D4FFAA",
+      //   "#AAFFAA", "#AAFFD4", "#AAFFFF", "#AAD4FF", "#AAAAFF", "#D4AAFF", "#FFAAFF",
+      //   "#FFAAD4", "#D46A6A", "#D4A56A", "#D4D46A", "#A5D46A", "#6AD46A", "#6AD4A5",
+      //   "#6AD4D4", "#6AA5D4", "#6A6AD4", "#A56AD4", "#D46AD4", "#D46AA5", "#AA0000",
+      //   "#AA5500", "#AAAA00", "#55AA00", "#00AA00", "#00AA55", "#00AAAA", "#0055AA",
+      //   "#0000AA", "#5500AA", "#AA00AA", "#AA0055", "#550000", "#553000", "#555500",
+      //   "#305500", "#005500", "#005530", "#005555", "#003055", "#000055", "#300055",
+      //   "#550055", "#550030"
+      // ];
         const o=document.createElement('option');
         o.value=ps; o.text=`Permutación ${i+1}: (${ps})`;
         if(i===0) o.selected=true;
