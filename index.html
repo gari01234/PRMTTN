@@ -193,6 +193,30 @@ import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/b
         info+=`<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
       });
       document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
+/**
+ * Dada una firma [f1,…,f5], devuelve 
+ * { colorShape, colorCube, colorBG } con triádico compuesto.
+ */
+function computeTriadicColors(firma) {
+  // 1) normaliza cada f_i a [0,1]
+  const u = firma.map(fi => (fi - 3) / 6);
+  // 2) hue base mixto
+  const phi0 = 360 * (
+    0.1*u[0] + 0.6*u[1] + 0.1*u[2] + 0.1*u[3] + 0.1*u[4]
+  );
+  // 3) triádico
+  const sH = phi0;
+  const cH = (phi0 + 120) % 360;
+  const bH = (phi0 + 240) % 360;
+  // 4) strings HSL
+  const S = 80, L = 50;
+  return {
+    colorShape: `hsl(${sH.toFixed(1)},${S}%,${L}%)`,
+    colorCube:  `hsl(${cH.toFixed(1)},${S}%,${L}%)`,
+    colorBG:    `hsl(${bH.toFixed(1)},${S}%,${L}%)`
+  };
+}
+
     }
 
     function createPermutationObjectWithMapping(pa,map){
