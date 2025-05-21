@@ -355,47 +355,45 @@ function computeTriadicColors(firma) {
       a.href=url; a.download="configuracion.png";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
+/**
+ * Dada una firma [f1,…,f5], devuelve 
+ * { colorShape, colorCube, colorBG } con triádico compuesto.
+ */
+function computeTriadicColors(firma) {
+  const u = firma.map(fi => (fi - 3) / 6);
+  const phi0 = 360 * (
+    0.1*u[0] + 0.6*u[1] + 0.1*u[2] + 0.1*u[3] + 0.1*u[4]
+  );
+  const sH = phi0;
+  const cH = (phi0 + 120) % 360;
+  const bH = (phi0 + 240) % 360;
+  const S = 80, L = 50;
+  return {
+    colorShape: `hsl(${sH.toFixed(1)},${S}%,${L}%)`,
+    colorCube:  `hsl(${cH.toFixed(1)},${S}%,${L}%)`,
+    colorBG:    `hsl(${bH.toFixed(1)},${S}%,${L}%)`
+  };
+}
 
-    function updateColorMapping(){
-      for(let i=1;i<=5;i++){
-        colorMapping[i]=document.getElementById('color'+i).value;
-      }
-      updateScene(false);
-    }
-    function updateBackground(){
-      const c=document.getElementById('bgColor').value;
-      scene.background=new THREE.Color(c);
-      const lum=(parseInt(c.slice(1,3),16)*299+parseInt(c.slice(3,5),16)*587+parseInt(c.slice(5,7),16)*114)/1000;
-      document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
-    }
-    function updateCubeColor(){
-      const c=document.getElementById('cubeColor').value;
-      cubeUniverse.material.color=new THREE.Color(c);
-      document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
-      document.getElementById('toggleTextButton').style.color=c;
-    }
+function applyRandomConfig() {
+  currentConfig = generateRandomConfig();
+  updateURLHash(currentConfig);
+  configHistory.push(currentConfig);
+  pointer = configHistory.length - 1;
+  updateArrows();
 
-    function toggleTexts(){
-      const elems=[
-        'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','evolutionAIButton','saveImageButton','exportEmbedButton'
-      ].map(id=>document.getElementById(id));
-      elems.forEach(e=>e.style.display=textsVisible?"none":"block");
-      document.getElementById('toggleTextButton').textContent=
-        textsVisible?"Mostrar Textos":"Ocultar Textos";
-      textsVisible=!textsVisible;
-    }
+  currentConfig.forEach((permObj, index) => {
+    const firma = permObj.signature;
+    const { colorShape, colorCube, colorBG } = computeTriadicColors(firma);
 
-    function setMode(m){
-      currentMode=m;
-      document.getElementById('manualControls').style.display=
-        m==="manual"?"block":"none";
-      document.getElementById('evolutionControls').style.display=
-        m==="evolution"?"block":"none";
-      updateScene(false);
-    }
+    permObj.mesh.material.color.setStyle(colorShape);
 
-    function generateRandomConfiguration(){
+    if (index === 0) {
+      scene.background = new THREE.Color(colorBG);
+      cubeContainer.material.color.setStyle(colorCube);
+    }
+  });
+}
       const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
       const n=Math.floor(Math.random()*5)+1;
