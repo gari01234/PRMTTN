@@ -9,7 +9,10 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
-
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #ffffff;
       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
       font-weight: 200;
       font-size: 12px;
@@ -21,7 +24,7 @@
       border-radius: 50%;
       background: #000;
       border: 1px solid #fff;
-import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/build/web.bundle.min.js";
+      pointer-events: none; z-index: 300;
       transform: translate(-50%, -50%);
     }
     #topRightDisplay {
@@ -509,23 +512,14 @@ function computeTriadicColors(firma) {
   // 1) Normaliza f_i ∈ {3…9} a u_i ∈ [0,1]
   const u = firma.map(fi => (fi - 3) / 6);
 
-// 2) Hue base mixto con jitter en phi0
-// Normalización previa: const u = firma.map(fi => (fi - 3) / 6);
-
-// Jitter: +/-10° según u[2]
-const jitter = 20 * (u[2] - 0.5);  // u[2] en [0,1] -> jitter en [-10, +10]
-
-// Hue base mixto (60% de u[1], 10% de cada otro)
-let phi0 = 360 * (
-  0.1 * u[0] +
-  0.6 * u[1] +
-  0.1 * u[2] +
-  0.1 * u[3] +
-  0.1 * u[4]
-);
-
-// Aplica jitter y normaliza a [0,360)
-phi0 = (phi0 + jitter + 360) % 360;
+  // 2) Hue base mixto (60% de u[1], 10% de cada otro)
+  const phi0 = 360 * (
+    0.1 * u[0] +
+    0.6 * u[1] +
+    0.1 * u[2] +
+    0.1 * u[3] +
+    0.1 * u[4]
+  );
 
   // 3) Triádico: +0°, +120°, +240°
   const shapeHue =  phi0;
