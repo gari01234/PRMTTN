@@ -61,6 +61,13 @@ import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/b
       font-size:12px; display:none; opacity:0;
       transition:opacity .3s; z-index:200;
     }
+  #triadicConfigButton {
+    position: fixed;
+    bottom: 160px;   /* ajusta para no tapar otros botones */
+    right: 10px;     /* separación del borde derecho */
+    cursor: pointer; /* mano al pasar */
+    z-index: 999;    /* encima de todo */
+  }
   </style>
 </head>
 <body>
@@ -69,6 +76,7 @@ import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/b
 
   <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
   <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
+<button id="triadicConfigButton" onclick="applyTriadicConfiguration()">Configuración Triádica</button>
   <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
   <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
   <button id="exportEmbedButton" onclick="exportEmbed()">Guardar</button>
@@ -476,7 +484,7 @@ import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/b
     function generateRandomConfiguration(){
       const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
-      const n=Math.floor(Math.random()*5)+1;
+      const n=Math.floor(Math.random()*10)+1;
       for(let i=0;i<n;i++){
         const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
         sel.querySelector(`option[value="${val}"]`).selected=true;
@@ -493,7 +501,77 @@ import { WebBundlr } from "https://cdn.jsdelivr.net/npm/@bundlr-network/client/b
       }
       updateScene(false);
     }
+/**
+ * Dada una firma [f1,f2,f3,f4,f5], devuelve los colores triádicos
+ * { colorShape, colorCube, colorBG } en formato CSS HSL.
+ */
+function computeTriadicColors(firma) {
+  // 1) Normaliza f_i ∈ {3…9} a u_i ∈ [0,1]
+  const u = firma.map(fi => (fi - 3) / 6);
 
+// 2) Hue base mixto con jitter en phi0
+// Normalización previa: const u = firma.map(fi => (fi - 3) / 6);
+
+// Jitter: +/-10° según u[2]
+const jitter = 20 * (u[2] - 0.5);  // u[2] en [0,1] -> jitter en [-10, +10]
+
+// Hue base mixto (60% de u[1], 10% de cada otro)
+let phi0 = 360 * (
+  0.1 * u[0] +
+  0.6 * u[1] +
+  0.1 * u[2] +
+  0.1 * u[3] +
+  0.1 * u[4]
+);
+
+// Aplica jitter y normaliza a [0,360)
+phi0 = (phi0 + jitter + 360) % 360;
+
+  // 3) Triádico: +0°, +120°, +240°
+  const shapeHue =  phi0;
+  const cubeHue  = (phi0 + 120) % 360;
+  const bgHue    = (phi0 + 240) % 360;
+
+  // 4) Saturación y luminosidad fijas
+  const S = 80, L = 50;
+
+  return {
+    colorShape: `hsl(${shapeHue.toFixed(1)},${S}%,${L}%)`,
+    colorCube:  `hsl(${cubeHue.toFixed(1)},${S}%,${L}%)`,
+    colorBG:    `hsl(${bgHue.toFixed(1)},${S}%,${L}%)`
+  };
+}
+function applyTriadicConfiguration() {
+  // 1) Repite la selección aleatoria de permutaciones
+  generateRandomConfiguration();
+
+  // 2) Ahora solo aplica los colores triádicos deterministas:
+  if (permutationGroup.children.length > 0) {
+    const baseSig = permutationGroup.children[0].userData.signature;
+    const { colorCube, colorBG } = computeTriadicColors(baseSig);
+
+    // Paredes del cubo
+    if (cubeUniverse.material?.color?.setStyle) {
+      cubeUniverse.material.color.setStyle(colorCube);
+    } else {
+      cubeUniverse.material.color = new THREE.Color(colorCube);
+    }
+
+    // Fondo
+    scene.background = new THREE.Color(colorBG);
+  }
+
+  // Cada prisma
+  permutationGroup.children.forEach(mesh => {
+    const sig = mesh.userData.signature;
+    const { colorShape } = computeTriadicColors(sig);
+    if (mesh.material?.color?.setStyle) {
+      mesh.material.color.setStyle(colorShape);
+    } else {
+      mesh.material.color = new THREE.Color(colorShape);
+    }
+  });
+}
     document.querySelectorAll('.ratingBtn').forEach(el=>{
       const r=+el.getAttribute('data-rating');
       el.addEventListener('click',()=>{
