@@ -52,7 +52,7 @@
     select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
     #permutationList { width: 100%; height: 100px; }
     #ratingContainer {
-      position: fixed; bottom:170px; right: 10px; z-index:260;
+      position: fixed; bottom:230px; right: 10px; z-index:260;
       font-size:12px;
     }
     #ratingLabels, #ratingDots { display:flex; justify-content:space-between; }
@@ -532,7 +532,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function toggleTexts(){
       const elems=[
         'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','evolutionAIButton','saveImageButton','exportEmbedButton'
+        'randomConfigButton','evolutionAIButton','saveImageButton','exportEmbedButton','triadicConfigButton'
       ].map(id=>document.getElementById(id));
       elems.forEach(e=>e.style.display=textsVisible?"none":"block");
       document.getElementById('toggleTextButton').textContent=
