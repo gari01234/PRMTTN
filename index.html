@@ -190,14 +190,45 @@ document.getElementById('json-upload').addEventListener('change', function(event
   reader.onload = function(e) {
     try {
       const config = JSON.parse(e.target.result);
-      if (config.perms) window.perms = config.perms;
-      if (config.mapping) window.mapping = config.mapping;
-      if (config.colors) window.colors = config.colors;
-      if (config.bg) document.body.style.backgroundColor = config.bg;
-      if (config.cube) window.cubeColor = config.cube;
-      if (config.view) window.viewMode = config.view;
 
-      if (typeof render === 'function') render();
+      if (config.perms && Array.isArray(config.perms)) {
+        const sel = document.getElementById('permutationList');
+        Array.from(sel.options).forEach(o => o.selected = config.perms.includes(o.value));
+      }
+
+      if (config.mapping) {
+        const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
+        document.getElementById('attrMapping').value = v.join(',');
+      }
+
+      if (config.colors) {
+        Object.entries(config.colors).forEach(([i, c]) => {
+          const colorInput = document.getElementById('color' + i);
+          if (colorInput) {
+            colorInput.value = c;
+          }
+        });
+      }
+
+      if (config.bg) {
+        document.getElementById('bgColor').value = config.bg;
+      }
+
+      if (config.cube) {
+        document.getElementById('cubeColor').value = config.cube;
+      }
+
+      if (config.view) {
+        document.getElementById('standardView').value = config.view;
+      }
+
+      updateMapping();
+      updateColorMapping();
+      updateBackground();
+      updateCubeColor();
+      applyStandardView();
+      updateScene(false);
+
       alert('Configuración cargada correctamente');
     } catch (err) {
       alert('Error al cargar el JSON: ' + err.message);
