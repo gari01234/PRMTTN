@@ -172,6 +172,40 @@
   <summary>⋆ NFT</summary>
   <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
 </details>
+<!-- Upload JSON Button -->
+<input type="file" id="json-upload" accept=".json" style="display: none;" />
+<button 
+  onclick="document.getElementById('json-upload').click()" 
+  style="position: fixed; bottom: 20px; right: 20px;"
+>
+  Subir Configuración
+</button>
+
+<script>
+document.getElementById('json-upload').addEventListener('change', function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const config = JSON.parse(e.target.result);
+      if (config.perms) window.perms = config.perms;
+      if (config.mapping) window.mapping = config.mapping;
+      if (config.colors) window.colors = config.colors;
+      if (config.bg) document.body.style.backgroundColor = config.bg;
+      if (config.cube) window.cubeColor = config.cube;
+      if (config.view) window.viewMode = config.view;
+
+      if (typeof render === 'function') render();
+      alert('Configuración cargada correctamente');
+    } catch (err) {
+      alert('Error al cargar el JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+</script>
     
     <details open>
   <summary>📁 Añadir Archivo Secreto</summary>
