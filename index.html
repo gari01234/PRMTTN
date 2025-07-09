@@ -303,6 +303,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
     let palette = []; // Colores HSV->RGB calculados de forma determinista
+    let colorMap = {}; // Mapa 1..5 -> '#RRGGBB'
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -359,6 +360,14 @@ document.getElementById('json-upload').addEventListener('change', function(event
       return '#'+h(r)+h(g)+h(b);
     }
 
+    function updateColorMap(){
+      for(let k=1;k<=5;k++){
+        const col=palette[k-1];
+        const hex=col?rgbToHex(...col):null;
+        colorMap[k]=hex||'#808080';
+      }
+    }
+
     const ANGLES=[
       [0,0,0,0,0,0,0],
       [0,30,60,90,120,150,180],
@@ -387,9 +396,13 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const [H0] = rgbToHsv(Rg,Gg,Bg);
       const idx=(Rg+2*Gg+3*Bg)%7;
       const angles=ANGLES[idx];
-      const pal=[];
+      const pal=[]; const Hvals=[];
       for(let k=0;k<7;k++){
         let H=(H0+angles[k])%360;
+        if(k>0 && k<5 && Math.abs(H - Hvals[k-1]) < 18) {
+          H = (Hvals[k-1] + 18) % 360;
+        }
+        Hvals[k]=H;
         let S=0.70, V=0.85;
         if(idx===0){
           V=0.55+0.05*k;
@@ -456,15 +469,22 @@ document.getElementById('json-upload').addEventListener('change', function(event
       let r=0;
       for(let i=0;i<p.length;i++){
         let c=0;
-        for(let j=i+1;j<p.length;j++) if(p[j]<p[i]) c++; 
+        for(let j=i+1;j<p.length;j++) if(p[j]<p[i]) c++;
         r+=c*FACT[p.length-1-i];
       }
       return r;
     }
+
+    function toXYZdigits(r){
+      const x=Math.floor(r/25)%5;
+      const y=Math.floor((r%25)/5)%5;
+      const z=r%5;
+      return [x,y,z];
+    }
     function computeShiftRankXYZ(p){
       const r=lehmerRank(p);
       const I=(r+sceneSeed)%125;
-      const x=Math.floor(I/25), y=Math.floor((I%25)/5), z=I%5;
+      const [x,y,z]=toXYZdigits(I);
       const step=cubeSize/4;
       return [
         (x-2)*step,
@@ -488,7 +508,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
-      const col=palette[cv-1]||[0,0,0];
+      const hex=colorMap[cv]||'#808080';
+      const col=hexToRgb(hex);
       const geo=new THREE.BoxGeometry(w,h,t),
             mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(col[0]/255, col[1]/255, col[2]/255), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
@@ -566,6 +587,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       const [Rg,Gg,Bg]=computeGlobalRGB(perms);
       palette=buildPalette(Rg,Gg,Bg);
+      updateColorMap();
       for(let i=1;i<=5;i++){
         document.getElementById('color'+i).value=rgbToHex(...palette[i-1]);
       }
@@ -628,6 +650,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       palette[5]=hexToRgb(document.getElementById('bgColor').value);
       palette[6]=hexToRgb(document.getElementById('cubeColor').value);
+      updateColorMap();
       updateBackground();
       updateCubeColor();
       updateScene(false);
@@ -685,6 +708,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       palette[5]=hexToRgb(bg);
       palette[6]=hexToRgb(wall);
+      updateColorMap();
       updateBackground();
       updateCubeColor();
       updateScene(false);
@@ -957,6 +981,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         applyStandardView();
       }
       if(p.get('hide')==='1') toggleTexts();
+      updateColorMap();
     }
 
     function exportEmbed(){
