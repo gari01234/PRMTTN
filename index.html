@@ -305,13 +305,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let palette = []; // Colores HSV->RGB calculados de forma determinista
     let colorMap = {}; // Mapa 1..5 -> '#RRGGBB'
     const minRangeValue = 2, maxRangeValue = 6;
-    const shapeMapping = {
-      1:{w:4.5,h:4.5},
-      2:{w:4.5,h:4.5*Math.sqrt(2)},
-      3:{w:4.5,h:4.5*Math.sqrt(3)},
-      4:{w:4.5,h:4.5*Math.sqrt(4)},
-      5:{w:4.5,h:4.5*Math.sqrt(5)}
-    };
+    const HUE_JITTER = 7; // grados extra para separar tonos similares
 
     function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
@@ -396,13 +390,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const [H0] = rgbToHsv(Rg,Gg,Bg);
       const idx=(Rg+2*Gg+3*Bg)%7;
       const angles=ANGLES[idx];
-      const pal=[]; const Hvals=[];
+      const pal=[];
       for(let k=0;k<7;k++){
-        let H=(H0+angles[k])%360;
-        if(k>0 && k<5 && Math.abs(H - Hvals[k-1]) < 18) {
-          H = (Hvals[k-1] + 18) % 360;
-        }
-        Hvals[k]=H;
+        const H=(H0 + angles[k] + k*HUE_JITTER) % 360;
         let S=0.70, V=0.85;
         if(idx===0){
           V=0.55+0.05*k;
@@ -506,8 +496,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map.forma], cv=pa[map.color],
-            d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
+      const fv=pa[map.forma], cv=pa[map.color];
+      const hFactor = Math.sqrt(fv); // evita altura cero cuando fv=1
+      const w=4.5, h=4.5*hFactor, t=0.5;
       const hex=colorMap[cv]||'#808080';
       const col=hexToRgb(hex);
       const geo=new THREE.BoxGeometry(w,h,t),
