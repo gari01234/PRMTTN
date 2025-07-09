@@ -360,6 +360,29 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     function computeSignature(a){let s=[];for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]);return s;}
     function computeRange(sig){return Math.max(...sig)-Math.min(...sig);}
+
+    const FACT=[1,1,2,6,24,120];
+    let sceneSeed=0;
+    function lehmerRank(p){
+      let r=0;
+      for(let i=0;i<p.length;i++){
+        let c=0;
+        for(let j=i+1;j<p.length;j++) if(p[j]<p[i]) c++; 
+        r+=c*FACT[p.length-1-i];
+      }
+      return r;
+    }
+    function computeShiftRankXYZ(p){
+      const r=lehmerRank(p);
+      const I=(r+sceneSeed)%125;
+      const x=Math.floor(I/25), y=Math.floor((I%25)/5), z=I%5;
+      const step=cubeSize/4;
+      return [
+        (x-2)*step,
+        (y-2)*step,
+        (z-2)*step
+      ];
+    }
     function updateTopRightDisplay(){
       const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
       const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
@@ -375,18 +398,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
-            px=pa[map.x], py=pa[map.y], pz=pa[map.z],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
       const geo=new THREE.BoxGeometry(w,h,t),
             mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
-      const x=(px-1)*segment-halfCube+segment/2,
-            y=(py-1)*segment-halfCube+segment/2,
-            z=(pz-1)*segment-halfCube+segment/2;
+      const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
-        clamp(x,-halfCube+w/2,halfCube-w/2),
-        clamp(y,-halfCube+h/2,halfCube-h/2),
-        clamp(z,-halfCube+t/2,halfCube-t/2)
+        clamp(X,-halfCube+w/2,halfCube-w/2),
+        clamp(Y,-halfCube+h/2,halfCube-h/2),
+        clamp(Z,-halfCube+t/2,halfCube-t/2)
       );
       const sig=computeSignature(pa), rg=computeRange(sig);
       mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
@@ -411,17 +431,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
         const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
               tg=new THREE.Group(),
               opts=Array.from(document.getElementById('permutationList').selectedOptions);
-        opts.forEach((o,i)=>{
+        opts.forEach((o)=>{
           const pa=o.value.split(',').map(Number),
                 mo=createPermutationObjectWithMapping(pa,cm);
-          if(opts.length>1){
-            const ang=2*Math.PI*i/opts.length, rad=1.5;
-            mo.position.x+=rad*Math.cos(ang);
-            mo.position.y+=rad*Math.sin(ang);
-            const ww=mo.geometry.parameters.width, hh=mo.geometry.parameters.height;
-            mo.position.x=clamp(mo.position.x,-halfCube+ww/2,halfCube-ww/2);
-            mo.position.y=clamp(mo.position.y,-halfCube+hh/2,halfCube-hh/2);
-          }
           tg.add(mo);
         });
         if(!checkCollisionsInGroup(tg)) found=cm;
@@ -453,17 +465,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
         o.geometry.dispose(); o.material.dispose();
       }
       const opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      opts.forEach((o,i)=>{
+      sceneSeed=0;
+      opts.forEach(o=>{
+        const pa=o.value.split(',').map(Number);
+        sceneSeed+=pa[2]+pa[3]+pa[4];
+      });
+      sceneSeed%=125;
+      opts.forEach((o)=>{
         const pa=o.value.split(',').map(Number),
               obj=createPermutationObject(pa);
-        if(opts.length>1){
-          const ang=2*Math.PI*i/opts.length, rad=1.5;
-          obj.position.x+=rad*Math.cos(ang);
-          obj.position.y+=rad*Math.sin(ang);
-          const ww=obj.geometry.parameters.width, hh=obj.geometry.parameters.height;
-          obj.position.x=clamp(obj.position.x,-halfCube+ww/2,halfCube-ww/2);
-          obj.position.y=clamp(obj.position.y,-halfCube+hh/2,halfCube-hh/2);
-        }
         permutationGroup.add(obj);
       });
       if(attemptResolve) autoResolveColisionesGlobal();
