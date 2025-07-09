@@ -342,7 +342,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function hexToRgb(hex){
-      hex=hex.replace('#','');
+      hex = (hex||'').replace('#','');
+      if(hex.length!==6 || /[^0-9a-f]/i.test(hex)){
+        // valor inválido → gris neutro
+        return [128,128,128];
+      }
       const r=parseInt(hex.substring(0,2),16);
       const g=parseInt(hex.substring(2,4),16);
       const b=parseInt(hex.substring(4,6),16);
@@ -497,7 +501,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color];
-      const hFactor = Math.sqrt(fv); // evita altura cero cuando fv=1
+      let hFactor = Math.sqrt(fv);
+      if(!Number.isFinite(hFactor)) hFactor=1;
       const w=4.5, h=4.5*hFactor, t=0.5;
       const hex=colorMap[cv]||'#808080';
       const col=hexToRgb(hex);
