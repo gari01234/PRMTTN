@@ -23,8 +23,8 @@ La firma se traduce a un fenotipo visual con las siguientes reglas:
 
 Atributo	Fuente	Regla de transformación
 Forma	P1	Altura proporcional a √(P1)
-Color	P2	Mapeo cromático libre asociado a valor ordinal
-Posición X,Y,Z	P3, P4, P5	(Pn − 1) × 7.5 en cada eje dentro del cubo
+Color	P2	Paleta HSV determinista derivada de la escena
+Posición X,Y,Z  Shift-Rank XYZ  (rango de Lehmer + semilla de escena)
 Rotación	Firma	Velocidad ∝ (máx − mín) de la firma (el rango)
 → Todas las unidades rotan sobre su eje vertical con una velocidad proporcional al rango de su firma.
 → A mayor rango, mayor velocidad de rotación.
