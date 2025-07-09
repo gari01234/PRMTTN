@@ -302,7 +302,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
-    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
+    let palette = []; // Colores HSV->RGB calculados de forma determinista
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -315,6 +315,95 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
     function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+    function rgbToHsv(r,g,b){
+      r/=255; g/=255; b/=255;
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const d=max-min;
+      let h=0;
+      if(d!==0){
+        if(max===r) h=((g-b)/d*60+360)%360;
+        else if(max===g) h=((b-r)/d+2)*60;
+        else h=((r-g)/d+4)*60;
+      }
+      const s=max===0?0:d/max;
+      const v=max;
+      return [h,s,v];
+    }
+
+    function hsvToRgb(h,s,v){
+      const C=v*s;
+      const Hp=h/60;
+      const X=C*(1-Math.abs((Hp%2)-1));
+      let [r1,g1,b1]=[0,0,0];
+      if(Hp>=0&&Hp<1) [r1,g1,b1]=[C,X,0];
+      else if(Hp>=1&&Hp<2) [r1,g1,b1]=[X,C,0];
+      else if(Hp>=2&&Hp<3) [r1,g1,b1]=[0,C,X];
+      else if(Hp>=3&&Hp<4) [r1,g1,b1]=[0,X,C];
+      else if(Hp>=4&&Hp<5) [r1,g1,b1]=[X,0,C];
+      else [r1,g1,b1]=[C,0,X];
+      const m=v-C;
+      return [Math.round((r1+m)*255),Math.round((g1+m)*255),Math.round((b1+m)*255)];
+    }
+
+    function hexToRgb(hex){
+      hex=hex.replace('#','');
+      const r=parseInt(hex.substring(0,2),16);
+      const g=parseInt(hex.substring(2,4),16);
+      const b=parseInt(hex.substring(4,6),16);
+      return [r,g,b];
+    }
+
+    function rgbToHex(r,g,b){
+      const h=v=>v.toString(16).padStart(2,'0');
+      return '#'+h(r)+h(g)+h(b);
+    }
+
+    const ANGLES=[
+      [0,0,0,0,0,0,0],
+      [0,30,60,90,120,150,180],
+      [0,180,0,0,0,0,0],
+      [0,150,210,0,0,0,0],
+      [0,120,240,60,180,300,30],
+      [0,90,180,270,45,135,225],
+      [0,0,0,0,0,0,0]
+    ];
+
+    function computeGlobalRGB(permutations){
+      let Rg=0,Gg=0,Bg=0;
+      permutations.forEach(pa=>{
+        const sig=computeSignature(pa);
+        const [x,y,z]=computeShiftRankXYZ(pa);
+        const X=x+halfCube, Y=y+halfCube, Z=z+halfCube;
+        Rg+=pa[0]*X*sig[0];
+        Gg+=pa[1]*Y*sig[1];
+        Bg+=pa[2]*Z*sig[2];
+      });
+      Rg%=256; Gg%=256; Bg%=256;
+      return [Rg,Gg,Bg];
+    }
+
+    function buildPalette(Rg,Gg,Bg){
+      const [H0] = rgbToHsv(Rg,Gg,Bg);
+      const idx=(Rg+2*Gg+3*Bg)%7;
+      const angles=ANGLES[idx];
+      const pal=[];
+      for(let k=0;k<7;k++){
+        let H=(H0+angles[k])%360;
+        let S=0.70, V=0.85;
+        if(idx===0){
+          V=0.55+0.05*k;
+        }else if(idx===2&&k>=2){
+          V=[0.85,0.75,0.70,0.65,0.60][k-2];
+        }else if(idx===3&&k>=3){
+          S=[0.85,0.80,0.75,0.70][k-3];
+        }else if(idx===6){
+          S=0.40+0.05*k;
+        }
+        pal.push(hsvToRgb(H,S,V));
+      }
+      return pal;
+    }
 
     function getPermutations(arr){
       if(arr.length===1) return [arr];
@@ -399,8 +488,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
+      const col=palette[cv-1]||[0,0,0];
       const geo=new THREE.BoxGeometry(w,h,t),
-            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50}),
+            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(col[0]/255, col[1]/255, col[2]/255), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
@@ -466,14 +556,26 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       const opts=Array.from(document.getElementById('permutationList').selectedOptions);
       sceneSeed=0;
+      const perms=[];
       opts.forEach(o=>{
         const pa=o.value.split(',').map(Number);
+        perms.push(pa);
         sceneSeed+=pa[2]+pa[3]+pa[4];
       });
       sceneSeed%=125;
-      opts.forEach((o)=>{
-        const pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
+
+      const [Rg,Gg,Bg]=computeGlobalRGB(perms);
+      palette=buildPalette(Rg,Gg,Bg);
+      for(let i=1;i<=5;i++){
+        document.getElementById('color'+i).value=rgbToHex(...palette[i-1]);
+      }
+      document.getElementById('bgColor').value=rgbToHex(...palette[5]);
+      document.getElementById('cubeColor').value=rgbToHex(...palette[6]);
+      updateBackground();
+      updateCubeColor();
+
+      perms.forEach((pa)=>{
+        const obj=createPermutationObject(pa);
         permutationGroup.add(obj);
       });
       if(attemptResolve) autoResolveColisionesGlobal();
@@ -522,8 +624,12 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     function updateColorMapping(){
       for(let i=1;i<=5;i++){
-        colorMapping[i]=document.getElementById('color'+i).value;
+        palette[i-1]=hexToRgb(document.getElementById('color'+i).value);
       }
+      palette[5]=hexToRgb(document.getElementById('bgColor').value);
+      palette[6]=hexToRgb(document.getElementById('cubeColor').value);
+      updateBackground();
+      updateCubeColor();
       updateScene(false);
     }
     function updateBackground(){
@@ -569,14 +675,18 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
             wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      document.getElementById('bgColor').value=bg; updateBackground();
-      document.getElementById('cubeColor').value=wall; updateCubeColor();
+      document.getElementById('bgColor').value=bg;
+      document.getElementById('cubeColor').value=wall;
       let pool=shuffle(CUSTOM_COLORS.slice());
       for(let i=1;i<=5;i++){
         const hex=pool.shift();
-        colorMapping[i]=hex;
+        palette[i-1]=hexToRgb(hex);
         document.getElementById('color'+i).value=hex;
       }
+      palette[5]=hexToRgb(bg);
+      palette[6]=hexToRgb(wall);
+      updateBackground();
+      updateCubeColor();
       updateScene(false);
     }
 /**
@@ -746,8 +856,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         if(instr.colors){
           Object.entries(instr.colors).forEach(([i,c])=>{
             i=Number(i);
-            if(colorMapping[i]!==undefined){
-              colorMapping[i]=c;
+            if(i>=1&&i<=5){
+              palette[i-1]=hexToRgb(c);
               document.getElementById('color'+i).value=c;
             }
           });
@@ -827,17 +937,19 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         cols.forEach((hex,i)=>{
           if(i<5){
             const h='#'+hex;
-            colorMapping[i+1]=h;
+            palette[i-1]=hexToRgb(h);
             document.getElementById('color'+(i+1)).value=h;
           }
         });
       }
       if(p.has('bg')){
         const bg='#'+p.get('bg');
+        palette[5]=hexToRgb(bg);
         document.getElementById('bgColor').value=bg; updateBackground();
       }
       if(p.has('cube')){
         const c='#'+p.get('cube');
+        palette[6]=hexToRgb(c);
         document.getElementById('cubeColor').value=c; updateCubeColor();
       }
       if(p.has('view')){
