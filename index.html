@@ -41,6 +41,38 @@
     if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
     return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
   }
+  function rgbToXyz(r,g,b){
+    r/=255; g/=255; b/=255;
+    r=r>0.04045?Math.pow((r+0.055)/1.055,2.4):r/12.92;
+    g=g>0.04045?Math.pow((g+0.055)/1.055,2.4):g/12.92;
+    b=b>0.04045?Math.pow((b+0.055)/1.055,2.4):b/12.92;
+    const x=r*0.4124+g*0.3576+b*0.1805;
+    const y=r*0.2126+g*0.7152+b*0.0722;
+    const z=r*0.0193+g*0.1192+b*0.9505;
+    return [x,y,z];
+  }
+  function xyzToLab(x,y,z){
+    const refX=0.95047, refY=1, refZ=1.08883;
+    x/=refX; y/=refY; z/=refZ;
+    x=x>0.008856?Math.cbrt(x):(7.787*x)+(16/116);
+    y=y>0.008856?Math.cbrt(y):(7.787*y)+(16/116);
+    z=z>0.008856?Math.cbrt(z):(7.787*z)+(16/116);
+    const L=116*y-16;
+    const a=500*(x-y);
+    const b=200*(y-z);
+    return [L,a,b];
+  }
+  function rgbToLab(r,g,b){
+    return xyzToLab(...rgbToXyz(r,g,b));
+  }
+  function deltaE(lab1,lab2){
+    const dl=lab1[0]-lab2[0], da=lab1[1]-lab2[1], db=lab1[2]-lab2[2];
+    return Math.sqrt(dl*dl+da*da+db*db);
+  }
+  function safeRGB(arr){
+    if(!Array.isArray(arr)||arr.length!==3||arr.some(n=>typeof n!=='number'||isNaN(n))) return [128,128,128];
+    return arr;
+  }
   /* ---------- PALETA GLOBAL ------------------ */
   let paletteRGB = [];
   function buildPalette(Rg,Gg,Bg){
@@ -53,10 +85,34 @@
       const H=(H0+ANGLES[idx][k])%360;
       let S=S_STAR, V=V_STAR;
       if(idx===0) V=0.55+0.05*k;
-      if(idx===2 && k>0) V=0.85-0.05*(k-1);
-      if(idx===3 && k>2) S=0.85-0.05*(k-3);
-      if(idx===6) S=0.40+0.05*k;
+      if(idx===2){
+        if(k===0) { S=S_STAR; V=0.85; }
+        else if(k===1){ S=S_STAR; V=0.75; }
+        else { V=0.70-0.02*(k-2); }
+      }
+      if(idx===3){
+        if(k<=2){ S=S_STAR; }
+        else{ S=0.85-0.05*(k-3); }
+      }
+      if(idx===6){
+        S=0.40+0.05*k;
+      }
       HSV.push([H,S,V]);
+    }
+    // ensure minimum contrast
+    for(let i=0;i<HSV.length;i++){
+      for(let j=0;j<i;j++){
+        let lab1=rgbToLab(...hsvToRgb(...HSV[i]));
+        let lab2=rgbToLab(...hsvToRgb(...HSV[j]));
+        let d=deltaE(lab1,lab2);
+        while(d<ΔE_MIN){
+          if(HSV[i][1]<1) HSV[i][1]=Math.min(1,HSV[i][1]+0.03);
+          else HSV[i][2]=Math.min(1,HSV[i][2]+0.03);
+          lab1=rgbToLab(...hsvToRgb(...HSV[i]));
+          d=deltaE(lab1,lab2);
+          if(HSV[i][1]>=1 && HSV[i][2]>=1) break;
+        }
+      }
     }
     paletteRGB = HSV.map(hsv=>hsvToRgb(...hsv));
   }
@@ -209,7 +265,7 @@
     </details>
     <details>
       <summary>Reorganización de Atributos</summary>
-      <select id="attrMapping"></select>
+      <select id="mapSel"></select>
       <button onclick="updateMapping()">Aplicar Reorganización</button>
       <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
     </details>
@@ -266,7 +322,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
         const idx = attrMaps.findIndex(a=>a.every((val,i)=>val===v[i]));
         if(idx>=0){
-          document.getElementById('attrMapping').value = idx;
+          document.getElementById('mapSel').value = idx;
           attrMap = attrMaps[idx];
           attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
         }
@@ -423,7 +479,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
     }
     function populateAttributeMappingSelect(){
-      const sel = document.getElementById('attrMapping');
+      const sel = document.getElementById('mapSel');
       sel.innerHTML = '';
       attrMaps.forEach((m,i)=>{
         const opt=document.createElement('option');
@@ -474,9 +530,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     function createPermutationObjectWithMapping(pa){
       const fv=P(pa,0), cv=P(pa,1),
-            d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
+            d=shapeMapping[fv], w=d.w, h=Math.max(d.h,0.2), t=0.5;
       const geo=new THREE.BoxGeometry(w,h,t),
-            col=paletteRGB[cv-1]||[255,255,255],
+            col=safeRGB(paletteRGB[cv-1]),
             mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(col[0]/255,col[1]/255,col[2]/255), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
@@ -520,7 +576,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       if(found){
         attributeMapping={forma:found[0],color:found[1],x:found[2],y:found[3],z:found[4]};
         attrMap = attrMaps[foundIdx];
-        document.getElementById('attrMapping').value=foundIdx;
+        document.getElementById('mapSel').value=foundIdx;
         updateScene(false); updateTopRightDisplay();
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
@@ -624,23 +680,27 @@ document.getElementById('json-upload').addEventListener('change', function(event
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
       document.getElementById('toggleTextButton').style.color=c;
+      const clr=new THREE.Color(c);
+      buildPalette(Math.round(clr.r*255),Math.round(clr.g*255),Math.round(clr.b*255));
+      applyPalette();
     }
 
     function applyPalette(){
-      scene.background = new THREE.Color(
-        paletteRGB[5][0]/255, paletteRGB[5][1]/255, paletteRGB[5][2]/255);
+      const bg = safeRGB(paletteRGB[5]);
+      scene.background = new THREE.Color(bg[0]/255,bg[1]/255,bg[2]/255);
 
-      cubeUniverse.material.color.setRGB(
-        paletteRGB[6][0]/255, paletteRGB[6][1]/255, paletteRGB[6][2]/255);
+      const wall = safeRGB(paletteRGB[6]);
+      cubeUniverse.material.color.setRGB(wall[0]/255,wall[1]/255,wall[2]/255);
 
       document.querySelectorAll(".permColor").forEach((el,i)=>{
-        el.value = "#"+paletteRGB[i].map(x=>x.toString(16).padStart(2,"0")).join("");
+        const c=safeRGB(paletteRGB[i]);
+        el.value = "#"+c.map(x=>x.toString(16).padStart(2,"0")).join("");
       });
 
       glifoMeshes.forEach(mesh=>{
         const perm = mesh.userData.permStr.split(',').map(Number);
         const p2 = P(perm,1);
-        const c = paletteRGB[p2-1];
+        const c = safeRGB(paletteRGB[p2-1]);
         mesh.material.color.setRGB(c[0]/255,c[1]/255,c[2]/255);
       });
     }
@@ -893,7 +953,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function updateMapping(){
-      const idx=+document.getElementById('attrMapping').value;
+      const idx=+document.getElementById('mapSel').value;
       attrMap = attrMaps[idx];
       attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
       rebuildScene();
@@ -929,7 +989,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         if(idx>=0){
           attrMap=attrMaps[idx];
           attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-          document.getElementById('attrMapping').value=idx;
+          document.getElementById('mapSel').value=idx;
         }
       }
       if(p.has('colors')){
@@ -1064,7 +1124,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
       applyPalette();
     };
-    document.getElementById('attrMapping').onchange = () => updateMapping();
+    document.getElementById('mapSel').onchange = () => updateMapping();
     init();
 
     // Web3 + NFT Mint (tu código original)
