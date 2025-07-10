@@ -488,15 +488,27 @@ function computeShiftRankXYZ(p){
       return rgb.map(c=>rgbHex(...c));
     }
 
-    function initPalette(){
-      currentPalette = makePalette();
+    /*** ░░  PATCH B-2 · applyPalette()  ░░ ***/
+    function applyPalette(){
+      scene.background = new THREE.Color(currentPalette[5]);
+      cubeUniverse.material.color = new THREE.Color(currentPalette[6]);
       for(let i=1;i<=5;i++){
-        colorMapping[i]=currentPalette[i-1];
         const inp=document.getElementById('color'+i);
         if(inp) inp.value=currentPalette[i-1];
+        colorMapping[i]=currentPalette[i-1];
       }
-      scene.background=new THREE.Color(currentPalette[5]);
-      cubeUniverse.material.color=new THREE.Color(currentPalette[6]);
+      scene.traverse(obj=>{
+        if(obj.userData && obj.userData.perm){
+          const hex=currentPalette[P(1,obj.userData.perm)-1];
+          if(obj.material?.color?.set) obj.material.color.set(hex);
+        }
+      });
+    }
+
+function initPalette(){
+      currentPalette = makePalette();
+      applyPalette();
+      buildScene();
     }
 
 // --------------------------------------------------
@@ -505,40 +517,9 @@ function computeShiftRankXYZ(p){
 //    • harmonyId ←   (seedRGB.r + seedRGB.g + seedRGB.b) mod 7
 //    • genera 5 tonos (indexados 1-5) + bg + cube
 // --------------------------------------------------
-function buildPalette() {
-
-  // 1-A  ——   semilla global RGB  (simple hash de todas las permutaciones)
-  let hashR=0, hashG=0, hashB=0;
-  activePerms.forEach(p => {
-    hashR = (hashR + p[0]*p[2]*p[4]) & 255;
-    hashG = (hashG + p[1]*p[3]*p[0]) & 255;
-    hashB = (hashB + p[2]*p[0]*p[1]) & 255;
-  });
-  const seedRGB = {r:hashR, g:hashG, b:hashB};
-
-  // 1-B  ——   elegimos armonía 0..6  (triada, complementaria, etc.)
-  const harmonyId = (hashR + hashG + hashB) % 7;
-
-  // 1-C  ——   convert seedRGB → HSV, fija S=0.70 / V=0.85
-  const hsv = RGBtoHSV(seedRGB.r, seedRGB.g, seedRGB.b);
-  hsv.s = 0.70; hsv.v = 0.85;
-
-  // 1-D  ——   genera 7 tonos H' según armonía elegida
-  const paletteHSV = makeHarmony(hsv.h, harmonyId);   // devuelve 7 {h,s,v}
-
-  // 1-E  ——   convierte a RGB y guarda en global palettes
-  paletteRGB = paletteHSV.map(hsv => HSVtoRGB(hsv.h, hsv.s, hsv.v));
-
-  // 1-F  ——   asigna color a cada perm según P₂
-  activePerms.forEach(p => {
-    const idx = p[1] - 1;               // P₂ = 1..5 → 0..4
-    p._col = paletteRGB[idx];
-  });
-
-  // 1-G  ——   fondo y cubo
-  bgColor   = paletteRGB[5];
-  cubeColor = paletteRGB[6];
-}
+/* PATCH B-1  ➜ La función **buildPalette()** ya no se usa.
+   Bórrala o comenta su cuerpo para que no se ejecute dos veces. */
+function buildPalette(){ /* antiguo método sustituido por makePalette() */ }
 
 function RGBtoHSV(r,g,b){
   r/=255; g/=255; b/=255;
@@ -671,33 +652,19 @@ function makeHarmony(h0, mode){
       activePerms = Array.from(document.getElementById('permutationList').selectedOptions)
                       .map(o=>o.value.split(',').map(Number));
 
-      const map = attrMap;
-      activePerms.forEach(p=>{
-        const newP = [ p[map[0]], p[map[1]], p[map[2]], p[map[3]], p[map[4]] ];
-        p._shape   = newP[0];
-        p._colorId = newP[1];
-        p._posX    = newP[2];
-        p._posY    = newP[3];
-        p._posZ    = newP[4];
-      });
-
-      buildPalette();
-      scene.background = new THREE.Color(bgColor);
-      cubeUniverse.material.color = new THREE.Color(cubeColor);
-
       sceneSeed=0;
-      activePerms.forEach(p=>{ sceneSeed+=p._posX+p._posY+p._posZ; });
+      activePerms.forEach(p=>{ sceneSeed+=P(2,p)+P(3,p)+P(4,p); });
       sceneSeed%=125;
 
       activePerms.forEach(p=>{
         const geo=new THREE.BoxGeometry(4.5,4.5,0.5),
-              mat=new THREE.MeshPhongMaterial({color:new THREE.Color(paletteRGB[p._colorId-1]),shininess:50}),
+              mat=new THREE.MeshPhongMaterial({color:new THREE.Color(currentPalette[P(1,p)-1]),shininess:50}),
               mesh=new THREE.Mesh(geo,mat);
-        mesh.scale.y=Math.sqrt(p._shape);
-        const pos=shiftRankToXYZ(p._posX,p._posY,p._posZ);
+        mesh.scale.y=Math.sqrt(P(0,p));
+        const pos=shiftRankToXYZ(P(2,p),P(3,p),P(4,p));
         mesh.position.set(pos[0],pos[1],pos[2]);
         const sig=computeSignature(p), rg=computeRange(sig);
-        mesh.userData={permStr:p.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+        mesh.userData={permStr:p.join(','), perm:p, signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
         permutationGroup.add(mesh);
       });
     }
@@ -1151,10 +1118,12 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       mapSel.onchange=e=>{
         attrIndex = +e.target.value; attrMap = attrMaps[attrIndex];
         buildScene();
+        applyPalette();
       };
       document.getElementById('harmonySel').addEventListener('change',e=>{
         currentHarmony=e.target.value;
         initPalette();
+        applyPalette();
       });
       attrMap = attrMaps[0];
       applyEmbedParams();
@@ -1179,6 +1148,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
     init();
     initPalette();
+    applyPalette();          /* PATCH B-3 */
 
     // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
