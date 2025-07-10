@@ -144,7 +144,6 @@
     <details>
       <summary>Reorganización de Atributos</summary>
       <select id="attrMapping"></select>
-      <button onclick="updateMapping()">Aplicar Reorganización</button>
       <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
     </details>
     <details>
@@ -198,7 +197,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       if (config.mapping) {
         const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
-        document.getElementById('attrMapping').value = v.join(',');
+        const idx = allMaps.findIndex(m=>m.join(',')===v.join(','));
+        document.getElementById('attrMapping').value = idx>=0?idx:0;
+        setAttributeMap(v);
       }
 
       if (config.colors) {
@@ -222,10 +223,12 @@ document.getElementById('json-upload').addEventListener('change', function(event
         document.getElementById('standardView').value = config.view;
       }
 
-      updateMapping();
       updateColorMapping();
-      updateBackground();
-      updateCubeColor();
+      applyPalette([
+        ...palette.slice(0,5).map(c=>rgbToHex(...c)),
+        rgbToHex(...palette[5]),
+        rgbToHex(...palette[6])
+      ]);
       applyStandardView();
       updateScene(false);
 
@@ -301,7 +304,14 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
-    let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
+    let attrMap = [0,1,2,3,4];   // Forma, Color, X, Y, Z
+
+    function setAttributeMap(newMap){
+      attrMap = newMap.slice();   // copia defensiva
+      updateScene(false);
+    }
+
+    let permMaterials = [];
     let palette = []; // Colores HSV->RGB calculados de forma determinista
     let colorMap = {}; // Mapa 1..5 -> '#RRGGBB'
     const minRangeValue = 2, maxRangeValue = 6;
@@ -342,14 +352,13 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function hexToRgb(hex){
-      hex = (hex||'').replace('#','');
-      if(hex.length!==6 || /[^0-9a-f]/i.test(hex)){
-        // valor inválido → gris neutro
+      hex = (hex||'').replace('#','').trim().toLowerCase();
+      if(!/^[0-9a-f]{6}$/.test(hex)){
         return [128,128,128];
       }
-      const r=parseInt(hex.substring(0,2),16);
-      const g=parseInt(hex.substring(2,4),16);
-      const b=parseInt(hex.substring(4,6),16);
+      const r = parseInt(hex.slice(0,2),16);
+      const g = parseInt(hex.slice(2,4),16);
+      const b = parseInt(hex.slice(4,6),16);
       return [r,g,b];
     }
 
@@ -364,6 +373,14 @@ document.getElementById('json-upload').addEventListener('change', function(event
         const hex=col?rgbToHex(...col):null;
         colorMap[k]=hex||'#808080';
       }
+    }
+
+    function applyPalette(pal){        // pal = Array(7) ['#rrggbb', ...]
+      for(let i=0;i<5;i++){
+        if(permMaterials[i]) permMaterials[i].color.set(pal[i]);
+      }
+      scene.background = new THREE.Color(pal[5]);
+      cubeUniverse.material.color.set(pal[6]);
     }
 
     const ANGLES=[
@@ -422,6 +439,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
     const allPermutations = getPermutations([1,2,3,4,5]);
     const permutationStrings = allPermutations.map(p=>p.join(','));
+    const allMaps = getAttributeMappings([0,1,2,3,4]);
 
     function getAttributeMappings(a){
       if(a.length===1) return [a];
@@ -445,12 +463,16 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function populateAttributeMappingSelect(){
       const sel = document.getElementById('attrMapping');
       sel.innerHTML = '';
-      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        const s=m.join(','), o=document.createElement('option');
-        o.value=s; o.text=`Opción: [${s}]`;
-        if(s==='0,1,2,3,4') o.selected=true;
+      allMaps.forEach((m,i)=>{
+        const o=document.createElement('option');
+        o.value=i; o.text=`Opción ${i+1}`;
+        if(i===0) o.selected=true;
         sel.appendChild(o);
       });
+      sel.onchange = e=>{
+        const idx=Number(e.target.value);
+        setAttributeMap(allMaps[idx]);
+      };
       updateTopRightDisplay();
     }
 
@@ -458,7 +480,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function computeRange(sig){return Math.max(...sig)-Math.min(...sig);}
 
     const FACT=[1,1,2,6,24,120];
-    let sceneSeed=0;
     function lehmerRank(p){
       let r=0;
       for(let i=0;i<p.length;i++){
@@ -475,9 +496,20 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const z=r%5;
       return [x,y,z];
     }
+    function heightFactorOf(perm){
+      return Math.sqrt( perm[ attrMap[0] ] );
+    }
+
+    function shiftOffset(perm){
+      const a = perm[attrMap[2]];
+      const b = perm[attrMap[3]];
+      const c = perm[attrMap[4]];
+      return (a + b + c - 1) % 120;
+    }
+
     function computeShiftRankXYZ(p){
       const r=lehmerRank(p);
-      const I=(r+sceneSeed)%125;
+      const I=(r + shiftOffset(p)) % 120;
       const [x,y,z]=toXYZdigits(I);
       const step=cubeSize/4;
       return [
@@ -487,7 +519,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       ];
     }
     function updateTopRightDisplay(){
-      const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
+      const cfg=`Atributos: [${attrMap.join(',')}]`;
       const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
       let info='';
       Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
@@ -499,27 +531,25 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
     }
 
-    function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map.forma], cv=pa[map.color];
+    function createPermutationObject(pa){
+      const fv=pa[attrMap[0]], cv=pa[attrMap[1]];
       let hFactor = Math.sqrt(fv);
       if(!Number.isFinite(hFactor)) hFactor=1;
-      const w=4.5, h=4.5*hFactor, t=0.5;
-      const hex=colorMap[cv]||'#808080';
-      const col=hexToRgb(hex);
-      const geo=new THREE.BoxGeometry(w,h,t),
-            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(col[0]/255, col[1]/255, col[2]/255), shininess:50}),
+      const w=4.5, baseH=4.5, t=0.5;
+      const safeH = Math.max(0.2, baseH * hFactor);
+      const geo=new THREE.BoxGeometry(w,safeH,t),
+            mat=permMaterials[cv-1]||new THREE.MeshPhongMaterial({color:0x808080,shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
         clamp(X,-halfCube+w/2,halfCube-w/2),
-        clamp(Y,-halfCube+h/2,halfCube-h/2),
+        clamp(Y,-halfCube+safeH/2,halfCube-safeH/2),
         clamp(Z,-halfCube+t/2,halfCube-t/2)
       );
       const sig=computeSignature(pa), rg=computeRange(sig);
-      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, colorIndex:cv, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
     }
-    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
 
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
@@ -533,22 +563,25 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
     function autoResolveColisionesGlobal(){
       let found=null;
+      const original=attrMap.slice();
       getAttributeMappings([0,1,2,3,4]).forEach(m=>{
         if(found) return;
-        const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
-              tg=new THREE.Group(),
+        attrMap=m.slice();
+        const tg=new THREE.Group(),
               opts=Array.from(document.getElementById('permutationList').selectedOptions);
-        opts.forEach((o)=>{
+        opts.forEach(o=>{
           const pa=o.value.split(',').map(Number),
-                mo=createPermutationObjectWithMapping(pa,cm);
+                mo=createPermutationObject(pa);
           tg.add(mo);
         });
-        if(!checkCollisionsInGroup(tg)) found=cm;
+        if(!checkCollisionsInGroup(tg)) found=m;
       });
+      attrMap=original;
       if(found){
-        attributeMapping=found;
-        document.getElementById('attrMapping').value=`${found.forma},${found.color},${found.x},${found.y},${found.z}`;
-        updateScene(false); updateTopRightDisplay();
+        setAttributeMap(found);
+        const idx=allMaps.findIndex(m=>m.join(',')===found.join(','));
+        document.getElementById('attrMapping').value=idx>=0?idx:0;
+        updateTopRightDisplay();
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
       }
@@ -572,14 +605,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
         o.geometry.dispose(); o.material.dispose();
       }
       const opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      sceneSeed=0;
       const perms=[];
       opts.forEach(o=>{
         const pa=o.value.split(',').map(Number);
         perms.push(pa);
-        sceneSeed+=pa[2]+pa[3]+pa[4];
       });
-      sceneSeed%=125;
 
       const [Rg,Gg,Bg]=computeGlobalRGB(perms);
       palette=buildPalette(Rg,Gg,Bg);
@@ -589,8 +619,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       document.getElementById('bgColor').value=rgbToHex(...palette[5]);
       document.getElementById('cubeColor').value=rgbToHex(...palette[6]);
-      updateBackground();
-      updateCubeColor();
+      applyPalette([
+        ...palette.slice(0,5).map(c=>rgbToHex(...c)),
+        rgbToHex(...palette[5]),
+        rgbToHex(...palette[6])
+      ]);
 
       perms.forEach((pa)=>{
         const obj=createPermutationObject(pa);
@@ -647,8 +680,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       palette[5]=hexToRgb(document.getElementById('bgColor').value);
       palette[6]=hexToRgb(document.getElementById('cubeColor').value);
       updateColorMap();
-      updateBackground();
-      updateCubeColor();
+      applyPalette([
+        ...palette.slice(0,5).map(c=>rgbToHex(...c)),
+        rgbToHex(...palette[5]),
+        rgbToHex(...palette[6])
+      ]);
       updateScene(false);
     }
     function updateBackground(){
@@ -705,8 +741,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       palette[5]=hexToRgb(bg);
       palette[6]=hexToRgb(wall);
       updateColorMap();
-      updateBackground();
-      updateCubeColor();
+      applyPalette([
+        ...palette.slice(0,5).map(c=>rgbToHex(...c)),
+        rgbToHex(...palette[5]),
+        rgbToHex(...palette[6])
+      ]);
       updateScene(false);
     }
 /**
@@ -917,10 +956,10 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function updateMapping(){
-      const v=document.getElementById('attrMapping').value.split(',').map(Number);
-      if(v.length===5){
-        attributeMapping={forma:v[0],color:v[1],x:v[2],y:v[3],z:v[4]};
-        updateScene(false); updateTopRightDisplay();
+      const idx=Number(document.getElementById('attrMapping').value);
+      if(!isNaN(idx)){
+        setAttributeMap(allMaps[idx]);
+        updateTopRightDisplay();
       }
     }
 
@@ -950,7 +989,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
       if(p.has('mapping')){
         const m=p.get('mapping').split(',').map(Number);
-        attributeMapping={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]};
+        setAttributeMap(m);
       }
       if(p.has('colors')){
         const cols=p.get('colors').split(',');
@@ -965,12 +1004,12 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       if(p.has('bg')){
         const bg='#'+p.get('bg');
         palette[5]=hexToRgb(bg);
-        document.getElementById('bgColor').value=bg; updateBackground();
+        document.getElementById('bgColor').value=bg;
       }
       if(p.has('cube')){
         const c='#'+p.get('cube');
         palette[6]=hexToRgb(c);
-        document.getElementById('cubeColor').value=c; updateCubeColor();
+        document.getElementById('cubeColor').value=c;
       }
       if(p.has('view')){
         document.getElementById('standardView').value=p.get('view');
@@ -978,16 +1017,21 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
       if(p.get('hide')==='1') toggleTexts();
       updateColorMap();
+      applyPalette([
+        ...palette.slice(0,5).map(c=>rgbToHex(...c)),
+        rgbToHex(...palette[5]),
+        rgbToHex(...palette[6])
+      ]);
     }
 
     function exportEmbed(){
       const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
       const mapping = {
-        forma: attributeMapping.forma,
-        color: attributeMapping.color,
-        x: attributeMapping.x,
-        y: attributeMapping.y,
-        z: attributeMapping.z
+        forma: attrMap[0],
+        color: attrMap[1],
+        x: attrMap[2],
+        y: attrMap[3],
+        z: attrMap[4]
       };
       const colors = {};
       for(let i=1;i<=5;i++){
@@ -1045,6 +1089,9 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const cubeGeo=new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
             cubeMat=new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide});
       cubeUniverse=new THREE.Mesh(cubeGeo,cubeMat);
+      for(let i=0;i<5;i++){
+        permMaterials[i]=new THREE.MeshPhongMaterial({color:0xffffff,shininess:50});
+      }
       scene.add(cubeUniverse);
 
       permutationGroup=new THREE.Group();
