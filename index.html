@@ -472,8 +472,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
     }
 
-    function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map.forma], cv=pa[map.color],
+    function createPermutationObjectWithMapping(pa){
+      const fv=P(pa,0), cv=P(pa,1),
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
       const geo=new THREE.BoxGeometry(w,h,t),
             col=paletteRGB[cv-1]||[255,255,255],
@@ -489,7 +489,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
     }
-    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
+    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa); }
 
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
@@ -503,20 +503,22 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
     function autoResolveColisionesGlobal(){
       let found=null, foundIdx=0;
+      const original=attrMap;
       attrMaps.forEach((m,i)=>{
         if(found) return;
-        const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
-              tg=new THREE.Group(),
+        attrMap = m;
+        const tg=new THREE.Group(),
               opts=Array.from(document.getElementById('permutationList').selectedOptions);
         opts.forEach((o)=>{
           const pa=o.value.split(',').map(Number),
-                mo=createPermutationObjectWithMapping(pa,cm);
+                mo=createPermutationObject(pa);
           tg.add(mo);
         });
-        if(!checkCollisionsInGroup(tg)){ found=cm; foundIdx=i; }
+        if(!checkCollisionsInGroup(tg)){ found=m; foundIdx=i; }
       });
+      attrMap = original;
       if(found){
-        attributeMapping=found;
+        attributeMapping={forma:found[0],color:found[1],x:found[2],y:found[3],z:found[4]};
         attrMap = attrMaps[foundIdx];
         document.getElementById('attrMapping').value=foundIdx;
         updateScene(false); updateTopRightDisplay();
@@ -547,7 +549,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       sceneSeed=0;
       opts.forEach(o=>{
         const pa=o.value.split(',').map(Number);
-        sceneSeed+=pa[2]+pa[3]+pa[4];
+        sceneSeed+=P(pa,2)+P(pa,3)+P(pa,4);
       });
       sceneSeed%=125;
       opts.forEach((o)=>{
@@ -637,7 +639,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       glifoMeshes.forEach(mesh=>{
         const perm = mesh.userData.permStr.split(',').map(Number);
-        const p2 = perm[attributeMapping.color];
+        const p2 = P(perm,1);
         const c = paletteRGB[p2-1];
         mesh.material.color.setRGB(c[0]/255,c[1]/255,c[2]/255);
       });
