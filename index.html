@@ -602,7 +602,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       while(permutationGroup.children.length>0){
         const o=permutationGroup.children[0];
         permutationGroup.remove(o);
-        o.geometry.dispose(); o.material.dispose();
+        o.geometry.dispose();
       }
       const opts=Array.from(document.getElementById('permutationList').selectedOptions);
       const perms=[];
