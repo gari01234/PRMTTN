@@ -110,7 +110,7 @@
       <details>
         <summary>Seleccionar Permutaciones</summary>
         <select id="permutationList" multiple></select>
-        <button onclick="updateScene()">Visualizar Permutación</button>
+        <button onclick="buildScene()">Visualizar Permutación</button>
       </details>
     </div>
     <div id="evolutionControls" style="display:none;">
@@ -143,8 +143,7 @@
     </details>
     <details>
       <summary>Reorganización de Atributos</summary>
-      <select id="attrMapping"></select>
-      <button onclick="updateMapping()">Aplicar Reorganización</button>
+      <select id="attrMap" onchange="onAttrMapChange(event)"></select>
       <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
     </details>
     <details>
@@ -197,8 +196,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
 
       if (config.mapping) {
-        const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
-        document.getElementById('attrMapping').value = v.join(',');
+        attrIndex = 0;
+        document.getElementById('attrMap').value = attrIndex;
       }
 
       if (config.colors) {
@@ -222,12 +221,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
         document.getElementById('standardView').value = config.view;
       }
 
-      updateMapping();
-      updateColorMapping();
+      buildScene();
       updateBackground();
       updateCubeColor();
       applyStandardView();
-      updateScene(false);
 
       alert('Configuración cargada correctamente');
     } catch (err) {
@@ -301,9 +298,13 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
-    let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
-    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
-    const minRangeValue = 2, maxRangeValue = 6;
+    const attrMaps  = generateAttrMaps120();
+    let   attrIndex = 0;
+    let   activePerms = [];
+    let   paletteRGB = [];
+    let   bgColor   = "#ffffff";
+    let   cubeColor = "#808080";
+    let   colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
     const shapeMapping = {
       1:{w:4.5,h:4.5},
       2:{w:4.5,h:4.5*Math.sqrt(2)},
@@ -311,6 +312,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       4:{w:4.5,h:4.5*Math.sqrt(4)},
       5:{w:4.5,h:4.5*Math.sqrt(5)}
     };
+    const minRangeValue = 2, maxRangeValue = 6;
 
     function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
@@ -336,6 +338,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
       return res;
     }
 
+    function generateAttrMaps120(){
+      return getAttributeMappings([0,1,2,3,4]);
+    }
+
     function populatePermutationList(){
       const sel = document.getElementById('permutationList');
       sel.innerHTML = '';
@@ -346,16 +352,21 @@ document.getElementById('json-upload').addEventListener('change', function(event
         sel.appendChild(o);
       });
     }
-    function populateAttributeMappingSelect(){
-      const sel = document.getElementById('attrMapping');
+    function populateAttrMapSelect(){
+      const sel = document.getElementById('attrMap');
       sel.innerHTML = '';
-      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        const s=m.join(','), o=document.createElement('option');
-        o.value=s; o.text=`Opción: [${s}]`;
-        if(s==='0,1,2,3,4') o.selected=true;
+      attrMaps.forEach((m,i)=>{
+        const o=document.createElement('option');
+        o.value=i;
+        o.text=`[${m.join(',')}]`;
+        if(i===0) o.selected=true;
         sel.appendChild(o);
       });
-      updateTopRightDisplay();
+    }
+
+    function onAttrMapChange(event){
+      attrIndex = parseInt(event.target.value,10);
+      buildScene();
     }
 
     function computeSignature(a){let s=[];for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]);return s;}
@@ -372,7 +383,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       return r;
     }
-    function computeShiftRankXYZ(p){
+function computeShiftRankXYZ(p){
       const r=lehmerRank(p);
       const I=(r+sceneSeed)%125;
       const x=Math.floor(I/25), y=Math.floor((I%25)/5), z=I%5;
@@ -383,8 +394,95 @@ document.getElementById('json-upload').addEventListener('change', function(event
         (z-2)*step
       ];
     }
+
+    const shiftRankToXYZ = (x,y,z) => computeShiftRankXYZ([x,y,z,0,0]);
+
+// --------------------------------------------------
+// 1 · PALETA DETERMINISTA 7-COLORES  (H, S=70%, V=85%)
+//    • seedRGB   ←   firma global de la ESCENA
+//    • harmonyId ←   (seedRGB.r + seedRGB.g + seedRGB.b) mod 7
+//    • genera 5 tonos (indexados 1-5) + bg + cube
+// --------------------------------------------------
+function buildPalette() {
+
+  // 1-A  ——   semilla global RGB  (simple hash de todas las permutaciones)
+  let hashR=0, hashG=0, hashB=0;
+  activePerms.forEach(p => {
+    hashR = (hashR + p[0]*p[2]*p[4]) & 255;
+    hashG = (hashG + p[1]*p[3]*p[0]) & 255;
+    hashB = (hashB + p[2]*p[0]*p[1]) & 255;
+  });
+  const seedRGB = {r:hashR, g:hashG, b:hashB};
+
+  // 1-B  ——   elegimos armonía 0..6  (triada, complementaria, etc.)
+  const harmonyId = (hashR + hashG + hashB) % 7;
+
+  // 1-C  ——   convert seedRGB → HSV, fija S=0.70 / V=0.85
+  const hsv = RGBtoHSV(seedRGB.r, seedRGB.g, seedRGB.b);
+  hsv.s = 0.70; hsv.v = 0.85;
+
+  // 1-D  ——   genera 7 tonos H' según armonía elegida
+  const paletteHSV = makeHarmony(hsv.h, harmonyId);   // devuelve 7 {h,s,v}
+
+  // 1-E  ——   convierte a RGB y guarda en global palettes
+  paletteRGB = paletteHSV.map(hsv => HSVtoRGB(hsv.h, hsv.s, hsv.v));
+
+  // 1-F  ——   asigna color a cada perm según P₂
+  activePerms.forEach(p => {
+    const idx = p[1] - 1;               // P₂ = 1..5 → 0..4
+    p._col = paletteRGB[idx];
+  });
+
+  // 1-G  ——   fondo y cubo
+  bgColor   = paletteRGB[5];
+  cubeColor = paletteRGB[6];
+}
+
+function RGBtoHSV(r,g,b){
+  r/=255; g/=255; b/=255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+  const d=mx-mn;
+  let h=0;
+  if(d!==0){
+    switch(mx){
+      case r: h=((g-b)/d)%6; break;
+      case g: h=(b-r)/d+2; break;
+      case b: h=(r-g)/d+4; break;
+    }
+    h*=60;
+  }
+  const s=mx===0?0:d/mx;
+  return {h:(h+360)%360,s,v:mx};
+}
+function HSVtoRGB(h,s,v){
+  const c=v*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=v-c;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
+  r=Math.round((r+m)*255);
+  g=Math.round((g+m)*255);
+  b=Math.round((b+m)*255);
+  return `rgb(${r},${g},${b})`;
+}
+
+// Armonías: 0=triada 1=complementaria 2=split-comp 3=tetrádica
+//           4=análoga 5=monocromática 6=tono-sobre-tono
+function makeHarmony(h0, mode){
+  const H = d => ( (h0 + d + 360) % 360 );
+  switch(mode){
+    case 0: return [{h:H(0)}, {h:H(120)}, {h:H(240)}, {h:H(60)}, {h:H(180)}, {h:H(300)}, {h:H(30)}];
+    case 1: return [{h:H(0)}, {h:H(180)}, {h:H(90)}, {h:H(270)}, {h:H(45)}, {h:H(225)}, {h:H(135)}];
+    case 2: return [{h:H(0)}, {h:H(150)}, {h:H(210)}, {h:H(330)}, {h:H(30)}, {h:H(180)}, {h:H(270)}];
+    case 3: return [{h:H(0)}, {h:H(90)}, {h:H(180)}, {h:H(270)}, {h:H(45)}, {h:H(225)}, {h:H(135)}];
+    case 4: return [{h:H(0)}, {h:H(30)}, {h:H(330)}, {h:H(60)}, {h:H(300)}, {h:H(90)}, {h:H(120)}];
+    case 5: return [{h:H(0)}, {h:H(0)}, {h:H(0)}, {h:H(0)}, {h:H(0)}, {h:H(0)}, {h:H(0)}];
+    default:return [{h:H(0)}, {h:H(15)}, {h:H(-15)}, {h:H(45)}, {h:H(-45)}, {h:H(75)}, {h:H(225)}];
+  }
+}
     function updateTopRightDisplay(){
-      const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
+      const m = attrMaps[attrIndex];
+      const cfg=`Atributos: [${m[0]},${m[1]},${m[2]},${m[3]},${m[4]}]`;
       const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
       let info='';
       Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
@@ -412,7 +510,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
     }
-    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
+    function createPermutationObject(pa){
+      const m = attrMaps[attrIndex];
+      const map = {forma:m[0], color:m[1], x:m[2], y:m[3], z:m[4]};
+      return createPermutationObjectWithMapping(pa,map);
+    }
 
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
@@ -439,9 +541,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
         if(!checkCollisionsInGroup(tg)) found=cm;
       });
       if(found){
-        attributeMapping=found;
-        document.getElementById('attrMapping').value=`${found.forma},${found.color},${found.x},${found.y},${found.z}`;
-        updateScene(false); updateTopRightDisplay();
+        attrIndex = 0;
+        document.getElementById('attrMap').value = attrIndex;
+        buildScene(); updateTopRightDisplay();
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
       }
@@ -458,26 +560,44 @@ document.getElementById('json-upload').addEventListener('change', function(event
       },dur);
     }
 
-    function updateScene(attemptResolve=true){
+    function buildScene(){
       while(permutationGroup.children.length>0){
         const o=permutationGroup.children[0];
         permutationGroup.remove(o);
         o.geometry.dispose(); o.material.dispose();
       }
-      const opts=Array.from(document.getElementById('permutationList').selectedOptions);
+      activePerms = Array.from(document.getElementById('permutationList').selectedOptions)
+                      .map(o=>o.value.split(',').map(Number));
+
+      const map = attrMaps[attrIndex];
+      activePerms.forEach(p=>{
+        const newP = [ p[map[0]], p[map[1]], p[map[2]], p[map[3]], p[map[4]] ];
+        p._shape   = newP[0];
+        p._colorId = newP[1];
+        p._posX    = newP[2];
+        p._posY    = newP[3];
+        p._posZ    = newP[4];
+      });
+
+      buildPalette();
+      scene.background = new THREE.Color(bgColor);
+      cubeUniverse.material.color = new THREE.Color(cubeColor);
+
       sceneSeed=0;
-      opts.forEach(o=>{
-        const pa=o.value.split(',').map(Number);
-        sceneSeed+=pa[2]+pa[3]+pa[4];
-      });
+      activePerms.forEach(p=>{ sceneSeed+=p._posX+p._posY+p._posZ; });
       sceneSeed%=125;
-      opts.forEach((o)=>{
-        const pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
-        permutationGroup.add(obj);
+
+      activePerms.forEach(p=>{
+        const geo=new THREE.BoxGeometry(4.5,4.5,0.5),
+              mat=new THREE.MeshPhongMaterial({color:new THREE.Color(paletteRGB[p._colorId-1]),shininess:50}),
+              mesh=new THREE.Mesh(geo,mat);
+        mesh.scale.y=Math.sqrt(p._shape);
+        const pos=shiftRankToXYZ(p._posX,p._posY,p._posZ);
+        mesh.position.set(pos[0],pos[1],pos[2]);
+        const sig=computeSignature(p), rg=computeRange(sig);
+        mesh.userData={permStr:p.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+        permutationGroup.add(mesh);
       });
-      if(attemptResolve) autoResolveColisionesGlobal();
-      else updateTopRightDisplay();
     }
 
     function onMouseMove(e){
@@ -506,7 +626,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       b.textContent=isPaused?"Reanudar Movimiento":"Pausar Movimiento";
     }
     function resetMovement(){
-      updateScene(false);
+      buildScene();
       isPaused=true;
       const b=document.querySelector("button[onclick='togglePause()']");
       b.textContent="Reanudar Movimiento";
@@ -524,7 +644,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       for(let i=1;i<=5;i++){
         colorMapping[i]=document.getElementById('color'+i).value;
       }
-      updateScene(false);
+      buildScene();
     }
     function updateBackground(){
       const c=document.getElementById('bgColor').value;
@@ -556,7 +676,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         m==="manual"?"block":"none";
       document.getElementById('evolutionControls').style.display=
         m==="evolution"?"block":"none";
-      updateScene(false);
+      buildScene();
     }
 
     function generateRandomConfiguration(){
@@ -577,7 +697,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         colorMapping[i]=hex;
         document.getElementById('color'+i).value=hex;
       }
-      updateScene(false);
+      buildScene();
     }
 /**
  * Dada una firma [f1,f2,f3,f4,f5], devuelve los colores triádicos
@@ -751,7 +871,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
               document.getElementById('color'+i).value=c;
             }
           });
-          updateScene(false);
+          buildScene();
         }
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
@@ -777,7 +897,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           const opts=Array.from(document.getElementById('permutationList').options);
           opts.forEach(o=>o.selected=false);
           shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
-          updateScene(false);
+          buildScene();
         }
         showPopup("Evolución AI aplicada.",2000);
       } catch(err){
@@ -786,13 +906,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
 
-    function updateMapping(){
-      const v=document.getElementById('attrMapping').value.split(',').map(Number);
-      if(v.length===5){
-        attributeMapping={forma:v[0],color:v[1],x:v[2],y:v[3],z:v[4]};
-        updateScene(false); updateTopRightDisplay();
-      }
-    }
+
 
     function applyStandardView(){
       const view=document.getElementById('standardView').value,
@@ -819,8 +933,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         });
       }
       if(p.has('mapping')){
-        const m=p.get('mapping').split(',').map(Number);
-        attributeMapping={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]};
+        attrIndex = parseInt(p.get('mapping'),10)||0;
+        document.getElementById('attrMap').value = attrIndex;
       }
       if(p.has('colors')){
         const cols=p.get('colors').split(',');
@@ -849,12 +963,13 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
     function exportEmbed(){
       const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+      const mapA = attrMaps[attrIndex];
       const mapping = {
-        forma: attributeMapping.forma,
-        color: attributeMapping.color,
-        x: attributeMapping.x,
-        y: attributeMapping.y,
-        z: attributeMapping.z
+        forma: mapA[0],
+        color: mapA[1],
+        x: mapA[2],
+        y: mapA[3],
+        z: mapA[4]
       };
       const colors = {};
       for(let i=1;i<=5;i++){
@@ -924,10 +1039,10 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       initCustomCursor();
       populatePermutationList();
-      populateAttributeMappingSelect();
+      populateAttrMapSelect();
       applyEmbedParams();
       setMode("manual");
-      updateScene(false);
+      buildScene();
       animate();
     }
     function onWindowResize(){
