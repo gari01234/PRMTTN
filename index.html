@@ -109,23 +109,24 @@
           let lab1=rgbToLab(...hsvToRgb(...HSV[i]));
           let lab2=rgbToLab(...hsvToRgb(...HSV[j]));
           let d=deltaE(lab1,lab2);
-          while(d<ΔE_MIN){
+          let iterations = 0;
+          while(d<ΔE_MIN && iterations<50){
             if(HSV[i][1]<1) HSV[i][1]=Math.min(1,HSV[i][1]+0.03);
             else HSV[i][2]=Math.min(1,HSV[i][2]+0.03);
             lab1=rgbToLab(...hsvToRgb(...HSV[i]));
             d=deltaE(lab1,lab2);
             if(HSV[i][1]>=1 && HSV[i][2]>=1) break;
+            iterations++;
           }
         }
       }
       candidate = HSV.map(hsv=>hsvToRgb(...hsv));
       const labs=candidate.map(c=>rgbToLab(...c));
       let valid=true;
-      for(let a=0;a<5&&valid;a++){
-        for(let b=a+1;b<5&&valid;b++){
+      for(let a=0;a<7 && valid;a++){
+        for(let b=a+1;b<7 && valid;b++){
           if(deltaE(labs[a],labs[b])<ΔE_MIN) valid=false;
         }
-        if(valid && deltaE(labs[a],labs[5])<ΔE_MIN) valid=false;
       }
       if(valid) break;
       offset+=15;
@@ -633,6 +634,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
+      makePalette();
       applyPalette();
     }
 
@@ -710,22 +712,26 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function applyPalette(){
-      const bg = safeRGB(paletteRGB[5]);
-      scene.background = new THREE.Color(bg[0]/255,bg[1]/255,bg[2]/255);
-
-      const wall = safeRGB(paletteRGB[6]);
-      cubeUniverse.material.color.setRGB(wall[0]/255,wall[1]/255,wall[2]/255);
-
-      document.querySelectorAll(".permColor").forEach((el,i)=>{
-        const c=safeRGB(paletteRGB[i]);
-        el.value = "#"+c.map(x=>x.toString(16).padStart(2,"0")).join("");
+      // glifos
+      scene.traverse(obj=>{
+        if(obj.userData && obj.userData.permStr){
+          const perm = obj.userData.permStr.split(',').map(Number);
+          const p2 = P(perm,1);
+          const [r,g,b] = safeRGB(paletteRGB[p2-1]);
+          obj.material.color.setRGB(r/255,g/255,b/255);
+        }
       });
 
-      glifoMeshes.forEach(mesh=>{
-        const perm = mesh.userData.permStr.split(',').map(Number);
-        const p2 = P(perm,1);
-        const c = safeRGB(paletteRGB[p2-1]);
-        mesh.material.color.setRGB(c[0]/255,c[1]/255,c[2]/255);
+      // fondo y paredes
+      const [rf,gf,bf] = safeRGB(paletteRGB[5]);
+      scene.background = new THREE.Color(rf/255,gf/255,bf/255);
+
+      const [rw,gw,bw] = safeRGB(paletteRGB[6]);
+      cubeUniverse.material.color.setRGB(rw/255,gw/255,bw/255);
+
+      document.querySelectorAll('.permColor').forEach((el,i)=>{
+        const c=safeRGB(paletteRGB[i]);
+        el.value="#"+c.map(x=>x.toString(16).padStart(2,'0')).join('');
       });
     }
 
