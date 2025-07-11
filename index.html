@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -120,10 +121,11 @@
       candidate = HSV.map(hsv=>hsvToRgb(...hsv));
       const labs=candidate.map(c=>rgbToLab(...c));
       let valid=true;
-      for(let a=0;a<7&&valida++){
-        for(let b=a+1;b<7&&validb++){
+      for(let a=0;a<5&&valid;a++){
+        for(let b=a+1;b<5&&valid;b++){
           if(deltaE(labs[a],labs[b])<ΔE_MIN) valid=false;
         }
+        if(valid && deltaE(labs[a],labs[5])<ΔE_MIN) valid=false;
       }
       if(valid) break;
       offset+=15;
@@ -631,12 +633,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
-      refreshPalette();
     }
 
     function rebuildScene(){
       updateScene(false);
-      refreshPalette();
+      applyPalette();
     }
 
     function onMouseMove(e){
@@ -696,13 +697,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
       document.getElementById('toggleTextButton').style.color=c;
-      refreshPalette();
-    }
-
-    function refreshPalette(){
-      const c=document.getElementById('cubeColor').value;
       const clr=new THREE.Color(c);
-      buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
+      buildPalette(Math.round(clr.r*255),Math.round(clr.g*255),Math.round(clr.b*255));
       applyPalette();
     }
 
@@ -724,17 +720,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         const c = safeRGB(paletteRGB[p2-1]);
         mesh.material.color.setRGB(c[0]/255,c[1]/255,c[2]/255);
       });
-    }
-
-    function refreshPalette(){
-      const perms = permutationGroup.children.map(o => o.userData.permStr.split(',').map(Number));
-      if(typeof makePalette === 'function'){
-        paletteRGB = makePalette(perms);
-      } else {
-        const clr = new THREE.Color(document.getElementById('cubeColor').value);
-        buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
-      }
-      applyPalette();
     }
 
     function toggleTexts(){
@@ -988,8 +973,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const idx=+document.getElementById('mapSel').value;
       attrMap = attrMaps[idx];
       attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-      updateScene(false);
-      refreshPalette();
+      rebuildScene();
     }
 
     function applyStandardView(){
@@ -1153,9 +1137,11 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
     harmonySel.onchange = e=>{
       currentHarmony = e.target.value;
-      refreshPalette();
+      const clr=new THREE.Color(document.getElementById('cubeColor').value);
+      buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
+      applyPalette();
     };
-    document.getElementById('mapSel').onchange = () => rebuildScene();
+    document.getElementById('mapSel').onchange = () => updateMapping();
     init();
 
     // Web3 + NFT Mint (tu código original)
