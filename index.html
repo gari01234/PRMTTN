@@ -508,7 +508,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const r=lehmerRank(p);
       const I=(r+sceneSeed)%125;
       const x=Math.floor(I/25), y=Math.floor((I%25)/5), z=I%5;
-      const step=cubeSize/4;
+      const step=cubeSize/5;
       return [
         (x-2)*step,
         (y-2)*step,
