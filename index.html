@@ -74,14 +74,8 @@
     if(!Array.isArray(arr)||arr.length!==3||arr.some(n=>typeof n!=='number'||isNaN(n))) return [128,128,128];
     return arr;
   }
-  function hexToRgb(hex){
-    const h=hex.replace('#','');
-    const n=parseInt(h,16);
-    return [ (n>>16)&255, (n>>8)&255, n&255 ];
-  }
   /* ---------- PALETA GLOBAL ------------------ */
   let palette = [];
-  let manualColorOverrides = {};
 
   function makeRGBSeed(){
     const c=document.getElementById('cubeColor').value,
@@ -254,7 +248,7 @@
       <details>
         <summary>Seleccionar Permutaciones</summary>
         <select id="permutationList" multiple></select>
-        <button onclick="updateScene(); refreshAll();">Visualizar Permutación</button>
+        <button onclick="updateScene()">Visualizar Permutación</button>
       </details>
     </div>
     <div id="evolutionControls" style="display:none;">
@@ -390,7 +384,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
       updateCubeColor();
       applyStandardView();
       updateScene(false);
-      refreshAll();
 
       alert('Configuración cargada correctamente');
     } catch (err) {
@@ -542,9 +535,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
       return r;
     }
-    function computeShiftRankXYZ(px,py,pz,seed){
-      const r=lehmerRank([px,py,pz]);
-      const I=(r+seed)%125;
+    function computeShiftRankXYZ(p){
+      const r=lehmerRank(p);
+      const I=(r+sceneSeed)%125;
       const x=Math.floor(I/25), y=Math.floor((I%25)/5), z=I%5;
       const step=cubeSize/5;
       return [
@@ -577,8 +570,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
             col=safeRGB(palette[cv-1]),
             mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(col[0]/255,col[1]/255,col[2]/255), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
-      const [px,py,pz] = attrMap.slice(2).map(i=>pa[i]);
-      const [X,Y,Z]=computeShiftRankXYZ(px,py,pz,sceneSeed);
+      const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
         clamp(X,-halfCube+w/2,halfCube-w/2),
         clamp(Y,-halfCube+h/2,halfCube-h/2),
@@ -620,7 +612,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         attributeMapping={forma:found[0],color:found[1],x:found[2],y:found[3],z:found[4]};
         attrMap = attrMaps[foundIdx];
         document.getElementById('mapSel').value=foundIdx;
-        refreshAll({rebuild:true});
+        updateScene(false); updateTopRightDisplay();
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
       }
@@ -654,28 +646,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
+      refreshPalette();
     }
 
     function rebuildScene(){
-      glifoMeshes.forEach(m=>{
-        scene.remove(m);
-        m.geometry.dispose();
-        m.material.dispose();
-      });
+      glifoMeshes.forEach(m=>scene.remove(m));
       glifoMeshes.length = 0;
-      while(permutationGroup.children.length>0){
-        const o=permutationGroup.children[0];
-        permutationGroup.remove(o);
-        o.geometry.dispose();
-        o.material.dispose();
-      }
-      activePerms.forEach(pa=>{
-        const obj=createPermutationObject(pa);
-        permutationGroup.add(obj);
-        glifoMeshes.push(obj);
-      });
+      updateScene(false);
       sceneSeed = computeSceneSeed();
-      updateTopRightDisplay();
+      refreshPalette();
     }
 
     function onMouseMove(e){
@@ -705,7 +684,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
     function resetMovement(){
       updateScene(false);
-      refreshAll();
       isPaused=true;
       const b=document.querySelector("button[onclick='togglePause()']");
       b.textContent="Reanudar Movimiento";
@@ -724,7 +702,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         colorMapping[i]=document.getElementById('color'+i).value;
       }
       updateScene(false);
-      refreshAll();
     }
     function updateBackground(){
       const c=document.getElementById('bgColor').value;
@@ -732,44 +709,32 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const lum=(parseInt(c.slice(1,3),16)*299+parseInt(c.slice(3,5),16)*587+parseInt(c.slice(5,7),16)*114)/1000;
       document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
+
+      function refreshPalette(){
+        let [Rg,Gg,Bg] = makeRGBSeed();
+        if(currentHarmony==='auto'){
+            currentHarmonyIdx = (Rg + 2*Gg + 3*Bg) % 7;
+        }
+        palette = makePalette({Rg,Gg,Bg,currentHarmonyIdx});
+        applyPalette();
+      }
     function updateCubeColor(){
       const c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
       document.getElementById('toggleTextButton').style.color=c;
-      refreshAll();
+      refreshPalette();
     }
 
     function applyPalette(){
       glifoMeshes.forEach(mesh=>{
         const idx = mesh.userData.p2 - 1;
-        const id  = mesh.userData.permStr;
-        const col = manualColorOverrides[id] ?? palette[idx];
-        mesh.material.color.setRGB(...col.map(v=>v/255));
+        mesh.material.color.setRGB(
+          ...palette[idx].map(v=>v/255)
+        );
       });
       scene.background.setRGB(...palette[5].map(v=>v/255));
       cubeUniverse.material.color.setRGB(...palette[6].map(v=>v/255));
-    }
-
-    function applyManualColors(input){
-      const id = input.getAttribute('data-permid');
-      if(id){
-        manualColorOverrides[id] = input.value ? hexToRgb(input.value) : undefined;
-        refreshAll();
-      }
-    }
-
-    function refreshAll({rebuild=false} = {}){
-      const [Rg,Gg,Bg] = makeRGBSeed();
-      if(currentHarmony==='auto'){
-          currentHarmonyIdx = (Rg + 2*Gg + 3*Bg) % 7;
-      }
-      palette = makePalette({Rg,Gg,Bg,currentHarmonyIdx});
-      applyPalette();
-      if(rebuild){
-        rebuildScene();
-        applyPalette();
-      }
     }
 
     function toggleTexts(){
@@ -790,7 +755,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.getElementById('evolutionControls').style.display=
         m==="evolution"?"block":"none";
       updateScene(false);
-      refreshAll();
     }
 
     function generateRandomConfiguration(){
@@ -812,7 +776,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         document.getElementById('color'+i).value=hex;
       }
       updateScene(false);
-      refreshAll();
     }
 /**
  * Dada una firma [f1,f2,f3,f4,f5], devuelve los colores triádicos
@@ -987,7 +950,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
             }
           });
           updateScene(false);
-          refreshAll();
         }
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
@@ -1014,7 +976,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           opts.forEach(o=>o.selected=false);
           shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
           updateScene(false);
-          refreshAll();
         }
         showPopup("Evolución AI aplicada.",2000);
       } catch(err){
@@ -1028,7 +989,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       attrMap = attrMaps[idx];
       attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
       sceneSeed = computeSceneSeed();
-      refreshAll({rebuild:true});
+      rebuildScene();
     }
 
     function applyStandardView(){
@@ -1160,7 +1121,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       scene.add(permutationGroup);
       harmonySel.value = "auto";
       currentHarmony = "auto";
-      refreshAll();
+      refreshPalette();
 
       raycaster=new THREE.Raycaster();
       mouse=new THREE.Vector2();
@@ -1173,7 +1134,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       applyEmbedParams();
       setMode("manual");
       updateScene(false);
-      refreshAll();
       animate();
     }
     function onWindowResize(){
@@ -1192,7 +1152,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
     harmonySel.onchange = () => {
       currentHarmony = harmonySel.value;
-      refreshAll();
+      refreshPalette();
     };
     document.getElementById('mapSel').onchange = () => updateMapping();
     init();
