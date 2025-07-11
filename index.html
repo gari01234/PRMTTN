@@ -633,10 +633,12 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
+      applyPalette();
     }
 
     function rebuildScene(){
       updateScene(false);
+      makePalette();
       applyPalette();
     }
 
@@ -692,13 +694,18 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const lum=(parseInt(c.slice(1,3),16)*299+parseInt(c.slice(3,5),16)*587+parseInt(c.slice(5,7),16)*114)/1000;
       document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
+    function makePalette(){
+      const c=document.getElementById('cubeColor').value,
+            clr=new THREE.Color(c);
+      buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
+    }
+
     function updateCubeColor(){
       const c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
       document.getElementById('toggleTextButton').style.color=c;
-      const clr=new THREE.Color(c);
-      buildPalette(Math.round(clr.r*255),Math.round(clr.g*255),Math.round(clr.b*255));
+      makePalette();
       applyPalette();
     }
 
