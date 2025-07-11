@@ -706,13 +706,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
       applyPalette();
     }
 
-    function refreshPalette(){
-      const c=document.getElementById('cubeColor').value;
-      const clr=new THREE.Color(c);
-      buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
-      applyPalette();
-    }
-
     function applyPalette(){
       const bg = safeRGB(paletteRGB[5]);
       scene.background = new THREE.Color(bg[0]/255,bg[1]/255,bg[2]/255);
