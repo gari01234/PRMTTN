@@ -616,11 +616,12 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
+      refreshPalette();
     }
 
     function rebuildScene(){
       updateScene(false);
-      applyPalette();
+      refreshPalette();
     }
 
     function onMouseMove(e){
@@ -680,9 +681,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
       document.getElementById('toggleTextButton').style.color=c;
-      const clr=new THREE.Color(c);
-      buildPalette(Math.round(clr.r*255),Math.round(clr.g*255),Math.round(clr.b*255));
-      applyPalette();
+      refreshPalette();
     }
 
     function applyPalette(){
@@ -703,6 +702,17 @@ document.getElementById('json-upload').addEventListener('change', function(event
         const c = safeRGB(paletteRGB[p2-1]);
         mesh.material.color.setRGB(c[0]/255,c[1]/255,c[2]/255);
       });
+    }
+
+    function refreshPalette(){
+      const perms = permutationGroup.children.map(o => o.userData.permStr.split(',').map(Number));
+      if(typeof makePalette === 'function'){
+        paletteRGB = makePalette(perms);
+      } else {
+        const clr = new THREE.Color(document.getElementById('cubeColor').value);
+        buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
+      }
+      applyPalette();
     }
 
     function toggleTexts(){
@@ -956,7 +966,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const idx=+document.getElementById('mapSel').value;
       attrMap = attrMaps[idx];
       attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-      rebuildScene();
+      updateScene(false);
+      refreshPalette();
     }
 
     function applyStandardView(){
@@ -1120,9 +1131,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
     harmonySel.onchange = e=>{
       currentHarmony = e.target.value;
-      const clr=new THREE.Color(document.getElementById('cubeColor').value);
-      buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
-      applyPalette();
+      refreshPalette();
     };
     document.getElementById('mapSel').onchange = () => updateMapping();
     init();
