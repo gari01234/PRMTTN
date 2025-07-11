@@ -76,7 +76,7 @@
   }
   /* ---------- PALETA GLOBAL ------------------ */
   let palette = [];
-  function makePalette(perms, sceneSeed, harmony){
+  function makePalette(sceneSeed, harmony){
     const names=["mono","analog","complement","split","triad","square","tones"];
     const c=document.getElementById('cubeColor').value,
           clr=new THREE.Color(c);
@@ -114,14 +114,14 @@
           let lab1=rgbToLab(...hsvToRgb(...HSV[i]));
           let lab2=rgbToLab(...hsvToRgb(...HSV[j]));
           let d=deltaE(lab1,lab2);
-          let iterations = 0;
-          while(d<ΔE_MIN && iterations<50){
+          let iter = 0;
+          while(d<ΔE_MIN && iter<50){
             if(HSV[i][1]<1) HSV[i][1]=Math.min(1,HSV[i][1]+0.03);
             else HSV[i][2]=Math.min(1,HSV[i][2]+0.03);
             lab1=rgbToLab(...hsvToRgb(...HSV[i]));
             d=deltaE(lab1,lab2);
             if(HSV[i][1]>=1 && HSV[i][2]>=1) break;
-            iterations++;
+            iter++;
           }
         }
       }
@@ -456,6 +456,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
     let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
     let glifoMeshes = [];
+    let activePerms = [];
+    let currentHarmony = 'auto';
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -539,6 +541,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
         (z-2)*step
       ];
     }
+
+    function computeSceneSeed(){
+      return activePerms.reduce((acc,p)=>acc+lehmerRank(p),0)%125;
+    }
     function updateTopRightDisplay(){
       const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
       const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
@@ -566,7 +572,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         clamp(Z,-halfCube+t/2,halfCube-t/2)
       );
       const sig=computeSignature(pa), rg=computeRange(sig);
-      mesh.userData={permStr:pa.join(','), p:pa.slice(), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+      mesh.userData={permStr:pa.join(','), p:pa.slice(), p2:cv, signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
     }
     function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa); }
@@ -625,16 +631,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
         permutationGroup.remove(o);
         o.geometry.dispose(); o.material.dispose();
       }
-      const opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      sceneSeed=0;
-      opts.forEach(o=>{
-        const pa=o.value.split(',').map(Number);
-        sceneSeed+=P(pa,2)+P(pa,3)+P(pa,4);
-      });
-      sceneSeed%=125;
-      opts.forEach((o)=>{
-        const pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
+      const opts = Array.from(document.getElementById('permutationList').selectedOptions);
+      activePerms = opts.map(o=>o.value.split(',').map(Number));
+      sceneSeed = computeSceneSeed();
+      activePerms.forEach(pa=>{
+        const obj=createPermutationObject(pa);
         permutationGroup.add(obj);
         glifoMeshes.push(obj);
       });
@@ -645,6 +646,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     function rebuildScene(){
       updateScene(false);
+      sceneSeed = computeSceneSeed();
       refreshPalette();
     }
 
@@ -702,8 +704,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function refreshPalette(){
-      const perms = permutationGroup.children.map(m=>m.userData.p);
-      palette = makePalette(perms, sceneSeed, harmonySel.value);
+      palette = makePalette(sceneSeed, currentHarmony);
       applyPalette();
     }
     function updateCubeColor(){
@@ -715,10 +716,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function applyPalette(){
-      permutationGroup.children.forEach(m=>{
-        const p2 = m.userData.p[1];
-        const [r,g,b] = palette[p2-1];
-        m.material.color.setRGB(r/255,g/255,b/255);
+      glifoMeshes.forEach(mesh=>{
+        const idx = mesh.userData.p2 - 1;
+        mesh.material.color.setRGB(
+          ...palette[idx].map(v=>v/255)
+        );
       });
       scene.background.setRGB(...palette[5].map(v=>v/255));
       cubeUniverse.material.color.setRGB(...palette[6].map(v=>v/255));
@@ -975,6 +977,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const idx=+document.getElementById('mapSel').value;
       attrMap = attrMaps[idx];
       attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
+      sceneSeed = computeSceneSeed();
       rebuildScene();
     }
 
@@ -1105,6 +1108,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
+      harmonySel.value = "auto";
+      currentHarmony = "auto";
       refreshPalette();
 
       raycaster=new THREE.Raycaster();
@@ -1135,6 +1140,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       renderer.render(scene,camera);
     }
     harmonySel.onchange = () => {
+      currentHarmony = harmonySel.value;
       refreshPalette();
     };
     document.getElementById('mapSel').onchange = () => updateMapping();
