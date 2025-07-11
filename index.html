@@ -120,11 +120,10 @@
       candidate = HSV.map(hsv=>hsvToRgb(...hsv));
       const labs=candidate.map(c=>rgbToLab(...c));
       let valid=true;
-      for(let a=0;a<5&&valid;a++){
-        for(let b=a+1;b<5&&valid;b++){
+      for(let a=0;a<7&&valida++){
+        for(let b=a+1;b<7&&validb++){
           if(deltaE(labs[a],labs[b])<ΔE_MIN) valid=false;
         }
-        if(valid && deltaE(labs[a],labs[5])<ΔE_MIN) valid=false;
       }
       if(valid) break;
       offset+=15;
