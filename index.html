@@ -76,15 +76,19 @@
   }
   /* ---------- PALETA GLOBAL ------------------ */
   let palette = [];
-  function makePalette(sceneSeed, harmony){
-    const names=["mono","analog","complement","split","triad","square","tones"];
+
+  function makeRGBSeed(){
     const c=document.getElementById('cubeColor').value,
           clr=new THREE.Color(c);
     const Rg=Math.round(clr.r*255),
           Gg=Math.round(clr.g*255),
           Bg=Math.round(clr.b*255);
-    let idx=names.indexOf(harmony);
-    if(harmony==="auto" || idx<0) idx=(Rg+2*Gg+3*Bg)%7;
+    return [Rg,Gg,Bg];
+  }
+
+  function makePalette({Rg,Gg,Bg,currentHarmonyIdx}){
+    const names=["mono","analog","complement","split","triad","square","tones"];
+    const idx=currentHarmonyIdx;
     const [H0]=rgbToHsv(Rg,Gg,Bg);
     let offset=0;
     let candidate=[];
@@ -458,6 +462,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let glifoMeshes = [];
     let activePerms = [];
     let currentHarmony = 'auto';
+    let currentHarmonyIdx = 0;
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -645,6 +650,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function rebuildScene(){
+      glifoMeshes.forEach(m=>scene.remove(m));
+      glifoMeshes.length = 0;
       updateScene(false);
       sceneSeed = computeSceneSeed();
       refreshPalette();
@@ -703,10 +710,14 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
 
-    function refreshPalette(){
-      palette = makePalette(sceneSeed, currentHarmony);
-      applyPalette();
-    }
+      function refreshPalette(){
+        let [Rg,Gg,Bg] = makeRGBSeed();
+        if(currentHarmony==='auto'){
+            currentHarmonyIdx = (Rg + 2*Gg + 3*Bg) % 7;
+        }
+        palette = makePalette({Rg,Gg,Bg,currentHarmonyIdx});
+        applyPalette();
+      }
     function updateCubeColor(){
       const c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
