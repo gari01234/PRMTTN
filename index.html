@@ -266,7 +266,7 @@
     <details>
       <summary>Reorganización de Atributos</summary>
       <select id="mapSel"></select>
-      <button onclick="updateMapping()">Aplicar Reorganización</button>
+      <button onclick="updateMapping(); rebuildScene();">Aplicar Reorganización</button>
       <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
     </details>
     <details>
@@ -963,7 +963,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const idx=+document.getElementById('mapSel').value;
       attrMap = attrMaps[idx];
       attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-      rebuildScene();
     }
 
     function applyStandardView(){
@@ -1131,7 +1130,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       buildPalette(Math.round(clr.r*255), Math.round(clr.g*255), Math.round(clr.b*255));
       applyPalette();
     };
-    document.getElementById('mapSel').onchange = () => updateMapping();
+    document.getElementById('mapSel').onchange = () => { updateMapping(); rebuildScene(); };
     init();
 
     // Web3 + NFT Mint (tu código original)
