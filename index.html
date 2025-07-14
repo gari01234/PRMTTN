@@ -297,13 +297,62 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
     let paletteRGB = [];
     let manualOverride = {1:'#ff0000',2:'#00ff00',3:'#0000ff',4:'#ff00ff',5:'#00ffff'};
-    let currentHarmony = 'triad';
-    const ANGLES = {
-      triad: [0,120,240],
-      complementary: [0,180],
-      analogous: [0,-30,30]
-    };
+    let  currentHarmony = 'triad';
     const ΔE_MIN = 20;
+
+/* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
+const ANG7 = [
+  [0,0,0,0,0,0,0],                         // monocromo (idx 0)
+  [0,30,60,90,120,150,180],                // análoga
+  [0,180,0,180,0,180,0],                   // complementaria
+  [0,150,210,0,150,210,0],                 // comp. dividida
+  [0,120,240,60,180,300,30],               // tríada
+  [0,90,180,270,45,135,225],               // cuadrado
+  [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
+];
+function rgbToHsv(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+  let h=0;
+  if(d){
+    if(max===r) h=((g-b)/d)%6;
+    else if(max===g) h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60; if(h<0) h+=360;
+  }
+  const s=max?d/max:0, v=max;
+  return [h,s,v];
+}
+function hsvToRgb(h,s,v){
+  const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
+  let [r,g,b]=[0,0,0];
+  if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;}
+  else if(h<180){g=c;b=x;} else if(h<240){g=x;b=c;}
+  else if(h<300){r=x;b=c;} else {r=c;b=x;}
+  return [(r+m)*255,(g+m)*255,(b+m)*255].map(v=>Math.round(v));
+}
+/* contraste CIE76 */
+function deltaE(lab1,lab2){
+  return Math.sqrt(
+    (lab1[0]-lab2[0])**2+
+    (lab1[1]-lab2[1])**2+
+    (lab1[2]-lab2[2])**2
+  );
+}
+function rgbToLab(r,g,b){                      // aproximación rápida
+  const xyz=[r/255,g/255,b/255].map(v=>{
+    v=v>0.04045?((v+0.055)/1.055)**2.4:v/12.92;
+    return v*100;
+  });
+  const x=xyz[0]*0.4124+xyz[1]*0.3576+xyz[2]*0.1805;
+  const y=xyz[0]*0.2126+xyz[1]*0.7152+xyz[2]*0.0722;
+  const z=xyz[0]*0.0193+xyz[1]*0.1192+xyz[2]*0.9505;
+  const xyzN=[95.047,100.0,108.883];
+  const f= t=> t>0.008856 ? t**(1/3) : (7.787*t)+16/116;
+  const [fx,fy,fz]=[x,y,z].map((v,i)=>f(v/xyzN[i]));
+  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+}
+/* ---------- FIN BLOQUE UTILIDADES ---------- */
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -400,9 +449,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
-      const geo=new THREE.BoxGeometry(w,h,t),
-            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(getColor(cv)), shininess:50}),
-            mesh=new THREE.Mesh(geo,mat);
+      const geo=new THREE.BoxGeometry(w,h,t);
+      const rgb = paletteRGB[cv-1] || [255,255,255];
+      const mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255), shininess:50});
+      const mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
         clamp(X,-halfCube+w/2,halfCube-w/2),
@@ -521,60 +571,103 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
 
-    function makePalette(harmony=currentHarmony){
-      currentHarmony = harmony;
-      const baseHue = Math.random()*360;
-      paletteRGB = [];
-      const angles = ANGLES[harmony] || ANGLES.triad;
-      for(let i=0;i<5;i++){
-        const phi = (baseHue + angles[i % angles.length]) % 360;
-        const c = new THREE.Color();
-        c.setHSL(phi/360, 0.6, 0.5);
-        paletteRGB.push('#'+c.getHexString());
+
+    /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
+     * 1. Semilla RGB = suma ponderada de posiciones y P1-P3 (firma).    *
+     * 2. Selección de armonía idx = (R+2G+3B) mod 7                     */
+    function makePalette(){
+      /* --- 1. Semilla RGBglobal --- */
+      let Rg=0,Gg=0,Bg=0;
+      permutationGroup.children.forEach(mesh=>{
+        const pa = mesh.userData.permStr.split(',').map(Number);
+        const sig = mesh.userData.signature;            // [f1..f5]
+        const P1=pa[0], P2=pa[1], P3=pa[2];
+        const {x,y,z} = mesh.position;
+        Rg += (P1*Math.abs(x)+sig[0])|0;
+        Gg += (P2*Math.abs(y)+sig[1])|0;
+        Bg += (P3*Math.abs(z)+sig[2])|0;
+      });
+      Rg%=256; Gg%=256; Bg%=256;
+
+      /* --- 2. HSV base --- */
+      const [H0] = rgbToHsv(Rg,Gg,Bg);
+      const idx = (Rg + 2*Gg + 3*Bg) % 7;
+      const Δ = ANG7[idx];
+
+      /* --- 3. Construir 7 tonos HSV --- */
+      const HSV = [];
+      for(let k=0;k<7;k++){
+        let h = (H0 + Δ[k]) % 360,
+            s = 0.70,
+            v = 0.85;
+        if(idx===0){ v = 0.55+0.05*k; }          // monocromo
+        if(idx===2 && k>1){ v = 0.85-0.05*(k-1);} // complementario grad.
+        if(idx===3 && k>2){ s = 0.85-0.05*(k-3);} // comp.dividida grad S
+        if(idx===6){ s = 0.40+0.05*k; }           // tonos
+        HSV.push([h,s,v]);
+      }
+
+      /* --- 4. A HSV → RGB, validar contraste ∆E ≥ 22 --- */
+      paletteRGB=[];
+      for(let i=0;i<7;i++){
+        let rgb=hsvToRgb(...HSV[i]);
+        let tries=0;
+        while(i>0 && deltaE(rgbToLab(...rgb),rgbToLab(...paletteRGB[0]))<22 && tries<20){
+          /* empujar V ligeramente para ganar contraste */
+          HSV[i][2]=Math.min(1,HSV[i][2]+0.03);
+          rgb=hsvToRgb(...HSV[i]);
+          tries++;
+        }
+        paletteRGB.push(rgb);
       }
     }
-
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
     }
 
     function applyPalette(){
       for(let i=1;i<=5;i++){
-        const hex=getColor(i);
-        const input=document.getElementById('color'+i);
+        const rgb = paletteRGB[i-1] || [255,255,255];
+        const hex = '#' + new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255).getHexString();
+        const input = document.getElementById('color'+i);
         if(input){
-          input.value=manualOverride[i]||hex;
+          input.value = manualOverride[i] || hex;
         }
       }
       permutationGroup.children.forEach(o=>{
-        const pa=o.userData.permStr.split(',').map(Number);
-        const cv=pa[attributeMapping.color];
-        o.material.color=new THREE.Color(getColor(cv));
+        const pa = o.userData.permStr.split(',').map(Number);
+        const cv = pa[attributeMapping.color];
+        const rgb = paletteRGB[cv-1] || [255,255,255];
+        o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
       });
     }
 
     function refreshAll(opts={rebuild:false}){
       if(opts.rebuild) updateScene(false);
+      makePalette();
       applyPalette();
       updateBackground();
       updateCubeColor();
     }
-
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
       refreshAll();
     }
     function updateBackground(){
-      const c=document.getElementById('bgColor').value;
+      /* fondo = tono 6 de la paleta */
+      const c="#"+new THREE.Color(...paletteRGB[5].map(v=>v/255)).getHexString();
+      document.getElementById("bgColor").value=c;
       scene.background=new THREE.Color(c);
       const lum=(parseInt(c.slice(1,3),16)*299+parseInt(c.slice(3,5),16)*587+parseInt(c.slice(5,7),16)*114)/1000;
       document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
     function updateCubeColor(){
-      const c=document.getElementById('cubeColor').value;
+      /* paredes = tono 7 de la paleta */
+      const c="#"+new THREE.Color(...paletteRGB[6].map(v=>v/255)).getHexString();
+      document.getElementById("cubeColor").value=c;
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
-      document.getElementById('toggleTextButton').style.color=c;
+      document.getElementById("toggleTextButton").style.color=c;
     }
 
     function toggleTexts(){
