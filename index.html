@@ -575,7 +575,9 @@ function rgbToLab(r,g,b){                      // aproximación rápida
     /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
      * 1. Semilla RGB = suma ponderada de posiciones y P1-P3 (firma).    *
      * 2. Selección de armonía idx = (R+2G+3B) mod 7                     */
-    function makePalette(){
+function thirtyFive(){return 35;}
+
+function makePalette(){
       /* --- 1. Semilla RGBglobal --- */
       let Rg=0,Gg=0,Bg=0;
       permutationGroup.children.forEach(mesh=>{
@@ -612,11 +614,16 @@ function rgbToLab(r,g,b){                      // aproximación rápida
       for(let i=0;i<7;i++){
         let rgb=hsvToRgb(...HSV[i]);
         let tries=0;
-        while(i>0 && deltaE(rgbToLab(...rgb),rgbToLab(...paletteRGB[0]))<22 && tries<20){
-          /* empujar V ligeramente para ganar contraste */
-          HSV[i][2]=Math.min(1,HSV[i][2]+0.03);
-          rgb=hsvToRgb(...HSV[i]);
-          tries++;
+        while(i>0 &&
+              deltaE(rgbToLab(...rgb), rgbToLab(...paletteRGB[0])) <  thirtyFive() &&
+              tries<25){
+          /* si el hue es demasiado parecido => rotar 18°; si no, subir V */
+          if(Math.abs(HSV[i][0]-HSV[0][0])<20){
+            HSV[i][0] = (HSV[i][0]+18)%360;
+          }else{
+            HSV[i][2] = Math.min(1, HSV[i][2]+0.04);
+          }
+          rgb = hsvToRgb(...HSV[i]); tries++;
         }
         paletteRGB.push(rgb);
       }
@@ -627,22 +634,28 @@ function rgbToLab(r,g,b){                      // aproximación rápida
 
     function applyPalette(){
       for(let i=1;i<=5;i++){
-        const rgb = paletteRGB[i-1] || [255,255,255];
-        const hex = '#' + new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255).getHexString();
-        const input = document.getElementById('color'+i);
-        if(input){
-          input.value = manualOverride[i] || hex;
-        }
+        const autoRGB = paletteRGB[i-1] || [255,255,255];
+        const autoHEX = '#'+new THREE.Color(
+            autoRGB[0]/255,autoRGB[1]/255,autoRGB[2]/255).getHexString();
+        const hex     = manualOverride[i] || autoHEX;
+        const input   = document.getElementById('color'+i);
+        if(input) input.value = hex;
       }
+
       permutationGroup.children.forEach(o=>{
-        const pa = o.userData.permStr.split(',').map(Number);
-        const cv = pa[attributeMapping.color];
-        const rgb = paletteRGB[cv-1] || [255,255,255];
-        o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+        const pa   = o.userData.permStr.split(',').map(Number);
+        const idx  = pa[attributeMapping.color];          // 1-5
+        const hex  = manualOverride[idx] ||
+                     '#'+new THREE.Color(
+                         ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
+        o.material.color.setStyle(hex);
       });
     }
 
     function refreshAll(opts={rebuild:false}){
+      if(!opts.keepManual){              // por defecto se limpia
+        manualOverride = {};
+      }
       if(opts.rebuild) updateScene(false);
       makePalette();
       applyPalette();
@@ -651,7 +664,7 @@ function rgbToLab(r,g,b){                      // aproximación rápida
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
-      refreshAll();
+      refreshAll({keepManual:true});
     }
     function updateBackground(){
       /* fondo = tono 6 de la paleta */
