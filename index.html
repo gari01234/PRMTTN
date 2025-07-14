@@ -618,7 +618,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         }
         paletteRGB.push(rgb);
       }
-    }
 
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
