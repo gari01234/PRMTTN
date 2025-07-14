@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -8,139 +7,6 @@
   <script type="module" src="https://esm.sh/web-bundlr@0.1.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script>
-  /* ---------- CONSTANTES DE ARMONÍA ---------- */
-  const ANGLES = [
-    [0,0,0,0,0,0,0],
-    [0,30,60,90,120,150,180],
-    [0,180,0,0,0,0,0],
-    [0,150,210,0,0,0,0],
-    [0,120,240,60,180,300,30],
-    [0,90,180,270,45,135,225],
-    [0,0,0,0,0,0,0]
-  ];
-  const ΔE_MIN = 22;
-  const S_STAR = 0.70, V_STAR = 0.85;
-  /* ---------- UTILIDADES RGB/HSV ------------- */
-  function rgbToHsv(r,g,b){
-    r/=255; g/=255; b/=255;
-    const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
-    let h=0,s=mx===0?0:d/mx,v=mx;
-    if(d!==0){
-      switch(mx){
-        case r: h=((g-b)/d)%6; break;
-        case g: h=(b-r)/d+2; break;
-        case b: h=(r-g)/d+4; break;
-      }
-      h*=60; if(h<0) h+=360;
-    }
-    return [h,s,v];
-  }
-  function hsvToRgb(h,s,v){
-    const c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;
-    let r=0,g=0,b=0;
-    if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
-    return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
-  }
-  function rgbToXyz(r,g,b){
-    r/=255; g/=255; b/=255;
-    r=r>0.04045?Math.pow((r+0.055)/1.055,2.4):r/12.92;
-    g=g>0.04045?Math.pow((g+0.055)/1.055,2.4):g/12.92;
-    b=b>0.04045?Math.pow((b+0.055)/1.055,2.4):b/12.92;
-    const x=r*0.4124+g*0.3576+b*0.1805;
-    const y=r*0.2126+g*0.7152+b*0.0722;
-    const z=r*0.0193+g*0.1192+b*0.9505;
-    return [x,y,z];
-  }
-  function xyzToLab(x,y,z){
-    const refX=0.95047, refY=1, refZ=1.08883;
-    x/=refX; y/=refY; z/=refZ;
-    x=x>0.008856?Math.cbrt(x):(7.787*x)+(16/116);
-    y=y>0.008856?Math.cbrt(y):(7.787*y)+(16/116);
-    z=z>0.008856?Math.cbrt(z):(7.787*z)+(16/116);
-    const L=116*y-16;
-    const a=500*(x-y);
-    const b=200*(y-z);
-    return [L,a,b];
-  }
-  function rgbToLab(r,g,b){
-    return xyzToLab(...rgbToXyz(r,g,b));
-  }
-  function deltaE(lab1,lab2){
-    const dl=lab1[0]-lab2[0], da=lab1[1]-lab2[1], db=lab1[2]-lab2[2];
-    return Math.sqrt(dl*dl+da*da+db*db);
-  }
-  function safeRGB(arr){
-    if(!Array.isArray(arr)||arr.length!==3||arr.some(n=>typeof n!=='number'||isNaN(n))) return [128,128,128];
-    return arr;
-  }
-  /* ---------- PALETA GLOBAL ------------------ */
-  let palette = [];
-  function makePalette(sceneSeed, harmony){
-    const names=["mono","analog","complement","split","triad","square","tones"];
-    const c=document.getElementById('cubeColor').value,
-          clr=new THREE.Color(c);
-    const Rg=Math.round(clr.r*255),
-          Gg=Math.round(clr.g*255),
-          Bg=Math.round(clr.b*255);
-    let idx=names.indexOf(harmony);
-    if(harmony==="auto" || idx<0) idx=(Rg+2*Gg+3*Bg)%7;
-    const [H0]=rgbToHsv(Rg,Gg,Bg);
-    let offset=0;
-    let candidate=[];
-    for(let attempt=0; attempt<4; attempt++){
-      const HSV=[];
-      for(let k=0;k<7;k++){
-        const H=(H0+offset+ANGLES[idx][k])%360;
-        let S=S_STAR, V=V_STAR;
-        if(idx===0) V=0.55+0.05*k;
-        if(idx===2){
-          if(k===0) { S=S_STAR; V=0.85; }
-          else if(k===1){ S=S_STAR; V=0.75; }
-          else { V=0.70-0.02*(k-2); }
-        }
-        if(idx===3){
-          if(k<=2){ S=S_STAR; }
-          else{ S=0.85-0.05*(k-3); }
-        }
-        if(idx===6){
-          S=0.40+0.05*k;
-        }
-        HSV.push([H,S,V]);
-      }
-      // ensure minimum contrast
-      for(let i=0;i<HSV.length;i++){
-        for(let j=0;j<i;j++){
-          let lab1=rgbToLab(...hsvToRgb(...HSV[i]));
-          let lab2=rgbToLab(...hsvToRgb(...HSV[j]));
-          let d=deltaE(lab1,lab2);
-          let tries = 0;
-          while(d<ΔE_MIN && tries < 50){
-            if(HSV[i][1]<1) HSV[i][1]=Math.min(1,HSV[i][1]+0.03);
-            else HSV[i][2]=Math.min(1,HSV[i][2]+0.03);
-            lab1=rgbToLab(...hsvToRgb(...HSV[i]));
-            d=deltaE(lab1,lab2);
-            if(HSV[i][1]>=1 && HSV[i][2]>=1) break;
-            tries++;
-          }
-        }
-      }
-      candidate = HSV.map(hsv=>hsvToRgb(...hsv));
-      const labs=candidate.map(c=>rgbToLab(...c));
-      let valid=true;
-      for(let a=0;a<7 && valid;a++){
-        for(let b=a+1;b<7 && valid;b++){
-          if(deltaE(labs[a],labs[b])<ΔE_MIN) valid=false;
-        }
-      }
-      if(valid) break;
-      offset+=15;
-    }
-    const pal = candidate.slice(0,7);
-    while(pal.length<7) pal.push([0,0,0]);
-    return pal;
-  }
-  </script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
     body {
@@ -258,25 +124,12 @@
     </div>
     <details>
       <summary>Seleccionar Colores Permutaciones</summary>
-      <div><label>1: <input type="color" id="color1" class="permColor" value="#ff0000"></label></div>
-      <div><label>2: <input type="color" id="color2" class="permColor" value="#00ff00"></label></div>
-      <div><label>3: <input type="color" id="color3" class="permColor" value="#0000ff"></label></div>
-      <div><label>4: <input type="color" id="color4" class="permColor" value="#ff00ff"></label></div>
-      <div><label>5: <input type="color" id="color5" class="permColor" value="#00ffff"></label></div>
+      <div><label>1: <input type="color" id="color1" value="#ff0000"></label></div>
+      <div><label>2: <input type="color" id="color2" value="#00ff00"></label></div>
+      <div><label>3: <input type="color" id="color3" value="#0000ff"></label></div>
+      <div><label>4: <input type="color" id="color4" value="#ff00ff"></label></div>
+      <div><label>5: <input type="color" id="color5" value="#00ffff"></label></div>
       <button onclick="updateColorMapping()">Actualizar Colores</button>
-    </details>
-    <details>
-      <summary>Armonía de Color</summary>
-      <select id="harmonySel">
-        <option value="auto" selected>Auto</option>
-        <option value="mono">mono</option>
-        <option value="analog">analog</option>
-        <option value="complement">complement</option>
-        <option value="split">split</option>
-        <option value="triad">triad</option>
-        <option value="square">square</option>
-        <option value="tones">tones</option>
-      </select>
     </details>
     <details>
       <summary>Seleccionar Fondo del Universo</summary>
@@ -290,7 +143,7 @@
     </details>
     <details>
       <summary>Reorganización de Atributos</summary>
-      <select id="mapSel"></select>
+      <select id="attrMapping"></select>
       <button onclick="updateMapping()">Aplicar Reorganización</button>
       <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
     </details>
@@ -345,12 +198,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       if (config.mapping) {
         const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
-        const idx = attrMaps.findIndex(a=>a.every((val,i)=>val===v[i]));
-        if(idx>=0){
-          document.getElementById('mapSel').value = idx;
-          attrMap = attrMaps[idx];
-          attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-        }
+        document.getElementById('attrMapping').value = v.join(',');
       }
 
       if (config.colors) {
@@ -455,9 +303,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
     let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
-    let glifoMeshes = [];
-    let activePerms = [];
-    let currentHarmony = 'auto';
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -481,9 +326,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
     const allPermutations = getPermutations([1,2,3,4,5]);
     const permutationStrings = allPermutations.map(p=>p.join(','));
-    const attrMaps = getAttributeMappings([0,1,2,3,4]);
-    let attrMap = attrMaps[0];
-    function P(arr, idx){ return arr[attrMap[idx]]; }
 
     function getAttributeMappings(a){
       if(a.length===1) return [a];
@@ -505,15 +347,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
       });
     }
     function populateAttributeMappingSelect(){
-      const sel = document.getElementById('mapSel');
+      const sel = document.getElementById('attrMapping');
       sel.innerHTML = '';
-      attrMaps.forEach((m,i)=>{
-        const opt=document.createElement('option');
-        opt.value=i;
-        opt.textContent=`${i+1}/${attrMaps.length}`;
-        sel.appendChild(opt);
+      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
+        const s=m.join(','), o=document.createElement('option');
+        o.value=s; o.text=`Opción: [${s}]`;
+        if(s==='0,1,2,3,4') o.selected=true;
+        sel.appendChild(o);
       });
-      sel.selectedIndex=0;
+      updateTopRightDisplay();
     }
 
     function computeSignature(a){let s=[];for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]);return s;}
@@ -541,10 +383,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         (z-2)*step
       ];
     }
-
-    function computeSceneSeed(){
-      return activePerms.reduce((acc,p)=>acc+lehmerRank(p),0)%125;
-    }
     function updateTopRightDisplay(){
       const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
       const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
@@ -558,12 +396,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
     }
 
-    function createPermutationObjectWithMapping(pa){
-      const fv=P(pa,0), cv=P(pa,1),
-            d=shapeMapping[fv], w=d.w, h=Math.max(d.h,0.2), t=0.5;
+    function createPermutationObjectWithMapping(pa,map){
+      const fv=pa[map.forma], cv=pa[map.color],
+            d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
       const geo=new THREE.BoxGeometry(w,h,t),
-            col=safeRGB(palette[cv-1]),
-            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(col[0]/255,col[1]/255,col[2]/255), shininess:50}),
+            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
@@ -572,10 +409,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
         clamp(Z,-halfCube+t/2,halfCube-t/2)
       );
       const sig=computeSignature(pa), rg=computeRange(sig);
-      mesh.userData={permStr:pa.join(','), p:pa.slice(), p2:cv, signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
     }
-    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa); }
+    function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
 
     function checkCollisionsInGroup(g){
       for(let i=0;i<g.children.length;i++){
@@ -588,25 +425,22 @@ document.getElementById('json-upload').addEventListener('change', function(event
       return false;
     }
     function autoResolveColisionesGlobal(){
-      let found=null, foundIdx=0;
-      const original=attrMap;
-      attrMaps.forEach((m,i)=>{
+      let found=null;
+      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
         if(found) return;
-        attrMap = m;
-        const tg=new THREE.Group(),
+        const cm={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]},
+              tg=new THREE.Group(),
               opts=Array.from(document.getElementById('permutationList').selectedOptions);
         opts.forEach((o)=>{
           const pa=o.value.split(',').map(Number),
-                mo=createPermutationObject(pa);
+                mo=createPermutationObjectWithMapping(pa,cm);
           tg.add(mo);
         });
-        if(!checkCollisionsInGroup(tg)){ found=m; foundIdx=i; }
+        if(!checkCollisionsInGroup(tg)) found=cm;
       });
-      attrMap = original;
       if(found){
-        attributeMapping={forma:found[0],color:found[1],x:found[2],y:found[3],z:found[4]};
-        attrMap = attrMaps[foundIdx];
-        document.getElementById('mapSel').value=foundIdx;
+        attributeMapping=found;
+        document.getElementById('attrMapping').value=`${found.forma},${found.color},${found.x},${found.y},${found.z}`;
         updateScene(false); updateTopRightDisplay();
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
@@ -625,29 +459,25 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function updateScene(attemptResolve=true){
-      glifoMeshes=[];
       while(permutationGroup.children.length>0){
         const o=permutationGroup.children[0];
         permutationGroup.remove(o);
         o.geometry.dispose(); o.material.dispose();
       }
-      const opts = Array.from(document.getElementById('permutationList').selectedOptions);
-      activePerms = opts.map(o=>o.value.split(',').map(Number));
-      sceneSeed = computeSceneSeed();
-      activePerms.forEach(pa=>{
-        const obj=createPermutationObject(pa);
+      const opts=Array.from(document.getElementById('permutationList').selectedOptions);
+      sceneSeed=0;
+      opts.forEach(o=>{
+        const pa=o.value.split(',').map(Number);
+        sceneSeed+=pa[2]+pa[3]+pa[4];
+      });
+      sceneSeed%=125;
+      opts.forEach((o)=>{
+        const pa=o.value.split(',').map(Number),
+              obj=createPermutationObject(pa);
         permutationGroup.add(obj);
-        glifoMeshes.push(obj);
       });
       if(attemptResolve) autoResolveColisionesGlobal();
       else updateTopRightDisplay();
-      refreshPalette();
-    }
-
-    function rebuildScene(){
-      updateScene(false);
-      sceneSeed = computeSceneSeed();
-      refreshPalette();
     }
 
     function onMouseMove(e){
@@ -702,28 +532,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const lum=(parseInt(c.slice(1,3),16)*299+parseInt(c.slice(3,5),16)*587+parseInt(c.slice(5,7),16)*114)/1000;
       document.getElementById('hoverPopup').style.color=lum<128?"#fff":"#000";
     }
-
-    function refreshPalette(){
-      palette = makePalette(sceneSeed, currentHarmony);
-      applyPalette();
-    }
     function updateCubeColor(){
       const c=document.getElementById('cubeColor').value;
       cubeUniverse.material.color=new THREE.Color(c);
       document.querySelectorAll("details summary").forEach(s=>s.style.color=c);
       document.getElementById('toggleTextButton').style.color=c;
-      refreshPalette();
-    }
-
-    function applyPalette(){
-      glifoMeshes.forEach(mesh=>{
-        const idx = mesh.userData.p2 - 1;
-        mesh.material.color.setRGB(
-          ...palette[idx].map(v=>v/255)
-        );
-      });
-      scene.background.setRGB(...palette[5].map(v=>v/255));
-      cubeUniverse.material.color.setRGB(...palette[6].map(v=>v/255));
     }
 
     function toggleTexts(){
@@ -974,11 +787,11 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function updateMapping(){
-      const idx=+document.getElementById('mapSel').value;
-      attrMap = attrMaps[idx];
-      attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-      sceneSeed = computeSceneSeed();
-      rebuildScene();
+      const v=document.getElementById('attrMapping').value.split(',').map(Number);
+      if(v.length===5){
+        attributeMapping={forma:v[0],color:v[1],x:v[2],y:v[3],z:v[4]};
+        updateScene(false); updateTopRightDisplay();
+      }
     }
 
     function applyStandardView(){
@@ -1006,13 +819,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         });
       }
       if(p.has('mapping')){
-        const arr=p.get('mapping').split(',').map(Number);
-        const idx=attrMaps.findIndex(a=>a.every((v,i)=>v===arr[i]));
-        if(idx>=0){
-          attrMap=attrMaps[idx];
-          attributeMapping={forma:attrMap[0],color:attrMap[1],x:attrMap[2],y:attrMap[3],z:attrMap[4]};
-          document.getElementById('mapSel').value=idx;
-        }
+        const m=p.get('mapping').split(',').map(Number);
+        attributeMapping={forma:m[0],color:m[1],x:m[2],y:m[3],z:m[4]};
       }
       if(p.has('colors')){
         const cols=p.get('colors').split(',');
@@ -1108,9 +916,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
-      harmonySel.value = "auto";
-      currentHarmony = "auto";
-      refreshPalette();
 
       raycaster=new THREE.Raycaster();
       mouse=new THREE.Vector2();
@@ -1139,11 +944,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       controls.update();
       renderer.render(scene,camera);
     }
-    harmonySel.onchange = () => {
-      currentHarmony = harmonySel.value;
-      refreshPalette();
-    };
-    document.getElementById('mapSel').onchange = () => updateMapping();
     init();
 
     // Web3 + NFT Mint (tu código original)
