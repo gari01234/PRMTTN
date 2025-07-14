@@ -957,6 +957,55 @@ function deltaE(rgb1, rgb2) {
     }
 
     function exportEmbed(){
+// === 7.3 applyPalette  (reemplaza la antigua) ===================
+function applyPalette(){
+  // fondo & paredes
+  scene.background.setRGB(...paletteRGB[5].map(x=>x/255));
+  cube.material.color.setRGB(...paletteRGB[6].map(x=>x/255));
+  // glifos
+  permMeshes.forEach(m=>{
+     const id=m.userData.permId;
+     const p2=m.userData.p2;
+     const col = manualOverride[id] ?? paletteRGB[p2-1];
+     m.material.color.setRGB(col[0]/255,col[1]/255,col[2]/255);
+  });
+}
+
+// === 7.4 Hooks ===================================================
+addPermutation = (...args)=>{
+  // código anterior de añadir permutación
+  const result = originalAddPermutation(...args);
+  refreshAll({rebuild:true});
+  return result;
+};
+
+removePermutation = (...args)=>{
+  const result = originalRemovePermutation(...args);
+  refreshAll({rebuild:true});
+  return result;
+};
+
+harmonySel.onchange = () =>{
+  currentHarmony = harmonySel.value;          // "auto"|…
+  refreshAll();                               // sin rebuild
+};
+
+attrSel.onchange = () => {
+  attrMap = attrMaps[attrSel.value];
+  refreshAll({rebuild:true});
+};
+
+// === 7.5 Manual colour picker ===================================
+function onColourPick(permId,hex){
+   if(hex==="") delete manualOverride[permId];
+   else manualOverride[permId]=hexToRgb(hex);
+   applyPalette();                            // no rebuild
+}
+
+function hexToRgb(hex){
+  const bigint = parseInt(hex.slice(1), 16);
+  return [(bigint>>16)&255, (bigint>>8)&255, bigint&255];
+}
       const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
       const mapping = {
         forma: attributeMapping.forma,
