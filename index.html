@@ -110,7 +110,7 @@
       <details>
         <summary>Seleccionar Permutaciones</summary>
         <select id="permutationList" multiple></select>
-        <button onclick="updateScene()">Visualizar Permutación</button>
+        <button onclick="refreshAll({rebuild:true})">Visualizar Permutación</button>
       </details>
     </div>
     <div id="evolutionControls" style="display:none;">
@@ -124,12 +124,11 @@
     </div>
     <details>
       <summary>Seleccionar Colores Permutaciones</summary>
-      <div><label>1: <input type="color" id="color1" value="#ff0000"></label></div>
-      <div><label>2: <input type="color" id="color2" value="#00ff00"></label></div>
-      <div><label>3: <input type="color" id="color3" value="#0000ff"></label></div>
-      <div><label>4: <input type="color" id="color4" value="#ff00ff"></label></div>
-      <div><label>5: <input type="color" id="color5" value="#00ffff"></label></div>
-      <button onclick="updateColorMapping()">Actualizar Colores</button>
+      <div><label>1: <input type="color" id="color1" onchange="onColourPick(1,this.value)"></label></div>
+      <div><label>2: <input type="color" id="color2" onchange="onColourPick(2,this.value)"></label></div>
+      <div><label>3: <input type="color" id="color3" onchange="onColourPick(3,this.value)"></label></div>
+      <div><label>4: <input type="color" id="color4" onchange="onColourPick(4,this.value)"></label></div>
+      <div><label>5: <input type="color" id="color5" onchange="onColourPick(5,this.value)"></label></div>
     </details>
     <details>
       <summary>Seleccionar Fondo del Universo</summary>
@@ -203,10 +202,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       if (config.colors) {
         Object.entries(config.colors).forEach(([i, c]) => {
-          const colorInput = document.getElementById('color' + i);
-          if (colorInput) {
-            colorInput.value = c;
-          }
+          manualOverride[i] = c;
         });
       }
 
@@ -223,11 +219,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
 
       updateMapping();
-      updateColorMapping();
-      updateBackground();
-      updateCubeColor();
       applyStandardView();
-      updateScene(false);
+      refreshAll({rebuild:true});
 
       alert('Configuración cargada correctamente');
     } catch (err) {
@@ -302,7 +295,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = { forma:0, color:1, x:2, y:3, z:4 };
-    let colorMapping = { 1:"#ff0000",2:"#00ff00",3:"#0000ff",4:"#ff00ff",5:"#00ffff" };
+    let paletteRGB = [];
+    let manualOverride = {1:'#ff0000',2:'#00ff00',3:'#0000ff',4:'#ff00ff',5:'#00ffff'};
+    let currentHarmony = 'triad';
+    const ANGLES = {
+      triad: [0,120,240],
+      complementary: [0,180],
+      analogous: [0,-30,30]
+    };
+    const ΔE_MIN = 20;
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -400,7 +401,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const fv=pa[map.forma], cv=pa[map.color],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
       const geo=new THREE.BoxGeometry(w,h,t),
-            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(colorMapping[cv]), shininess:50}),
+            mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(getColor(cv)), shininess:50}),
             mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
@@ -441,7 +442,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       if(found){
         attributeMapping=found;
         document.getElementById('attrMapping').value=`${found.forma},${found.color},${found.x},${found.y},${found.z}`;
-        updateScene(false); updateTopRightDisplay();
+        refreshAll({rebuild:true}); updateTopRightDisplay();
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
       }
@@ -520,11 +521,48 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
 
-    function updateColorMapping(){
-      for(let i=1;i<=5;i++){
-        colorMapping[i]=document.getElementById('color'+i).value;
+    function makePalette(harmony=currentHarmony){
+      currentHarmony = harmony;
+      const baseHue = Math.random()*360;
+      paletteRGB = [];
+      const angles = ANGLES[harmony] || ANGLES.triad;
+      for(let i=0;i<5;i++){
+        const phi = (baseHue + angles[i % angles.length]) % 360;
+        const c = new THREE.Color();
+        c.setHSL(phi/360, 0.6, 0.5);
+        paletteRGB.push('#'+c.getHexString());
       }
-      updateScene(false);
+    }
+
+    function getColor(idx){
+      return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
+    }
+
+    function applyPalette(){
+      for(let i=1;i<=5;i++){
+        const hex=getColor(i);
+        const input=document.getElementById('color'+i);
+        if(input){
+          input.value=manualOverride[i]||hex;
+        }
+      }
+      permutationGroup.children.forEach(o=>{
+        const pa=o.userData.permStr.split(',').map(Number);
+        const cv=pa[attributeMapping.color];
+        o.material.color=new THREE.Color(getColor(cv));
+      });
+    }
+
+    function refreshAll(opts={rebuild:false}){
+      if(opts.rebuild) updateScene(false);
+      applyPalette();
+      updateBackground();
+      updateCubeColor();
+    }
+
+    function onColourPick(idx,hex){
+      manualOverride[idx]=hex;
+      refreshAll();
     }
     function updateBackground(){
       const c=document.getElementById('bgColor').value;
@@ -556,7 +594,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         m==="manual"?"block":"none";
       document.getElementById('evolutionControls').style.display=
         m==="evolution"?"block":"none";
-      updateScene(false);
+      refreshAll({rebuild:true});
     }
 
     function generateRandomConfiguration(){
@@ -574,10 +612,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
       let pool=shuffle(CUSTOM_COLORS.slice());
       for(let i=1;i<=5;i++){
         const hex=pool.shift();
-        colorMapping[i]=hex;
-        document.getElementById('color'+i).value=hex;
+        manualOverride[i]=hex;
       }
-      updateScene(false);
+      refreshAll({rebuild:true});
     }
 /**
  * Dada una firma [f1,f2,f3,f4,f5], devuelve los colores triádicos
@@ -746,12 +783,11 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         if(instr.colors){
           Object.entries(instr.colors).forEach(([i,c])=>{
             i=Number(i);
-            if(colorMapping[i]!==undefined){
-              colorMapping[i]=c;
-              document.getElementById('color'+i).value=c;
+            if(manualOverride[i]!==undefined){
+              manualOverride[i]=c;
             }
           });
-          updateScene(false);
+          refreshAll();
         }
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
@@ -777,7 +813,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           const opts=Array.from(document.getElementById('permutationList').options);
           opts.forEach(o=>o.selected=false);
           shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
-          updateScene(false);
+          refreshAll({rebuild:true});
         }
         showPopup("Evolución AI aplicada.",2000);
       } catch(err){
@@ -790,7 +826,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const v=document.getElementById('attrMapping').value.split(',').map(Number);
       if(v.length===5){
         attributeMapping={forma:v[0],color:v[1],x:v[2],y:v[3],z:v[4]};
-        updateScene(false); updateTopRightDisplay();
+        refreshAll({rebuild:true}); updateTopRightDisplay();
       }
     }
 
@@ -827,8 +863,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         cols.forEach((hex,i)=>{
           if(i<5){
             const h='#'+hex;
-            colorMapping[i+1]=h;
-            document.getElementById('color'+(i+1)).value=h;
+            manualOverride[i+1]=h;
           }
         });
       }
@@ -926,8 +961,9 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       populatePermutationList();
       populateAttributeMappingSelect();
       applyEmbedParams();
+      makePalette();
       setMode("manual");
-      updateScene(false);
+      refreshAll({rebuild:true});
       animate();
     }
     function onWindowResize(){
