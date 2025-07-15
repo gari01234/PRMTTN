@@ -755,63 +755,119 @@ function makeClassicPalette(){
       }
     }
 
-function makePalette(){
+/* ------------------------------------------------------------------ *
+ *  makePalette()  v2 – once-for-all
+ *  Genera los 7 colores (1-5 glifos, 6 pared-cubo, 7 fondo) a partir
+ *  de     – currentPatternId  (1 … 11)
+ *          – sceneSeed / firma global
+ *          – reglas hueFn/satFn/valFn por patrón
+ * ------------------------------------------------------------------ */
+function makePalette() {
 
-  /* 1. Semilla RGB global (idéntico a tu lógica original) */
-  let Rg = 0, Gg = 0, Bg = 0, sigSum = 0;
-  permutationGroup.children.forEach(mesh => {
-    const pa  = mesh.userData.permStr.split(',').map(Number);
-    const sig = mesh.userData.signature;           // [f1…f5]
-    const {x,y,z} = mesh.position;
-    const P1 = pa[0], P2 = pa[1], P3 = pa[2];
+  /* ---------- 0. baseHue derivado de la escena ---------- */
+  const seed = sceneSeed % 360;               // 0-359
+  const baseHue = seed;                       // simple, suficiente
 
-    Rg += (P1*Math.abs(x) + sig[0])|0;
-    Gg += (P2*Math.abs(y) + sig[1])|0;
-    Bg += (P3*Math.abs(z) + sig[2])|0;
+  /* ---------- 1. selectores por patrón ---------- */
+  // Cada entrada devuelve: { hueFn, satFn, valFn }
+  const P = {
 
-    sigSum += sig[0] + sig[1] + sig[2] + sig[3] + sig[4];
-  });
-  Rg %= 256; Gg %= 256; Bg %= 256;
+    // 1 · Contención estructural → casi monocroma
+    1: {
+      hueFn : () => baseHue,                          // mismo matiz
+      satFn : () => 0.72,                             // S fijo
+      valFn : k => 0.55 + 0.07*(k%5)                  // 5 peldaños V
+    },
 
-  /* 2. HSV base y Δ de armonía (igual que antes) */
-  const [H0] = rgbToHsv(Rg, Gg, Bg);              // matiz “raíz” de la escena
-  const idx  = (Rg + 2*Gg + 3*Bg) % 7;            // decide patrón ANG7
-  const Δ    = ANG7[idx];
+    // 2 · Contraste & Disonancia → split-complementario ±150°
+    2: {
+      hueFn : (_,i) => baseHue + (i%2 ? 150 : 0),
+      satFn : () => 0.80,
+      valFn : k => 0.55 + 0.05*(k%5)
+    },
 
-  /* 3. Construir los 7 slots HSV (0-4 glifos • 5 fondo • 6 paredes) -------- */
-  const HSV = [];
+    // 3 · Disposición no semántica → análoga suave ±30°
+    3: {
+      hueFn : (_,i) => baseHue + (i-2)*15,
+      satFn : () => 0.65,
+      valFn : k => 0.60 + 0.05*(k%5)
+    },
 
-  // 3a · Glifos (slots 0-4) → paleta casi monocroma, ±15°
-  for (let k = 0; k < 5; k++){
-    const hue = ( H0 + ( (sigSum + k) % 5 - 2 ) * 15 + 360 ) % 360;  // ±30° máx.
-    const sat = 0.68;
-    const val = 0.65 + 0.05*(k % 3);                                // 0.65-0.75
-    HSV.push([hue, sat, val]);
-  }
+    // 4 · Ambigüedad estructurada → ±60° zig-zag
+    4: {
+      hueFn : (_,i) => baseHue + [0,60,-60,30,-30][i],
+      satFn : () => 0.70,
+      valFn : k => 0.60 + 0.05*(k%5)
+    },
 
-  // 3b · Fondo (slot 5) — mismo matiz *desaturado y alto valor*
-  const hueBg = spreadHue(H0, sceneSeed + sigSum);
-  HSV.push([hueBg, 0.22, 0.92]);                                    // pastel
+    // 5 · Campo sin Centro → 5 puntos de una tríada rotada
+    5: {
+      hueFn : (_,i) => baseHue + (i*120)%360,
+      satFn : () => 0.75,
+      valFn : () => 0.70
+    },
 
-  // 3c · Paredes (slot 6) — mismo H, +S, –V
-  HSV.push([hueBg, 0.35, 0.60]);
+    // 6 · Presencia Autosuficiente → complementaria pura
+    6: {
+      hueFn : (_,i) => baseHue + (i%2)*180,
+      satFn : () => 0.80,
+      valFn : k => 0.55 + 0.05*(k%5)
+    },
 
-  /* 4. HSV → RGB, validando contraste mínimo ∆E --------------------------- */
-  paletteRGB = [];
-  for (let i = 0; i < 7; i++){
-    let rgb   = hsvToRgb(...HSV[i]);
-    let tries = 0;
-    while (
-      i > 0 &&
-      deltaE(rgbToLab(...rgb), rgbToLab(...paletteRGB[0])) < 35 &&
-      tries < 25
-    ){
-      HSV[i][0] = (HSV[i][0] + 18) % 360;         // rota 18° si es muy parecido
-      rgb = hsvToRgb(...HSV[i]);
-      tries++;
+    // 7 · Asimetría Asociativa → abanico ±90° no uniforme
+    7: {
+      hueFn : (_,i) => baseHue + [0, 45, -30, 90, -60][i],
+      satFn : () => 0.75,
+      valFn : () => 0.68
+    },
+
+    // 8 · Dinámica Irregular → aleatorio controlado ±180°
+    8: {
+      hueFn : (sig,i) => baseHue + ((sig[i]%13)-6)*30, // ±180
+      satFn : () => 0.78,
+      valFn : () => 0.65
+    },
+
+    // 9 · Habitable sin Traducción → tonos (S gradúa 5 pasos)
+    9: {
+      hueFn : () => baseHue,
+      satFn : k => 0.30 + 0.10*k,
+      valFn : () => 0.75
+    },
+
+    // 10 · Resonancia → pentatónica cromática (∆H=72°)
+    10:{
+      hueFn : (_,i)=> baseHue + i*72,
+      satFn : () => 0.70,
+      valFn : () => 0.75
+    },
+
+    // 11 · Transparencia Activa → matiz fijo, S fijo, V muy escalonado
+    11:{
+      hueFn : () => baseHue,
+      satFn : () => 0.60,
+      valFn : k  => 0.50 + 0.08*k         // V claramente diferenciado
     }
-    paletteRGB.push(rgb);
+  };
+
+  const { hueFn, satFn, valFn } = P[activePatternId];
+
+  /* ---------- 2. paleta glifos (1-5) ---------- */
+  paletteRGB = [];
+  const sigGlobal = permutationGroup.children.length
+                    ? permutationGroup.children[0].userData.signature
+                    : [0,0,0,0,0];
+  for (let i = 0; i < 5; i++) {
+    const h = (hueFn(sigGlobal,i)+360)%360;
+    const s = satFn(i);
+    const v = valFn(i);
+    paletteRGB.push( hsvToRgb(h,s,v) );
   }
+
+  /* ---------- 3. pared (6) y fondo (7) ---------- */
+  const wallRGB = hsvToRgb(baseHue, 0.35, 0.60);   // id 6
+  const backRGB = hsvToRgb(baseHue, 0.18, 0.90);   // id 7
+  paletteRGB.push(wallRGB, backRGB);
 }
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
