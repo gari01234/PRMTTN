@@ -892,9 +892,12 @@ function makePalette () {
           s:def.bg.s,
           v:def.bg.v };
 
+  // --- al final de makePalette(), justo después de calcular bgHSV y wallHSV ---
   paletteRGB.push(
-    hsvToRgb(wallHSV.h, wallHSV.s, wallHSV.v),   // id 6
-    hsvToRgb(bgHSV.h,   bgHSV.s,   bgHSV.v)      // id 7
+    // índice 5  →  FONDO
+    hsvToRgb(bgHSV.h,   bgHSV.s,   bgHSV.v),
+    // índice 6  →  PAREDES
+    hsvToRgb(wallHSV.h, wallHSV.s, wallHSV.v)
   );
 }
     function getColor(idx){
