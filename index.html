@@ -338,7 +338,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
           hueFn:(sig,seed)=>(sig[0]*57+seed*83)%360,
           satFn:k=>k%2?0.95:0.85,
           valFn:k=>k%2?0.55:0.85,
-          permMapFn:pa=>((pa[attributeMapping.color]^seed)%5)+1 },
+          permMapFn:pa=>((pa[attributeMapping.color] + sceneSeed)%5)+1 },
 
       3:{ name:"Disposición no semántica",
           hueFn:(sig,seed)=>(seed*GOLD+sig[2]*29)%360,
@@ -774,45 +774,128 @@ function makeClassicPalette(){
       }
     }
 
-/* -------------------------------------------------------------- *
- *  makePalette v2.1  – genera 7 colores:
- *    1-5  → glifos activos
- *    6    → fondo      (bg)
- *    7    → paredes    (wall)
- *  — el fondo AHORA cambia al cambiar de patrón cromático
- *  — wall / bg se guardan en paletteRGB[5] y [6] respectivamente
- * -------------------------------------------------------------- */
-function makePalette(){
+/* ------------------------------------------------------------------ *
+ *  makePalette()  v2.3 – patrones + fondo / paredes por-patrón
+ *  – genera 7 colores → RGB  (1-5 glifos, 6 paredes, 7 fondo)
+ *  – usa sceneSeed (global) y activePatternId (1-11)
+ * ------------------------------------------------------------------ */
+function makePalette () {
 
-  /* 0. matiz base: depende de la escena *y* del patrón elegido        */
-  const baseHue = (sceneSeed*11 + activePatternId*31) % 360;
+  /* 0 · Hue base determinista para la escena — suficiente: */
+  const baseHue = sceneSeed % 360;                 // 0-359
 
-  /* 1. tablas de funciones por patrón                                 */
+  /* 1 · Definiciones por patrón
+       hueFn(sig,i)  → H° para el glifo i (i = 0-4)
+       satFn(i)      → S   »          »
+       valFn(i)      → V   »          »
+       wall / bg     → { hOff, s, v } para pared y fondo                  */
   const P = {
-    1:{h:(i)=>baseHue,                     s:()=>0.72,                v:(i)=>0.55+0.07*i},
-    2:{h:(i)=>baseHue+(i%2?150:0),        s:()=>0.80,                v:()=>0.70},
-    3:{h:(i)=>baseHue+(i-2)*15,           s:()=>0.65,                v:()=>0.75},
-    4:{h:(i)=>baseHue+[0,60,-60,30,-30][i],s:()=>0.70,               v:()=>0.70},
-    5:{h:(i)=>(baseHue+i*120)%360,        s:()=>0.75,                v:()=>0.75},
-    6:{h:(i)=>baseHue+(i%2)*180,          s:()=>0.80,                v:()=>0.65},
-    7:{h:(i)=>baseHue+[0,45,-30,90,-60][i],s:()=>0.75,               v:()=>0.68},
-    8:{h:(i)=>baseHue+((i*37)%360),       s:()=>0.78,                v:()=>0.65},
-    9:{h:()=>baseHue,                     s:(i)=>0.30+0.10*i,        v:()=>0.75},
-    10:{h:(i)=>(baseHue+i*72)%360,        s:()=>0.70,                v:()=>0.75},
-    11:{h:()=>baseHue,                    s:()=>0.60,                v:(i)=>0.50+0.08*i}
-  }[activePatternId];
+    /* 1 · Contención estructural – casi monocroma */
+    1 : { hueFn : ()       => baseHue,
+          satFn : ()       => .72,
+          valFn : i        => .55 +  .07*i,
+          wall  : {hOff:  0, s:.35, v:.60},
+          bg    : {hOff:  0, s:.18, v:.92} },
 
-  /* 2. colores 1-5 (glifos)                                           */
+    /* 2 · Contraste & Disonancia – split-complementario */
+    2 : { hueFn : (_,i)    => (baseHue + (i%2 ? 150 :   0)) % 360,
+          satFn : ()       => .90,
+          valFn : i        => .55 +  .05*i,
+          wall  : {hOff:  0, s:.50, v:.55},
+          bg    : {hOff:180, s:.22, v:.90} },
+
+    /* 3 · Disposición no semántica – análoga ±30° */
+    3 : { hueFn : (_,i)    => (baseHue + (i-2)*15 + 360) % 360,
+          satFn : ()       => .65,
+          valFn : i        => .60 +  .05*i,
+          wall  : {hOff:  0, s:.32, v:.60},
+          bg    : {hOff:  0, s:.15, v:.92} },
+
+    /* 4 · Ambigüedad estructurada – zig-zag ±60° */
+    4 : { hueFn : (_,i)    => (baseHue + [0, 60,-60, 30,-30][i] + 360)%360,
+          satFn : ()       => .70,
+          valFn : i        => .60 +  .05*i,
+          wall  : {hOff:  0, s:.40, v:.62},
+          bg    : {hOff: 60, s:.20, v:.90} },
+
+    /* 5 · Campo sin Centro – tríada rotada             */
+    5 : { hueFn : (_,i)    => (baseHue + i*120) % 360,
+          satFn : ()       => .75,
+          valFn : ()       => .70,
+          wall  : {hOff:120, s:.40, v:.62},
+          bg    : {hOff:240, s:.22, v:.88} },
+
+    /* 6 · Presencia autosuficiente – complementaria pura */
+    6 : { hueFn : (_,i)    => (baseHue + (i%2)*180) % 360,
+          satFn : ()       => 1,
+          valFn : i        => .55 +  .05*i,
+          wall  : {hOff:  0, s:.60, v:.55},
+          bg    : {hOff:180, s:.18, v:.94} },
+
+    /* 7 · Asimetría asociativa – abanico ±90° no uniforme */
+    7 : { hueFn : (_,i)    => (baseHue + [0,45,-30,90,-60][i] + 360)%360,
+          satFn : ()       => .75,
+          valFn : ()       => .68,
+          wall  : {hOff:  0, s:.45, v:.60},
+          bg    : {hOff:-90, s:.25, v:.90} },
+
+    /* 8 · Dinámica irregular – dispersión amplia controlada */
+    8 : { hueFn : (sig,i)  => (baseHue + ((sig[i]%13)-6)*30 + 360)%360,
+          satFn : ()       => .78,
+          valFn : ()       => .65,
+          wall  : {hOff:  0, s:.50, v:.58},
+          bg    : {hOff:180, s:.15, v:.92} },
+
+    /* 9 · Habitable sin traducción – tonos del mismo matiz */
+    9 : { hueFn : ()       => baseHue,
+          satFn : i        => .30 +  .10*i,
+          valFn : ()       => .75,
+          wall  : {hOff:  0, s:.25, v:.65},
+          bg    : {hOff:  0, s:.10, v:.95} },
+
+    /* 10 · Resonancia – pentatónica (∆H = 72°) */
+    10: { hueFn : (_,i)    => (baseHue + i*72) % 360,
+          satFn : ()       => .70,
+          valFn : ()       => .75,
+          wall  : {hOff:  0, s:.45, v:.62},
+          bg    : {hOff:144, s:.22, v:.92} },
+
+    /* 11 · Transparencia activa – V muy escalonado */
+    11: { hueFn : ()       => baseHue,
+          satFn : ()       => .60,
+          valFn : i        => .50 +  .08*i,
+          wall  : {hOff:  0, s:.35, v:.55},
+          bg    : {hOff:  0, s:.14, v:.95} }
+  };
+
+  const def = P[activePatternId];
+  const sigG = permutationGroup.children.length
+               ? permutationGroup.children[0].userData.signature
+               : [0,0,0,0,0];
+
+  /* 2 · Paleta de glifos (1-5) */
   paletteRGB = [];
-  for(let i=0;i<5;i++){
-    const rgb = hsvToRgb( (P.h(i)+360)%360, P.s(i), P.v(i) );
-    paletteRGB.push(rgb);
+  for (let i = 0; i < 5; i++) {
+    const h = (def.hueFn(sigG,i)+360)%360,
+          s = def.satFn(i),
+          v = def.valFn(i);
+    paletteRGB.push( hsvToRgb(h,s,v) );
   }
 
-  /* 3. fondo (idx 6) y paredes (idx 7)                                */
-  const bgRGB   = hsvToRgb( baseHue, 0.18, 0.90 );           // claro, poco S
-  const wallRGB = hsvToRgb( (baseHue+180)%360, 0.35, 0.60 ); // 180° opuesto
-  paletteRGB.push(bgRGB, wallRGB);                           // 6 = fondo, 7 = pared
+  /* 3 · Paredes (6) y fondo (7) – derivadas del patrón */
+  const wallHSV = {
+          h:(baseHue + def.wall.hOff + 360)%360,
+          s:def.wall.s,
+          v:def.wall.v };
+  const bgHSV   = {
+          h:(baseHue + def.bg.hOff   + 360)%360,
+          s:def.bg.s,
+          v:def.bg.v };
+
+  paletteRGB.push(
+    hsvToRgb(wallHSV.h, wallHSV.s, wallHSV.v),   // id 6
+    hsvToRgb(bgHSV.h,   bgHSV.s,   bgHSV.v)      // id 7
+  );
 }
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
