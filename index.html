@@ -160,7 +160,7 @@
       <input type="color" id="cubeColor" value="#808080">
       <button onclick="updateCubeColor()">Actualizar Paredes</button>
     </details>
-    <button onclick="bgOverride = cubeOverride = null; refreshAll({keepManual:true});">
+    <button onclick="bgOverride = cubeOverride = null; refreshAll();">
       Resetear Fondo + Paredes
     </button>
     <details>
@@ -791,11 +791,11 @@ function makePalette () {
        wall / bg     → { hOff, s, v } para pared y fondo                  */
   const P = {
     /* 1 · Contención estructural – casi monocroma */
-    1 : { hueFn : ()       => baseHue,
-          satFn : ()       => .72,
-          valFn : i        => .55 +  .07*i,
-          wall  : {hOff:  0, s:.35, v:.60},
-          bg    : {hOff:  0, s:.18, v:.92} },
+    1 : { hueFn: () => baseHue,
+          satFn: () => .78,
+          valFn: i => .50 + .08*i,
+          wall : {hOff:0, s:.42, v:.55},
+          bg   : {hOff:0, s:.22, v:.94} },
 
     /* 2 · Contraste & Disonancia – split-complementario */
     2 : { hueFn : (_,i)    => (baseHue + (i%2 ? 150 :   0)) % 360,
@@ -937,19 +937,15 @@ function makePalette () {
       });
     }
 
-    function refreshAll(opts={rebuild:false}){
-      if(!opts.keepManual){              // por defecto se limpia
-        manualOverride = {};
-      }
+    function refreshAll(opts={}){
+      if(opts.resetManual) manualOverride = {};
       if(opts.rebuild) updateScene(false);
-      makePalette();
-      applyPalette();
-      updateBackground(false);
-      updateCubeColor(false);
+      makePalette(); applyPalette();
+      updateBackground(false); updateCubeColor(false);
     }
-    function onColourPick(idx,hex){
-      manualOverride[idx]=hex;
-      refreshAll({keepManual:true});
+    function onColourPick(i,hex){
+      manualOverride[i]=hex;
+      refreshAll();
     }
     function updateBackground(manual = true){
       if(manual){
@@ -998,22 +994,30 @@ function makePalette () {
     }
 
     function generateRandomConfiguration(){
+      /* patrón cromático aleatorio */
+      const ids=Object.keys(P).map(Number).filter(id=>id!==0);
+      activePatternId=ids[Math.floor(Math.random()*ids.length)];
+      document.getElementById('patternSelect').value=activePatternId;
+      setActivePattern(activePatternId);
+
+      /* permutaciones al azar */
       const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
       const n=Math.floor(Math.random()*10)+1;
       for(let i=0;i<n;i++){
-        const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
-        sel.querySelector(`option[value="${val}"]`).selected=true;
+        const v=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        sel.querySelector(`option[value="${v}"]`).selected=true;
       }
+
+      /* colores al azar */
       const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
             wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      document.getElementById('bgColor').value=bg; updateBackground();
+      document.getElementById('bgColor').value=bg;   updateBackground();
       document.getElementById('cubeColor').value=wall; updateCubeColor();
+
       let pool=shuffle(CUSTOM_COLORS.slice());
-      for(let i=1;i<=5;i++){
-        const hex=pool.shift();
-        manualOverride[i]=hex;
-      }
+      for(let i=1;i<=5;i++) manualOverride[i]=pool.shift();
+
       refreshAll({rebuild:true});
     }
 /**
@@ -1187,7 +1191,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
               manualOverride[i]=c;
             }
           });
-          refreshAll({rebuild:true, keepManual:true});
+          refreshAll({rebuild:true});
         }
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
@@ -1213,7 +1217,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           const opts=Array.from(document.getElementById('permutationList').options);
           opts.forEach(o=>o.selected=false);
           shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
-          refreshAll({rebuild:true, keepManual:true});
+          refreshAll({rebuild:true});
         }
         showPopup("Evolución AI aplicada.",2000);
       } catch(err){
