@@ -106,6 +106,23 @@
       <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label>
       <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label>
     </details>
+    <details open>
+      <summary>Patrón cromático</summary>
+      <select id="patternSelect" onchange="setActivePattern(this.value)">
+        <option value="1">1 · Contención estructural</option>
+        <option value="2">2 · Contraste &amp; Disonancia</option>
+        <option value="3">3 · Disposición no semántica</option>
+        <option value="4">4 · Ambigüedad estructurada</option>
+        <option value="5">5 · Campo sin Centro</option>
+        <option value="6">6 · Presencia autosuficiente</option>
+        <option value="7">7 · Asimetría asociativa</option>
+        <option value="8">8 · Dinámica irregular</option>
+        <option value="9">9 · Habitable sin traducción</option>
+        <option value="10">10 · Resonancia</option>
+        <option value="11">11 · Transparencia activa</option>
+        <option value="0">♻︎ Harmonías clásicas (legacy 7)</option>
+      </select>
+    </details>
     <div id="manualControls">
       <details>
         <summary>Seleccionar Permutaciones</summary>
@@ -303,7 +320,76 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let bgOverride   = null;
     let cubeOverride = null;
     let  currentHarmony = 'triad';
+    let activePatternId = 1;           // arranca en Contención
     const ΔE_MIN = 20;
+    const GOLD = 137.50776405003785;      // ángulo áureo
+
+    /* === 11 PATRONES CROMÁTICOS ======================================= */
+    const PATTERNS = {
+      1:{ name:"Contención estructural",
+          hueFn:(sig,seed)=>(sig[0]*19+seed*7)%360,
+          satFn:k=>k===5?0:0.70,
+          valFn:k=>k===5?0.96:0.60,
+          permMapFn:pa=>pa[attributeMapping.color] },
+
+      2:{ name:"Contraste & Disonancia",
+          hueFn:(sig,seed)=>(sig[0]*57+seed*83)%360,
+          satFn:k=>k%2?0.95:0.85,
+          valFn:k=>k%2?0.55:0.85,
+          permMapFn:pa=>((pa[attributeMapping.color]^seed)%5)+1 },
+
+      3:{ name:"Disposición no semántica",
+          hueFn:(sig,seed)=>(seed*GOLD+sig[2]*29)%360,
+          satFn:()=>0.72, valFn:()=>0.78,
+          permMapFn:pa=>(lehmerRank(pa)%5)+1 },
+
+      4:{ name:"Ambigüedad estructurada",
+          hueFn:(sig,seed)=>((sig[1]*37)%360+((seed%3)-1)*18+360)%360,
+          satFn:()=>0.68,
+          valFn:k=>k===5?0.92:0.70,
+          permMapFn:pa=>pa[attributeMapping.color] },
+
+      5:{ name:"Campo sin Centro",
+          hueFn:(sig,seed,idx)=>((idx*72+seed*13)%360+sig[3]*17)%360,
+          satFn:()=>0.75,valFn:()=>0.80,
+          permMapFn:pa=>((pa[attributeMapping.x]+pa[attributeMapping.y])%5)+1 },
+
+      6:{ name:"Presencia autosuficiente",
+          hueFn:(sig)=> (sig.reduce((a,b)=>a+b,0)*23)%360,
+          satFn:()=>1,valFn:k=>k===5?0.94:0.70,
+          permMapFn:pa=>pa[attributeMapping.color] },
+
+      7:{ name:"Asimetría asociativa",
+          hueFn:(sig,seed,idx)=>(seed*11+idx*90)%360,
+          satFn:k=>k===5?0:0.55+0.35*(k%2),
+          valFn:k=>k===5?0.97:0.50+0.30*((k+1)%2),
+          permMapFn:pa=>((pa[attributeMapping.color]+2)%5)+1 },
+
+      8:{ name:"Dinámica irregular",
+          hueFn:(sig)=>computeRange(sig)*42%360,
+          satFn:()=>0.80,
+          valFn:k=>[0.78,0.60,0.90,0.55,0.84,0.95,0.85][k],
+          permMapFn:pa=>pa[attributeMapping.color] },
+
+      9:{ name:"Habitable sin traducción",
+          hueFn:(sig,seed)=>(sig[4]*31+seed*17)%360,
+          satFn:k=>k===5?0:0.35,
+          valFn:k=>k===5?0.98:0.80,
+          permMapFn:pa=>pa[attributeMapping.color] },
+
+      10:{ name:"Resonancia",
+           hueFn:(sig,seed)=>{
+             const base=(sig[0]*19+sig[1]*7+seed*11)%360;
+             return (base+((sig[2]%5)-2)*30+360)%360;},
+           satFn:()=>0.65,
+           valFn:k=>k===5?0.94:0.70,
+           permMapFn:pa=>pa[attributeMapping.color] },
+
+      11:{ name:"Transparencia activa",
+           hueFn:(sig,seed)=>(seed*42)%360,
+           satFn:()=>0.55,valFn:()=>0.85,
+           permMapFn:pa=>pa[attributeMapping.color] }
+    };
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
 const ANG7 = [
@@ -442,6 +528,11 @@ function rgbToLab(r,g,b){                      // aproximación rápida
         (z-2)*step
       ];
     }
+
+    function setActivePattern(id){
+      activePatternId = parseInt(id,10);
+      refreshAll({rebuild:false});
+    }
     function updateTopRightDisplay(){
       const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
       const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
@@ -458,9 +549,25 @@ function rgbToLab(r,g,b){                      // aproximación rápida
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
+      /* --- CÁLCULO de color ----------------------------------------- */
+      let rgb;
+      if(activePatternId===0){
+        rgb = paletteRGB[cv-1] || [255,255,255];
+      }else{
+        const pat = PATTERNS[activePatternId];
+        const sig = computeSignature(pa);
+        const idx = pat.permMapFn ? pat.permMapFn(pa) : cv; // 1-5
+        const H   = pat.hueFn ? pat.hueFn(sig,sceneSeed,idx-1) : 0;
+        const S   = pat.satFn ? pat.satFn(idx-1) : 0.7;
+        const V   = pat.valFn ? pat.valFn(idx-1) : 0.8;
+        rgb       = hsvToRgb(H,S,V);
+      }
+      /* --------------------------------------------------------------- */
+      const mat=new THREE.MeshPhongMaterial({
+        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
+        shininess:50
+      });
       const geo=new THREE.BoxGeometry(w,h,t);
-      const rgb = paletteRGB[cv-1] || [255,255,255];
-      const mat=new THREE.MeshPhongMaterial({ color:new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255), shininess:50});
       const mesh=new THREE.Mesh(geo,mat);
       const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
@@ -586,7 +693,7 @@ function rgbToLab(r,g,b){                      // aproximación rápida
      * 2. Selección de armonía idx = (R+2G+3B) mod 7                     */
 function thirtyFive(){return 35;}
 
-function makePalette(){
+function makeClassicPalette(){
       /* --- 1. Semilla RGBglobal --- */
       let Rg=0,Gg=0,Bg=0;
       permutationGroup.children.forEach(mesh=>{
@@ -634,9 +741,24 @@ function makePalette(){
           }
           rgb = hsvToRgb(...HSV[i]); tries++;
         }
-        paletteRGB.push(rgb);
+      paletteRGB.push(rgb);
       }
     }
+
+function makePalette(){
+    if(activePatternId === 0){
+      makeClassicPalette();
+      return;
+    }
+    const pat = PATTERNS[activePatternId];
+    paletteRGB = [];
+    for(let k=0;k<7;k++){
+      const H = pat.hueFn ? pat.hueFn([0,0,0,0,0], sceneSeed, k) : 0;
+      const S = pat.satFn ? pat.satFn(k) : 0.7;
+      const V = pat.valFn ? pat.valFn(k) : 0.8;
+      paletteRGB.push( hsvToRgb(H,S,V) );
+    }
+}
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
     }
@@ -654,9 +776,22 @@ function makePalette(){
       permutationGroup.children.forEach(o=>{
         const pa   = o.userData.permStr.split(',').map(Number);
         const idx  = pa[attributeMapping.color];          // 1-5
-        const hex  = manualOverride[idx] ||
-                     '#'+new THREE.Color(
-                         ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
+        let hex;
+        if(manualOverride[idx]){
+          hex = manualOverride[idx];
+        }else if(activePatternId===0){
+          hex = '#'+new THREE.Color(
+                    ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
+        }else{
+          const pat = PATTERNS[activePatternId];
+          const sig = computeSignature(pa);
+          const cidx = pat.permMapFn ? pat.permMapFn(pa) : idx;
+          const H = pat.hueFn ? pat.hueFn(sig,sceneSeed,cidx-1) : 0;
+          const S = pat.satFn ? pat.satFn(cidx-1) : 0.7;
+          const V = pat.valFn ? pat.valFn(cidx-1) : 0.8;
+          const rgb = hsvToRgb(H,S,V);
+          hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
+        }
         o.material.color.setStyle(hex);
       });
     }
