@@ -122,6 +122,9 @@
         <option value="11">11 · Transparencia activa</option>
         <option value="0">♻︎ Harmonías clásicas (legacy 7)</option>
       </select>
+      <label id="patternHint" style="display:block;margin:6px 0 0;font-size:11px;opacity:.65;">
+        Contención estructural → paleta casi monocroma; cada glifo sólo varía en luminosidad.
+      </label>
     </details>
     <div id="manualControls">
       <details>
@@ -322,7 +325,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
     const ΔE_MIN = 20;
-    const GOLD = 137.50776405003785;      // ángulo áureo
 
     /* === 11 PATRONES CROMÁTICOS ======================================= */
     const PATTERNS = {
@@ -444,6 +446,14 @@ function rgbToLab(r,g,b){                      // aproximación rápida
   return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
+/* ---------- HELPERS DE DISPERSIÓN ---------- */
+const GOLD = 0.618033988749895;                 // φ − 1  → buen pseudo-aleatorio
+
+// Devuelve un nuevo matiz «lejos» del base, pero determinista para la escena
+function spreadHue(baseHue, k){                 // k = entero cualquiera
+  return ( baseHue + 360 * ((GOLD * k) % 1) ) % 360;
+}
+/* ---------- FIN HELPERS ---------- */
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -746,18 +756,62 @@ function makeClassicPalette(){
     }
 
 function makePalette(){
-    if(activePatternId === 0){
-      makeClassicPalette();
-      return;
+
+  /* 1. Semilla RGB global (idéntico a tu lógica original) */
+  let Rg = 0, Gg = 0, Bg = 0, sigSum = 0;
+  permutationGroup.children.forEach(mesh => {
+    const pa  = mesh.userData.permStr.split(',').map(Number);
+    const sig = mesh.userData.signature;           // [f1…f5]
+    const {x,y,z} = mesh.position;
+    const P1 = pa[0], P2 = pa[1], P3 = pa[2];
+
+    Rg += (P1*Math.abs(x) + sig[0])|0;
+    Gg += (P2*Math.abs(y) + sig[1])|0;
+    Bg += (P3*Math.abs(z) + sig[2])|0;
+
+    sigSum += sig[0] + sig[1] + sig[2] + sig[3] + sig[4];
+  });
+  Rg %= 256; Gg %= 256; Bg %= 256;
+
+  /* 2. HSV base y Δ de armonía (igual que antes) */
+  const [H0] = rgbToHsv(Rg, Gg, Bg);              // matiz “raíz” de la escena
+  const idx  = (Rg + 2*Gg + 3*Bg) % 7;            // decide patrón ANG7
+  const Δ    = ANG7[idx];
+
+  /* 3. Construir los 7 slots HSV (0-4 glifos • 5 fondo • 6 paredes) -------- */
+  const HSV = [];
+
+  // 3a · Glifos (slots 0-4) → paleta casi monocroma, ±15°
+  for (let k = 0; k < 5; k++){
+    const hue = ( H0 + ( (sigSum + k) % 5 - 2 ) * 15 + 360 ) % 360;  // ±30° máx.
+    const sat = 0.68;
+    const val = 0.65 + 0.05*(k % 3);                                // 0.65-0.75
+    HSV.push([hue, sat, val]);
+  }
+
+  // 3b · Fondo (slot 5) — mismo matiz *desaturado y alto valor*
+  const hueBg = spreadHue(H0, sceneSeed + sigSum);
+  HSV.push([hueBg, 0.22, 0.92]);                                    // pastel
+
+  // 3c · Paredes (slot 6) — mismo H, +S, –V
+  HSV.push([hueBg, 0.35, 0.60]);
+
+  /* 4. HSV → RGB, validando contraste mínimo ∆E --------------------------- */
+  paletteRGB = [];
+  for (let i = 0; i < 7; i++){
+    let rgb   = hsvToRgb(...HSV[i]);
+    let tries = 0;
+    while (
+      i > 0 &&
+      deltaE(rgbToLab(...rgb), rgbToLab(...paletteRGB[0])) < 35 &&
+      tries < 25
+    ){
+      HSV[i][0] = (HSV[i][0] + 18) % 360;         // rota 18° si es muy parecido
+      rgb = hsvToRgb(...HSV[i]);
+      tries++;
     }
-    const pat = PATTERNS[activePatternId];
-    paletteRGB = [];
-    for(let k=0;k<7;k++){
-      const H = pat.hueFn ? pat.hueFn([0,0,0,0,0], sceneSeed, k) : 0;
-      const S = pat.satFn ? pat.satFn(k) : 0.7;
-      const V = pat.valFn ? pat.valFn(k) : 0.8;
-      paletteRGB.push( hsvToRgb(H,S,V) );
-    }
+    paletteRGB.push(rgb);
+  }
 }
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
