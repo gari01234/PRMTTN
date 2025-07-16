@@ -500,6 +500,42 @@ function rgbToLab(r,g,b){                      // aproximación rápida
   return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
+/* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
+// 1)  f̂  de un glifo  →  promedio firma, llevada a [0-1]
+function normFhat(sig){           // sig = [f1…f5] entre 2 y 10
+  const avg = sig.reduce((a,b)=>a+b,0)/sig.length;   // 2 … 10
+  return (avg-2)/8;                                  // 0 … 1
+}
+
+// 2)  pinza a [0,1]
+function clamp01(x){ return Math.max(0, Math.min(1,x)); }
+
+// 3)  post-filtro de contraste — opcional/patrón
+function ensureContrast(){
+  if(activePatternId===0) return;                // legacy → sin tocar
+
+  const THRESHOLD = ([1,9,11].includes(activePatternId)?12:20);   // ∆E min
+  const MAX_STEPS = 12;
+
+  // helper para medir ∆E más bajo entre fondo y todos los glifos
+  const deltaBgVsGlifos = ()=>{
+    const bgLab = rgbToLab(...hsvToRgb(bgHSV.h,bgHSV.s,bgHSV.v));
+    let min∆ = 1e9;
+    permutationGroup.children.forEach(o=>{
+      const c = o.material.color;           // THREE.Color
+      const rgb=[Math.round(c.r*255),Math.round(c.g*255),Math.round(c.b*255)];
+      min∆ = Math.min(min∆, deltaE(bgLab, rgbToLab(...rgb)));
+    });
+    return min∆;
+  };
+
+  let steps=0, d=deltaBgVsGlifos();
+  while(d < THRESHOLD && steps<MAX_STEPS){
+    bgHSV.v = clamp01(bgHSV.v + 0.03);      // aclara ligeramente
+    d = deltaBgVsGlifos();
+    steps++;
+  }
+}
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -614,8 +650,13 @@ function rgbToLab(r,g,b){                      // aproximación rápida
         const sig = computeSignature(pa);
         const idx = cv; // 1-5
         const H   = pat.glyph.hue(sig,sceneSeed,idx-1);
-        const S   = pat.glyph.sat(idx-1);
-        const V   = pat.glyph.val(idx-1);
+        /* --- nuevo cálculo S,V — rompe la pastelitis ---------------- */
+        const fhat  = normFhat(sig);                    // 0-1
+        const baseS = pat.glyph.sat ? pat.glyph.sat(idx-1) : 0.70;
+        const baseV = pat.glyph.val ? pat.glyph.val(idx-1) : 0.80;
+        // fórmula propuesta: S = 0.60 + 0.12·f̂  /  V = baseV + 0.10·f̂
+        const S = clamp01( 0.60 + 0.12 * fhat );
+        const V = clamp01( baseV + 0.10 * fhat );
         rgb       = hsvToRgb(H,S,V);
       }
       /* --------------------------------------------------------------- */
@@ -848,8 +889,12 @@ function makePalette(){
           const pat = PATTERNS[activePatternId];
           const sig = computeSignature(pa);
           const H = pat.glyph.hue(sig,sceneSeed,idx-1);
-          const S = pat.glyph.sat(idx-1);
-          const V = pat.glyph.val(idx-1);
+          /* --- nuevo cálculo S,V — rompe la pastelitis ---------------- */
+          const fhat  = normFhat(sig);                    // 0-1
+          const baseS = pat.glyph.sat ? pat.glyph.sat(idx-1) : 0.70;
+          const baseV = pat.glyph.val ? pat.glyph.val(idx-1) : 0.80;
+          const S = clamp01( 0.60 + 0.12 * fhat );
+          const V = clamp01( baseV + 0.10 * fhat );
           const rgb = hsvToRgb(H,S,V);
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
@@ -864,6 +909,7 @@ function makePalette(){
       if(opts.rebuild) updateScene(false);
       makePalette();
       applyPalette();
+      ensureContrast();          // << NUEVO
       updateBackground(false);
       updateCubeColor(false);
     }
