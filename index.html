@@ -44,9 +44,12 @@
     #controls {
       position: absolute; top: 10px; left: 10px; z-index: 100;
       padding: 10px; border-radius: 5px;
-      background: rgba(255,255,255,0.9); max-width: 350px;
+      background: rgba(255,255,255,0.12); max-width: 350px;
     }
-    details { margin-bottom: 10px; }
+    details {
+      margin-bottom: 10px;
+      background: rgba(255,255,255,0.06);
+    }
     details summary { font-weight: 200; cursor: pointer; }
     details summary:hover { color: #333; }
     select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
@@ -165,9 +168,7 @@
       <input type="color" id="cubeColor" value="#808080">
       <button onclick="updateCubeColor()">Actualizar Paredes</button>
     </details>
-    <button onclick="bgOverride = cubeOverride = null; refreshAll({keepManual:true});">
-      Resetear Fondo + Paredes
-    </button>
+    <button id="btnResetAll" onclick="resetAllColours()">Resetear Fondo + Paredes + Colores</button>
     <details>
       <summary>Reorganización de Atributos</summary>
       <select id="attrMapping"></select>
@@ -908,6 +909,24 @@ function makePalette(){
         }
         o.material.color.setStyle(hex);
       });
+      updateColorPickersFromScene();
+    }
+
+    /* ——— Sincroniza los <input type="color"> con los colores reales ——— */
+    function updateColorPickersFromScene(){
+      // memoriza el primer glifo encontrado para cada índice P2 (1-5)
+      const seen = {};
+      permutationGroup.children.forEach(o=>{
+        const pa  = o.userData.permStr.split(',').map(Number);
+        const idx = pa[attributeMapping.color];           // 1-5
+        if(!seen[idx]){
+          const c = o.material.color;                     // THREE.Color
+          const hex = '#'+c.getHexString();
+          const inp = document.getElementById('color'+idx);
+          if(inp) inp.value = hex;
+          seen[idx]=true;
+        }
+      });
     }
 
     function refreshAll(opts={rebuild:false}){
@@ -924,6 +943,13 @@ function makePalette(){
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
       refreshAll({keepManual:true});
+    }
+
+    function resetAllColours(){
+      manualOverride = {};
+      bgOverride     = null;
+      cubeOverride   = null;
+      refreshAll({keepManual:false});
     }
     function updateBackground(manual=true){
       if (manual){
