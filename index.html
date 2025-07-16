@@ -31,10 +31,20 @@
       position: fixed; top: 5px; right: 10px; z-index: 280;
       color: #000; font-size: 12px; line-height: 1.2;
     }
-    button {
-      cursor: none; border: none; border-radius: 4px;
-      padding: 8px 12px; font-size: 12px; z-index: 250;
-      background: rgba(255,255,255,0.8);
+    button{
+      cursor:none;
+      border:none;
+      border-radius:4px;
+      padding:8px 12px;
+      font-size:12px;
+      z-index:250;
+      background:rgba(255,255,255,0.12);   /* antes 0.8 → ahora igual que los paneles */
+      transition:background 0.2s;
+    }
+
+    /* un pequeño realce al pasar el cursor (opcional) */
+    button:hover{
+      background:rgba(255,255,255,0.20);
     }
     #toggleTextButton { bottom: 10px; right: 10px; position: fixed; }
     #randomConfigButton { bottom: 40px; right: 10px; position: fixed; }
@@ -152,11 +162,17 @@
     </div>
     <details>
       <summary>Seleccionar Colores Permutaciones</summary>
+
       <div><label>1: <input type="color" id="color1" onchange="onColourPick(1,this.value)"></label></div>
       <div><label>2: <input type="color" id="color2" onchange="onColourPick(2,this.value)"></label></div>
       <div><label>3: <input type="color" id="color3" onchange="onColourPick(3,this.value)"></label></div>
       <div><label>4: <input type="color" id="color4" onchange="onColourPick(4,this.value)"></label></div>
       <div><label>5: <input type="color" id="color5" onchange="onColourPick(5,this.value)"></label></div>
+
+      <!-- nuevo: botón interno -->
+      <button id="btnResetAll" style="margin-top:6px;" onclick="resetAllColours()">
+        Resetear Fondo + Paredes + Colores
+      </button>
     </details>
     <details>
       <summary>Seleccionar Fondo del Universo</summary>
@@ -168,7 +184,7 @@
       <input type="color" id="cubeColor" value="#808080">
       <button onclick="updateCubeColor()">Actualizar Paredes</button>
     </details>
-    <button id="btnResetAll" onclick="resetAllColours()">Resetear Fondo + Paredes + Colores</button>
+    <!-- <button id="btnResetAll" onclick="resetAllColours()">Resetear Fondo + Paredes + Colores</button> -->
     <details>
       <summary>Reorganización de Atributos</summary>
       <select id="attrMapping"></select>
@@ -949,7 +965,7 @@ function makePalette(){
       manualOverride = {};
       bgOverride     = null;
       cubeOverride   = null;
-      refreshAll({keepManual:false});
+      refreshAll({keepManual:false});   // reconstruye escena y pickers
     }
     function updateBackground(manual=true){
       if (manual){
