@@ -520,13 +520,13 @@ function ensureContrast(){
   // helper para medir ∆E más bajo entre fondo y todos los glifos
   const deltaBgVsGlifos = ()=>{
     const bgLab = rgbToLab(...hsvToRgb(bgHSV.h,bgHSV.s,bgHSV.v));
-    let min∆ = 1e9;
+    let minDelta = 1e9;
     permutationGroup.children.forEach(o=>{
       const c = o.material.color;           // THREE.Color
       const rgb=[Math.round(c.r*255),Math.round(c.g*255),Math.round(c.b*255)];
-      min∆ = Math.min(min∆, deltaE(bgLab, rgbToLab(...rgb)));
+      minDelta = Math.min(minDelta, deltaE(bgLab, rgbToLab(...rgb)));
     });
-    return min∆;
+    return minDelta;
   };
 
   let steps=0, d=deltaBgVsGlifos();
