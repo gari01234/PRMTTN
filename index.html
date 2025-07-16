@@ -122,9 +122,6 @@
         <option value="11">11 · Transparencia activa</option>
         <option value="0">♻︎ Harmonías clásicas (legacy 7)</option>
       </select>
-      <label id="patternHint" style="display:block;margin:6px 0 0;font-size:11px;opacity:.65;">
-        Contención estructural → paleta casi monocroma; cada glifo sólo varía en luminosidad.
-      </label>
     </details>
     <div id="manualControls">
       <details>
@@ -160,7 +157,7 @@
       <input type="color" id="cubeColor" value="#808080">
       <button onclick="updateCubeColor()">Actualizar Paredes</button>
     </details>
-    <button onclick="bgOverride = cubeOverride = null; refreshAll();">
+    <button onclick="bgOverride = cubeOverride = null; refreshAll({keepManual:true});">
       Resetear Fondo + Paredes
     </button>
     <details>
@@ -325,6 +322,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
     const ΔE_MIN = 20;
+    const GOLD = 137.50776405003785;      // ángulo áureo
 
     /* === 11 PATRONES CROMÁTICOS ======================================= */
     const PATTERNS = {
@@ -338,7 +336,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
           hueFn:(sig,seed)=>(sig[0]*57+seed*83)%360,
           satFn:k=>k%2?0.95:0.85,
           valFn:k=>k%2?0.55:0.85,
-          permMapFn:pa=>((pa[attributeMapping.color] + sceneSeed)%5)+1 },
+          permMapFn:pa=>((pa[attributeMapping.color]^seed)%5)+1 },
 
       3:{ name:"Disposición no semántica",
           hueFn:(sig,seed)=>(seed*GOLD+sig[2]*29)%360,
@@ -392,21 +390,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
            satFn:()=>0.55,valFn:()=>0.85,
            permMapFn:pa=>pa[attributeMapping.color] }
     };
-/* ——— descripciones breves para el <select> ——— */
-const PATTERN_HINTS = {
-  1 : "paleta casi monocroma; cada glifo sólo varía en luminosidad.",
-  2 : "split-complementario; contraste alto entre pares.",
-  3 : "análoga suave ±30° alrededor del matiz base.",
-  4 : "zig-zag ±60° entre glifos contiguos.",
-  5 : "tríada rotada — campo sin centro.",
-  6 : "complementaria pura muy saturada.",
-  7 : "abanico asimétrico irregular.",
-  8 : "dispersión amplia controlada.",
-  9 : "tonos suaves del mismo matiz.",
-  10: "pentatónica cromática (Δ72°).",
-  11: "transparencia: matiz fijo, V escalonada."
-};
-
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
 const ANG7 = [
@@ -461,14 +444,6 @@ function rgbToLab(r,g,b){                      // aproximación rápida
   return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
-/* ---------- HELPERS DE DISPERSIÓN ---------- */
-const GOLD = 0.618033988749895;                 // φ − 1  → buen pseudo-aleatorio
-
-// Devuelve un nuevo matiz «lejos» del base, pero determinista para la escena
-function spreadHue(baseHue, k){                 // k = entero cualquiera
-  return ( baseHue + 360 * ((GOLD * k) % 1) ) % 360;
-}
-/* ---------- FIN HELPERS ---------- */
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -556,11 +531,7 @@ function spreadHue(baseHue, k){                 // k = entero cualquiera
 
     function setActivePattern(id){
       activePatternId = parseInt(id,10);
-      /* actualiza texto-guía */
-      const hint = PATTERN_HINTS[activePatternId] || "armonías clásicas (legacy)";
-      document.getElementById("patternHint").textContent =
-          `${PATTERNS[activePatternId]?.name || "Legacy"} → ${hint}`;
-      refreshAll({rebuild:false});           // recalcula paleta + fondo
+      refreshAll({rebuild:false});
     }
     function updateTopRightDisplay(){
       const cfg=`Atributos: [${attributeMapping.forma},${attributeMapping.color},${attributeMapping.x},${attributeMapping.y},${attributeMapping.z}]`;
@@ -774,131 +745,19 @@ function makeClassicPalette(){
       }
     }
 
-/* ------------------------------------------------------------------ *
- *  makePalette()  v2.3 – patrones + fondo / paredes por-patrón
- *  – genera 7 colores → RGB  (1-5 glifos, 6 paredes, 7 fondo)
- *  – usa sceneSeed (global) y activePatternId (1-11)
- * ------------------------------------------------------------------ */
-function makePalette () {
-
-  /* 0 · Hue base determinista para la escena — suficiente: */
-  const baseHue = sceneSeed % 360;                 // 0-359
-
-  /* 1 · Definiciones por patrón
-       hueFn(sig,i)  → H° para el glifo i (i = 0-4)
-       satFn(i)      → S   »          »
-       valFn(i)      → V   »          »
-       wall / bg     → { hOff, s, v } para pared y fondo                  */
-  const P = {
-    /* 1 · Contención estructural – casi monocroma */
-    1 : { hueFn: () => baseHue,
-          satFn: () => .78,
-          valFn: i => .50 + .08*i,
-          wall : {hOff:0, s:.42, v:.55},
-          bg   : {hOff:0, s:.22, v:.94} },
-
-    /* 2 · Contraste & Disonancia – split-complementario */
-    2 : { hueFn : (_,i)    => (baseHue + (i%2 ? 150 :   0)) % 360,
-          satFn : ()       => .90,
-          valFn : i        => .55 +  .05*i,
-          wall  : {hOff:  0, s:.50, v:.55},
-          bg    : {hOff:180, s:.22, v:.90} },
-
-    /* 3 · Disposición no semántica – análoga ±30° */
-    3 : { hueFn : (_,i)    => (baseHue + (i-2)*15 + 360) % 360,
-          satFn : ()       => .65,
-          valFn : i        => .60 +  .05*i,
-          wall  : {hOff:  0, s:.32, v:.60},
-          bg    : {hOff:  0, s:.15, v:.92} },
-
-    /* 4 · Ambigüedad estructurada – zig-zag ±60° */
-    4 : { hueFn : (_,i)    => (baseHue + [0, 60,-60, 30,-30][i] + 360)%360,
-          satFn : ()       => .70,
-          valFn : i        => .60 +  .05*i,
-          wall  : {hOff:  0, s:.40, v:.62},
-          bg    : {hOff: 60, s:.20, v:.90} },
-
-    /* 5 · Campo sin Centro – tríada rotada             */
-    5 : { hueFn : (_,i)    => (baseHue + i*120) % 360,
-          satFn : ()       => .75,
-          valFn : ()       => .70,
-          wall  : {hOff:120, s:.40, v:.62},
-          bg    : {hOff:240, s:.22, v:.88} },
-
-    /* 6 · Presencia autosuficiente – complementaria pura */
-    6 : { hueFn : (_,i)    => (baseHue + (i%2)*180) % 360,
-          satFn : ()       => 1,
-          valFn : i        => .55 +  .05*i,
-          wall  : {hOff:  0, s:.60, v:.55},
-          bg    : {hOff:180, s:.18, v:.94} },
-
-    /* 7 · Asimetría asociativa – abanico ±90° no uniforme */
-    7 : { hueFn : (_,i)    => (baseHue + [0,45,-30,90,-60][i] + 360)%360,
-          satFn : ()       => .75,
-          valFn : ()       => .68,
-          wall  : {hOff:  0, s:.45, v:.60},
-          bg    : {hOff:-90, s:.25, v:.90} },
-
-    /* 8 · Dinámica irregular – dispersión amplia controlada */
-    8 : { hueFn : (sig,i)  => (baseHue + ((sig[i]%13)-6)*30 + 360)%360,
-          satFn : ()       => .78,
-          valFn : ()       => .65,
-          wall  : {hOff:  0, s:.50, v:.58},
-          bg    : {hOff:180, s:.15, v:.92} },
-
-    /* 9 · Habitable sin traducción – tonos del mismo matiz */
-    9 : { hueFn : ()       => baseHue,
-          satFn : i        => .30 +  .10*i,
-          valFn : ()       => .75,
-          wall  : {hOff:  0, s:.25, v:.65},
-          bg    : {hOff:  0, s:.10, v:.95} },
-
-    /* 10 · Resonancia – pentatónica (∆H = 72°) */
-    10: { hueFn : (_,i)    => (baseHue + i*72) % 360,
-          satFn : ()       => .70,
-          valFn : ()       => .75,
-          wall  : {hOff:  0, s:.45, v:.62},
-          bg    : {hOff:144, s:.22, v:.92} },
-
-    /* 11 · Transparencia activa – V muy escalonado */
-    11: { hueFn : ()       => baseHue,
-          satFn : ()       => .60,
-          valFn : i        => .50 +  .08*i,
-          wall  : {hOff:  0, s:.35, v:.55},
-          bg    : {hOff:  0, s:.14, v:.95} }
-  };
-
-  const def = P[activePatternId];
-  const sigG = permutationGroup.children.length
-               ? permutationGroup.children[0].userData.signature
-               : [0,0,0,0,0];
-
-  /* 2 · Paleta de glifos (1-5) */
-  paletteRGB = [];
-  for (let i = 0; i < 5; i++) {
-    const h = (def.hueFn(sigG,i)+360)%360,
-          s = def.satFn(i),
-          v = def.valFn(i);
-    paletteRGB.push( hsvToRgb(h,s,v) );
-  }
-
-  /* 3 · Paredes (6) y fondo (7) – derivadas del patrón */
-  const wallHSV = {
-          h:(baseHue + def.wall.hOff + 360)%360,
-          s:def.wall.s,
-          v:def.wall.v };
-  const bgHSV   = {
-          h:(baseHue + def.bg.hOff   + 360)%360,
-          s:def.bg.s,
-          v:def.bg.v };
-
-  // --- al final de makePalette(), justo después de calcular bgHSV y wallHSV ---
-  paletteRGB.push(
-    // índice 5  →  FONDO
-    hsvToRgb(bgHSV.h,   bgHSV.s,   bgHSV.v),
-    // índice 6  →  PAREDES
-    hsvToRgb(wallHSV.h, wallHSV.s, wallHSV.v)
-  );
+function makePalette(){
+    if(activePatternId === 0){
+      makeClassicPalette();
+      return;
+    }
+    const pat = PATTERNS[activePatternId];
+    paletteRGB = [];
+    for(let k=0;k<7;k++){
+      const H = pat.hueFn ? pat.hueFn([0,0,0,0,0], sceneSeed, k) : 0;
+      const S = pat.satFn ? pat.satFn(k) : 0.7;
+      const V = pat.valFn ? pat.valFn(k) : 0.8;
+      paletteRGB.push( hsvToRgb(H,S,V) );
+    }
 }
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
@@ -937,15 +796,19 @@ function makePalette () {
       });
     }
 
-    function refreshAll(opts={}){
-      if(opts.resetManual) manualOverride = {};
+    function refreshAll(opts={rebuild:false}){
+      if(!opts.keepManual){              // por defecto se limpia
+        manualOverride = {};
+      }
       if(opts.rebuild) updateScene(false);
-      makePalette(); applyPalette();
-      updateBackground(false); updateCubeColor(false);
+      makePalette();
+      applyPalette();
+      updateBackground(false);
+      updateCubeColor(false);
     }
-    function onColourPick(i,hex){
-      manualOverride[i]=hex;
-      refreshAll();
+    function onColourPick(idx,hex){
+      manualOverride[idx]=hex;
+      refreshAll({keepManual:true});
     }
     function updateBackground(manual = true){
       if(manual){
@@ -994,30 +857,22 @@ function makePalette () {
     }
 
     function generateRandomConfiguration(){
-      /* patrón cromático aleatorio */
-      const ids=Object.keys(P).map(Number).filter(id=>id!==0);
-      activePatternId=ids[Math.floor(Math.random()*ids.length)];
-      document.getElementById('patternSelect').value=activePatternId;
-      setActivePattern(activePatternId);
-
-      /* permutaciones al azar */
       const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
       const n=Math.floor(Math.random()*10)+1;
       for(let i=0;i<n;i++){
-        const v=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
-        sel.querySelector(`option[value="${v}"]`).selected=true;
+        const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        sel.querySelector(`option[value="${val}"]`).selected=true;
       }
-
-      /* colores al azar */
       const bg=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)],
             wall=CUSTOM_COLORS[Math.floor(Math.random()*CUSTOM_COLORS.length)];
-      document.getElementById('bgColor').value=bg;   updateBackground();
+      document.getElementById('bgColor').value=bg; updateBackground();
       document.getElementById('cubeColor').value=wall; updateCubeColor();
-
       let pool=shuffle(CUSTOM_COLORS.slice());
-      for(let i=1;i<=5;i++) manualOverride[i]=pool.shift();
-
+      for(let i=1;i<=5;i++){
+        const hex=pool.shift();
+        manualOverride[i]=hex;
+      }
       refreshAll({rebuild:true});
     }
 /**
@@ -1191,7 +1046,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
               manualOverride[i]=c;
             }
           });
-          refreshAll({rebuild:true});
+          refreshAll({rebuild:true, keepManual:true});
         }
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
@@ -1217,7 +1072,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           const opts=Array.from(document.getElementById('permutationList').options);
           opts.forEach(o=>o.selected=false);
           shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
-          refreshAll({rebuild:true});
+          refreshAll({rebuild:true, keepManual:true});
         }
         showPopup("Evolución AI aplicada.",2000);
       } catch(err){
