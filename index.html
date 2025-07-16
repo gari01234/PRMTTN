@@ -71,6 +71,14 @@
     cursor: pointer; /* mano al pasar */
     z-index: 999;    /* encima de todo */
   }
+/* ——— BLOQUES OCULTOS (se pueden volver a mostrar quitando esta regla) ——— */
+#modeBlock,
+#nftBlock,
+#secretBlock,
+#ratingContainer{
+  display:none;
+}
+
   </style>
 </head>
 <body>
@@ -101,7 +109,7 @@
   </div>
 
   <div id="controls">
-    <details open>
+    <details id="modeBlock" open>
       <summary>Modo de Operación</summary>
       <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label>
       <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label>
@@ -187,7 +195,7 @@
       <button onclick="togglePause()">Pausar Movimiento</button>
       <button onclick="resetMovement()">Resetear Movimiento</button>
     </details>
-<details>
+<details id="nftBlock">
   <summary>⋆ NFT</summary>
   <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
 </details>
@@ -251,7 +259,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 });
 </script>
     
-    <details open>
+    <details id="secretBlock" open>
   <summary>📁 Añadir Archivo Secreto</summary>
   <div id="dropzone" style="padding:10px;border:2px dashed #ccc;background:#f9f9f9;margin-top:10px;text-align:center;cursor:pointer;transition:border-color 0.2s;">
     <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
