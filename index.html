@@ -354,14 +354,27 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* === 11 PATRONES CROMÁTICOS – cada uno con glifos / fondo / paredes === */
     const PATTERNS = {
-      1: {                                           // Contención estructural
+      1: {                                           // Contención estructural 2.0
         glyph:{
-          hue:(sig,seed,i)=>(sig[0]*19+seed*7)%360,
-          sat:()=>0.70,
-          val:i=>0.50+0.08*i
+          /* familia tonal estrecha ±12 °            (6°·(i-2) ⇒ i = 0…4) */
+          hue:(sig,seed,i)=>(sig[0]*19 + seed*7 + 6*(i-2)) % 360,
+
+          /* saturación dinámica = 0.60 … 0.72  según f̂ del glifo */
+          sat:(sig,seed,i,fhat)=> 0.60 + 0.12 * fhat,
+
+          /* valor (luminosidad) escalonado 0.45 … 0.85 */
+          val:(sig,seed,i)=> 0.45 + 0.10 * i
         },
-        bg  :{hOff:  0, s:0.22, v:0.94},
-        wall:{hOff:  0, s:0.42, v:0.55}
+
+        /* fondo: misma Hue; saturación depende de f̂ global de la escena */
+        bg :{
+          hOff: 0,
+          s:(sceneFhat)=> 0.22 + 0.18 * sceneFhat,
+          v:0.94
+        },
+
+        /* paredes del cubo: como antes */
+        wall:{ hOff:0, s:0.42, v:0.55 }
       },
 
       2: {                                           // Contraste & Disonancia
@@ -535,6 +548,17 @@ function normFhat(sig){           // sig = [f1…f5] entre 2 y 10
 // 2)  pinza a [0,1]
 function clamp01(x){ return Math.max(0, Math.min(1,x)); }
 
+/* ———————————————————————————————————————————————— *
+ * Devuelve el valor de una propiedad que puede ser:
+ *   · número → se usa tal cual
+ *   · función → se evalúa con los argumentos dados
+ * fallback se usa si la propiedad es null/undefined.
+ * ———————————————————————————————————————————————— */
+function evalProp(prop, args = [], fallback = 0){
+  return (typeof prop === 'function') ? prop(...args) :
+         (prop ?? fallback);
+}
+
 // 3)  post-filtro de contraste — opcional/patrón
 function ensureContrast(){
   if(activePatternId===0) return;                // legacy → sin tocar
@@ -676,12 +700,10 @@ function ensureContrast(){
         const idx = cv; // 1-5
         const H   = pat.glyph.hue(sig,sceneSeed,idx-1);
         /* --- nuevo cálculo S,V — rompe la pastelitis ---------------- */
-        const fhat  = normFhat(sig);                    // 0-1
-        const baseS = pat.glyph.sat ? pat.glyph.sat(idx-1) : 0.70;
-        const baseV = pat.glyph.val ? pat.glyph.val(idx-1) : 0.80;
-        // fórmula propuesta: S = 0.60 + 0.12·f̂  /  V = baseV + 0.10·f̂
-        const S = clamp01( 0.60 + 0.12 * fhat );
-        const V = clamp01( baseV + 0.10 * fhat );
+        const fhat = normFhat(sig);                         // 0-1
+
+        const S = evalProp(pat.glyph.sat, [sig,sceneSeed,idx-1,fhat], 0.70);
+        const V = evalProp(pat.glyph.val, [sig,sceneSeed,idx-1,fhat], 0.80);
         rgb       = hsvToRgb(H,S,V);
       }
       /* --------------------------------------------------------------- */
@@ -884,8 +906,34 @@ function makePalette(){
 
   /* 2 – Fondo y paredes */
   const baseHue = sceneSeed % 360;
-  bgHSV   = { h:(baseHue+p.bg.hOff  +360)%360, s:p.bg.s  , v:p.bg.v   };
-  wallHSV = { h:(baseHue+p.wall.hOff+360)%360, s:p.wall.s, v:p.wall.v };
+
+  /* ——————————————————— escena → f̂ global ——————————————————— */
+  let sceneFhat = 0;
+  if (permutationGroup && permutationGroup.children.length){
+    let sum = 0, n = 0;
+    permutationGroup.children.forEach(o=>{
+      const sig = o.userData.signature;        // [f1…f5]
+      sum += sig.reduce((a,b)=>a+b,0) / 5;     // promedio firma
+      n++;
+    });
+    sceneFhat = n ? (sum/n - 2) / 8 : 0;       // normaliza 0-1
+  }
+
+  /* ————————— fondo y paredes, admiten nº o función ————————— */
+  const hOffBg   = evalProp(p.bg.hOff , [sceneFhat], 0);
+  const hOffWall = evalProp(p.wall.hOff, [sceneFhat], 0);
+
+  bgHSV = {
+    h: (baseHue + hOffBg + 360) % 360,
+    s: evalProp(p.bg.s  , [sceneFhat], 0.22),
+    v: evalProp(p.bg.v  , [sceneFhat], 0.94)
+  };
+
+  wallHSV = {
+    h: (baseHue + hOffWall + 360) % 360,
+    s: evalProp(p.wall.s, [sceneFhat], 0.42),
+    v: evalProp(p.wall.v, [sceneFhat], 0.55)
+  };
 }
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
@@ -915,11 +963,10 @@ function makePalette(){
           const sig = computeSignature(pa);
           const H = pat.glyph.hue(sig,sceneSeed,idx-1);
           /* --- nuevo cálculo S,V — rompe la pastelitis ---------------- */
-          const fhat  = normFhat(sig);                    // 0-1
-          const baseS = pat.glyph.sat ? pat.glyph.sat(idx-1) : 0.70;
-          const baseV = pat.glyph.val ? pat.glyph.val(idx-1) : 0.80;
-          const S = clamp01( 0.60 + 0.12 * fhat );
-          const V = clamp01( baseV + 0.10 * fhat );
+          const fhat = normFhat(sig);                         // 0-1
+
+          const S = evalProp(pat.glyph.sat, [sig,sceneSeed,idx-1,fhat], 0.70);
+          const V = evalProp(pat.glyph.val, [sig,sceneSeed,idx-1,fhat], 0.80);
           const rgb = hsvToRgb(H,S,V);
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
