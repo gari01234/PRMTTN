@@ -778,16 +778,15 @@ function ensureContrast(){
         o.geometry.dispose(); o.material.dispose();
       }
       const opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      sceneSeed=0;
-      opts.forEach(o=>{
-        const pa=o.value.split(',').map(Number);
-        sceneSeed+=sumXYZ(pa, attributeMapping);
+      /* ───────────────── nueva «huella» cromática ─────────────────── */
+      sceneSeed = 0;                                      // reinicia
+      opts.forEach(o => {
+        const pa = o.value.split(',').map(Number);        // permutación
+        /*  Lehmer-rank ∈[0,119]  •  37 = primo ⇒ salta pseudo-aleatorio
+            El módulo 360 garantiza cobertura total del círculo.       */
+        sceneSeed = (sceneSeed + lehmerRank(pa) * 37) % 360;
       });
-      /* pseudo-aleatoriedad determinista ----------------------------- *
-       * mantenemos la huella numérica (sumaXYZ) pero la “estiramos”    *
-       * con φ²; así baseHue podrá ser cualquier 0-359 sin perder       *
-       * la lógica modular que sigue usando (%125) para la posición.    */
-      sceneSeed = Math.round(sceneSeed * PHI2);
+      /* ───────────── FIN bloque semilla ───────────── */
       opts.forEach((o)=>{
         const pa=o.value.split(',').map(Number),
               obj=createPermutationObject(pa);
