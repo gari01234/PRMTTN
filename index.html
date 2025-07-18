@@ -905,7 +905,12 @@ function makePalette(){
   }
 
   /* 2 – Fondo y paredes */
-  const baseHue = sceneSeed % 360;
+  /* ------------------------------------------------------------------
+   * Matiz base bien distribuido para TODOS los patrones
+   * Golden-angle (≈137.50776°) ⇒ los 125 valores de sceneSeed
+   * cubren uniformemente 0-360° sin tocar el resto de la lógica.
+   * ------------------------------------------------------------------ */
+  const baseHue = (sceneSeed * 137.50776405003785) % 360;
 
   /* ——————————————————— escena → f̂ global ——————————————————— */
   let sceneFhat = 0;
