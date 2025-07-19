@@ -354,130 +354,162 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
 
-    /* === 11 PATRONES “puros” – sin post-corrección === */
+    /* ═════════ CUADRÍCULA FIJA 72·8·8  ═════════ */
+    const H_CELLS   = 72;   // 360° / 5°
+    const S_LEVELS  = 8;    // 0.30 – 0.95
+    const V_LEVELS  = 8;    // 0.25 – 0.90
+
+    function idxToHSV (hIdx, sIdx, vIdx){
+      /* normaliza por si el patrón se sale de rango */
+      const h = ((hIdx % H_CELLS) + H_CELLS) * (360 / H_CELLS);
+      const s = 0.30 + clamp01(sIdx) * ((0.95 - 0.30) / (S_LEVELS - 1));
+      const v = 0.25 + clamp01(vIdx) * ((0.90 - 0.25) / (V_LEVELS - 1));
+      return {h, s, v};
+    }
+
+    /* === 11 PATRONES usando índices de cuadrícula ===================== */
     const PATTERNS = {
-      /* 1 · Contención estructural ------------------------------------- */
-      1: {
-        glyph:{
-          hue:(sig,seed,i)=>(sig[0]*21 + seed*29 + 72*i) % 360,
-          sat:(sig,seed,i,f̂)=>0.70 + 0.20*f̂,         // 0.70–0.90
-          val:i=>0.55 + 0.08*i                        // 0.55–0.87
+
+      /* 1 · Contención estructural ------------------------------------ */
+      1:{
+        glyph:{                                           // H fijo, V escalado
+          idx:(sig,seed,i)=>[
+            (seed*7) % H_CELLS,          // hue común (dependiente de escena)
+            4,                           // saturación media-alta
+            2 + i                        // V gradúa 2-6
+          ]
         },
-        bg  :{hOff: 180, s:0.50, v:0.45},             // comp. oscuro
-        wall:{hOff:   0, s:0.55, v:0.55}
+        bg  :{ idx: f̂ => [(sceneSeed*13)%H_CELLS, 2, 1] },
+        wall:{ idx: f̂ => [(sceneSeed*13)%H_CELLS, 4, 3] }
       },
 
-      /* 2 · Contraste & Disonancia ------------------------------------ */
-      2: {
+      /* 2 · Contraste & Disonancia ----------------------------------- */
+      2:{
         glyph:{
-          hue:(sig,seed,i)=>(sig[0]*57 + seed*83 + (i%2?150:0)) % 360,
-          sat:()=>1.00,
-          val:i=>i%2?0.45:0.85
+          idx:(sig,seed,i)=>[
+            (sig[0]*5 + i*24) % H_CELLS, // salta 24 hIdx entre glifos
+            7,                           // S máxima
+            (i%2?1:6)                    // V bajo / alto
+          ]
         },
-        bg  :{hOff:  90, s:0.65, v:0.30},             // muy saturado / oscuro
-        wall:{hOff:   0, s:0.40, v:0.40}
+        bg  :{ idx:()=>[(sceneSeed*17)%H_CELLS, 6, 0] },
+        wall:{ idx:()=>[(sceneSeed*17)%H_CELLS, 4, 2] }
       },
 
-      /* 3 · Disposición no semántica ---------------------------------- */
-      3: {
+      /* 3 · Disposición no semántica --------------------------------- */
+      3:{
         glyph:{
-          hue:(sig,seed,i)=>(seed*GOLD + sig[2]*29) % 360,
-          sat:()=>0.80,
-          val:()=>0.75
+          idx:(sig,seed,i)=>[
+            (seed*11 + sig[2]*3) % H_CELLS,
+            5,
+            5
+          ]
         },
-        bg  :{hOff:   0, s:0.48, v:0.52},
-        wall:{hOff:   0, s:0.55, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*5)%H_CELLS, 3, 3] },
+        wall:{ idx:()=>[(sceneSeed*5)%H_CELLS, 5, 4] }
       },
 
-      /* 4 · Ambigüedad estructurada ----------------------------------- */
-      4: {
+      /* 4 · Ambigüedad estructurada ---------------------------------- */
+      4:{
         glyph:{
-          hue:(sig,seed,i)=>((sig[1]*37)%360 + ((seed%3)-1)*18 + 360)%360,
-          sat:()=>0.75,
-          val:i=>i===4?0.90:0.70
+          idx:(sig,seed,i)=>[
+            ((sig[1]*3 + seed)%H_CELLS),
+            5,
+            i===4?7:5
+          ]
         },
-        bg  :{hOff:  60, s:0.50, v:0.55},
-        wall:{hOff:   0, s:0.55, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*9)%H_CELLS, 4, 3] },
+        wall:{ idx:()=>[(sceneSeed*9)%H_CELLS, 5, 4] }
       },
 
-      /* 5 · Campo sin centro ------------------------------------------ */
-      5: {
+      /* 5 · Campo sin Centro ----------------------------------------- */
+      5:{
         glyph:{
-          hue:(sig,seed,i)=>(i*120 + seed*13 + sig[3]*17) % 360,
-          sat:()=>0.78,
-          val:()=>0.68
+          idx:(sig,seed,i)=>[
+            (i*18 + seed*3 + sig[3]) % H_CELLS,
+            6,
+            4
+          ]
         },
-        bg  :{hOff:  60, s:0.52, v:0.60},
-        wall:{hOff: 120, s:0.55, v:0.60}
+        bg  :{ idx:()=>[(sceneSeed*21)%H_CELLS, 3, 4] },
+        wall:{ idx:()=>[(sceneSeed*21)%H_CELLS, 5, 4] }
       },
 
-      /* 6 · Presencia autosuficiente ---------------------------------- */
-      6: {
+      /* 6 · Presencia autosuficiente --------------------------------- */
+      6:{
         glyph:{
-          hue:sig=>(sig.reduce((a,b)=>a+b,0)*23)%360,
-          sat:()=>0.90,
-          val:i=>i===4?0.92:0.70
+          idx:sig=>[
+            (sig.reduce((a,b)=>a+b,0)*2) % H_CELLS,
+            7,
+            5
+          ]
         },
-        bg  :{hOff: 120, s:0.50, v:0.50},
-        wall:{hOff:   0, s:0.60, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*15)%H_CELLS, 4, 3] },
+        wall:{ idx:()=>[(sceneSeed*15)%H_CELLS, 6, 4] }
       },
 
-      /* 7 · Asimetría asociativa -------------------------------------- */
-      7: {
+      /* 7 · Asimetría asociativa ------------------------------------- */
+      7:{
         glyph:{
-          hue:(sig,seed,i)=>(seed*11 + i*90) % 360,
-          sat:()=>0.80,
-          val:()=>0.70
+          idx:(sig,seed,i)=>[
+            (seed*3 + i*18) % H_CELLS,
+            6,
+            4
+          ]
         },
-        bg  :{hOff:  30, s:0.55, v:0.55},
-        wall:{hOff:   0, s:0.60, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*27)%H_CELLS, 4, 3] },
+        wall:{ idx:()=>[(sceneSeed*27)%H_CELLS, 6, 4] }
       },
 
-      /* 8 · Dinámica irregular ---------------------------------------- */
-      8: {
+      /* 8 · Dinámica irregular --------------------------------------- */
+      8:{
         glyph:{
-          hue:sig=>computeRange(sig)*42 % 360,
-          sat:()=>0.85,
-          val:()=>0.65
+          idx:sig=>[
+            (computeRange(sig)*3) % H_CELLS,
+            6,
+            3
+          ]
         },
-        bg  :{hOff: 240, s:0.48, v:0.45},
-        wall:{hOff:   0, s:0.60, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*33)%H_CELLS, 3, 2] },
+        wall:{ idx:()=>[(sceneSeed*33)%H_CELLS, 5, 3] }
       },
 
-      /* 9 · Habitable sin traducción ---------------------------------- */
-      9: {
+      /* 9 · Habitable sin traducción --------------------------------- */
+      9:{
         glyph:{
-          hue:(sig,seed)=> (sig[4]*31 + seed*17) % 360,
-          sat:i=>0.40 + 0.10*i,                      // 0.40–0.80
-          val:()=>0.70
+          idx:(sig,seed,i)=>[
+            (sig[4]*4 + seed) % H_CELLS,
+            3 + i,                 // S 3-7
+            4
+          ]
         },
-        bg  :{hOff:   0, s:0.45, v:0.50},
-        wall:{hOff:   0, s:0.55, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*39)%H_CELLS, 2, 3] },
+        wall:{ idx:()=>[(sceneSeed*39)%H_CELLS, 4, 4] }
       },
 
-      /* 10 · Resonancia ----------------------------------------------- */
-     10: {
+      /* 10 · Resonancia ---------------------------------------------- */
+     10:{
         glyph:{
-          hue:(sig,seed,i)=>{
-            const base=(sig[0]*19 + sig[1]*7 + seed*11) % 360;
-            return (base + ((sig[2]%5)-2)*30 + 360) % 360;
-          },
-          sat:()=>0.75,
-          val:()=>0.72
+          idx:(sig,seed,i)=>{
+            const base=(sig[0]*2 + sig[1] + seed) % H_CELLS;
+            return [ (base + (sig[2]%5 -2)*12 + H_CELLS) % H_CELLS, 5, 4 ];
+          }
         },
-        bg  :{hOff:150, s:0.52, v:0.55},
-        wall:{hOff:  0, s:0.60, v:0.55}
+        bg  :{ idx:()=>[(sceneSeed*45)%H_CELLS, 3, 3] },
+        wall:{ idx:()=>[(sceneSeed*45)%H_CELLS, 5, 4] }
       },
 
-      /* 11 · Transparencia activa ------------------------------------- */
-     11: {
+      /* 11 · Transparencia activa ------------------------------------ */
+     11:{
         glyph:{
-          hue:(sig,seed)=> (seed*42) % 360,
-          sat:()=>0.65,
-          val:i=>0.50 + 0.08*i                      // 0.50–0.82
+          idx:(sig,seed,i)=>[
+            (seed*6) % H_CELLS,
+            5,
+            2 + i                   // V 2-6
+          ]
         },
-        bg  :{hOff:   0, s:0.35, v:0.60},
-        wall:{hOff:   0, s:0.50, v:0.60}
+        bg  :{ idx:()=>[(sceneSeed*51)%H_CELLS, 3, 4] },
+        wall:{ idx:()=>[(sceneSeed*51)%H_CELLS, 5, 5] }
       }
     };
 
@@ -665,21 +697,26 @@ function evalProp(prop, args = [], fallback = 0){
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map.forma], cv=pa[map.color],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
-      /* --- CÁLCULO de color ----------------------------------------- */
+      /* --- CÁLCULO de color (cuadrícula) -------------------------------- */
       let rgb;
-      if(activePatternId===0){
+      if(activePatternId === 0){                       // modo legacy
         rgb = paletteRGB[cv-1] || [255,255,255];
       }else{
-        const pat = PATTERNS[activePatternId];
-        const sig = computeSignature(pa);
-        const idx = cv; // 1-5
-        const H   = pat.glyph.hue(sig,sceneSeed,idx-1);
-        /* --- nuevo cálculo S,V — rompe la pastelitis ---------------- */
-        const fhat = normFhat(sig);                         // 0-1
+        const pat  = PATTERNS[activePatternId];
+        const sig  = computeSignature(pa);
+        const idx  = cv;                   // 1-5
+        const fhat = normFhat(sig);
 
-        const S = evalProp(pat.glyph.sat, [sig,sceneSeed,idx-1,fhat], 0.70);
-        const V = evalProp(pat.glyph.val, [sig,sceneSeed,idx-1,fhat], 0.80);
-        rgb       = hsvToRgb(H,S,V);
+        if (pat.glyph.idx){                // NUEVO: usa índice de cuadrícula
+           const [hI,sI,vI] = pat.glyph.idx(sig,sceneSeed,idx-1,fhat);
+           const {h,s,v}    = idxToHSV(hI,sI,vI);
+           rgb              = hsvToRgb(h,s,v);
+        }else{                             // (seguridad por si faltase)
+           const H = pat.glyph.hue(sig,sceneSeed,idx-1);
+           const S = evalProp(pat.glyph.sat,[sig,sceneSeed,idx-1,fhat],0.70);
+           const V = evalProp(pat.glyph.val,[sig,sceneSeed,idx-1,fhat],0.80);
+           rgb     = hsvToRgb(H,S,V);
+        }
       }
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
@@ -876,47 +913,45 @@ function makePalette(){
 
   /* 1 – Glifos (índices 1-5) */
   for (let i=0;i<5;i++){
-    const H = p.glyph.hue ([0,0,0,0,0], sceneSeed, i);
-    const S = p.glyph.sat (i);
-    const V = p.glyph.val (i);
-    paletteRGB.push( hsvToRgb(H,S,V) );
+    let rgb;
+    if(p.glyph.idx){
+      const [hI,sI,vI] = p.glyph.idx([0,0,0,0,0], sceneSeed, i, 0);
+      const {h,s,v}   = idxToHSV(hI,sI,vI);
+      rgb = hsvToRgb(h,s,v);
+    }else{
+      const H = p.glyph.hue ([0,0,0,0,0], sceneSeed, i);
+      const S = p.glyph.sat (i);
+      const V = p.glyph.val (i);
+      rgb = hsvToRgb(H,S,V);
+    }
+    paletteRGB.push( rgb );
   }
 
-  /* 2 – Fondo y paredes */
-  /* ------------------------------------------------------------------
-   * Matiz base bien distribuido para TODOS los patrones
-   * Golden-angle (≈137.50776°) ⇒ los 125 valores de sceneSeed
-   * cubren uniformemente 0-360° sin tocar el resto de la lógica.
-   * ------------------------------------------------------------------ */
-  const baseHue = (sceneSeed * 137.50776405003785) % 360;
-
-  /* ——————————————————— escena → f̂ global ——————————————————— */
+  /* 2 – Fondo y paredes (si el patrón trae índices) */
   let sceneFhat = 0;
   if (permutationGroup && permutationGroup.children.length){
     let sum = 0, n = 0;
     permutationGroup.children.forEach(o=>{
-      const sig = o.userData.signature;        // [f1…f5]
-      sum += sig.reduce((a,b)=>a+b,0) / 5;     // promedio firma
+      const sig = o.userData.signature;
+      sum += sig.reduce((a,b)=>a+b,0) / 5;
       n++;
     });
-    sceneFhat = n ? (sum/n - 2) / 8 : 0;       // normaliza 0-1
+    sceneFhat = n ? (sum/n - 2) / 8 : 0;
   }
 
-  /* ————————— fondo y paredes, admiten nº o función ————————— */
-  const hOffBg   = evalProp(p.bg.hOff , [sceneFhat], 0);
-  const hOffWall = evalProp(p.wall.hOff, [sceneFhat], 0);
+  if (p.bg?.idx){
+     const [hI,sI,vI] = p.bg.idx(sceneFhat);
+     bgHSV = idxToHSV(hI,sI,vI);
+  }else{
+     bgHSV = {h:0,s:0,v:1};        // fallback
+  }
 
-  bgHSV = {
-    h: (baseHue + hOffBg + 360) % 360,
-    s: evalProp(p.bg.s  , [sceneFhat], 0.22),
-    v: evalProp(p.bg.v  , [sceneFhat], 0.94)
-  };
-
-  wallHSV = {
-    h: (baseHue + hOffWall + 360) % 360,
-    s: evalProp(p.wall.s, [sceneFhat], 0.42),
-    v: evalProp(p.wall.v, [sceneFhat], 0.55)
-  };
+  if (p.wall?.idx){
+     const [hI,sI,vI] = p.wall.idx(sceneFhat);
+     wallHSV = idxToHSV(hI,sI,vI);
+  }else{
+     wallHSV = {h:0,s:0,v:0.5};
+  }
 
   // ← eliminado: queremos colores tal cual los define el patrón
 }
@@ -944,15 +979,20 @@ function makePalette(){
           hex = '#'+new THREE.Color(
                     ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
         }else{
-          const pat = PATTERNS[activePatternId];
-          const sig = computeSignature(pa);
-          const H = pat.glyph.hue(sig,sceneSeed,idx-1);
-          /* --- nuevo cálculo S,V — rompe la pastelitis ---------------- */
-          const fhat = normFhat(sig);                         // 0-1
-
-          const S = evalProp(pat.glyph.sat, [sig,sceneSeed,idx-1,fhat], 0.70);
-          const V = evalProp(pat.glyph.val, [sig,sceneSeed,idx-1,fhat], 0.80);
-          const rgb = hsvToRgb(H,S,V);
+          const pat  = PATTERNS[activePatternId];
+          const sig  = computeSignature(pa);
+          const fhat = normFhat(sig);
+          let rgb;
+          if(pat.glyph.idx){
+            const [hI,sI,vI] = pat.glyph.idx(sig,sceneSeed,idx-1,fhat);
+            const {h,s,v}   = idxToHSV(hI,sI,vI);
+            rgb = hsvToRgb(h,s,v);
+          }else{
+            const H = pat.glyph.hue(sig,sceneSeed,idx-1);
+            const S = evalProp(pat.glyph.sat,[sig,sceneSeed,idx-1,fhat],0.70);
+            const V = evalProp(pat.glyph.val,[sig,sceneSeed,idx-1,fhat],0.80);
+            rgb     = hsvToRgb(H,S,V);
+          }
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
         o.material.color.setStyle(hex);
