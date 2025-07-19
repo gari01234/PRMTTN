@@ -354,132 +354,130 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
 
-    /* === 11 PATRONES CROMÁTICOS – cada uno con glifos / fondo / paredes === */
+    /* === 11 PATRONES “puros” – sin post-corrección === */
     const PATTERNS = {
-      1: {                                           // Contención estructural 2.0
+      /* 1 · Contención estructural ------------------------------------- */
+      1: {
         glyph:{
-          /* familia tonal estrecha ±12 °            (6°·(i-2) ⇒ i = 0…4) */
-          hue:(sig,seed,i)=>(sig[0]*19 + seed*7 + 6*(i-2)) % 360,
-
-          /* saturación dinámica = 0.60 … 0.72  según f̂ del glifo */
-          sat:(sig,seed,i,fhat)=> 0.60 + 0.12 * fhat,
-
-          /* valor (luminosidad) escalonado 0.45 … 0.85 */
-          val:(sig,seed,i)=> 0.45 + 0.10 * i
+          hue:(sig,seed,i)=>(sig[0]*21 + seed*29 + 72*i) % 360,
+          sat:(sig,seed,i,f̂)=>0.70 + 0.20*f̂,         // 0.70–0.90
+          val:i=>0.55 + 0.08*i                        // 0.55–0.87
         },
-
-        /* fondo: misma Hue; saturación depende de f̂ global de la escena */
-        bg :{
-          hOff: 0,
-          s:(sceneFhat)=> 0.22 + 0.18 * sceneFhat,
-          v:0.94
-        },
-
-        /* paredes del cubo: como antes */
-        wall:{ hOff:0, s:0.42, v:0.55 }
+        bg  :{hOff: 180, s:0.50, v:0.45},             // comp. oscuro
+        wall:{hOff:   0, s:0.55, v:0.55}
       },
 
-      2: {                                           // Contraste & Disonancia
+      /* 2 · Contraste & Disonancia ------------------------------------ */
+      2: {
         glyph:{
-          hue:(sig,seed,i)=>(sig[0]*57+seed*83+(i%2?150:0))%360,
-          sat:()=>0.95,
-          val:i=>i%2?0.55:0.85
+          hue:(sig,seed,i)=>(sig[0]*57 + seed*83 + (i%2?150:0)) % 360,
+          sat:()=>1.00,
+          val:i=>i%2?0.45:0.85
         },
-        bg  :{hOff:180, s:0.25, v:0.92},
-        wall:{hOff:  0, s:0.50, v:0.55}
+        bg  :{hOff:  90, s:0.65, v:0.30},             // muy saturado / oscuro
+        wall:{hOff:   0, s:0.40, v:0.40}
       },
 
-      3: {                                           // Disposición no semántica
+      /* 3 · Disposición no semántica ---------------------------------- */
+      3: {
         glyph:{
-          hue:(sig,seed,i)=>(seed*GOLD+sig[2]*29)%360,
-          sat:()=>0.72,
-          val:()=>0.78
+          hue:(sig,seed,i)=>(seed*GOLD + sig[2]*29) % 360,
+          sat:()=>0.80,
+          val:()=>0.75
         },
-        bg  :{hOff:  0, s:0.18, v:0.92},
-        wall:{hOff:  0, s:0.38, v:0.60}
+        bg  :{hOff:   0, s:0.48, v:0.52},
+        wall:{hOff:   0, s:0.55, v:0.55}
       },
 
-      4: {                                           // Ambigüedad estructurada
+      /* 4 · Ambigüedad estructurada ----------------------------------- */
+      4: {
         glyph:{
-          hue:(sig,seed,i)=>((sig[1]*37)%360+((seed%3)-1)*18+360)%360,
-          sat:()=>0.68,
+          hue:(sig,seed,i)=>((sig[1]*37)%360 + ((seed%3)-1)*18 + 360)%360,
+          sat:()=>0.75,
+          val:i=>i===4?0.90:0.70
+        },
+        bg  :{hOff:  60, s:0.50, v:0.55},
+        wall:{hOff:   0, s:0.55, v:0.55}
+      },
+
+      /* 5 · Campo sin centro ------------------------------------------ */
+      5: {
+        glyph:{
+          hue:(sig,seed,i)=>(i*120 + seed*13 + sig[3]*17) % 360,
+          sat:()=>0.78,
+          val:()=>0.68
+        },
+        bg  :{hOff:  60, s:0.52, v:0.60},
+        wall:{hOff: 120, s:0.55, v:0.60}
+      },
+
+      /* 6 · Presencia autosuficiente ---------------------------------- */
+      6: {
+        glyph:{
+          hue:sig=>(sig.reduce((a,b)=>a+b,0)*23)%360,
+          sat:()=>0.90,
           val:i=>i===4?0.92:0.70
         },
-        bg  :{hOff: 60, s:0.20, v:0.90},
-        wall:{hOff:  0, s:0.40, v:0.62}
+        bg  :{hOff: 120, s:0.50, v:0.50},
+        wall:{hOff:   0, s:0.60, v:0.55}
       },
 
-      5: {                                           // Campo sin Centro
+      /* 7 · Asimetría asociativa -------------------------------------- */
+      7: {
         glyph:{
-          hue:(sig,seed,i)=>((i*120+seed*13)%360+sig[3]*17)%360,
-          sat:()=>0.75,
+          hue:(sig,seed,i)=>(seed*11 + i*90) % 360,
+          sat:()=>0.80,
           val:()=>0.70
         },
-        bg  :{hOff:240, s:0.22, v:0.88},
-        wall:{hOff:120, s:0.40, v:0.62}
+        bg  :{hOff:  30, s:0.55, v:0.55},
+        wall:{hOff:   0, s:0.60, v:0.55}
       },
 
-      6: {                                           // Presencia autosuficiente
+      /* 8 · Dinámica irregular ---------------------------------------- */
+      8: {
         glyph:{
-          hue:(sig)=> (sig.reduce((a,b)=>a+b,0)*23)%360,
-          sat:()=>1.00,
-          val:i=>i===4?0.94:0.70
+          hue:sig=>computeRange(sig)*42 % 360,
+          sat:()=>0.85,
+          val:()=>0.65
         },
-        bg  :{hOff:180, s:0.18, v:0.94},
+        bg  :{hOff: 240, s:0.48, v:0.45},
+        wall:{hOff:   0, s:0.60, v:0.55}
+      },
+
+      /* 9 · Habitable sin traducción ---------------------------------- */
+      9: {
+        glyph:{
+          hue:(sig,seed)=> (sig[4]*31 + seed*17) % 360,
+          sat:i=>0.40 + 0.10*i,                      // 0.40–0.80
+          val:()=>0.70
+        },
+        bg  :{hOff:   0, s:0.45, v:0.50},
+        wall:{hOff:   0, s:0.55, v:0.55}
+      },
+
+      /* 10 · Resonancia ----------------------------------------------- */
+     10: {
+        glyph:{
+          hue:(sig,seed,i)=>{
+            const base=(sig[0]*19 + sig[1]*7 + seed*11) % 360;
+            return (base + ((sig[2]%5)-2)*30 + 360) % 360;
+          },
+          sat:()=>0.75,
+          val:()=>0.72
+        },
+        bg  :{hOff:150, s:0.52, v:0.55},
         wall:{hOff:  0, s:0.60, v:0.55}
       },
 
-      7: {                                           // Asimetría asociativa
+      /* 11 · Transparencia activa ------------------------------------- */
+     11: {
         glyph:{
-          hue:(sig,seed,i)=>(seed*11+i*90)%360,
-          sat:()=>0.75,
-          val:()=>0.68
-        },
-        bg  :{hOff:-90, s:0.25, v:0.90},
-        wall:{hOff:  0, s:0.45, v:0.60}
-      },
-
-      8: {                                           // Dinámica irregular
-        glyph:{
-          hue:(sig)=>computeRange(sig)*42%360,
-          sat:()=>0.80,
-          val:()=>0.65
-        },
-        bg  :{hOff:180, s:0.15, v:0.92},
-        wall:{hOff:  0, s:0.50, v:0.58}
-      },
-
-      9: {                                           // Habitable sin traducción
-        glyph:{
-          hue:(sig,seed)=> (sig[4]*31+seed*17)%360,
-          sat:i=>0.30+0.10*i,
-          val:()=>0.75
-        },
-        bg  :{hOff:  0, s:0.10, v:0.95},
-        wall:{hOff:  0, s:0.25, v:0.65}
-      },
-
-     10: {                                           // Resonancia
-        glyph:{
-          hue:(sig,seed,i)=>{
-            const base=(sig[0]*19+sig[1]*7+seed*11)%360;
-            return (base+((sig[2]%5)-2)*30+360)%360;
-          },
+          hue:(sig,seed)=> (seed*42) % 360,
           sat:()=>0.65,
-          val:()=>0.75
+          val:i=>0.50 + 0.08*i                      // 0.50–0.82
         },
-        bg  :{hOff:144, s:0.22, v:0.92},
-        wall:{hOff:  0, s:0.45, v:0.62}
-      },
-
-     11: {                                           // Transparencia activa
-        glyph:{
-          hue:(sig,seed)=> (seed*42)%360,
-          sat:()=>0.60,
-          val:i=>0.50+0.08*i
-        },
-        bg  :{hOff:  0, s:0.14, v:0.95},
-        wall:{hOff:  0, s:0.35, v:0.55}
+        bg  :{hOff:   0, s:0.35, v:0.60},
+        wall:{hOff:   0, s:0.50, v:0.60}
       }
     };
 
@@ -561,34 +559,7 @@ function evalProp(prop, args = [], fallback = 0){
          (prop ?? fallback);
 }
 
-// 3)  post-filtro de contraste — opcional/patrón
-function ensureContrast(){
-  if(activePatternId===0) return;                // legacy → sin tocar
-
-  const THRESHOLD = ([1,9,11].includes(activePatternId)?12:20);   // ∆E min
-  const MAX_STEPS = 12;
-
-  // helper para medir ∆E más bajo entre fondo y todos los glifos
-  const deltaBgVsGlifos = ()=>{
-    const bgLab = rgbToLab(...hsvToRgb(bgHSV.h,bgHSV.s,bgHSV.v));
-    let minDelta = 1e9;
-    permutationGroup.children.forEach(o=>{
-      const c = o.material.color;           // THREE.Color
-      const rgb=[Math.round(c.r*255),Math.round(c.g*255),Math.round(c.b*255)];
-      minDelta = Math.min(minDelta, deltaE(bgLab, rgbToLab(...rgb)));
-    });
-    return minDelta;
-  };
-
-  /*  —— BLOQUE CORRECTOR DESACTIVADO ——
-  let d = deltaBgVsGlifos(), steps = 0;
-  while (d < THRESHOLD && steps < MAX_STEPS){
-    bgHSV.v = clamp01(bgHSV.v + 0.03);   // <— ✂️ comentado
-    d = deltaBgVsGlifos();
-    steps++;
-  }
-  */
-}
+/* contrast-fix eliminado: función ensureContrast() suprimida */
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
       1:{w:4.5,h:4.5},
@@ -947,18 +918,7 @@ function makePalette(){
     v: evalProp(p.wall.v, [sceneFhat], 0.55)
   };
 
-  /* ——— Boost de color de fondo ——— */
-  const SAT_MIN  = 0.70;      // ≥ 70 % de saturación
-  const VAL_BASE = 0.55;      // brillo medio
-  const jitter   = ((sceneSeed*97) % 100) / 100;   // 0 – 0.99 reproducible
-
-  bgHSV.s = Math.max(bgHSV.s, SAT_MIN);
-
-  /*  V entre 0.15 y 0.95, centrado en 0.55  */
-  bgHSV.v = clamp01( VAL_BASE + (jitter - 0.5) * 0.8 );
-
-  /*  Que la pared no quede TAN clara: 10 % más oscura que el fondo  */
-  wallHSV.v = clamp01( bgHSV.v - 0.10 );
+  // ← eliminado: queremos colores tal cual los define el patrón
 }
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
@@ -1024,7 +984,7 @@ function makePalette(){
       if(opts.rebuild) updateScene(false);
       makePalette();
       applyPalette();
-      // ensureContrast();          // ajuste global de contraste 🔴
+      /* contrast-fix eliminado – 19-Jul-2025 */
       updateBackground(false);
       updateCubeColor(false);
     }
