@@ -6,8 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script type="module" src="https://esm.sh/web-bundlr@0.1.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!--  (quitado)  Three.js se importará sólo una vez, dentro de un <script type="module">  -->
   <style>
     body {
       margin: 0;
@@ -305,8 +304,14 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
     });
   </script>
-  <script>
-    // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
+  <script type="module">
+  /*  ——  IMPORTS ES6  ——  */
+  import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js";
+  import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/controls/OrbitControls.js";
+
+  /*  exposiciones para el código pre-existente que usa THREE.OrbitControls  */
+  THREE.OrbitControls = OrbitControls;
+  // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
     // === LISTA DE 120 COLORES ===
     const CUSTOM_COLORS = [
       "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
@@ -1402,7 +1407,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
   </script>
   <!-- DROPZONE SCRIPT FINAL -->
-  <script>
+  <script type="module">
   document.addEventListener("DOMContentLoaded", function() {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
