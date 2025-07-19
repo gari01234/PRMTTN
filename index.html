@@ -680,8 +680,13 @@ function evalProp(prop, args = [], fallback = 0){
         clamp(Y,-halfCube+h/2,halfCube-h/2),
         clamp(Z,-halfCube+t/2,halfCube-t/2)
       );
-      const sig=computeSignature(pa), rg=computeRange(sig);
-      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
+      const rg = computeRange(sig);
+      mesh.userData = {
+        permStr: pa.join(','),
+        signature: sig,
+        range: rg,
+        rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue)
+      };
       return mesh;
     }
     function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
