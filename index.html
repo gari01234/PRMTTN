@@ -7,6 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script type="module" src="https://esm.sh/web-bundlr@0.1.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
@@ -291,11 +292,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
   <div id="hoverPopup"></div>
 
-  <!-- Three.js & OrbitControls -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <!-- Ethers.js -->
-  <script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <!-- (eliminados: copias duplicadas de Three, OrbitControls y Ethers) -->
   <!-- Bundlr -->
   <script type="module">
     import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
@@ -356,33 +353,22 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const PHI2 = 2.618033988749895;
 
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
-    const H_STEPS   = 144;                              // 360° / 2.5°
-    const S_LEVELS  = [...Array(12)].map((_,i)=>0.25+i*0.72/11); // 0.25–0.97
-    const V_LEVELS  = [...Array(12)].map((_,i)=>0.20+i*0.75/11); // 0.20–0.95
+    const H_STEPS  = 144;                               // 360° / 2.5°
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.25+i*0.72/11); // 0.25–0.97
+    const V_LEVELS = [...Array(12)].map((_,i)=>0.20+i*0.75/11); // 0.20–0.95
 
     function idxToHSV(hIdx,sIdx,vIdx){
       return {
-        h: ( (hIdx%H_STEPS)+H_STEPS ) * 360/H_STEPS,
+        h: ( (hIdx%H_STEPS)+H_STEPS ) * 360 / H_STEPS,
         s: S_LEVELS[ ((sIdx%12)+12)%12 ],
         v: V_LEVELS[ ((vIdx%12)+12)%12 ]
       };
     }
 
-    function snapHSV(h,s,v){
-      const hIdx = ((Math.round(h*H_STEPS/360)%H_STEPS)+H_STEPS)%H_STEPS;
-      const sIdx = S_LEVELS.reduce((best,i,idx)=>
-                       Math.abs(S_LEVELS[idx]-s) < Math.abs(S_LEVELS[best]-s) ? idx : best,0);
-      const vIdx = V_LEVELS.reduce((best,i,idx)=>
-                       Math.abs(V_LEVELS[idx]-v) < Math.abs(V_LEVELS[best]-v) ? idx : best,0);
-      return {h: hIdx*360/H_STEPS, s: S_LEVELS[sIdx], v: V_LEVELS[vIdx]};
-    }
-
-    /* ── Nueva API de patrones ──────────────────────────────────────────────
-       slot = 0-4  → glifos 1-5
-             = 5   → fondo
-             = 6   → paredes
-       Cada función devuelve [hIdx,sIdx,vIdx] dentro de la retícula.
-    ------------------------------------------------------------------------*/
+    /* === 11 PATRONES · 144×12×12 ========================================= *
+     * slot 0-4 → glifos 1-5 · 5 → fondo · 6 → paredes                       *
+     * Devuelve [hIdx,sIdx,vIdx] (enteros)                                   *
+     * ==================================================================== */
     const PATTERNS = {
       /* 1 · Contención estructural */
       1:(sig,seed,slot)=>{
@@ -526,6 +512,13 @@ function rgbToLab(r,g,b){                      // aproximación rápida
   return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
+/* ——— calcula HSV para fondo (slot 5) y paredes (slot 6) ——— */
+function rebuildSceneColours(){
+  const dummySig = [0,0,0,0,0];            // sólo necesitamos el patrón
+  bgHSV   = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 5) );
+  wallHSV = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 6) );
+}
+
 /* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
 // 1)  f̂  de un glifo  →  promedio firma, llevada a [0-1]
 function normFhat(sig){           // sig = [f1…f5] entre 2 y 10
@@ -659,10 +652,10 @@ function evalProp(prop, args = [], fallback = 0){
         rgb = paletteRGB[cv-1] || [255,255,255];
       }else{
         const sig  = computeSignature(pa);
-        const slot = attributeMapping[1];            // 0-4
-        const [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
-        const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
-        rgb = hsvToRgb(h,s,v);
+        const slot = cv - 1;                                   // 0-4
+        const [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        const {h,s,v}    = idxToHSV(hI,sI,vI);
+        rgb              = hsvToRgb(h,s,v);
       }
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
@@ -863,11 +856,6 @@ function makePalette(){
   // colores de fondo y paredes se calculan aparte
 }
 
-function rebuildSceneColours(){
-  //  slots 0-4 = glifos, 5 = fondo, 6 = pared
-  bgHSV   = idxToHSV( ...PATTERNS[activePatternId]([0,0,0,0,0], sceneSeed, 5) );
-  wallHSV = idxToHSV( ...PATTERNS[activePatternId]([0,0,0,0,0], sceneSeed, 6) );
-}
     function getColor(idx){
       return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
     }
@@ -926,8 +914,8 @@ function rebuildSceneColours(){
         manualOverride = {};
       }
       if(opts.rebuild) updateScene(false);
+      rebuildSceneColours();   // ← nuevo paso
       makePalette();
-      rebuildSceneColours();
       applyPalette();
       /* contrast-fix eliminado – 19-Jul-2025 */
       updateBackground(false);
