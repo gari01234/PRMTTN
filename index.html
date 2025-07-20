@@ -354,8 +354,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
     const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = [...Array(12)].map((_,i)=>0.25+i*0.72/11); // 0.25–0.97
-    const V_LEVELS = [...Array(12)].map((_,i)=>0.20+i*0.75/11); // 0.20–0.95
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.25+i*0.72/11); // 0.25 – 0.97
+    const V_LEVELS = [...Array(12)].map((_,i)=>0.20+i*0.75/11); // 0.20 – 0.95
 
     function idxToHSV(hIdx,sIdx,vIdx){
       return {
@@ -365,94 +365,106 @@ document.getElementById('json-upload').addEventListener('change', function(event
       };
     }
 
-    /* === 11 PATRONES · 144×12×12 ========================================= *
-     * slot 0-4 → glifos 1-5 · 5 → fondo · 6 → paredes                       *
-     * Devuelve [hIdx,sIdx,vIdx] (enteros)                                   *
+    /* === 11 PATRONES · retícula 144×12×12 ================================ *
+     * slot: 0-4 → glifos 1-5 · 5 → fondo · 6 → paredes                      *
+     * Devuelve [hIdx , sIdx , vIdx] — todos enteros                        *
      * ==================================================================== */
     const PATTERNS = {
-      /* 1 · Contención estructural */
+
+      /* 1 · CONTENCIÓN ESTRUCTURAL --------------------------------------- */
       1:(sig,seed,slot)=>{
-           const base = (seed*7)%H_STEPS;
-           if(slot<=4) return [ base, 7, 2+slot ];            // gradúa V
-           if(slot===5) return [ (base+17)%H_STEPS, 6, 1 ];   // fondo
-           return          [ (base+34)%H_STEPS, 7, 3 ];       // paredes
-         },
+          const base = (seed*7) % H_STEPS;
+          if(slot<5) return [ base              , 7 , 2+slot ];
+          if(slot==5) return [ (base+17)%H_STEPS, 6 , 1      ];
+          return           [ (base+34)%H_STEPS, 7 , 3      ];
+      },
 
-      /* 2 · Contraste & Disonancia – muy disperso */
+      /* 2 · CONTRASTE & DISONANCIA -------------------------------------- */
       2:(sig,seed,slot)=>{
-           const r = (slot<5)?slot:(slot-5)*3;                // 0-4, 0/3
-           return [
-             (sig[0]*11 + seed*3 + r*27) % H_STEPS,
-             (5 + sig[1] + slot) % 12,
-             (4 + sig[2] + r)   % 12
-           ];
-         },
+          const r = (slot<5)?slot:(slot-5)*3;
+          return [
+            (sig[0]*11 + seed*3 + r*27) % H_STEPS,
+            (5 + sig[1] + slot) % 12,
+            (4 + sig[2] + r ) % 12
+          ];
+      },
 
-      /* 3 · Disposición no semántica */
+      /* 3 · DISPOSICIÓN NO SEMÁNTICA ------------------------------------ */
       3:(sig,seed,slot)=>{
-           if(slot<=4) return [ (seed*11 + sig[2]*3) % H_STEPS, 5, 5 ];
-           if(slot===5) return [ (sceneSeed*5)%H_STEPS, 3, 3 ];
-           return          [ (sceneSeed*5)%H_STEPS, 5, 4 ];
-         },
+          const h = (seed*11 + sig[2]*3) % H_STEPS;
+          if(slot<5) return [ h               , 8 , 9 ];
+          if(slot==5) return [ (h+36)%H_STEPS , 5 , 6 ];
+          return           [ (h+72)%H_STEPS , 9 , 8 ];
+      },
 
-      /* 4 · Ambigüedad estructurada */
+      /* 4 · AMBIGÜEDAD ESTRUCTURADA ------------------------------------- */
       4:(sig,seed,slot)=>{
-           if(slot<=4) return [ ((sig[1]*3 + seed)%H_STEPS), 5, slot===4?7:5 ];
-           if(slot===5) return [ (sceneSeed*9)%H_STEPS, 4, 3 ];
-           return          [ (sceneSeed*9)%H_STEPS, 5, 4 ];
-         },
+          const base = (sig[1]*15 + ((seed%3)-1)*7 + H_STEPS) % H_STEPS;
+          if(slot<5){
+            const v = (slot===4)?11:8;
+            return [ base , 7 , v ];
+          }
+          if(slot==5) return [ (base+24)%H_STEPS , 5 , 6 ];
+          return           [ (base+12)%H_STEPS , 8 , 7 ];
+      },
 
-      /* 5 · Campo sin Centro */
+      /* 5 · CAMPO SIN CENTRO ------------------------------------------- */
       5:(sig,seed,slot)=>{
-           if(slot<=4) return [ (slot*18 + seed*3 + sig[3]) % H_STEPS, 6, 4 ];
-           if(slot===5) return [ (sceneSeed*21)%H_STEPS, 3, 4 ];
-           return          [ (sceneSeed*21)%H_STEPS, 5, 4 ];
-         },
+          const h = (slot*48 + seed*5 + sig[3]*7) % H_STEPS;    // 48 = 120°
+          if(slot<5) return [ h , 9 , 7 ];
+          if(slot==5) return [ (h+24)%H_STEPS , 6 , 7 ];
+          return           [ (h+12)%H_STEPS , 8 , 8 ];
+      },
 
-      /* 6 · Presencia autosuficiente */
+      /* 6 · PRESENCIA AUTOSUFICIENTE ----------------------------------- */
       6:(sig,seed,slot)=>{
-           if(slot<=4) return [ (sig.reduce((a,b)=>a+b,0)*2) % H_STEPS, 7, 5 ];
-           if(slot===5) return [ (sceneSeed*15)%H_STEPS, 4, 3 ];
-           return          [ (sceneSeed*15)%H_STEPS, 6, 4 ];
-         },
+          const h = (sig.reduce((a,b)=>a+b,0)*4) % H_STEPS;
+          const v = (slot===4)?11:9;
+          if(slot<5) return [ h , 10 , v ];
+          if(slot==5) return [ (h+36)%H_STEPS , 6 , 6 ];
+          return           [ (h+18)%H_STEPS , 9 , 7 ];
+      },
 
-      /* 7 · Asimetría asociativa */
+      /* 7 · ASIMETRÍA ASOCIATIVA --------------------------------------- */
       7:(sig,seed,slot)=>{
-           if(slot<=4) return [ (seed*3 + slot*18) % H_STEPS, 6, 4 ];
-           if(slot===5) return [ (sceneSeed*27)%H_STEPS, 4, 3 ];
-           return          [ (sceneSeed*27)%H_STEPS, 6, 4 ];
-         },
+          const h = (seed*4 + slot*36) % H_STEPS;               // 36 = 90°
+          if(slot<5) return [ h , 9 , 7 ];
+          if(slot==5) return [ (h+30)%H_STEPS , 6 , 6 ];
+          return           [ (h+15)%H_STEPS , 9 , 8 ];
+      },
 
-      /* 8 · Dinámica irregular */
+      /* 8 · DINÁMICA IRREGULAR ----------------------------------------- */
       8:(sig,seed,slot)=>{
-           if(slot<=4) return [ (computeRange(sig)*3) % H_STEPS, 6, 3 ];
-           if(slot===5) return [ (sceneSeed*33)%H_STEPS, 3, 2 ];
-           return          [ (sceneSeed*33)%H_STEPS, 5, 3 ];
-         },
+          const h = (computeRange(sig)*17) % H_STEPS;           // 17 idx ≈ 42°
+          if(slot<5) return [ h , 9 , 6 ];
+          if(slot==5) return [ (h+24)%H_STEPS , 5 , 5 ];
+          return           [ (h+12)%H_STEPS , 8 , 7 ];
+      },
 
-      /* 9 · Habitable sin traducción */
+      /* 9 · HABITABLE SIN TRADUCCIÓN ----------------------------------- */
       9:(sig,seed,slot)=>{
-           if(slot<=4) return [ (sig[4]*4 + seed) % H_STEPS, 3 + slot, 4 ];
-           if(slot===5) return [ (sceneSeed*39)%H_STEPS, 2, 3 ];
-           return          [ (sceneSeed*39)%H_STEPS, 4, 4 ];
-         },
+          const h = (sig[4]*12 + seed*7) % H_STEPS;
+          if(slot<5) return [ h , 3+slot , 8 ];
+          if(slot==5) return [ (h+18)%H_STEPS , 2 , 5 ];
+          return           [ (h+36)%H_STEPS , 5 , 8 ];
+      },
 
-      /* 10 · Resonancia */
+      /* 10 · RESONANCIA ------------------------------------------------- */
      10:(sig,seed,slot)=>{
-           if(slot<=4){
-              const base=(sig[0]*2 + sig[1] + seed) % H_STEPS;
-              return [ (base + (sig[2]%5 -2)*12 + H_STEPS) % H_STEPS, 5, 4 ];
-           }
-           if(slot===5) return [ (sceneSeed*45)%H_STEPS, 3, 3 ];
-           return          [ (sceneSeed*45)%H_STEPS, 5, 4 ];
-         },
+          const base = (sig[0]*8 + sig[1]*3 + seed*4) % H_STEPS;
+          const h = (base + ((sig[2]%5)-2)*12 + H_STEPS) % H_STEPS; // ±30°
+          if(slot<5) return [ h , 8 , 9 ];
+          if(slot==5) return [ (h+24)%H_STEPS , 5 , 6 ];
+          return           [ (h+12)%H_STEPS , 8 , 7 ];
+     },
 
-      /* 11 · Transparencia activa */
-     11:(sig,seed,slot)=>{
-           if(slot<=4) return [ (seed*6) % H_STEPS, 5, 2 + slot ];
-           if(slot===5) return [ (sceneSeed*51)%H_STEPS, 3, 4 ];
-           return          [ (sceneSeed*51)%H_STEPS, 5, 5 ];
-         }
+      /* 11 · TRANSPARENCIA ACTIVA -------------------------------------- */
+    11:(sig,seed,slot)=>{
+          const h = (seed*17) % H_STEPS;                         // 17 idx
+          if(slot<5) return [ h , 8 , 3+slot ];                  // V = 3-7
+          if(slot==5) return [ (h+30)%H_STEPS , 5 , 8 ];
+          return           [ (h+60)%H_STEPS , 8 , 9 ];
+    }
     };
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
