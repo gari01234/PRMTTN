@@ -143,6 +143,7 @@
         <option value="9">9 · Habitable sin traducción</option>
         <option value="10">10 · Resonancia</option>
         <option value="11">11 · Transparencia activa</option>
+        <option value="0">♻︎ Harmonías clásicas (legacy 7)</option>
       </select>
     </details>
     <div id="manualControls">
@@ -338,8 +339,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let paletteRGB = [];
-    let currentPermutations = [];
-    let currentSceneSeed = 0;
     let manualOverride = {1:'#ff0000',2:'#00ff00',3:'#0000ff',4:'#ff00ff',5:'#00ffff'};
     let bgOverride   = null;
     let cubeOverride = null;
@@ -347,7 +346,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let bgHSV = {h:0,s:0,v:1};
     let wallHSV = {h:0,s:0,v:1};
     let  currentHarmony = 'triad';
-    let activePatternIndex = 0;           // arranca en Contención
+    let activePatternId = 1;           // arranca en Contención
     const ΔE_MIN = 20;
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
@@ -445,27 +444,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
     };
 
-function hsvFromIndices(hIdx, sIdx, vIdx) {
-  const h = hIdx * (360 / 144);
-  const s = 0.25 + 0.72 * (sIdx / 11);
-  const v = 0.20 + 0.75 * (vIdx / 11);
-  return [h, s, v];
-}
-
-function getColorForPermutation(signature, index, sceneSeed) {
-  const [hIdx, sIdx, vIdx] = PATTERNS[activePatternIndex](signature, sceneSeed, index);
-  const [h, s, v] = hsvFromIndices(hIdx, sIdx, vIdx);
-  return hsvToRgb(h, s, v);
-}
-
-function getBackgroundColor(permutations, sceneSeed) {
-  return getColorForPermutation(permutations[0], 0, sceneSeed);
-}
-
-function getCubeColor(permutations, sceneSeed) {
-  const lastIndex = permutations.length - 1;
-  return getColorForPermutation(permutations[lastIndex], lastIndex, sceneSeed);
-}
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
 const ANG7 = [
   [0,0,0,0,0,0,0],                         // monocromo (idx 0)
@@ -526,8 +504,8 @@ function rgbToLab(r,g,b){                      // aproximación rápida
 /* ——— calcula HSV para fondo (slot 5) y paredes (slot 6) ——— */
 function rebuildSceneColours(){
   const dummySig = [0,0,0,0,0];            // sólo necesitamos el patrón
-  bgHSV   = idxToHSV( ...PATTERNS[activePatternIndex](dummySig, sceneSeed, 5) );
-  wallHSV = idxToHSV( ...PATTERNS[activePatternIndex](dummySig, sceneSeed, 6) );
+  bgHSV   = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 5) );
+  wallHSV = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 6) );
 }
 
 /* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
@@ -638,7 +616,7 @@ function evalProp(prop, args = [], fallback = 0){
     }
 
     function setActivePattern(id){
-      activePatternIndex = parseInt(id,10);
+      activePatternId = parseInt(id,10);
       refreshAll({rebuild:false});
     }
     function updateTopRightDisplay(){
@@ -658,11 +636,16 @@ function evalProp(prop, args = [], fallback = 0){
       const fv=pa[map[0]], cv=pa[map[1]],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
       /* --- CÁLCULO de color (cuadrícula) -------------------------------- */
+      let rgb;
+      if(activePatternId === 0){                       // modo legacy
+        rgb = paletteRGB[cv-1] || [255,255,255];
+      }else{
         const sig  = computeSignature(pa);
         const slot = cv - 1;                                   // 0-4
-        const [hI,sI,vI] = PATTERNS[activePatternIndex](sig, sceneSeed, slot);
+        const [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
         const {h,s,v}    = idxToHSV(hI,sI,vI);
-        const rgb        = hsvToRgb(h,s,v);
+        rgb              = hsvToRgb(h,s,v);
+      }
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
         color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
@@ -742,8 +725,6 @@ function evalProp(prop, args = [], fallback = 0){
         sceneSeed = (sceneSeed + lehmerRank(pa) * 37) % 360;
       });
       /* ───────────── FIN bloque semilla ───────────── */
-        currentPermutations = opts.map(o => o.value.split(",").map(Number));
-        currentSceneSeed = sceneSeed;
       opts.forEach((o)=>{
         const pa=o.value.split(',').map(Number),
               obj=createPermutationObject(pa);
@@ -799,11 +780,65 @@ function evalProp(prop, args = [], fallback = 0){
      * 2. Selección de armonía idx = (R+2G+3B) mod 7                     */
 function thirtyFive(){return 35;}
 
+function makeClassicPalette(){
+      /* --- 1. Semilla RGBglobal --- */
+      let Rg=0,Gg=0,Bg=0;
+      permutationGroup.children.forEach(mesh=>{
+        const pa = mesh.userData.permStr.split(',').map(Number);
+        const sig = mesh.userData.signature;            // [f1..f5]
+        const P1=pa[0], P2=pa[1], P3=pa[2];
+        const {x,y,z} = mesh.position;
+        Rg += (P1*Math.abs(x)+sig[0])|0;
+        Gg += (P2*Math.abs(y)+sig[1])|0;
+        Bg += (P3*Math.abs(z)+sig[2])|0;
+      });
+      Rg%=256; Gg%=256; Bg%=256;
+
+      /* --- 2. HSV base --- */
+      const [H0] = rgbToHsv(Rg,Gg,Bg);
+      const idx = (Rg + 2*Gg + 3*Bg) % 7;
+      const Δ = ANG7[idx];
+
+      /* --- 3. Construir 7 tonos HSV --- */
+      const HSV = [];
+      for(let k=0;k<7;k++){
+        let h = (H0 + Δ[k]) % 360,
+            s = 0.70,
+            v = 0.85;
+        if(idx===0){ v = 0.55+0.05*k; }          // monocromo
+        if(idx===2 && k>1){ v = 0.85-0.05*(k-1);} // complementario grad.
+        if(idx===3 && k>2){ s = 0.85-0.05*(k-3);} // comp.dividida grad S
+        if(idx===6){ s = 0.40+0.05*k; }           // tonos
+        HSV.push([h,s,v]);
+      }
+
+      /* --- 4. A HSV → RGB, validar contraste ∆E ≥ 22 --- */
+      paletteRGB=[];
+      for(let i=0;i<7;i++){
+        let rgb=hsvToRgb(...HSV[i]);
+        let tries=0;
+        while(i>0 &&
+              deltaE(rgbToLab(...rgb), rgbToLab(...paletteRGB[0])) <  thirtyFive() &&
+              tries<25){
+          /* si el hue es demasiado parecido => rotar 18°; si no, subir V */
+          if(Math.abs(HSV[i][0]-HSV[0][0])<20){
+            HSV[i][0] = (HSV[i][0]+18)%360;
+          }else{
+            HSV[i][2] = Math.min(1, HSV[i][2]+0.04);
+          }
+          rgb = hsvToRgb(...HSV[i]); tries++;
+        }
+      paletteRGB.push(rgb);
+      }
+    }
 
 function makePalette(){
+  /* modo legacy */
+  if (activePatternId === 0){ makeClassicPalette(); return; }
+
   paletteRGB = [];
   for(let i=0;i<5;i++){
-    const [hI,sI,vI] = PATTERNS[activePatternIndex]([0,0,0,0,0], sceneSeed, i);
+    const [hI,sI,vI] = PATTERNS[activePatternId]([0,0,0,0,0], sceneSeed, i);
     const {h,s,v} = idxToHSV(hI,sI,vI);
     paletteRGB.push( hsvToRgb(h,s,v) );
   }
@@ -830,10 +865,13 @@ function makePalette(){
         let hex;
         if(manualOverride[idx]){
           hex = manualOverride[idx];
+        }else if(activePatternId===0){
+          hex = '#'+new THREE.Color(
+                    ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
         }else{
           const sig  = computeSignature(pa);
           const slot = attributeMapping[1];
-          const [hIdx,sIdx,vIdx] = PATTERNS[activePatternIndex](sig,sceneSeed,slot);
+          const [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
           const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
           const rgb = hsvToRgb(h,s,v);
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
@@ -924,8 +962,8 @@ function makePalette(){
     function generateRandomConfiguration(){
       const sel=document.getElementById('permutationList');
       Array.from(sel.options).forEach(o=>o.selected=false);
-      const cantidad=Math.floor(Math.random()*30)+1;
-      for(let i=0;i<cantidad;i++){
+      const n=Math.floor(Math.random()*30)+1;
+      for(let i=0;i<n;i++){
         const val=permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
         sel.querySelector(`option[value="${val}"]`).selected=true;
       }
@@ -1305,14 +1343,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       renderer.render(scene,camera);
     }
     init();
-    const infoButton = document.createElement("button");
-    infoButton.textContent = "🧠 Información de configuración";
-    infoButton.style.position = "absolute";
-    infoButton.style.top = "10px";
-    infoButton.style.left = "10px";
-    infoButton.style.zIndex = "9999";
-    infoButton.onclick = () => showConfigInfo(currentPermutations, currentSceneSeed);
-    document.body.appendChild(infoButton);
 
     // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
@@ -1352,6 +1382,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
   </script>
+  <button onclick="mostrarInformacion()">Información de la configuración</button>
   <!-- DROPZONE SCRIPT FINAL -->
   <script>
   document.addEventListener("DOMContentLoaded", function() {
@@ -1426,19 +1457,29 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
   });
   </script>
-<script>
-function showConfigInfo(permutations, sceneSeed) {
-  let info = `🧠 Información de Configuración\n\nSceneSeed: ${sceneSeed}\nPatrón activo: ${activePatternIndex + 1}\n\n`;
-  permutations.forEach((perm, i) => {
-    const [hIdx, sIdx, vIdx] = PATTERNS[activePatternIndex](perm, sceneSeed, i);
-    const [h, s, v] = hsvFromIndices(hIdx, sIdx, vIdx);
-    info += `P${i + 1}: ${perm.join("")}\n  HSV idx = [${hIdx}, ${sIdx}, ${vIdx}]\n  HSV = [${h.toFixed(1)}, ${s.toFixed(2)}, ${v.toFixed(2)}]\n\n`;
-  });
-  const fondo = getColorForPermutation(permutations[0], 0, sceneSeed);
-  const cubo = getColorForPermutation(permutations[permutations.length - 1], permutations.length - 1, sceneSeed);
-  info += `Fondo RGB: ${JSON.stringify(fondo)}\nCubo RGB: ${JSON.stringify(cubo)}`;
-  alert(info);
-}
-</script>
+  <script>
+  function mostrarInformacion() {
+    const opts = Array.from(document.getElementById('permutationList').selectedOptions);
+    const currentConfig = opts.map(o => o.value.split(',').map(Number));
+    let info = `Información de la configuración:\n\nSceneSeed = ${sceneSeed}\n\n`;
+    currentConfig.forEach((perm, i) => {
+      const rank = lehmerRank(perm);
+      const shifted = (rank + sceneSeed) % 125;
+      const x = shifted % 5;
+      const y = Math.floor(shifted / 5) % 5;
+      const z = Math.floor(shifted / 25);
+      const sig = computeSignature(perm);
+      const color = PATTERNS[activePatternId](sig, sceneSeed, i);
+      info += `Permutación ${i + 1} [${perm.join(',')}] : Pos (${x},${y},${z}) - HSV [${color.join(',')}]\n`;
+    });
+    const firstSig = currentConfig[0] ? computeSignature(currentConfig[0]) : [0,0,0,0,0];
+    const lastSig  = currentConfig[currentConfig.length - 1] ? computeSignature(currentConfig[currentConfig.length - 1]) : [0,0,0,0,0];
+    const fondo = PATTERNS[activePatternId](firstSig, sceneSeed, currentConfig.length);
+    const cubo  = PATTERNS[activePatternId](lastSig, sceneSeed, currentConfig.length + 1);
+    info += `\nFondo HSV: [${fondo.join(',')}]\n`;
+    info += `Cubo HSV: [${cubo.join(',')}]\n`;
+    alert(info);
+  }
+  </script>
 </body>
 </html>
