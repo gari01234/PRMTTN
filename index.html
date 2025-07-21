@@ -370,101 +370,78 @@ document.getElementById('json-upload').addEventListener('change', function(event
      * Devuelve [hIdx , sIdx , vIdx] — todos enteros                        *
      * ==================================================================== */
     const PATTERNS = {
-
-      /* 1 · CONTENCIÓN ESTRUCTURAL --------------------------------------- */
-      1:(sig,seed,slot)=>{
-          const base = (seed*7) % H_STEPS;
-          if(slot<5) return [ base              , 7 , 2+slot ];
-          if(slot==5) return [ (base+17)%H_STEPS, 6 , 1      ];
-          return           [ (base+34)%H_STEPS, 7 , 3      ];
+      1: (sig, seed, index) => {
+        const base = (sig.reduce((a,b)=>a+b,0) + seed * 13) % 144;
+        const hueOffset = (index * 19 + sig[ index % 5 ]) % 144;
+        const h = (base + hueOffset) % 144;
+        const s = (7 + sig[3] + index) % 12;
+        const v = (6 + sig[1] + sig[4]) % 12;
+        return [h, s, v];
       },
-
-      /* 2 · CONTRASTE & DISONANCIA -------------------------------------- */
-      2:(sig,seed,slot)=>{
-          const r = (slot<5)?slot:(slot-5)*3;
-          return [
-            (sig[0]*11 + seed*3 + r*27) % H_STEPS,
-            (5 + sig[1] + slot) % 12,
-            (4 + sig[2] + r ) % 12
-          ];
+      2: (sig, seed, index) => {
+        const h = (sig[0] * 17 + seed * 5 + index * 39) % 144;
+        const s = (sig[1] + index * 3 + 5) % 12;
+        const v = (sig[2] * 2 + index * 7 + 4) % 12;
+        return [h, s, v];
       },
-
-      /* 3 · DISPOSICIÓN NO SEMÁNTICA ------------------------------------ */
-      3:(sig,seed,slot)=>{
-          const h = (seed*11 + sig[2]*3) % H_STEPS;
-          if(slot<5) return [ h               , 8 , 9 ];
-          if(slot==5) return [ (h+36)%H_STEPS , 5 , 6 ];
-          return           [ (h+72)%H_STEPS , 9 , 8 ];
+      3: (sig, seed, index) => {
+        const base = (sig[2] * 13 + seed * 5) % 144;
+        const h = (base + index * 11) % 144;
+        const s = (sig[0] + index * 2 + seed) % 12;
+        const v = (sig[1] + sig[3] + index) % 12;
+        return [h, s, v];
       },
-
-      /* 4 · AMBIGÜEDAD ESTRUCTURADA ------------------------------------- */
-      4:(sig,seed,slot)=>{
-          const base = (sig[1]*15 + ((seed%3)-1)*7 + H_STEPS) % H_STEPS;
-          if(slot<5){
-            const v = (slot===4)?11:8;
-            return [ base , 7 , v ];
-          }
-          if(slot==5) return [ (base+24)%H_STEPS , 5 , 6 ];
-          return           [ (base+12)%H_STEPS , 8 , 7 ];
+      4: (sig, seed, index) => {
+        const [s0, s1, s2, s3, s4] = sig;
+        const h = (s1 * 15 + seed * 3 + index * 7) % 144;
+        const s = (5 + s0 + index) % 12;
+        const v = (6 + s2 + s4 + seed) % 12;
+        return [h, s, v];
       },
-
-      /* 5 · CAMPO SIN CENTRO ------------------------------------------- */
-      5:(sig,seed,slot)=>{
-          const h = (slot*48 + seed*5 + sig[3]*7) % H_STEPS;    // 48 = 120°
-          if(slot<5) return [ h , 9 , 7 ];
-          if(slot==5) return [ (h+24)%H_STEPS , 6 , 7 ];
-          return           [ (h+12)%H_STEPS , 8 , 8 ];
+      5: (sig, seed, index) => {
+        const h = (index * 31 + sig[3] * 13 + seed * 5) % 144;
+        const s = (8 + sig[1]) % 12;
+        const v = (6 + sig[2] + index) % 12;
+        return [h, s, v];
       },
-
-      /* 6 · PRESENCIA AUTOSUFICIENTE ----------------------------------- */
-      6:(sig,seed,slot)=>{
-          const h = (sig.reduce((a,b)=>a+b,0)*4) % H_STEPS;
-          const v = (slot===4)?11:9;
-          if(slot<5) return [ h , 10 , v ];
-          if(slot==5) return [ (h+36)%H_STEPS , 6 , 6 ];
-          return           [ (h+18)%H_STEPS , 9 , 7 ];
+      6: (sig, seed, index) => {
+        const h = (sig[1] * 31 + seed * 13 + index * 7) % 144;
+        const s = (7 + sig[2] + index) % 12;
+        const v = (9 + sig[3] + sig[4]) % 12;
+        return [h, s, v];
       },
-
-      /* 7 · ASIMETRÍA ASOCIATIVA --------------------------------------- */
-      7:(sig,seed,slot)=>{
-          const h = (seed*4 + slot*36) % H_STEPS;               // 36 = 90°
-          if(slot<5) return [ h , 9 , 7 ];
-          if(slot==5) return [ (h+30)%H_STEPS , 6 , 6 ];
-          return           [ (h+15)%H_STEPS , 9 , 8 ];
+      7: (sig, seed, index) => {
+        const h = (sig[0] * 11 + seed * 3 + index * 37) % 144;
+        const s = (7 + sig[2] + index * 2) % 12;
+        const v = (5 + sig[4] + sig[1] * 2 + index) % 12;
+        return [h, s, v];
       },
-
-      /* 8 · DINÁMICA IRREGULAR ----------------------------------------- */
-      8:(sig,seed,slot)=>{
-          const h = (computeRange(sig)*17) % H_STEPS;           // 17 idx ≈ 42°
-          if(slot<5) return [ h , 9 , 6 ];
-          if(slot==5) return [ (h+24)%H_STEPS , 5 , 5 ];
-          return           [ (h+12)%H_STEPS , 8 , 7 ];
+      8: (sig, seed, index) => {
+        const range = Math.abs(sig[4] - sig[0]) + Math.abs(sig[3] - sig[1]) + sig[2];
+        const h = (range * 13 + index * 19 + seed * 7) % 144;
+        const s = (sig[1] * 3 + seed + index * 2) % 12;
+        const v = (sig[3] + index * 5 + seed * 3) % 12;
+        return [h, s, v];
       },
-
-      /* 9 · HABITABLE SIN TRADUCCIÓN ----------------------------------- */
-      9:(sig,seed,slot)=>{
-          const h = (sig[4]*12 + seed*7) % H_STEPS;
-          if(slot<5) return [ h , 3+slot , 8 ];
-          if(slot==5) return [ (h+18)%H_STEPS , 2 , 5 ];
-          return           [ (h+36)%H_STEPS , 5 , 8 ];
+      9: (sig, seed, index) => {
+        const h = (sig[4] * 12 + seed * 7 + index * 11) % 144;
+        const s = (3 + sig[2] + index) % 12;
+        const v = (8 + sig[1] + index * 2) % 12;
+        return [h, s, v];
       },
-
-      /* 10 · RESONANCIA ------------------------------------------------- */
-     10:(sig,seed,slot)=>{
-          const base = (sig[0]*8 + sig[1]*3 + seed*4) % H_STEPS;
-          const h = (base + ((sig[2]%5)-2)*12 + H_STEPS) % H_STEPS; // ±30°
-          if(slot<5) return [ h , 8 , 9 ];
-          if(slot==5) return [ (h+24)%H_STEPS , 5 , 6 ];
-          return           [ (h+12)%H_STEPS , 8 , 7 ];
-     },
-
-      /* 11 · TRANSPARENCIA ACTIVA -------------------------------------- */
-    11:(sig,seed,slot)=>{
-          const h = (seed*17) % H_STEPS;                         // 17 idx
-          if(slot<5) return [ h , 8 , 3+slot ];                  // V = 3-7
-          if(slot==5) return [ (h+30)%H_STEPS , 5 , 8 ];
-          return           [ (h+60)%H_STEPS , 8 , 9 ];
-    }
+      10: (sig, seed, index) => {
+        const sum = sig.reduce((a,b)=>a+b,0);
+        const h = (seed * 5 + sum * 3 + index * 7) % 144;
+        const s = (sig[2] + 6 + index) % 12;
+        const v = (sig[4] * 2 + index * 3) % 12;
+        return [h, s, v];
+      },
+      11: (sig, seed, index) => {
+        const h = (sig[3] * 13 + seed * 11 + index * 7) % 144;
+        const s = (6 + sig[0] + index) % 12;
+        const v = (3 + sig[1] + index * 2) % 12;
+        return [h, s, v];
+      }
     };
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
@@ -1405,6 +1382,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
   </script>
+  <button onclick="mostrarInformacion()">Información de la configuración</button>
   <!-- DROPZONE SCRIPT FINAL -->
   <script>
   document.addEventListener("DOMContentLoaded", function() {
@@ -1478,6 +1456,30 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
   });
+  </script>
+  <script>
+  function mostrarInformacion() {
+    const opts = Array.from(document.getElementById('permutationList').selectedOptions);
+    const currentConfig = opts.map(o => o.value.split(',').map(Number));
+    let info = `Información de la configuración:\n\nSceneSeed = ${sceneSeed}\n\n`;
+    currentConfig.forEach((perm, i) => {
+      const rank = lehmerRank(perm);
+      const shifted = (rank + sceneSeed) % 125;
+      const x = shifted % 5;
+      const y = Math.floor(shifted / 5) % 5;
+      const z = Math.floor(shifted / 25);
+      const sig = computeSignature(perm);
+      const color = PATTERNS[activePatternId](sig, sceneSeed, i);
+      info += `Permutación ${i + 1} [${perm.join(',')}] : Pos (${x},${y},${z}) - HSV [${color.join(',')}]\n`;
+    });
+    const firstSig = currentConfig[0] ? computeSignature(currentConfig[0]) : [0,0,0,0,0];
+    const lastSig  = currentConfig[currentConfig.length - 1] ? computeSignature(currentConfig[currentConfig.length - 1]) : [0,0,0,0,0];
+    const fondo = PATTERNS[activePatternId](firstSig, sceneSeed, currentConfig.length);
+    const cubo  = PATTERNS[activePatternId](lastSig, sceneSeed, currentConfig.length + 1);
+    info += `\nFondo HSV: [${fondo.join(',')}]\n`;
+    info += `Cubo HSV: [${cubo.join(',')}]\n`;
+    alert(info);
+  }
   </script>
 </body>
 </html>
