@@ -371,48 +371,73 @@ document.getElementById('json-upload').addEventListener('change', function(event
      * ==================================================================== */
 const PATTERNS = {
   1: (sig, seed, index) => {
-    const h = (sig[0] * 17 + index * 31 + seed * 13) % 144;
-    return [h, 11, 11];
+    const h = (sig[0] * 11 + index * 17 + seed * 7) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   2: (sig, seed, index) => {
-    const h = (sig[1] * 23 + seed * 19 + index * 29) % 144;
-    return [h, 11, 11];
+    const h = (sig[1] * 17 + index * 13 + seed * 11) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   3: (sig, seed, index) => {
-    const h = (sig[2] * 31 + index * 11 + seed * 37) % 144;
-    return [h, 11, 11];
+    const h = (sig[2] * 23 + index * 19 + seed * 5) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   4: (sig, seed, index) => {
-    const h = ((sig[0] + sig[3]) * 21 + seed * 17 + index * 13) % 144;
-    return [h, 11, 11];
+    const h = (sig[3] * 29 + index * 11 + seed * 3) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   5: (sig, seed, index) => {
-    const h = ((sig[1] + sig[4]) * 27 + seed * 11 + index * 23) % 144;
-    return [h, 11, 11];
+    const h = (sig[4] * 31 + index * 7 + seed * 13) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   6: (sig, seed, index) => {
-    const h = ((sig[2] + sig[0]) * 19 + seed * 31 + index * 17) % 144;
-    return [h, 11, 11];
+    const sum = sig.reduce((a, b) => a + b, 0);
+    const h = (sum * 7 + index * 29 + seed * 17) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   7: (sig, seed, index) => {
-    const h = ((sig[3] + sig[1]) * 29 + seed * 7 + index * 37) % 144;
-    return [h, 11, 11];
+    const range = Math.max(...sig) - Math.min(...sig);
+    const h = (range * 41 + index * 11 + seed * 23) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   8: (sig, seed, index) => {
-    const h = ((sig[4] + sig[2]) * 13 + seed * 41 + index * 19) % 144;
-    return [h, 11, 11];
+    const mult = sig[0] * sig[1] * sig[2] % 97;
+    const h = (mult + index * 13 + seed * 31) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   9: (sig, seed, index) => {
-    const h = ((sig[0] + sig[1] + sig[4]) * 11 + seed * 23 + index * 29) % 144;
-    return [h, 11, 11];
+    const h = ((sig[2] + sig[4]) * 17 + index * 23 + seed * 19) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   10: (sig, seed, index) => {
-    const h = ((sig[2] + sig[3] + sig[0]) * 17 + seed * 13 + index * 41) % 144;
-    return [h, 11, 11];
+    const h = ((sig[0] + sig[3]) * 13 + index * 31 + seed * 11) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   },
   11: (sig, seed, index) => {
-    const h = ((sig[4] + sig[3] + sig[1]) * 37 + seed * 5 + index * 31) % 144;
-    return [h, 11, 11];
+    const h = ((sig[1] + sig[2] + sig[3]) * 19 + index * 7 + seed * 29) % 144;
+    const s = 11;
+    const v = 11;
+    return [h, s, v];
   }
 };
 
