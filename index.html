@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -352,19 +351,16 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
 
-    /* Paso áureo dentro de la rejilla de 2.5 ° → 55   (137.5°/2.5°) */
-    const GOLD_STEP = Math.round((360 / PHI2) / (360 / H_STEPS)) % H_STEPS;
-
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
     const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = Array(12).fill(1); // S = 1.0 en los 12 niveles
-    const V_LEVELS = Array(12).fill(1); // V = 1.0 en los 12 niveles
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.25+i*0.72/11); // 0.25 – 0.97
+    const V_LEVELS = [...Array(12)].map((_,i)=>0.20+i*0.75/11); // 0.20 – 0.95
 
-    function idxToHSV(hIdx /* sIdx y vIdx ya no se usan */){
+    function idxToHSV(hIdx,sIdx,vIdx){
       return {
-        h : ((hIdx % H_STEPS) + H_STEPS) * (360 / H_STEPS), // 0-360 °
-        s : 1,
-        v : 1
+        h: ( (hIdx%H_STEPS)+H_STEPS ) * 360 / H_STEPS,
+        s: S_LEVELS[ ((sIdx%12)+12)%12 ],
+        v: V_LEVELS[ ((vIdx%12)+12)%12 ]
       };
     }
 
@@ -373,71 +369,71 @@ document.getElementById('json-upload').addEventListener('change', function(event
      * Devuelve [hIdx , sIdx , vIdx] — todos enteros                        *
      * ==================================================================== */
     const PATTERNS = {
-
-/* 1 · Contención estructural */
-      1: (sig, seed, idx) => {
-        const h = (seed*23 + sig[0]*37 + idx*11) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      1: (sig, seed, index) => {
+        const h = (seed * 23 + sig[0] * 37 + index * 11) % 144;
+        const s = (11 + sig[2] + index * 2) % 12;
+        const v = (10 + sig[4] * 2 + index) % 12;
+        return [h, s, v];
       },
-
-/* 2 · Contraste & Disonancia */
-      2: (sig, seed, idx) => {
-        const h = (sig[1]*41 + seed*19 + idx*17) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      2: (sig, seed, index) => {
+        const h = (sig[1] * 41 + seed * 19 + index * 17) % 144;
+        const s = (10 + sig[3] + seed) % 12;
+        const v = (9 + sig[0] * 3 + index) % 12;
+        return [h, s, v];
       },
-
-/* 3 · Disposición no semántica */
-      3: (sig, seed, idx) => {
-        const h = (sig[2]*13 + idx*29 + seed*7) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      3: (sig, seed, index) => {
+        const h = (sig[2] * 13 + index * 29 + seed * 7) % 144;
+        const s = (9 + sig[1] * 2 + index) % 12;
+        const v = (11 + sig[3] + seed) % 12;
+        return [h, s, v];
       },
-
-/* 4 · Ambigüedad estructurada */
-      4: (sig, seed, idx) => {
-        const h = (sig[3]*17 + seed*11 + idx*23) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      4: (sig, seed, index) => {
+        const h = (sig[3] * 17 + seed * 11 + index * 23) % 144;
+        const s = (8 + sig[0] + index * 2) % 12;
+        const v = (10 + sig[2] * 2 + seed) % 12;
+        return [h, s, v];
       },
-
-/* 5 · Campo sin Centro */
-      5: (sig, seed, idx) => {
-        const h = (sig[4]*31 + seed*5 + idx*13) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      5: (sig, seed, index) => {
+        const h = (sig[4] * 31 + seed * 5 + index * 13) % 144;
+        const s = (11 + sig[1] + seed * 2) % 12;
+        const v = (9 + sig[3] + index * 2) % 12;
+        return [h, s, v];
       },
-
-/* 6 · Presencia autosuficiente */
-      6: (sig, seed, idx) => {
-        const h = (sig[0]*29 + seed*7 + idx*19) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      6: (sig, seed, index) => {
+        const h = (sig[0] * 29 + seed * 7 + index * 19) % 144;
+        const s = (10 + sig[4] * 2 + index) % 12;
+        const v = (11 + sig[2] + seed * 3) % 12;
+        return [h, s, v];
       },
-
-/* 7 · Asimetría asociativa */
-      7: (sig, seed, idx) => {
-        const h = (sig[1]*19 + idx*31 + seed*13) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      7: (sig, seed, index) => {
+        const h = (sig[1] * 19 + index * 31 + seed * 13) % 144;
+        const s = (9 + sig[3] + index * 2) % 12;
+        const v = (10 + sig[0] * 2 + seed) % 12;
+        return [h, s, v];
       },
-
-/* 8 · Dinámica irregular */
-      8: (sig, seed, idx) => {
-        const h = (sig[2]*23 + seed*17 + idx*37) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      8: (sig, seed, index) => {
+        const h = (sig[2] * 23 + seed * 17 + index * 37) % 144;
+        const s = (11 + sig[1] * 2 + index) % 12;
+        const v = (8 + sig[4] + seed * 2) % 12;
+        return [h, s, v];
       },
-
-/* 9 · Habitable sin traducción */
-      9: (sig, seed, idx) => {
-        const h = (sig[3]*27 + seed*9 + idx*41) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      9: (sig, seed, index) => {
+        const h = (sig[3] * 27 + seed * 9 + index * 41) % 144;
+        const s = (10 + sig[0] + seed * 2) % 12;
+        const v = (11 + sig[2] + index * 2) % 12;
+        return [h, s, v];
       },
-
-/* 10 · Resonancia */
-     10: (sig, seed, idx) => {
-        const h = (sig[4]*33 + seed*3 + idx*17) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      10: (sig, seed, index) => {
+        const h = (sig[4] * 33 + seed * 3 + index * 17) % 144;
+        const s = (9 + sig[3] + index * 2) % 12;
+        const v = (10 + sig[1] * 2 + seed) % 12;
+        return [h, s, v];
       },
-
-/* 11 · Transparencia activa */
-     11: (sig, seed, idx) => {
-        const h = (sig[0]*39 + seed*13 + idx*7) % H_STEPS;
-        return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+      11: (sig, seed, index) => {
+        const h = (sig[0] * 39 + seed * 13 + index * 7) % 144;
+        const s = (11 + sig[2] + seed) % 12;
+        const v = (9 + sig[4] + index * 2) % 12;
+        return [h, s, v];
       }
     };
 
@@ -644,8 +640,9 @@ function evalProp(prop, args = [], fallback = 0){
         rgb              = hsvToRgb(h,s,v);
       }
       /* --------------------------------------------------------------- */
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255)
+      const mat=new THREE.MeshPhongMaterial({
+        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
+        shininess:50
       });
       const geo=new THREE.BoxGeometry(w,h,t);
       const mesh=new THREE.Mesh(geo,mat);
