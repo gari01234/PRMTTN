@@ -369,74 +369,74 @@ document.getElementById('json-upload').addEventListener('change', function(event
      * slot: 0-4 → glifos 1-5 · 5 → fondo · 6 → paredes                      *
      * Devuelve [hIdx , sIdx , vIdx] — todos enteros                        *
      * ==================================================================== */
-    const PATTERNS = {
-      1: (sig, seed, index) => {
-        const h = (seed * 23 + sig[0] * 37 + index * 11) % 144;
-        const s = (11 + sig[2] + index * 2) % 12;
-        const v = (10 + sig[4] * 2 + index) % 12;
-        return [h, s, v];
-      },
-      2: (sig, seed, index) => {
-        const h = (sig[1] * 41 + seed * 19 + index * 17) % 144;
-        const s = (10 + sig[3] + seed) % 12;
-        const v = (9 + sig[0] * 3 + index) % 12;
-        return [h, s, v];
-      },
-      3: (sig, seed, index) => {
-        const h = (sig[2] * 13 + index * 29 + seed * 7) % 144;
-        const s = (9 + sig[1] * 2 + index) % 12;
-        const v = (11 + sig[3] + seed) % 12;
-        return [h, s, v];
-      },
-      4: (sig, seed, index) => {
-        const h = (sig[3] * 17 + seed * 11 + index * 23) % 144;
-        const s = (8 + sig[0] + index * 2) % 12;
-        const v = (10 + sig[2] * 2 + seed) % 12;
-        return [h, s, v];
-      },
-      5: (sig, seed, index) => {
-        const h = (sig[4] * 31 + seed * 5 + index * 13) % 144;
-        const s = (11 + sig[1] + seed * 2) % 12;
-        const v = (9 + sig[3] + index * 2) % 12;
-        return [h, s, v];
-      },
-      6: (sig, seed, index) => {
-        const h = (sig[0] * 29 + seed * 7 + index * 19) % 144;
-        const s = (10 + sig[4] * 2 + index) % 12;
-        const v = (11 + sig[2] + seed * 3) % 12;
-        return [h, s, v];
-      },
-      7: (sig, seed, index) => {
-        const h = (sig[1] * 19 + index * 31 + seed * 13) % 144;
-        const s = (9 + sig[3] + index * 2) % 12;
-        const v = (10 + sig[0] * 2 + seed) % 12;
-        return [h, s, v];
-      },
-      8: (sig, seed, index) => {
-        const h = (sig[2] * 23 + seed * 17 + index * 37) % 144;
-        const s = (11 + sig[1] * 2 + index) % 12;
-        const v = (8 + sig[4] + seed * 2) % 12;
-        return [h, s, v];
-      },
-      9: (sig, seed, index) => {
-        const h = (sig[3] * 27 + seed * 9 + index * 41) % 144;
-        const s = (10 + sig[0] + seed * 2) % 12;
-        const v = (11 + sig[2] + index * 2) % 12;
-        return [h, s, v];
-      },
-      10: (sig, seed, index) => {
-        const h = (sig[4] * 33 + seed * 3 + index * 17) % 144;
-        const s = (9 + sig[3] + index * 2) % 12;
-        const v = (10 + sig[1] * 2 + seed) % 12;
-        return [h, s, v];
-      },
-      11: (sig, seed, index) => {
-        const h = (sig[0] * 39 + seed * 13 + index * 7) % 144;
-        const s = (11 + sig[2] + seed) % 12;
-        const v = (9 + sig[4] + index * 2) % 12;
-        return [h, s, v];
-      }
-    };
+const PATTERNS = {
+
+/* 1 · Contención estructural */
+  1: (sig, seed, idx) => {
+    const h = (seed*23 + sig[0]*37 + idx*11) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 2 · Contraste & Disonancia */
+  2: (sig, seed, idx) => {
+    const h = (sig[1]*41 + seed*19 + idx*17) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 3 · Disposición no semántica */
+  3: (sig, seed, idx) => {
+    const h = (sig[2]*13 + idx*29 + seed*7) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 4 · Ambigüedad estructurada */
+  4: (sig, seed, idx) => {
+    const h = (sig[3]*17 + seed*11 + idx*23) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 5 · Campo sin Centro */
+  5: (sig, seed, idx) => {
+    const h = (sig[4]*31 + seed*5 + idx*13) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 6 · Presencia autosuficiente */
+  6: (sig, seed, idx) => {
+    const h = (sig[0]*29 + seed*7 + idx*19) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 7 · Asimetría asociativa */
+  7: (sig, seed, idx) => {
+    const h = (sig[1]*19 + idx*31 + seed*13) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 8 · Dinámica irregular */
+  8: (sig, seed, idx) => {
+    const h = (sig[2]*23 + seed*17 + idx*37) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 9 · Habitable sin traducción */
+  9: (sig, seed, idx) => {
+    const h = (sig[3]*27 + seed*9 + idx*41) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 10 · Resonancia */
+ 10: (sig, seed, idx) => {
+    const h = (sig[4]*33 + seed*3 + idx*17) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  },
+
+/* 11 · Transparencia activa */
+ 11: (sig, seed, idx) => {
+    const h = (sig[0]*39 + seed*13 + idx*7) % H_STEPS;
+    return [ (h + idx*GOLD_STEP) % H_STEPS , 11 , 11 ];
+  }
+};
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
 const ANG7 = [
