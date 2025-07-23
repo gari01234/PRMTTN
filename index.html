@@ -357,8 +357,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
     const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = [...Array(12)].map((_,i)=>0.40 + i*0.60/11); // 0.40 – 1.00
-    const V_LEVELS = [...Array(12)].map((_,i)=>0.35 + i*0.60/11); // 0.35 – 0.95
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.20 + i*0.80/11); // 0.20 – 1.00
+    const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + i*0.80/11); // 0.20 – 1.00
 
     function idxToHSV(hIdx,sIdx,vIdx){
       return {
@@ -370,87 +370,40 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ 11 patrones cromáticos — versión PHI_H (89) ═════════ */
 const PATTERNS = {
-  1: (sig, seed, idx) => {
-    const base      = (sig.reduce((a,b)=>a+b,0) + seed * 13) % 144;
-    const hueOffset = (idx * 19 + sig[idx % 5]) % 144;
-    const h = (base + hueOffset * PHI_H) % 144;
-    const s = (sig[3] + seed + idx) % 12;
-    const v = (sig[1] + sig[4] + idx) % 12;
-    return [h, s, v];
-  },
+  1:  (sig,seed,i)=>{const b=(sig.reduce((a,v)=>a+v,0)+seed*13)%144;
+                     const h=(b+(i*19+sig[i%5])*PHI_H)%144;
+                     return [h,(sig[3]+seed+i)%12,(sig[1]+sig[4]+i)%12];},
 
-  2: (sig, seed, idx) => {
-    const h = ((sig[0] * 17 + seed * 5 + idx * 39) * PHI_H) % 144;
-    const s = (sig[1] + idx * 3 + seed) % 12;
-    const v = (sig[2] * 2 + idx * 7 + seed) % 12;
-    return [h, s, v];
-  },
+  2:  (s,seed,i)=>{const b=(s[0]*17+seed*5+i*39)%144;
+                   return [(b+i*PHI_H)%144,(s[1]+i*3+seed)%12,(s[2]*2+i+seed)%12];},
 
-  3: (sig, seed, idx) => {
-    const base = (sig[2] * 13 + seed * 5) % 144;
-    const h    = ((base + idx * 11) * PHI_H) % 144;
-    const s = (sig[0] + idx * 2 + seed) % 12;
-    const v = (sig[1] + sig[3] + idx) % 12;
-    return [h, s, v];
-  },
+  3:  (s,seed,i)=>{const b=(s[2]*13+seed*5+i*11)%144;
+                   return [(b+i*PHI_H)%144,(s[0]+i*2+seed)%12,(s[1]+s[3]+i)%12];},
 
-  4: (sig, seed, idx) => {
-    const h = ((sig[1] * 15 + seed * 3 + idx * 7) * PHI_H) % 144;
-    const s = (sig[0] + seed + idx) % 12;
-    const v = (sig[2] + sig[4] + seed + idx) % 12;
-    return [h, s, v];
-  },
+  4:  (s,seed,i)=>{const b=(s[1]*15+seed*3+i*7)%144;
+                   return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[2]+s[4]+seed+i)%12];},
 
-  5: (sig, seed, idx) => {
-    const h = ((idx * 31 + sig[3] * 13 + seed * 5) * PHI_H) % 144;
-    const s = (sig[1] + seed + idx) % 12;
-    const v = (sig[2] + seed + idx) % 12;
-    return [h, s, v];
-  },
+  5:  (s,seed,i)=>{const b=(i*31+s[3]*13+seed*5)%144;
+                   return [(b+i*PHI_H)%144,(s[1]+seed+i)%12,(s[2]+seed+i)%12];},
 
-  6: (sig, seed, idx) => {
-    const h = ((sig[1] * 31 + seed * 13 + idx * 7) * PHI_H) % 144;
-    const s = (sig[2] + seed + idx) % 12;
-    const v = (sig[3] + sig[4] + seed + idx) % 12;
-    return [h, s, v];
-  },
+  6:  (s,seed,i)=>{const b=(s[1]*31+seed*13+i*7)%144;
+                   return [(b+i*PHI_H)%144,(s[2]+seed+i)%12,(s[3]+s[4]+seed+i)%12];},
 
-  7: (sig, seed, idx) => {
-    const h = ((sig[0] * 11 + seed * 3 + idx * 37) * PHI_H) % 144;
-    const s = (sig[2] + seed + idx * 2) % 12;
-    const v = (sig[4] + sig[1] * 2 + seed + idx) % 12;
-    return [h, s, v];
-  },
+  7:  (s,seed,i)=>{const b=(s[0]*11+seed*3+i*37)%144;
+                   return [(b+i*PHI_H)%144,(s[2]+seed+i*2)%12,(s[4]+s[1]*2+seed+i)%12];},
 
-  8: (sig, seed, idx) => {
-    const range = Math.abs(sig[4] - sig[0]) + Math.abs(sig[3] - sig[1]) + sig[2];
-    const h = ((range * 13 + idx * 19 + seed * 7) * PHI_H) % 144;
-    const s = (sig[1] * 3 + seed + idx * 2) % 12;
-    const v = (sig[3] + idx * 5 + seed * 3) % 12;
-    return [h, s, v];
-  },
+  8:  (s,seed,i)=>{const r=Math.abs(s[4]-s[0])+Math.abs(s[3]-s[1])+s[2];
+                   const b=(r*13+seed*7)%144;
+                   return [(b+i*PHI_H)%144,(s[1]*3+seed+i*2)%12,(s[3]+i*5+seed*3)%12];},
 
-  9: (sig, seed, idx) => {
-    const h = ((sig[4] * 12 + seed * 7 + idx * 11) * PHI_H) % 144;
-    const s = (sig[2] + seed + idx) % 12;
-    const v = (sig[1] + seed + idx * 2) % 12;
-    return [h, s, v];
-  },
+  9:  (s,seed,i)=>{const b=(s[4]*12+seed*7+i*11)%144;
+                   return [(b+i*PHI_H)%144,(s[2]+seed+i)%12,(s[1]+seed+i*2)%12];},
 
- 10: (sig, seed, idx) => {
-    const sum = sig.reduce((a,b)=>a+b,0);
-    const h   = ((seed * 5 + sum * 3 + idx * 7) * PHI_H) % 144;
-    const s = (sig[2] + seed + idx) % 12;
-    const v = (sig[4] * 2 + seed + idx * 3) % 12;
-    return [h, s, v];
-  },
+ 10:  (s,seed,i)=>{const b=(seed*5+s.reduce((a,v)=>a+v,0)*3+i*7)%144;
+                   return [(b+i*PHI_H)%144,(s[2]+seed+i)%12,(s[4]*2+seed+i*3)%12];},
 
- 11: (sig, seed, idx) => {
-    const h = ((sig[3] * 13 + seed * 11 + idx * 7) * PHI_H) % 144;
-    const s = (sig[0] + seed + idx) % 12;
-    const v = (sig[1] + seed + idx * 2) % 12;
-    return [h, s, v];
-  }
+ 11:  (s,seed,i)=>{const b=(s[3]*13+seed*11+i*7)%144;
+                   return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[1]+seed+i*2)%12];}
 };
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
@@ -846,7 +799,7 @@ function makePalette(){
   if (activePatternId === 0){ makeClassicPalette(); return; }
 
   paletteRGB = [];
-  for(let i=0;i<5;i++){
+  for(let i=0;i<12;i++){
     const [hI,sI,vI] = PATTERNS[activePatternId]([0,0,0,0,0], sceneSeed, i);
     const {h,s,v} = idxToHSV(hI,sI,vI);
     paletteRGB.push( hsvToRgb(h,s,v) );
@@ -879,7 +832,7 @@ function makePalette(){
                     ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
         }else{
           const sig  = computeSignature(pa);
-          const slot = attributeMapping[1];
+          const slot = (sig[0] + sig[2]) % 12;
           const [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
           const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
           const rgb = hsvToRgb(h,s,v);
@@ -986,7 +939,7 @@ function makePalette(){
       //   manualOverride[i] = hex;       // y anula la paleta determinista
       // }
       /* ——— garantiza que el color use los 12 atributos en ciclos ——— */
-      attributeMapping[1] = colorAttrCycle % 12;
+      attributeMapping[1] = colorAttrCycle % 5;
       colorAttrCycle++;                               // avanza el ciclo
       document.getElementById('attrMapping').value =
         `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
