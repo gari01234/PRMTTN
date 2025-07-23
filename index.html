@@ -351,7 +351,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let activePatternId = 1;           // arranca en Contención
     const ΔE_MIN = 20;
     const GOLD = 137.50776405003785;      // ángulo áureo
-    const USE_GOLDEN_HUE = true;          // ← interruptor global
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
     /* ——— salto coprimo con 144: barre los 144 valores de H ——— */
@@ -624,10 +623,6 @@ function evalProp(prop, args = [], fallback = 0){
         sI = (sI * PHI_S) % 12;
         vI = (vI * PHI_V) % 12;
         let {h,s,v} = idxToHSV(hI,sI,vI);
-        if (USE_GOLDEN_HUE){
-          const rank = lehmerRank(pa);
-          h = (rank * GOLD + sceneSeed) % 360; // Golden hue
-        }
         /* fuerza un mínimo de viveza */
         s = Math.max(s, 0.60);
         v = Math.max(v, 0.80);
@@ -876,10 +871,6 @@ function makePalette(){
           sIdx = (sIdx * PHI_S) % 12;
           vIdx = (vIdx * PHI_V) % 12;
           let {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
-          if (USE_GOLDEN_HUE){
-            const rank = lehmerRank(pa);
-            h = (rank * GOLD + sceneSeed) % 360; // Golden hue
-          }
           /* fuerza un mínimo de viveza */
           s = Math.max(s, 0.60);
           v = Math.max(v, 0.80);
