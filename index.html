@@ -354,10 +354,12 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const PHI2 = 2.618033988749895;
     /* ——— salto coprimo con 144: barre los 144 valores de H ——— */
     const PHI_H = 89;             // 89 ≡ 144 / φ  (gcd 89,144 = 1)
+    const PHI_S = 5;              // gcd(5,12) = 1
+    const PHI_V = 7;              // gcd(7,12) = 1
 
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
     const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = [...Array(12)].map((_,i)=>0.20 + i*0.80/11); // 0.20 – 1.00
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.15 + i*0.85/11); // 0.15 – 1.00
     const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + i*0.80/11); // 0.20 – 1.00
 
     function idxToHSV(hIdx,sIdx,vIdx){
@@ -604,7 +606,9 @@ function evalProp(prop, args = [], fallback = 0){
       }else{
         const sig  = computeSignature(pa);
         const slot = (sig[0] + sig[2]) % 12;   // 0-11
-        const [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        sI = (sI * PHI_S) % 12;
+        vI = (vI * PHI_V) % 12;
         const {h,s,v}    = idxToHSV(hI,sI,vI);
         rgb              = hsvToRgb(h,s,v);
       }
@@ -833,7 +837,9 @@ function makePalette(){
         }else{
           const sig  = computeSignature(pa);
           const slot = (sig[0] + sig[2]) % 12;
-          const [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
+          let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
+          sIdx = (sIdx * PHI_S) % 12;
+          vIdx = (vIdx * PHI_V) % 12;
           const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
           const rgb = hsvToRgb(h,s,v);
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
