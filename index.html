@@ -606,7 +606,8 @@ function evalProp(prop, args = [], fallback = 0){
         rgb = paletteRGB[cv-1] || [255,255,255];
       }else{
         const sig  = computeSignature(pa);
-        const slot = (sig[0] + sig[2]) % 12;   // 0-11
+        /* slot bien distribuido: rank(perm) mod 12 */
+        const slot = lehmerRank(pa) % 12;      // 0-11
         let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
         /* dispersión coprima en S y V */
         sI = (sI * PHI_S) % 12;
@@ -840,7 +841,7 @@ function makePalette(){
                     ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
         }else{
           const sig  = computeSignature(pa);
-          const slot = (sig[0] + sig[2]) % 12;
+          const slot = lehmerRank(pa) % 12;
           let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
           /* dispersión coprima en S y V */
           sIdx = (sIdx * PHI_S) % 12;
