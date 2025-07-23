@@ -370,50 +370,78 @@ document.getElementById('json-upload').addEventListener('change', function(event
      * Devuelve [hIdx , sIdx , vIdx] — todos enteros                        *
      * ==================================================================== */
 const PATTERNS = {
-1: (sig, seed, index) => {
-const h = (sig[0] * 73 + index * 47 + seed * 31) % 144;
-return [h, 11, 11];
-},
-2: (sig, seed, index) => {
-const h = (sig[1] * 67 + index * 53 + seed * 29) % 144;
-return [h, 11, 11];
-},
-3: (sig, seed, index) => {
-const h = (sig[2] * 61 + index * 59 + seed * 23) % 144;
-return [h, 11, 11];
-},
-4: (sig, seed, index) => {
-const h = (sig[3] * 89 + index * 41 + seed * 17) % 144;
-return [h, 11, 11];
-},
-5: (sig, seed, index) => {
-const h = (sig[4] * 79 + index * 61 + seed * 13) % 144;
-return [h, 11, 11];
-},
-6: (sig, seed, index) => {
-const h = ((sig[0] + sig[1]) * 67 + index * 43 + seed * 19) % 144;
-return [h, 11, 11];
-},
-7: (sig, seed, index) => {
-const h = ((sig[2] + sig[3]) * 59 + index * 37 + seed * 11) % 144;
-return [h, 11, 11];
-},
-8: (sig, seed, index) => {
-const h = ((sig[1] * sig[4] + sig[0]) * 71 + index * 31 + seed * 7) % 144;
-return [h, 11, 11];
-},
-9: (sig, seed, index) => {
-const h = ((sig[2] * sig[0] + sig[3]) * 83 + index * 29 + seed * 5) % 144;
-return [h, 11, 11];
-},
-10: (sig, seed, index) => {
-const h = ((sig[4] * sig[1] + sig[2]) * 97 + index * 23 + seed * 3) % 144;
-return [h, 11, 11];
-},
-11: (sig, seed, index) => {
-const h = ((sig.reduce((a, b) => a + b, 0)) * 101 + index * 19 + seed) % 144;
-return [h, 11, 11];
-}
+  1: (sig, seed, index) => {
+    const base = (sig.reduce((a,b)=>a+b,0) + seed * 13) % 144;
+    const hueOffset = (index * 19 + sig[ index % 5 ]) % 144;
+    const h = (base + hueOffset) % 144;
+    const s = (7 + sig[3] + index) % 12;
+    const v = (6 + sig[1] + sig[4]) % 12;
+    return [h, s, v];
+  },
+  2: (sig, seed, index) => {
+    const h = (sig[0] * 17 + seed * 5 + index * 39) % 144;
+    const s = (sig[1] + index * 3 + 5) % 12;
+    const v = (sig[2] * 2 + index * 7 + 4) % 12;
+    return [h, s, v];
+  },
+  3: (sig, seed, index) => {
+    const base = (sig[2] * 13 + seed * 5) % 144;
+    const h = (base + index * 11) % 144;
+    const s = (sig[0] + index * 2 + seed) % 12;
+    const v = (sig[1] + sig[3] + index) % 12;
+    return [h, s, v];
+  },
+  4: (sig, seed, index) => {
+    const [s0, s1, s2, s3, s4] = sig;
+    const h = (s1 * 15 + seed * 3 + index * 7) % 144;
+    const s = (5 + s0 + index) % 12;
+    const v = (6 + s2 + s4 + seed) % 12;
+    return [h, s, v];
+  },
+  5: (sig, seed, index) => {
+    const h = (index * 31 + sig[3] * 13 + seed * 5) % 144;
+    const s = (8 + sig[1]) % 12;
+    const v = (6 + sig[2] + index) % 12;
+    return [h, s, v];
+  },
+  6: (sig, seed, index) => {
+    const h = (sig[1] * 31 + seed * 13 + index * 7) % 144;
+    const s = (7 + sig[2] + index) % 12;
+    const v = (9 + sig[3] + sig[4]) % 12;
+    return [h, s, v];
+  },
+  7: (sig, seed, index) => {
+    const h = (sig[0] * 11 + seed * 3 + index * 37) % 144;
+    const s = (7 + sig[2] + index * 2) % 12;
+    const v = (5 + sig[4] + sig[1] * 2 + index) % 12;
+    return [h, s, v];
+  },
+  8: (sig, seed, index) => {
+    const range = Math.abs(sig[4] - sig[0]) + Math.abs(sig[3] - sig[1]) + sig[2];
+    const h = (range * 13 + index * 19 + seed * 7) % 144;
+    const s = (sig[1] * 3 + seed + index * 2) % 12;
+    const v = (sig[3] + index * 5 + seed * 3) % 12;
+    return [h, s, v];
+  },
+  9: (sig, seed, index) => {
+    const h = (sig[4] * 12 + seed * 7 + index * 11) % 144;
+    const s = (3 + sig[2] + index) % 12;
+    const v = (8 + sig[1] + index * 2) % 12;
+    return [h, s, v];
+  },
+  10: (sig, seed, index) => {
+    const sum = sig.reduce((a,b)=>a+b,0);
+    const h = (seed * 5 + sum * 3 + index * 7) % 144;
+    const s = (sig[2] + 6 + index) % 12;
+    const v = (sig[4] * 2 + index * 3) % 12;
+    return [h, s, v];
+  },
+  11: (sig, seed, index) => {
+    const h = (sig[3] * 13 + seed * 11 + index * 7) % 144;
+    const s = (6 + sig[0] + index) % 12;
+    const v = (3 + sig[1] + index * 2) % 12;
+    return [h, s, v];
+  }
 };
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
