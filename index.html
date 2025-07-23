@@ -338,6 +338,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
+    let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
     let paletteRGB = [];
     let manualOverride = {1:'#ff0000',2:'#00ff00',3:'#0000ff',4:'#ff00ff',5:'#00ffff'};
     let bgOverride   = null;
@@ -354,8 +355,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
     const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = [...Array(12)].map((_,i)=>0.25+i*0.72/11); // 0.25 – 0.97
-    const V_LEVELS = [...Array(12)].map((_,i)=>0.20+i*0.75/11); // 0.20 – 0.95
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.40 + i*0.60/11); // 0.40 – 1.00
+    const V_LEVELS = [...Array(12)].map((_,i)=>0.35 + i*0.60/11); // 0.35 – 0.95
 
     function idxToHSV(hIdx,sIdx,vIdx){
       return {
@@ -984,6 +985,11 @@ function makePalette(){
       //   const hex = pool.shift();      // se escribía en manualOverride
       //   manualOverride[i] = hex;       // y anula la paleta determinista
       // }
+      /* ——— garantiza que el color use los 5 atributos (slot 0-4) en ciclos ——— */
+      attributeMapping[1] = colorAttrCycle % 5;       // 0,1,2,3,4,0,1…
+      colorAttrCycle++;                               // avanza el ciclo
+      document.getElementById('attrMapping').value =
+        `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
       refreshAll({rebuild:true});
     }
 /**
