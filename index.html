@@ -143,7 +143,6 @@
         <option value="9">9 · Habitable sin traducción</option>
         <option value="10">10 · Resonancia</option>
         <option value="11">11 · Transparencia activa</option>
-        <option value="99">∞ · Espectro completo (golden)</option>
         <option value="0">♻︎ Harmonías clásicas (legacy 7)</option>
       </select>
     </details>
@@ -605,28 +604,16 @@ function evalProp(prop, args = [], fallback = 0){
       let rgb;
       if(activePatternId === 0){                       // modo legacy
         rgb = paletteRGB[cv-1] || [255,255,255];
-      }
-
-      /* ——— 99  → FULL SPECTRUM con ángulo áureo ——— */
-      if(activePatternId === 99){
-        const rank = lehmerRank(pa);                // 0-119
-        const hue  = (rank * GOLD + sceneSeed) % 360;
-        const s    = 0.85;                          // saturado
-        const v    = 0.90;                          // luminoso
-        rgb = hsvToRgb(hue, s, v);
-
-      /* ——— resto de patrones ——— */
       }else{
         const sig  = computeSignature(pa);
-        const slot = lehmerRank(pa) % 12;
+        /* slot bien distribuido: rank(perm) mod 12 */
+        const slot = lehmerRank(pa) % 12;      // 0-11
         let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        /* dispersión coprima en S y V */
         sI = (sI * PHI_S) % 12;
         vI = (vI * PHI_V) % 12;
-        let {h,s,v} = idxToHSV(hI,sI,vI);
-        /* fuerza un mínimo de viveza */
-        s = Math.max(s, 0.60);
-        v = Math.max(v, 0.80);
-        rgb = hsvToRgb(h, s, v);
+        const {h,s,v}    = idxToHSV(hI,sI,vI);
+        rgb              = hsvToRgb(h,s,v);
       }
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
@@ -852,28 +839,14 @@ function makePalette(){
         }else if(activePatternId===0){
           hex = '#'+new THREE.Color(
                     ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
-        }
-
-        /* ——— 99  → FULL SPECTRUM con ángulo áureo ——— */
-        if(activePatternId === 99){
-          const rank = lehmerRank(pa);
-          const hue  = (rank * GOLD + sceneSeed) % 360;
-          const s    = 0.85;
-          const v    = 0.90;
-          const rgb  = hsvToRgb(hue, s, v);
-          hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
-
-        /* ——— resto de patrones ——— */
         }else{
           const sig  = computeSignature(pa);
           const slot = lehmerRank(pa) % 12;
           let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
+          /* dispersión coprima en S y V */
           sIdx = (sIdx * PHI_S) % 12;
           vIdx = (vIdx * PHI_V) % 12;
-          let {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
-          /* fuerza un mínimo de viveza */
-          s = Math.max(s, 0.60);
-          v = Math.max(v, 0.80);
+          const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
           const rgb = hsvToRgb(h,s,v);
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
