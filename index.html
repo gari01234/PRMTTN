@@ -352,6 +352,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
     const ΔE_MIN = 20;
+    
+    // >>> NUEVO:
+    let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
+
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
@@ -607,16 +611,48 @@ function evalProp(prop, args = [], fallback = 0){
       let r=0;
       for(let i=0;i<p.length;i++){
         let c=0;
-        for(let j=i+1;j<p.length;j++) if(p[j]<p[i]) c++; 
+        for(let j=i+1;j<p.length;j++) if(p[j]<p[i]) c++;
         r+=c*FACT[p.length-1-i];
       }
       return r;
     }
+
+    /* ========= NUEVO: sceneSeed orden‑invariante + dependiente del mapping ========= */
+
+    /** Rank del mapping [m0..m4] usando Lehmer rank sobre [m_i+1] (1..5) */
+    function mappingRank(m){
+      const arr = [m[0]+1, m[1]+1, m[2]+1, m[3]+1, m[4]+1];
+      return lehmerRank(arr);
+    }
+
+    /** sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360  (orden‑invariante) */
+    function computeSceneSeedFrom(perms, m){
+      let sumR = 0, sumR2 = 0;
+      perms.forEach(pa=>{
+        const r = lehmerRank(pa);
+        sumR  += r;
+        sumR2 += r*r;
+      });
+      const mRank = mappingRank(m);
+      return (37*sumR + 101*sumR2 + 53*mRank) % 360;
+    }
+
+    /** S = ( Σ (P_{mx}+P_{my}+P_{mz}) ) mod 125  — usa los índices x,y,z del mapping */
+    function computeGlobalS(perms, m){
+      const mx = m[2], my = m[3], mz = m[4];
+      let S = 0;
+      perms.forEach(p=>{
+        S += p[mx] + p[my] + p[mz];
+      });
+      return S % 125;
+    }
     function computeShiftRankXYZ(p){
-      const r=lehmerRank(p);
-      const I=(r+sceneSeed)%125;
-      const x=Math.floor(I/25), y=Math.floor((I%25)/5), z=I%5;
-      const step=cubeSize/5;
+      const r = lehmerRank(p);
+      const I = (r + sceneSeed + S_global) % 125;   // <<< NUEVO: acoplado a S_global
+      const x = Math.floor(I/25),
+            y = Math.floor((I%25)/5),
+            z = I%5;
+      const step = cubeSize/5;
       return [
         (x-2)*step,
         (y-2)*step,
@@ -720,38 +756,47 @@ function evalProp(prop, args = [], fallback = 0){
      */
 
     /** Construye un grupo temporal con un mapping dado, sin tocar la escena real */
-    function buildTempGroup(perms, mapping){
-      const tg = new THREE.Group();
-
-      // Recalcula sceneSeed exactamente igual que updateScene()
-      let tmpSeed = 0;
-      perms.forEach(pa=>{
-        tmpSeed = (tmpSeed * 13 + lehmerRank(pa) * 37) % 360;
-      });
-
-      const prevSeed = sceneSeed;
-      sceneSeed = tmpSeed; // usamos la semilla temporal para posicionar y colorear igual que en la escena final
-
-      perms.forEach(pa=>{
-        const mesh = createPermutationObjectWithMapping(pa, mapping);
-        tg.add(mesh);
-      });
-
-      sceneSeed = prevSeed; // restauramos la global
-      return tg;
-    }
-
-    /** Devuelve el primer mapping (de los 120) que no produce colisiones, o null */
-    function findCollisionFreeMapping(perms){
       const mappings = getAttributeMappings([0,1,2,3,4]);
-      for(const m of mappings){
-        const cm = [m[0], m[1], m[2], m[3], m[4], attributeMapping[5], attributeMapping[6]];
-        const tg = buildTempGroup(perms, cm);
-        if(!checkCollisionsInGroup(tg)) return cm;
-      }
-      return null;
-    }
+function buildTempGroup(perms, mapping){
+  const tg = new THREE.Group();
 
+  // Guardamos estado global
+  const prevSeed = sceneSeed;
+  const prevS    = S_global;
+  const prevMap  = attributeMapping.slice();
+
+  // Calculamos los nuevos valores teóricos
+  const tmpSeed = computeSceneSeedFrom(perms, mapping);
+  const tmpS    = computeGlobalS(perms, mapping);
+
+  // Seteamos temporalmente los globales para que createPermutationObjectWithMapping
+  // use exactamente la misma lógica que la escena final:
+  sceneSeed        = tmpSeed;
+  S_global         = tmpS;
+  attributeMapping = mapping;
+
+  perms.forEach(pa=>{
+    const mesh = createPermutationObjectWithMapping(pa, mapping);
+    tg.add(mesh);
+  });
+
+  // Restauramos
+  sceneSeed        = prevSeed;
+  S_global         = prevS;
+  attributeMapping = prevMap;
+
+  return tg;
+}
+
+function findCollisionFreeMapping(perms){
+  const mappings = getAttributeMappings([0,1,2,3,4]);
+  for(const m of mappings){
+    const cm = [m[0], m[1], m[2], m[3], m[4], attributeMapping[5], attributeMapping[6]];
+    const tg = buildTempGroup(perms, cm);
+    if(!checkCollisionsInGroup(tg)) return cm;
+  }
+  return null;
+}
     /** Selecciona un subconjunto aleatorio de permutaciones (1..25) */
     function pickRandomPerms(){
       const n  = Math.floor(Math.random()*25) + 1;
@@ -835,31 +880,32 @@ function evalProp(prop, args = [], fallback = 0){
       }, dur);
     }
 
-    function updateScene(attemptResolve=true){
-      while(permutationGroup.children.length>0){
-        const o=permutationGroup.children[0];
-        permutationGroup.remove(o);
-        o.geometry.dispose(); o.material.dispose();
-      }
-      const opts=Array.from(document.getElementById('permutationList').selectedOptions);
-      /* ───────────────── nueva «huella» cromática ─────────────────── */
-      sceneSeed = 0;                                      // reinicia
-      opts.forEach(o => {
-        const pa = o.value.split(',').map(Number);        // permutación
-        /*  Lehmer-rank ∈[0,119]  •  37 = primo ⇒ salta pseudo-aleatorio
-            El módulo 360 garantiza cobertura total del círculo.       */
-        sceneSeed = (sceneSeed * 13 + lehmerRank(pa) * 37) % 360;
-      });
-      /* ───────────── FIN bloque semilla ───────────── */
-      opts.forEach((o)=>{
-        const pa=o.value.split(',').map(Number),
-              obj=createPermutationObject(pa);
-        permutationGroup.add(obj);
-      });
-      if(attemptResolve) autoResolveColisionesGlobal();
-      else updateTopRightDisplay();
-    }
 
+function updateScene(attemptResolve=true){
+  // Limpia grupo
+  while(permutationGroup.children.length>0){
+    const o=permutationGroup.children[0];
+    permutationGroup.remove(o);
+    o.geometry.dispose(); o.material.dispose();
+  }
+
+  // Permutaciones activas
+  const opts  = Array.from(document.getElementById('permutationList').selectedOptions);
+  const perms = opts.map(o => o.value.split(',').map(Number));
+
+  // Nueva sceneSeed & S_global (orden-invariante + dependiente del mapping)
+  sceneSeed = computeSceneSeedFrom(perms, attributeMapping);
+  S_global  = computeGlobalS(perms, attributeMapping);
+
+  // Construye objetos
+  perms.forEach(pa=>{
+    const obj = createPermutationObject(pa);
+    permutationGroup.add(obj);
+  });
+
+  if(attemptResolve) autoResolveColisionesGlobal();
+  else updateTopRightDisplay();
+}
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
@@ -1073,7 +1119,8 @@ function makePalette(){
     function toggleTexts(){
       const elems=[
         'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','evolutionAIButton','saveImageButton','exportEmbedButton','triadicConfigButton'
+        'randomConfigButton','evolutionAIButton','saveImageButton',
+        'exportEmbedButton','triadicConfigButton','archDescButton','uploadConfigButton'
       ].map(id=>document.getElementById(id));
       elems.forEach(e=>e.style.display=textsVisible?"none":"block");
       document.getElementById('toggleTextButton').textContent=
@@ -1442,175 +1489,187 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     /* ============================================================
      *  PANEL "Descripción arquitectónica"
      * ============================================================ */
-    function showArchitecturalDescription(){
-      const selOpts  = Array.from(document.getElementById('permutationList').selectedOptions);
-      const permsArr = selOpts.map(o => o.value.split(',').map(Number));
 
-      // --- sceneSeed según tu CÓDIGO actual ---
-      let sceneSeed_code = 0;
-      permsArr.forEach(pa => {
-        sceneSeed_code = (sceneSeed_code * 13 + lehmerRank(pa) * 37) % 360;
-      });
+function showArchitecturalDescription(){
+  const selOpts  = Array.from(document.getElementById('permutationList').selectedOptions);
+  const perms    = selOpts.map(o => o.value.split(',').map(Number));
+  const m        = attributeMapping.slice(0,5);
 
-      // --- sceneSeed según la TEORÍA (suma simple 37*r) ---
-      const sceneSeed_theory = permsArr
-        .reduce((acc, pa)=> acc + 37 * lehmerRank(pa), 0) % 360;
+  // Recalcula con la NUEVA teoría
+  const sceneSeed_new = computeSceneSeedFrom(perms, m);
+  const S_new         = computeGlobalS(perms, m);
+  const mRank         = mappingRank(m);
 
-      let txt = '';
-      txt += '==============================\n';
-      txt += ' DESCRIPCIÓN ARQUITECTÓNICA\n';
-      txt += '==============================\n\n';
+  // Para mostrar fórmula paso a paso
+  let sumR=0, sumR2=0;
+  const ranks = perms.map(p=>lehmerRank(p));
+  ranks.forEach(r=>{ sumR+=r; sumR2+=r*r; });
 
-      // 0) Configuración global
-      txt += `Patrón cromático activo: ${activePatternId}\n`;
-      txt += `Atributo → [forma,color,x,y,z] = [${attributeMapping.slice(0,5).join(', ')}]\n\n`;
+  const step = cubeSize/5;
 
-      // 1) Semilla global
-      txt += '--- 1) Semilla global (sceneSeed) ---------------------------\n';
-      txt += `· Fórmula TEÓRICA: sceneSeed = (Σ 37·rᵤ) mod 360\n`;
-      txt += `· Fórmula en el CÓDIGO: seed = (seed·13 + 37·rᵤ) mod 360, acumulada\n`;
-      txt += `  → sceneSeed (código)  = ${sceneSeed_code}\n`;
-      txt += `  → sceneSeed (teoría)  = ${sceneSeed_theory}\n`;
-      if(sceneSeed_code !== sceneSeed_theory){
-        txt += `  ⚠︎ Diferencia detectada (ver 3.1 de la teoría)\n`;
+  // Construye HTML
+  let html = `
+  <h2>Descripción arquitectónica</h2>
+
+  <section>
+    <h3>1) Semilla global (sceneSeed)</h3>
+    <ul>
+      <li>sumR = Σ rᵤ = <b>${sumR}</b></li>
+      <li>sumR2 = Σ rᵤ² = <b>${sumR2}</b></li>
+      <li>m = [${m.join(', ')}] (forma,color,x,y,z)</li>
+      <li>mRank = LehmerRank([${m.map(v=>v+1).join(', ')}]) = <b>${mRank}</b></li>
+    </ul>
+    <div class="formula">
+      <span class="box">sceneSeed = (37 · sumR + 101 · sumR2 + 53 · mRank) mod 360</span><br>
+      sceneSeed = (37·${sumR} + 101·${sumR2} + 53·${mRank}) mod 360 = <b>${sceneSeed_new}</b>
+    </div>
+  </section>
+
+  <section>
+    <h3>2) Posición (Shift‑Rank acoplado + estructural)</h3>
+    <p>Con m = [${m.join(', ')}] ⇒ índices (x,y,z) = (${m[2]}, ${m[3]}, ${m[4]})</p>
+    <div class="formula">
+      <span class="box">S = (Σ (P<sub>m2</sub> + P<sub>m3</sub> + P<sub>m4</sub>)) mod 125</span><br>
+      S = <b>${S_new}</b>
+    </div>
+    <div class="formula">
+      <span class="box">I = (R + sceneSeed + S) mod 125</span>
+    </div>
+  </section>
+
+  <section>
+    <h3>3) Cromática determinista (retícula HSV)</h3>
+    <ul>
+      <li>H = 144 (ΔH = 2.5°), S = 12 (0.25 → 0.97), V = 12 (0.20 → 0.95)</li>
+      <li>slot = LehmerRank(P) mod 12</li>
+      <li>Aplicamos patrón ${activePatternId} con dispersión coprima: s' = (s·${PHI_S}) mod 12, v' = (v·${PHI_V}) mod 12</li>
+    </ul>
+  </section>
+
+  <hr/>
+  `;
+
+  // Para cada permutación: firma, rango, posición, color
+  perms.forEach((perm, i)=>{
+    const r    = ranks[i];
+    const sig  = computeSignature(perm);
+    const rango= computeRange(sig);
+
+    const I    = (r + sceneSeed_new + S_new) % 125;
+    const x    = Math.floor(I/25);
+    const y    = Math.floor((I%25)/5);
+    const z    = I % 5;
+    const X    = (x-2)*step, Y=(y-2)*step, Z=(z-2)*step;
+
+    // Color
+    const slot = r % 12;
+    let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed_new, slot);
+    const sIdx = (sI * PHI_S) % 12;
+    const vIdx = (vI * PHI_V) % 12;
+    const hsv  = idxToHSV(hI, sIdx, vIdx);
+    let  rgb   = hsvToRgb(hsv.h, hsv.s, hsv.v);
+    rgb        = ensureContrastRGB(rgb);
+    const hex  = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
+
+    html += `
+    <section class="perm">
+      <h4>Permutación ${i+1}: [${perm.join(', ')}]</h4>
+      <div class="formula">
+        <b>Firma</b> F = [${sig.join(', ')}] &nbsp;&nbsp;|&nbsp; Rango = <b>${rango}</b><br>
+        <b>Lehmer-rank</b> r = ${r}
+      </div>
+      <div class="formula">
+        <span class="box">I = (r + sceneSeed + S) mod 125 = (${r} + ${sceneSeed_new} + ${S_new}) mod 125 = <b>${I}</b></span><br>
+        (x,y,z) = (${x}, ${y}, ${z}) &nbsp;&nbsp;→&nbsp;&nbsp; (X,Y,Z) = (${X.toFixed(2)}, ${Y.toFixed(2)}, ${Z.toFixed(2)})
+      </div>
+      <div class="formula">
+        slot = r mod 12 = ${slot}<br>
+        pattern → [hI,sI,vI] = [${hI}, ${sI}, ${vI}]<br>
+        s' = ${sIdx}, v' = ${vIdx}<br>
+        HSV = (${hsv.h.toFixed(2)}°, ${hsv.s.toFixed(2)}, ${hsv.v.toFixed(2)}) → RGB = ${hex}
+      </div>
+    </section>
+    <hr/>
+    `;
+  });
+
+  // Fondo y paredes (slots reservados)
+  const firstSig = perms[0] ? computeSignature(perms[0]) : [0,0,0,0,0];
+  const lastSig  = perms[perms.length-1] ? computeSignature(perms[perms.length-1]) : [0,0,0,0,0];
+
+  const fondoIdx = PATTERNS[activePatternId](firstSig, sceneSeed_new, perms.length);
+  const cuboIdx  = PATTERNS[activePatternId](lastSig,  sceneSeed_new, perms.length+1);
+
+  const fondoHSV = idxToHSV(...fondoIdx);
+  const cuboHSV  = idxToHSV(...cuboIdx);
+
+  html += `
+    <section>
+      <h3>Fondo y paredes</h3>
+      <div class="formula">
+        Fondo (slot = #${perms.length}) → idx = [${fondoIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°, ${fondoHSV.s.toFixed(2)}, ${fondoHSV.v.toFixed(2)})
+      </div>
+      <div class="formula">
+        Cubo  (slot = #${perms.length+1}) → idx = [${cuboIdx.join(', ')}] → HSV = (${cuboHSV.h.toFixed(2)}°, ${cuboHSV.s.toFixed(2)}, ${cuboHSV.v.toFixed(2)})
+      </div>
+    </section>
+
+    <section>
+      <h3>Rotación</h3>
+      <p>ω = mapRangeToSpeed(rango, 2, 6)</p>
+    </section>
+  `;
+
+  renderArchPanel(html);
+}
+
+function renderArchPanel(html){
+  let panel = document.getElementById('archPanel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id = 'archPanel';
+    panel.innerHTML = `
+      <div id="archContent"></div>
+      <button id="archClose">Cerrar</button>
+    `;
+    document.body.appendChild(panel);
+
+    const css = document.createElement('style');
+    css.textContent = `
+      #archPanel{
+        position:fixed; z-index:1000; top:5%; left:50%;
+        transform:translateX(-50%);
+        width:85%; height:90%;
+        background:#fff; color:#000;
+        border:1px solid #333; box-shadow:0 8px 24px rgba(0,0,0,.25);
+        padding:24px 32px 48px; overflow:auto;
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-size:14px; line-height:1.4;
       }
-      txt += '\n';
-
-      // 2) Permutaciones, firma y rango
-      txt += '--- 2) Permutaciones, firma y rango -------------------------\n';
-      txt += 'Definiciones:\n';
-      txt += '  • Firma F = [f1..f5], con fi = P_i + P_{(i+1 mod 5)}\n';
-      txt += '  • Rango   = max(F) - min(F)\n\n';
-      permsArr.forEach((perm, idx)=>{
-        const sig  = computeSignature(perm);
-        const maxF = Math.max(...sig);
-        const minF = Math.min(...sig);
-        const rango = maxF - minF;
-
-        txt += `Perm ${idx+1}:  P = [${perm.join(', ')}]\n`;
-        txt += `  Firma F = [${sig.join(', ')}]  (fi = P[i] + P[(i+1) mod 5])\n`;
-        txt += `  Rango   = ${rango}  = max(${maxF}) - min(${minF})\n`;
-        txt += `  Lehmer-rank r = ${lehmerRank(perm)}\n\n`;
-      });
-
-      // 3) Posición (Shift‑Rank)
-      txt += '--- 3) Posición (Shift‑Rank) --------------------------------\n';
-      txt += 'Teoría:\n';
-      txt += '  R = LehmerRank(P)\n';
-      txt += '  S = (Σ (P₃+P₄+P₅) de la escena) mod 125\n';
-      txt += '  I = (R + S) mod 125\n';
-      txt += '  (x,y,z) = (⌊I/25⌋, ⌊(I mod 25)/5⌋, I mod 5)\n';
-      txt += '  (X,Y,Z) = (x−2, y−2, z−2) × 7.5\n';
-      txt += '\nCódigo actual usado:\n';
-      txt += '  I = (r + sceneSeed) mod 125\n';
-      if(true){ // calculamos S teórico para que se vea
-        const S_theory = (permsArr.reduce((acc,p)=>acc + p[2]+p[3]+p[4],0)) % 125;
-        txt += `  · S(teoría) = ${S_theory}\n\n`;
+      #archClose{
+        position:fixed; right:calc(7.5% + 16px); top:5%;
+        border:none; padding:6px 10px; border-radius:4px;
+        background:#eee; cursor:pointer; z-index:1001;
       }
-
-      const step = cubeSize/5;
-      permsArr.forEach((perm, idx)=>{
-        const r  = lehmerRank(perm);
-        const I_code   = (r + sceneSeed_code) % 125;
-        const x_code   = Math.floor(I_code / 25);
-        const y_code   = Math.floor((I_code % 25) / 5);
-        const z_code   = I_code % 5;
-        const Xc = (x_code-2)*step, Yc = (y_code-2)*step, Zc = (z_code-2)*step;
-
-        // Posición real en escena (por si hay clamp)
-        const o = permutationGroup.children[idx];
-        const realPos = o ? `(${o.position.x.toFixed(2)}, ${o.position.y.toFixed(2)}, ${o.position.z.toFixed(2)})` : '(?)';
-
-        txt += `Perm ${idx+1}:\n`;
-        txt += `  r = ${r}\n`;
-        txt += `  I(código) = (r + sceneSeed) mod 125 = (${r} + ${sceneSeed_code}) mod 125 = ${I_code}\n`;
-        txt += `  (x,y,z) = (${x_code}, ${y_code}, ${z_code})\n`;
-        txt += `  (X,Y,Z) = (${Xc.toFixed(2)}, ${Yc.toFixed(2)}, ${Zc.toFixed(2)})  (step = ${step})\n`;
-        txt += `  Posición real THREE.js ≈ ${realPos}\n\n`;
-      });
-
-      // 4) Color (retícula HSV determinista)
-      txt += '--- 4) Color (retícula HSV determinista) ---------------------\n';
-      txt += '  • Retícula: H=144 (Δ2.5°), S=12 (0.25→0.97), V=12 (0.20→0.95)\n';
-      txt += '  • slot = LehmerRank(P) mod 12\n';
-      txt += '  • [hI,sI,vI] = PATTERNS[patternId](firma, sceneSeed, slot)\n';
-      txt += `  • sI = (sI * PHI_S) % 12  (PHI_S = ${PHI_S})\n`;
-      txt += `  • vI = (vI * PHI_V) % 12  (PHI_V = ${PHI_V})\n`;
-      txt += '  • HSV = idxToHSV(hI,sI,vI)\n';
-      txt += '  • RGB = hsvToRgb(HSV)\n';
-      txt += '  • ensureContrastRGB() ajusta V para ΔE>=22 con el fondo\n\n';
-
-      permsArr.forEach((perm, idx)=>{
-        const sig  = computeSignature(perm);
-        const slot = lehmerRank(perm) % 12;
-
-        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-        const sI2 = (sI * PHI_S) % 12;
-        const vI2 = (vI * PHI_V) % 12;
-
-        const hsv = idxToHSV(hI, sI2, vI2);
-        let rgb   = hsvToRgb(hsv.h, hsv.s, hsv.v);
-        const rgbBefore = rgb.slice();
-        rgb = ensureContrastRGB(rgb);
-        const hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
-
-        txt += `Perm ${idx+1}:\n`;
-        txt += `  slot = rank % 12 = ${slot}\n`;
-        txt += `  PATTERN → [hI,sI,vI] = [${hI}, ${sI}, ${vI}]\n`;
-        txt += `  Dispersión coprima → sI'=${sI2}, vI'=${vI2}\n`;
-        txt += `  idxToHSV → (h=${hsv.h.toFixed(2)}°, s=${hsv.s.toFixed(2)}, v=${hsv.v.toFixed(2)})\n`;
-        txt += `  hsvToRgb → rgb = [${rgbBefore.join(', ')}] → ensureContrast → [${rgb.join(', ')}] → ${hex}\n\n`;
-      });
-
-      // 5) Fondo y paredes
-      const firstSig = permsArr[0] ? computeSignature(permsArr[0]) : [0,0,0,0,0];
-      const lastSig  = permsArr[permsArr.length - 1] ? computeSignature(permsArr[permsArr.length - 1]) : [0,0,0,0,0];
-      const fondoHSVIdx = PATTERNS[activePatternId](firstSig, sceneSeed, permsArr.length);
-      const cuboHSVIdx  = PATTERNS[activePatternId](lastSig,  sceneSeed, permsArr.length + 1);
-      const fondoHSV    = idxToHSV(...fondoHSVIdx);
-      const cuboHSV     = idxToHSV(...cuboHSVIdx);
-
-      txt += '--- 5) Fondo y paredes --------------------------------------\n';
-      txt += `Fondo: slot = #${permsArr.length}\n`;
-      txt += `  idx = [${fondoHSVIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°,${fondoHSV.s.toFixed(2)},${fondoHSV.v.toFixed(2)})\n`;
-      txt += `Paredes: slot = #${permsArr.length + 1}\n`;
-      txt += `  idx = [${cuboHSVIdx.join(', ')}] → HSV = (${cuboHSV.h.toFixed(2)}°,${cuboHSV.s.toFixed(2)},${cuboHSV.v.toFixed(2)})\n\n`;
-
-      // 6) Rotación
-      txt += '--- 6) Rotación ----------------------------------------------\n';
-      txt += '  Velocidad ω = mapRangeToSpeed(rango, 2, 6)\n\n';
-      permutationGroup.children.forEach((o, i)=>{
-        if(!o) return;
-        txt += `Perm ${i+1}: rango=${o.userData.range}, ω=${o.userData.rotationSpeed}\n`;
-      });
-
-      // Render panel flotante
-      renderArchPanel(txt);
-    }
-
-    function renderArchPanel(text){
-      let panel = document.getElementById('archPanel');
-      if(!panel){
-        panel = document.createElement('div');
-        panel.id = 'archPanel';
-        panel.style.cssText = `
-          position:fixed; z-index:1000; top:5%; left:50%; transform:translateX(-50%);
-          width:85%; height:90%; background:#fff; color:#000; border:1px solid #333;
-          box-shadow:0 8px 24px rgba(0,0,0,.25); padding:16px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap;
-        `;
-        const btn = document.createElement('button');
-        btn.textContent = 'Cerrar';
-        btn.style.cssText = 'position:absolute; top:8px; right:8px;';
-        btn.onclick = ()=> panel.remove();
-        const pre = document.createElement('pre');
-        pre.id = 'archPanelText';
-        pre.style.marginTop = '32px';
-        panel.appendChild(btn);
-        panel.appendChild(pre);
-        document.body.appendChild(panel);
+      #archPanel h2{ margin-top:0; }
+      #archPanel .formula{
+        margin:10px 0; padding:8px 10px; background:#f7f7f7; border-left:3px solid #222; font-family:monospace;
       }
-      document.getElementById('archPanelText').textContent = text;
-    }
+      #archPanel .box{
+        display:inline-block; padding:2px 6px; border:1px solid #444; background:#fff; margin-bottom:4px;
+        font-family:monospace;
+      }
+      #archPanel section{ margin-bottom:18px; }
+      #archPanel hr{ border:none; border-top:1px dashed #aaa; margin:18px 0; }
+      #archPanel .perm h4{ margin-bottom:6px; }
+      code, pre{ font-family:monospace; }
+    `;
+    document.head.appendChild(css);
+
+    document.getElementById('archClose').onclick = ()=> panel.remove();
+  }
+  document.getElementById('archContent').innerHTML = html;
+}
     function initCustomCursor(){
       const c=document.getElementById('customCursor');
       window.addEventListener('mousemove',e=>{
