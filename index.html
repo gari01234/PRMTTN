@@ -101,7 +101,7 @@
   <div id="topRightDisplay"></div>
 
   <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
-  <button id="randomConfigButton" onclick="generateRandomConfiguration()">Configuración Aleatoria</button>
+  <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">Configuración Aleatoria</button>
 <button id="triadicConfigButton" onclick="applyTriadicConfiguration()">Configuración Triádica</button>
   <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
   <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
@@ -714,6 +714,104 @@ function evalProp(prop, args = [], fallback = 0){
       } else {
         showPopup("No se encontró reorganización sin colisiones.",7000);
       }
+    }
+
+    /* ============================================================
+     *  MONTE-CARLO: buscar una escena aleatoria SIN colisiones
+     *  ============================================================
+     */
+
+    /** Construye un grupo temporal con un mapping dado, sin tocar la escena real */
+    function buildTempGroup(perms, mapping){
+      const tg = new THREE.Group();
+
+      // Recalcula sceneSeed exactamente igual que updateScene()
+      let tmpSeed = 0;
+      perms.forEach(pa=>{
+        tmpSeed = (tmpSeed * 13 + lehmerRank(pa) * 37) % 360;
+      });
+
+      const prevSeed = sceneSeed;
+      sceneSeed = tmpSeed; // usamos la semilla temporal para posicionar y colorear igual que en la escena final
+
+      perms.forEach(pa=>{
+        const mesh = createPermutationObjectWithMapping(pa, mapping);
+        tg.add(mesh);
+      });
+
+      sceneSeed = prevSeed; // restauramos la global
+      return tg;
+    }
+
+    /** Devuelve el primer mapping (de los 120) que no produce colisiones, o null */
+    function findCollisionFreeMapping(perms){
+      const mappings = getAttributeMappings([0,1,2,3,4]);
+      for(const m of mappings){
+        const cm = [m[0], m[1], m[2], m[3], m[4], attributeMapping[5], attributeMapping[6]];
+        const tg = buildTempGroup(perms, cm);
+        if(!checkCollisionsInGroup(tg)) return cm;
+      }
+      return null;
+    }
+
+    /** Selecciona un subconjunto aleatorio de permutaciones (1..25) */
+    function pickRandomPerms(){
+      const n  = Math.floor(Math.random()*25) + 1;
+      const out = [];
+      for(let i=0;i<n;i++){
+        const str = permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
+        out.push(str.split(',').map(Number));
+      }
+      return out;
+    }
+
+    /**
+     * Búsqueda iterativa:
+     *  - elige un set aleatorio de permutaciones
+     *  - prueba todos los mappings
+     *  - si alguno no choca, lo aplica y termina
+     *
+     * No bloquea la UI gracias al pequeño await en cada iteración.
+     */
+    async function generateRandomConfigurationNoCollision(MAX_TRIES = 200){
+      for(let t=0; t<MAX_TRIES; t++){
+        showPopup(`Buscando configuración sin colisiones… (intento ${t+1})`, 500);
+        const perms   = pickRandomPerms();
+        const mapping = findCollisionFreeMapping(perms);
+
+        if(mapping){
+          // 1) pon las perms en el <select>
+          const sel = document.getElementById('permutationList');
+          Array.from(sel.options).forEach(o => o.selected = false);
+          perms.forEach(p=>{
+            const val = p.join(',');
+            const opt = sel.querySelector(`option[value="${val}"]`);
+            if(opt) opt.selected = true;
+          });
+
+          // 2) aplica el mapping encontrado
+          attributeMapping = mapping;
+
+          // si quieres mantener tu “ciclo” del atributo color, lo dejamos igual:
+          attributeMapping[1] = colorAttrCycle % 5;
+          colorAttrCycle++;
+
+          document.getElementById('attrMapping').value =
+            `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
+
+          // 3) reconstruye escena completa
+          refreshAll({rebuild:true});
+
+          showPopup("¡Configuración sin colisiones encontrada!", 2000);
+          return true;
+        }
+
+        // cede el hilo: no congeles la UI
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      showPopup("No se encontró configuración sin colisiones tras varios intentos.", 4000);
+      return false;
     }
 
     function showPopup(msg,dur=2000){
