@@ -11,91 +11,130 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: #ffffff;
-      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-      font-weight: 200;
-      font-size: 12px;
-      cursor: none;
-    }
-    #customCursor {
-      position: fixed;
-      width: 12px; height: 12px;
-      border-radius: 50%;
-      background: #000;
-      border: 1px solid #fff;
-      pointer-events: none; z-index: 300;
-      transform: translate(-50%, -50%);
-    }
-    #topRightDisplay {
-      position: fixed; top: 5px; right: 10px; z-index: 280;
-      color: #000; font-size: 12px; line-height: 1.2;
-    }
-    button{
-      cursor:none;
-      border:none;
-      border-radius:4px;
-      padding:8px 12px;
-      font-size:12px;
-      z-index:250;
-      background:rgba(255,255,255,0.12);   /* antes 0.8 → ahora igual que los paneles */
-      transition:background 0.2s;
-    }
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: #ffffff;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 200;
+    font-size: 12px;
+    cursor: none;
+  }
+  #customCursor {
+    position: fixed;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #000;
+    border: 1px solid #fff;
+    pointer-events: none; z-index: 300;
+    transform: translate(-50%, -50%);
+  }
+  /* HUD eliminado */
+  #topRightDisplay{
+    display:none !important;
+  }
+  button{
+    cursor:none;
+    border:none;
+    border-radius:4px;
+    padding:8px 12px;
+    font-size:12px;
+    z-index:250;
+    background:rgba(255,255,255,0.12);
+    transition:background 0.2s;
+  }
+  button:hover{
+    background:rgba(255,255,255,0.20);
+  }
 
-    /* un pequeño realce al pasar el cursor (opcional) */
-    button:hover{
-      background:rgba(255,255,255,0.20);
-    }
-    /* === NUEVO LAYOUT DE BOTONES FIJOS (sin empalmes) === */
-    #toggleTextButton      { position:fixed; right:10px; bottom: 10px;  }
-    #uploadConfigButton    { position:fixed; right:10px; bottom: 40px;  }
-    #randomConfigButton    { position:fixed; right:10px; bottom: 70px;  }
-    #evolutionAIButton     { position:fixed; right:10px; bottom:100px;  }
-    #saveImageButton       { position:fixed; right:10px; bottom:130px;  }
-    #exportEmbedButton     { position:fixed; right:10px; bottom:160px;  }
-    #archDescButton        { position:fixed; right:10px; bottom:190px;  }
+  /* === LAYOUT (orden nuevo) === */
+  #toggleTextButton      { position:fixed; right:10px; bottom: 10px;  }
+  #uploadConfigButton    { position:fixed; right:10px; bottom: 40px;  }
+  #saveImageButton       { position:fixed; right:10px; bottom: 70px;  }
+  #exportEmbedButton     { position:fixed; right:10px; bottom:100px;  }
+  #buildButton           { position:fixed; right:10px; bottom:130px;  } /* antes archDescButton */
+  #randomConfigButton    { position:fixed; right:10px; bottom:160px;  } /* ahora encima de BUILD */
+  #perm120Button         { position:fixed; right:10px; bottom:190px;  }
+  #evolutionAIButton     { position:fixed; right:10px; bottom:220px;  }
 
-    /* Ocultar los que no queremos ver ahora */
-    #btnDebugColors,
-    #triadicConfigButton{
-      display:none !important;
-    }
-    #controls {
-      position: absolute; top: 10px; left: 10px; z-index: 100;
-      padding: 10px; border-radius: 5px;
-      background: rgba(255,255,255,0.12); max-width: 350px;
-    }
-    details {
-      margin-bottom: 10px;
-      background: rgba(255,255,255,0.06);
-    }
-    details summary { font-weight: 200; cursor: pointer; }
-    details summary:hover { color: #333; }
-    select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
-    #permutationList { width: 100%; height: 100px; }
-    #ratingContainer {
-      position: fixed; bottom:230px; right: 10px; z-index:260;
-      font-size:12px;
-    }
-    #ratingLabels, #ratingDots { display:flex; justify-content:space-between; }
-    .ratingBtn { font-size:20px; cursor:none; color:#000; }
-    #hoverPopup {
-      position:absolute; padding:5px 10px;
-      background:rgba(0,0,0,0.7); color:#fff;
-      border-radius:4px; pointer-events:none;
-      font-size:12px; display:none; opacity:0;
-      transition:opacity .3s; z-index:200;
-    }
-/* ——— BLOQUES OCULTOS (se pueden volver a mostrar quitando esta regla) ——— */
-#modeBlock,
-#nftBlock,
-#secretBlock,
-#ratingContainer{
-  display:none;
-}
+  #saveImageButton { background:rgba(255,255,255,0.2); }
 
+  /* Ocultar los no usados */
+  #btnDebugColors,
+  #triadicConfigButton{
+    display:none !important;
+  }
+
+  #controls {
+    position: absolute; top: 10px; left: 10px; z-index: 100;
+    padding: 10px; border-radius: 5px;
+    background: rgba(255,255,255,0.12); max-width: 350px;
+  }
+  details {
+    margin-bottom: 10px;
+    background: rgba(255,255,255,0.06);
+  }
+  details summary { font-weight: 200; cursor: pointer; }
+  details summary:hover { color: #333; }
+  select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
+  #permutationList { width: 100%; height: 100px; }
+
+  /* rating oculto */
+  #ratingContainer{
+    display:none !important;
+  }
+
+  #hoverPopup {
+    position:absolute; padding:5px 10px;
+    background:rgba(0,0,0,0.7); color:#fff;
+    border-radius:4px; pointer-events:none;
+    font-size:12px; display:none; opacity:0;
+    transition:opacity .3s; z-index:200;
+  }
+
+  #modeBlock,
+  #nftBlock,
+  #secretBlock{
+    display:none;
+  }
+
+  /* Panel BUILD */
+  #archPanel{
+    position:fixed; z-index:1000; top:5%; left:50%;
+    transform:translateX(-50%);
+    width:85%; height:90%;
+    background:#fff; color:#000;
+    border:1px solid #333; box-shadow:0 8px 24px rgba(0,0,0,.25);
+    padding:24px 32px 48px; overflow:auto;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size:14px; line-height:1.4;
+  }
+  #archClose{
+    position:fixed; right:calc(7.5% + 16px); top:5%;
+    border:none; padding:6px 10px; border-radius:4px;
+    background:#eee; cursor:pointer; z-index:1001;
+  }
+  #archPanel h2{ margin-top:0; }
+  #archPanel .formula{
+    margin:10px 0; padding:8px 10px; background:#f7f7f7; border-left:3px solid #222; font-family:monospace;
+  }
+  #archPanel .box{
+    display:inline-block; padding:2px 6px; border:1px solid #444; background:#fff; margin-bottom:4px;
+    font-family:monospace;
+  }
+  #archPanel section{ margin-bottom:18px; }
+  #archPanel hr{ border:none; border-top:1px dashed #aaa; margin:18px 0; }
+  #archPanel .perm h4{ margin-bottom:6px; }
+  code, pre{ font-family:monospace; }
+
+  /* Panel 120 perms */
+  #perm120Panel{
+    position:fixed; right:10px; bottom:260px; z-index:260;
+    background:rgba(255,255,255,0.12);
+    padding:8px 10px; border-radius:4px; width:220px; display:none;
+  }
+  #perm120Panel label{ display:block; margin-bottom:6px; }
+  #perm120Panel select, #perm120Panel button{ width:100%; margin-top:4px; }
   </style>
 </head>
 <body>
@@ -104,19 +143,35 @@
 
   <input type="file" id="json-upload" accept=".json" style="display:none;" />
 
-  <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
-  <button id="uploadConfigButton" onclick="document.getElementById('json-upload').click()">Subir Configuración</button>
-  <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">Configuración Aleatoria</button>
-<button id="triadicConfigButton" onclick="applyTriadicConfiguration()">Configuración Triádica</button>
-  <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
-  <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
-  <button id="exportEmbedButton" onclick="exportEmbed()">Guardar</button>
-  <button id="archDescButton" onclick="showArchitecturalDescription()">Descripción arquitectónica</button>
+  <button id="toggleTextButton"   onclick="toggleTexts()">Hide UI</button>
+  <button id="uploadConfigButton" onclick="document.getElementById('json-upload').click()">Load JSON</button>
+  <button id="saveImageButton"    onclick="saveImage()">Save Image (A2)</button>
+  <button id="exportEmbedButton"  onclick="exportEmbed()">Save JSON</button>
+  <button id="buildButton"        onclick="showArchitecturalDescription()">BUILD</button>
+  <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">Random Build</button>
+  <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
+  <button id="evolutionAIButton"  onclick="applyEvolutionAI()">AI Evolution</button>
   <button id="btnDebugColors"
-          style="position:fixed;bottom:180px;right:10px;z-index:260;"
+          style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
           onclick="mostrarDebugColores()">
-    Debug Colores
+    Debug Colors
   </button>
+
+  <!-- Panel controles 120 perms -->
+  <div id="perm120Panel">
+    <label>Auto‑advance every:</label>
+    <select id="perm120Interval">
+      <option value="5000">5 seconds</option>
+      <option value="30000">30 seconds</option>
+      <option value="300000">5 minutes</option>
+      <option value="3600000">1 hour</option>
+    </select>
+    <button onclick="playPerm120()">Play</button>
+    <button onclick="pausePerm120()">Pause</button>
+    <button onclick="prevPerm120()">Prev</button>
+    <button onclick="nextPerm120()">Next</button>
+    <div id="perm120Status" style="margin-top:6px;font-size:11px;">Index: 0 / 119</div>
+  </div>
 
   <div id="ratingContainer">
     <details open>
@@ -135,96 +190,98 @@
   </div>
 
   <div id="controls">
-    <details id="modeBlock" open>
-      <summary>Modo de Operación</summary>
-      <label><input type="radio" name="mode" value="manual" checked onchange="setMode(this.value)"> Manual</label>
-      <label><input type="radio" name="mode" value="evolution" onchange="setMode(this.value)"> Evolutivo</label>
+  <details open>
+    <summary>Chromatic Pattern</summary>
+    <select id="patternSelect" onchange="setActivePattern(this.value)">
+      <option value="1">1 · Structural Containment</option>
+      <option value="2">2 · Contrast &amp; Dissonance</option>
+      <option value="3">3 · Non-semantic Disposition</option>
+      <option value="4">4 · Structured Ambiguity</option>
+      <option value="5">5 · Field without Center</option>
+      <option value="6">6 · Self-sufficient Presence</option>
+      <option value="7">7 · Associative Asymmetry</option>
+      <option value="8">8 · Irregular Dynamics</option>
+      <option value="9">9 · Habitable without Translation</option>
+      <option value="10">10 · Resonance</option>
+      <option value="11">11 · Active Transparency</option>
+      <option value="0">♻︎ Classic Harmonies (legacy)</option>
+    </select>
+  </details>
+
+  <div id="manualControls">
+    <details>
+      <summary>Select Permutations</summary>
+      <select id="permutationList" multiple></select>
+      <button onclick="refreshAll({rebuild:true})">Render</button>
     </details>
+  </div>
+
+  <div id="evolutionControls" style="display:none;">
     <details open>
-      <summary>Patrón cromático</summary>
-      <select id="patternSelect" onchange="setActivePattern(this.value)">
-        <option value="1">1 · Contención estructural</option>
-        <option value="2">2 · Contraste &amp; Disonancia</option>
-        <option value="3">3 · Disposición no semántica</option>
-        <option value="4">4 · Ambigüedad estructurada</option>
-        <option value="5">5 · Campo sin Centro</option>
-        <option value="6">6 · Presencia autosuficiente</option>
-        <option value="7">7 · Asimetría asociativa</option>
-        <option value="8">8 · Dinámica irregular</option>
-        <option value="9">9 · Habitable sin traducción</option>
-        <option value="10">10 · Resonancia</option>
-        <option value="11">11 · Transparencia activa</option>
-        <option value="0">♻︎ Harmonías clásicas (legacy 7)</option>
-      </select>
+      <summary>Evolution Parameters</summary>
+      <p>Mutation Rate: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
+      <p>Change Threshold: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
+      <button onclick="applyEvolution()">Apply Evolution</button>
+      <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
     </details>
-    <div id="manualControls">
-      <details>
-        <summary>Seleccionar Permutaciones</summary>
-        <select id="permutationList" multiple></select>
-        <button onclick="refreshAll({rebuild:true})">Visualizar Permutación</button>
-      </details>
-    </div>
-    <div id="evolutionControls" style="display:none;">
-      <details open>
-        <summary>Parámetros Evolutivos</summary>
-        <p>Tasa de Mutación: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
-        <p>Umbral de Cambio: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
-        <button onclick="applyEvolution()">Aplicar Evolución</button>
-        <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
-      </details>
-    </div>
-    <details>
-      <summary>Seleccionar Colores Permutaciones</summary>
+  </div>
 
-      <div><label>1: <input type="color" id="color1" onchange="onColourPick(1,this.value)"></label></div>
-      <div><label>2: <input type="color" id="color2" onchange="onColourPick(2,this.value)"></label></div>
-      <div><label>3: <input type="color" id="color3" onchange="onColourPick(3,this.value)"></label></div>
-      <div><label>4: <input type="color" id="color4" onchange="onColourPick(4,this.value)"></label></div>
-      <div><label>5: <input type="color" id="color5" onchange="onColourPick(5,this.value)"></label></div>
+  <details>
+    <summary>Manual Colors (override)</summary>
+    <div><label>1: <input type="color" id="color1" onchange="onColourPick(1,this.value)"></label></div>
+    <div><label>2: <input type="color" id="color2" onchange="onColourPick(2,this.value)"></label></div>
+    <div><label>3: <input type="color" id="color3" onchange="onColourPick(3,this.value)"></label></div>
+    <div><label>4: <input type="color" id="color4" onchange="onColourPick(4,this.value)"></label></div>
+    <div><label>5: <input type="color" id="color5" onchange="onColourPick(5,this.value)"></label></div>
+    <button id="btnResetAll" style="margin-top:6px;" onclick="resetAllColours()">
+      Reset Background + Walls + Colors
+    </button>
+  </details>
 
-      <!-- nuevo: botón interno -->
-      <button id="btnResetAll" style="margin-top:6px;" onclick="resetAllColours()">
-        Resetear Fondo + Paredes + Colores
-      </button>
-    </details>
-    <details>
-      <summary>Seleccionar Fondo del Universo</summary>
-      <input type="color" id="bgColor" value="#ffffff">
-      <button onclick="updateBackground()">Actualizar Fondo</button>
-    </details>
-    <details>
-      <summary>Seleccionar Color de Pared del Cubo</summary>
-      <input type="color" id="cubeColor" value="#808080">
-      <button onclick="updateCubeColor()">Actualizar Paredes</button>
-    </details>
-    <!-- <button id="btnResetAll" onclick="resetAllColours()">Resetear Fondo + Paredes + Colores</button> -->
-    <details>
-      <summary>Reorganización de Atributos</summary>
-      <select id="attrMapping"></select>
-      <button onclick="updateMapping()">Aplicar Reorganización</button>
-      <button onclick="autoResolveColisionesGlobal()">Resolver Colisiones</button>
-    </details>
-    <details>
-      <summary>Vistas Estándar</summary>
-      <select id="standardView">
-        <option value="isometric">Isométrica</option>
-        <option value="top">Superior</option>
-        <option value="front">Frontal</option>
-        <option value="side">Lateral</option>
-        <option value="diagonal">Diagonal opuesta</option>
-      </select>
-      <button onclick="applyStandardView()">Aplicar Vista</button>
-    </details>
-    <details>
-      <summary>Controles de Zoom</summary>
-      <button onclick="zoomIn()">Zoom In</button>
-      <button onclick="zoomOut()">Zoom Out</button>
-    </details>
-    <details>
-      <summary>Controles de Movimiento</summary>
-      <button onclick="togglePause()">Pausar Movimiento</button>
-      <button onclick="resetMovement()">Resetear Movimiento</button>
-    </details>
+  <details>
+    <summary>Background</summary>
+    <input type="color" id="bgColor" value="#ffffff">
+    <button onclick="updateBackground()">Apply Background</button>
+  </details>
+
+  <details>
+    <summary>Cube Walls Color</summary>
+    <input type="color" id="cubeColor" value="#808080">
+    <button onclick="updateCubeColor()">Apply Cube Walls</button>
+  </details>
+
+  <details>
+    <summary>Attributes Reorganization</summary>
+    <select id="attrMapping"></select>
+    <button onclick="updateMapping()">Apply</button>
+    <button onclick="autoResolveColisionesGlobal()">Resolve Collisions</button>
+  </details>
+
+  <details>
+    <summary>Standard Views</summary>
+    <select id="standardView">
+      <option value="isometric">Isometric</option>
+      <option value="top">Top</option>
+      <option value="front" selected>Front</option>
+      <option value="side">Side</option>
+      <option value="diagonal">Opposite diagonal</option>
+    </select>
+    <button onclick="applyStandardView()">Apply View</button>
+  </details>
+
+  <details>
+    <summary>Zoom Controls</summary>
+    <button onclick="zoomIn()">Zoom In</button>
+    <button onclick="zoomOut()">Zoom Out</button>
+  </details>
+
+  <details>
+    <summary>Motion Controls</summary>
+    <button onclick="togglePause()">Pause Motion</button>
+    <button onclick="resetMovement()">Reset Motion</button>
+  </details>
+</div>
+
 <details id="nftBlock">
   <summary>⋆ NFT</summary>
   <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
@@ -240,48 +297,70 @@ document.getElementById('json-upload').addEventListener('change', function(event
     try {
       const config = JSON.parse(e.target.result);
 
+      // Permutations
       if (config.perms && Array.isArray(config.perms)) {
         const sel = document.getElementById('permutationList');
         Array.from(sel.options).forEach(o => o.selected = config.perms.includes(o.value));
       }
 
+      // Mapping
       if (config.mapping) {
         const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
         document.getElementById('attrMapping').value = v.join(',');
+        attributeMapping = [v[0], v[1], v[2], v[3], v[4], attributeMapping[5], attributeMapping[6]];
       }
 
+      // Pattern
+      if (typeof config.pattern === 'number') {
+        activePatternId = config.pattern;
+        const selPattern = document.getElementById('patternSelect');
+        if (selPattern) selPattern.value = String(config.pattern);
+      }
+
+      // Manual colors
       if (config.colors) {
+        manualOverride = {};
         Object.entries(config.colors).forEach(([i, c]) => {
-          manualOverride[i] = c;
+          manualOverride[Number(i)] = c;
         });
       }
 
+      // BG / cube
       if (config.bg) {
         document.getElementById('bgColor').value = config.bg;
+        bgOverride = config.bg;
       }
-
       if (config.cube) {
         document.getElementById('cubeColor').value = config.cube;
+        cubeOverride = config.cube;
       }
 
-      if (config.view) {
-        document.getElementById('standardView').value = config.view;
+      // Scene invariants (optional)
+      if (typeof config.sceneSeed === 'number') {
+        sceneSeed = config.sceneSeed;
+      }
+      if (typeof config.S_global === 'number') {
+        S_global = config.S_global;
       }
 
-      updateMapping();
+      // View
+      const view = config.view || "front";
+      document.getElementById('standardView').value = view;
+
+      // Rebuild
+      refreshAll({rebuild:true, keepManual:true});
       applyStandardView();
-      refreshAll({rebuild:true});
 
-      alert('Configuración cargada correctamente');
+      alert('JSON loaded successfully');
     } catch (err) {
-      alert('Error al cargar el JSON: ' + err.message);
+      alert('Error loading JSON: ' + err.message);
     }
   };
   reader.readAsText(file);
 });
 </script>
-    
-    <details id="secretBlock" open>
+
+<details id="secretBlock" open>
   <summary>📁 Añadir Archivo Secreto</summary>
   <div id="dropzone" style="padding:10px;border:2px dashed #ccc;background:#f9f9f9;margin-top:10px;text-align:center;cursor:pointer;transition:border-color 0.2s;">
     <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
@@ -291,7 +370,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     <p id="cidOutput" style="word-break:break-all;font-size:11px;"></p>
   </div>
 </details>
-  </div>
 
   <div id="hoverPopup"></div>
 
@@ -750,6 +828,49 @@ function evalProp(prop, args = [], fallback = 0){
       }
     }
 
+/* ==============================
+ * 120 Architectural Permutations
+ * ============================== */
+let perm120List = getAttributeMappings([0,1,2,3,4]); // 120
+let perm120Index = 0;
+let perm120Timer = null;
+
+function togglePerm120Panel(){
+  const p = document.getElementById('perm120Panel');
+  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+}
+
+function applyPerm120Index(i){
+  perm120Index = ((i % perm120List.length) + perm120List.length) % perm120List.length;
+  const m = perm120List[perm120Index];
+  // keep bg/wall slots
+  attributeMapping = [m[0], m[1], m[2], m[3], m[4], attributeMapping[5], attributeMapping[6]];
+  document.getElementById('attrMapping').value = m.join(',');
+  refreshAll({rebuild:true});
+  const stat = document.getElementById('perm120Status');
+  if(stat) stat.textContent = `Index: ${perm120Index} / 119`;
+}
+
+function nextPerm120(){
+  applyPerm120Index(perm120Index + 1);
+}
+function prevPerm120(){
+  applyPerm120Index(perm120Index - 1);
+}
+
+function playPerm120(){
+  if(perm120Timer) return;
+  const interval = parseInt(document.getElementById('perm120Interval').value, 10) || 5000;
+  perm120Timer = setInterval(nextPerm120, interval);
+  nextPerm120();
+}
+function pausePerm120(){
+  if(perm120Timer){
+    clearInterval(perm120Timer);
+    perm120Timer = null;
+  }
+}
+
     /* ============================================================
      *  MONTE-CARLO: buscar una escena aleatoria SIN colisiones
      *  ============================================================
@@ -929,21 +1050,59 @@ function updateScene(attemptResolve=true){
     function togglePause(){
       isPaused=!isPaused;
       const b=document.querySelector("button[onclick='togglePause()']");
-      b.textContent=isPaused?"Reanudar Movimiento":"Pausar Movimiento";
+      b.textContent=isPaused?"Resume Motion":"Pause Motion";
     }
     function resetMovement(){
       updateScene(false);
       isPaused=true;
       const b=document.querySelector("button[onclick='togglePause()']");
-      b.textContent="Reanudar Movimiento";
+      b.textContent="Resume Motion";
     }
 
     function saveImage(){
-      renderer.render(scene,camera);
-      const url=renderer.domElement.toDataURL("image/png"),
-            a=document.createElement("a");
-      a.href=url; a.download="configuracion.png";
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      // For A2: 4961 × 7016 px
+      const targetW = 4961;
+      const targetH = 7016;
+
+      // backup current state
+      const prevPixelRatio = renderer.getPixelRatio();
+      const prevSize = renderer.getSize(new THREE.Vector2());
+      const prevAspect = camera.aspect;
+      const prevPos = camera.position.clone();
+      const prevTarget = controls.target.clone();
+
+      // force FRONT + closer
+      const closeZ = 22; // ajusta si quieres aún más cerca
+      camera.position.set(0, 0, closeZ);
+      camera.lookAt(new THREE.Vector3(0,0,0));
+      controls.target.set(0,0,0);
+      controls.update();
+
+      // render hi-res
+      renderer.setPixelRatio(1);
+      renderer.setSize(targetW, targetH, false);
+      camera.aspect = targetW / targetH;
+      camera.updateProjectionMatrix();
+
+      renderer.render(scene, camera);
+      const url = renderer.domElement.toDataURL("image/png");
+
+      // download
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "PRMTTN_A2.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // restore
+      renderer.setPixelRatio(prevPixelRatio);
+      renderer.setSize(prevSize.x, prevSize.y);
+      camera.aspect = prevAspect;
+      camera.position.copy(prevPos);
+      controls.target.copy(prevTarget);
+      camera.updateProjectionMatrix();
+      controls.update();
     }
 
 
@@ -1120,11 +1279,11 @@ function makePalette(){
       const elems=[
         'controls','topRightDisplay','ratingContainer',
         'randomConfigButton','evolutionAIButton','saveImageButton',
-        'exportEmbedButton','triadicConfigButton','archDescButton','uploadConfigButton'
+        'exportEmbedButton','buildButton','uploadConfigButton','perm120Button'
       ].map(id=>document.getElementById(id));
       elems.forEach(e=>e.style.display=textsVisible?"none":"block");
       document.getElementById('toggleTextButton').textContent=
-        textsVisible?"Mostrar Textos":"Ocultar Textos";
+        textsVisible?"Show UI":"Hide UI";
       textsVisible=!textsVisible;
     }
 
@@ -1416,24 +1575,28 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       for(let i=1;i<=5;i++){
         colors[i] = document.getElementById('color'+i).value;
       }
-      const bg = document.getElementById('bgColor').value;
+      const bg   = document.getElementById('bgColor').value;
       const cube = document.getElementById('cubeColor').value;
-      const view = document.getElementById('standardView').value;
 
+      // for reproducibility
+      const view = "front"; // force saving front
       const config = {
         perms,
         mapping,
         colors,
         bg,
         cube,
-        view
+        view,
+        pattern: activePatternId,
+        sceneSeed,
+        S_global
       };
 
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'configuracion.json';
+      a.download = 'prmttn_config.json';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1495,28 +1658,26 @@ function showArchitecturalDescription(){
   const perms    = selOpts.map(o => o.value.split(',').map(Number));
   const m        = attributeMapping.slice(0,5);
 
-  // Recalcula con la NUEVA teoría
+  // recompute with the new theory
   const sceneSeed_new = computeSceneSeedFrom(perms, m);
   const S_new         = computeGlobalS(perms, m);
   const mRank         = mappingRank(m);
 
-  // Para mostrar fórmula paso a paso
   let sumR=0, sumR2=0;
   const ranks = perms.map(p=>lehmerRank(p));
   ranks.forEach(r=>{ sumR+=r; sumR2+=r*r; });
 
   const step = cubeSize/5;
 
-  // Construye HTML
   let html = `
-  <h2>Descripción arquitectónica</h2>
+  <h2>BUILD</h2>
 
   <section>
-    <h3>1) Semilla global (sceneSeed)</h3>
+    <h3>1) Global Seed (sceneSeed)</h3>
     <ul>
       <li>sumR = Σ rᵤ = <b>${sumR}</b></li>
       <li>sumR2 = Σ rᵤ² = <b>${sumR2}</b></li>
-      <li>m = [${m.join(', ')}] (forma,color,x,y,z)</li>
+      <li>m = [${m.join(', ')}] (shape,color,x,y,z)</li>
       <li>mRank = LehmerRank([${m.map(v=>v+1).join(', ')}]) = <b>${mRank}</b></li>
     </ul>
     <div class="formula">
@@ -1526,8 +1687,8 @@ function showArchitecturalDescription(){
   </section>
 
   <section>
-    <h3>2) Posición (Shift‑Rank acoplado + estructural)</h3>
-    <p>Con m = [${m.join(', ')}] ⇒ índices (x,y,z) = (${m[2]}, ${m[3]}, ${m[4]})</p>
+    <h3>2) Position (Shift‑Rank, coupled + structural)</h3>
+    <p>With m = [${m.join(', ')}] ⇒ indices (x,y,z) = (${m[2]}, ${m[3]}, ${m[4]})</p>
     <div class="formula">
       <span class="box">S = (Σ (P<sub>m2</sub> + P<sub>m3</sub> + P<sub>m4</sub>)) mod 125</span><br>
       S = <b>${S_new}</b>
@@ -1538,18 +1699,17 @@ function showArchitecturalDescription(){
   </section>
 
   <section>
-    <h3>3) Cromática determinista (retícula HSV)</h3>
+    <h3>3) Deterministic Color (HSV lattice)</h3>
     <ul>
       <li>H = 144 (ΔH = 2.5°), S = 12 (0.25 → 0.97), V = 12 (0.20 → 0.95)</li>
       <li>slot = LehmerRank(P) mod 12</li>
-      <li>Aplicamos patrón ${activePatternId} con dispersión coprima: s' = (s·${PHI_S}) mod 12, v' = (v·${PHI_V}) mod 12</li>
+      <li>Pattern ${activePatternId} with coprime dispersion: s' = (s·${PHI_S}) mod 12, v' = (v·${PHI_V}) mod 12</li>
     </ul>
   </section>
 
   <hr/>
   `;
 
-  // Para cada permutación: firma, rango, posición, color
   perms.forEach((perm, i)=>{
     const r    = ranks[i];
     const sig  = computeSignature(perm);
@@ -1561,7 +1721,6 @@ function showArchitecturalDescription(){
     const z    = I % 5;
     const X    = (x-2)*step, Y=(y-2)*step, Z=(z-2)*step;
 
-    // Color
     const slot = r % 12;
     let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed_new, slot);
     const sIdx = (sI * PHI_S) % 12;
@@ -1573,9 +1732,9 @@ function showArchitecturalDescription(){
 
     html += `
     <section class="perm">
-      <h4>Permutación ${i+1}: [${perm.join(', ')}]</h4>
+      <h4>Permutation ${i+1}: [${perm.join(', ')}]</h4>
       <div class="formula">
-        <b>Firma</b> F = [${sig.join(', ')}] &nbsp;&nbsp;|&nbsp; Rango = <b>${rango}</b><br>
+        <b>Signature</b> F = [${sig.join(', ')}] &nbsp;&nbsp;|&nbsp; Range = <b>${rango}</b><br>
         <b>Lehmer-rank</b> r = ${r}
       </div>
       <div class="formula">
@@ -1593,7 +1752,6 @@ function showArchitecturalDescription(){
     `;
   });
 
-  // Fondo y paredes (slots reservados)
   const firstSig = perms[0] ? computeSignature(perms[0]) : [0,0,0,0,0];
   const lastSig  = perms[perms.length-1] ? computeSignature(perms[perms.length-1]) : [0,0,0,0,0];
 
@@ -1605,18 +1763,18 @@ function showArchitecturalDescription(){
 
   html += `
     <section>
-      <h3>Fondo y paredes</h3>
+      <h3>Background and Cube walls</h3>
       <div class="formula">
-        Fondo (slot = #${perms.length}) → idx = [${fondoIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°, ${fondoHSV.s.toFixed(2)}, ${fondoHSV.v.toFixed(2)})
+        Background (slot = #${perms.length}) → idx = [${fondoIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°, ${fondoHSV.s.toFixed(2)}, ${fondoHSV.v.toFixed(2)})
       </div>
       <div class="formula">
-        Cubo  (slot = #${perms.length+1}) → idx = [${cuboIdx.join(', ')}] → HSV = (${cuboHSV.h.toFixed(2)}°, ${cuboHSV.s.toFixed(2)}, ${cuboHSV.v.toFixed(2)})
+        Cube (slot = #${perms.length+1}) → idx = [${cuboIdx.join(', ')}] → HSV = (${cuboHSV.h.toFixed(2)}°, ${cuboHSV.s.toFixed(2)}, ${cuboHSV.v.toFixed(2)})
       </div>
     </section>
 
     <section>
-      <h3>Rotación</h3>
-      <p>ω = mapRangeToSpeed(rango, 2, 6)</p>
+      <h3>Rotation</h3>
+      <p>ω = mapRangeToSpeed(range, 2, 6)</p>
     </section>
   `;
 
@@ -1677,7 +1835,7 @@ function renderArchPanel(html){
       });
     }
     function initRenderer(){
-      renderer=new THREE.WebGLRenderer({antialias:true});
+      renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth,window.innerHeight);
       document.body.appendChild(renderer.domElement);
@@ -1690,6 +1848,8 @@ function renderArchPanel(html){
       initRenderer();
       controls=new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
+      document.getElementById('standardView').value = 'front';
+      applyStandardView();
       scene.add(new THREE.AmbientLight(0xffffff,0.8));
       const dir=new THREE.DirectionalLight(0xffffff,0.5);
       dir.position.set(1,1,1);
