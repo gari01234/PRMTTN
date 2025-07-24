@@ -48,14 +48,14 @@
   }
 
   /* === LAYOUT (orden y espacios nuevos) === */
-  #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }  /* Minimal UI (debajo de AI Planning) */
+  #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }  /* Minimal UI */
   #aiPlanningButton     { position:fixed; right:10px; bottom:50px;   }  /* AI Planning */
+  #saveImageButton      { position:fixed; right:10px; bottom:60px;   }  /* Save Image (debajo de Load JSON) */
   #uploadConfigButton   { position:fixed; right:10px; bottom:100px;  }  /* Load JSON */
-  #saveImageButton      { position:fixed; right:10px; bottom:140px;  }  /* Save Image (A2) */
   #exportEmbedButton    { position:fixed; right:10px; bottom:180px;  }  /* Save JSON */
   #archDescButton       { position:fixed; right:10px; bottom:220px;  }  /* Architectural Description */
-  #randomConfigButton   { position:fixed; right:10px; bottom:260px;  }  /* BUILD */
   #perm120Button        { position:fixed; right:10px; bottom:300px;  }  /* 120 Architectural Permutations */
+  #randomConfigButton   { position:fixed; right:10px; bottom:340px;  }  /* BUILD (↑ arriba del de 120…) */
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -845,7 +845,12 @@ let perm120Timer = null;
 
 function togglePerm120Panel(){
   const p = document.getElementById('perm120Panel');
-  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+  const isHidden = (p.style.display === 'none' || !p.style.display);
+  p.style.display = isHidden ? 'block' : 'none';
+
+  // Re‑muestra siempre el cursor personalizado
+  const cc = document.getElementById('customCursor');
+  if (cc) cc.style.display = 'block';
 }
 
 function msFromUI(){
@@ -1313,15 +1318,27 @@ function makePalette(){
     }
 
     function toggleTexts(){
-      const elems=[
+      const ids = [
         'controls','topRightDisplay','ratingContainer',
         'randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','perm120Panel'
-      ].map(id=>document.getElementById(id));
-      elems.forEach(e=>e && (e.style.display=textsVisible?"none":"block"));
-      document.getElementById('toggleTextButton').textContent=
-        textsVisible?"Show UI":"Minimal UI";
-      textsVisible=!textsVisible;
+        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button'
+      ];
+      ids.forEach(id=>{
+        const e=document.getElementById(id);
+        if(e) e.style.display = textsVisible ? 'none' : 'block';
+      });
+
+      // Mantener SIEMPRE cerrado el panel de 120 perms
+      const p = document.getElementById('perm120Panel');
+      if (p) p.style.display = 'none';
+
+      document.getElementById('toggleTextButton').textContent =
+        textsVisible ? 'Show UI' : 'Minimal UI';
+      textsVisible = !textsVisible;
+
+      // Asegura que el cursor personalizado vuelva a mostrarse
+      const cc = document.getElementById('customCursor');
+      if (cc) cc.style.display = 'block';
     }
 
     function setMode(m){
