@@ -376,6 +376,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
       };
     }
 
+    /* Normaliza cualquier hue a rango [0 … 360) */
+    function normHue(deg){
+      return ((deg % 360) + 360) % 360;
+    }
+
     /* ═════════ 11 patrones cromáticos — versión PHI_H (89) ═════════ */
 const PATTERNS = {
   1:  (sig,seed,i)=>{const b=(sig.reduce((a,v)=>a+v,0)+seed*13)%144;
@@ -1266,26 +1271,52 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function mostrarDebugColores(){
-      if (!permutationGroup || !permutationGroup.children.length){
+      if(!permutationGroup || !permutationGroup.children.length){
         alert('No hay permutaciones en pantalla'); return;
       }
 
-      let txt = 'Permutación | slot |  h°  |   s   |   v   |  #hex\n' +
-                '─────────────┼─────┼──────┼───────┼───────┼─────────\n';
+      /* LAB del color de fondo —para contraste ΔE— */
+      const bgLab = rgbToLab(
+        scene.background.r * 255,
+        scene.background.g * 255,
+        scene.background.b * 255
+      );
+
+      let txt =
+        'Permutación |slot|  h° |  s  |  v  | ΔEbg |  #hex\n' +
+        '────────────┼────┼─────┼─────┼─────┼─────┼────────\n';
 
       permutationGroup.children.forEach(mesh => {
-        const pa   = mesh.userData.permStr.split(',').map(Number);
-        const slot = lehmerRank(pa) % 12;
-        const sig            = computeSignature(pa);
-        let [hI,sI,vI]       = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        const paArr   = mesh.userData.permStr.split(',').map(Number);
+        const permStr = paArr.join(',');
+        const slot    = lehmerRank(paArr) % 12;
+
+        /* HSV teórico desde el patrón */
+        const sig = computeSignature(paArr);
+        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
         sI = (sI * PHI_S) % 12;
         vI = (vI * PHI_V) % 12;
-        const {h,s,v}        = idxToHSV(hI, sI, vI);
+        const {h,s,v} = idxToHSV(hI, sI, vI);
+
+        /* Color real pintado por Three.js */
         const hex = '#' + mesh.material.color.getHexString();
-        txt += `${pa.join(',').padEnd(12)} | ${slot.toString().padStart(2)} | ${h.toFixed(1).padStart(4)}° | ${s.toFixed(2)} | ${v.toFixed(2)} | ${hex}\n`;
+
+        /* Contraste ΔE contra fondo */
+        const colLab = rgbToLab(
+          mesh.material.color.r * 255,
+          mesh.material.color.g * 255,
+          mesh.material.color.b * 255
+        );
+        const dE = deltaE(colLab, bgLab);
+
+        txt += `${permStr.padEnd(12)}|${slot.toString().padStart(2)} |`+
+               `${normHue(h).toFixed(1).padStart(5)}|`+
+               `${s.toFixed(2)}|${v.toFixed(2)}|`+
+               `${dE.toFixed(1).padStart(5)}| ${hex}\n`;
       });
 
-      alert(txt);
+      console.log(txt);   // copia completa al log
+      alert(txt);         // vista rápida
     }
     function initCustomCursor(){
       const c=document.getElementById('customCursor');
