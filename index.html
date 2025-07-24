@@ -48,11 +48,20 @@
     button:hover{
       background:rgba(255,255,255,0.20);
     }
-    #toggleTextButton { bottom: 10px; right: 10px; position: fixed; }
-    #randomConfigButton { bottom: 40px; right: 10px; position: fixed; }
-    #evolutionAIButton  { bottom: 70px; right: 10px; position: fixed; }
-    #saveImageButton    { bottom:100px; right: 10px; position: fixed; }
-    #exportEmbedButton  { bottom:130px; right: 10px; position: fixed; }
+    /* === NUEVO LAYOUT DE BOTONES FIJOS (sin empalmes) === */
+    #toggleTextButton      { position:fixed; right:10px; bottom: 10px;  }
+    #uploadConfigButton    { position:fixed; right:10px; bottom: 40px;  }
+    #randomConfigButton    { position:fixed; right:10px; bottom: 70px;  }
+    #evolutionAIButton     { position:fixed; right:10px; bottom:100px;  }
+    #saveImageButton       { position:fixed; right:10px; bottom:130px;  }
+    #exportEmbedButton     { position:fixed; right:10px; bottom:160px;  }
+    #archDescButton        { position:fixed; right:10px; bottom:190px;  }
+
+    /* Ocultar los que no queremos ver ahora */
+    #btnDebugColors,
+    #triadicConfigButton{
+      display:none !important;
+    }
     #controls {
       position: absolute; top: 10px; left: 10px; z-index: 100;
       padding: 10px; border-radius: 5px;
@@ -79,13 +88,6 @@
       font-size:12px; display:none; opacity:0;
       transition:opacity .3s; z-index:200;
     }
-  #triadicConfigButton {
-    position: fixed;
-    bottom: 160px;   /* ajusta para no tapar otros botones */
-    right: 10px;     /* separación del borde derecho */
-    cursor: pointer; /* mano al pasar */
-    z-index: 999;    /* encima de todo */
-  }
 /* ——— BLOQUES OCULTOS (se pueden volver a mostrar quitando esta regla) ——— */
 #modeBlock,
 #nftBlock,
@@ -100,12 +102,16 @@
   <div id="customCursor"></div>
   <div id="topRightDisplay"></div>
 
+  <input type="file" id="json-upload" accept=".json" style="display:none;" />
+
   <button id="toggleTextButton" onclick="toggleTexts()">Ocultar Textos</button>
+  <button id="uploadConfigButton" onclick="document.getElementById('json-upload').click()">Subir Configuración</button>
   <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">Configuración Aleatoria</button>
 <button id="triadicConfigButton" onclick="applyTriadicConfiguration()">Configuración Triádica</button>
   <button id="evolutionAIButton" onclick="applyEvolutionAI()">Evolución AI</button>
   <button id="saveImageButton" onclick="saveImage()">Guardar Imagen</button>
   <button id="exportEmbedButton" onclick="exportEmbed()">Guardar</button>
+  <button id="archDescButton" onclick="showArchitecturalDescription()">Descripción arquitectónica</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;"
           onclick="mostrarDebugColores()">
@@ -223,14 +229,6 @@
   <summary>⋆ NFT</summary>
   <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
 </details>
-<!-- Upload JSON Button -->
-<input type="file" id="json-upload" accept=".json" style="display: none;" />
-<button 
-  onclick="document.getElementById('json-upload').click()" 
-  style="position: fixed; bottom: 20px; right: 20px;"
->
-  Subir Configuración
-</button>
 
 <script>
 document.getElementById('json-upload').addEventListener('change', function(event) {
@@ -1440,6 +1438,179 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       console.log(txt);   // copia completa al log
       alert(txt);         // vista rápida
     }
+
+    /* ============================================================
+     *  PANEL "Descripción arquitectónica"
+     * ============================================================ */
+    function showArchitecturalDescription(){
+      const selOpts  = Array.from(document.getElementById('permutationList').selectedOptions);
+      const permsArr = selOpts.map(o => o.value.split(',').map(Number));
+
+      // --- sceneSeed según tu CÓDIGO actual ---
+      let sceneSeed_code = 0;
+      permsArr.forEach(pa => {
+        sceneSeed_code = (sceneSeed_code * 13 + lehmerRank(pa) * 37) % 360;
+      });
+
+      // --- sceneSeed según la TEORÍA (suma simple 37*r) ---
+      const sceneSeed_theory = permsArr
+        .reduce((acc, pa)=> acc + 37 * lehmerRank(pa), 0) % 360;
+
+      let txt = '';
+      txt += '==============================\n';
+      txt += ' DESCRIPCIÓN ARQUITECTÓNICA\n';
+      txt += '==============================\n\n';
+
+      // 0) Configuración global
+      txt += `Patrón cromático activo: ${activePatternId}\n`;
+      txt += `Atributo → [forma,color,x,y,z] = [${attributeMapping.slice(0,5).join(', ')}]\n\n`;
+
+      // 1) Semilla global
+      txt += '--- 1) Semilla global (sceneSeed) ---------------------------\n';
+      txt += `· Fórmula TEÓRICA: sceneSeed = (Σ 37·rᵤ) mod 360\n`;
+      txt += `· Fórmula en el CÓDIGO: seed = (seed·13 + 37·rᵤ) mod 360, acumulada\n`;
+      txt += `  → sceneSeed (código)  = ${sceneSeed_code}\n`;
+      txt += `  → sceneSeed (teoría)  = ${sceneSeed_theory}\n`;
+      if(sceneSeed_code !== sceneSeed_theory){
+        txt += `  ⚠︎ Diferencia detectada (ver 3.1 de la teoría)\n`;
+      }
+      txt += '\n';
+
+      // 2) Permutaciones, firma y rango
+      txt += '--- 2) Permutaciones, firma y rango -------------------------\n';
+      txt += 'Definiciones:\n';
+      txt += '  • Firma F = [f1..f5], con fi = P_i + P_{(i+1 mod 5)}\n';
+      txt += '  • Rango   = max(F) - min(F)\n\n';
+      permsArr.forEach((perm, idx)=>{
+        const sig  = computeSignature(perm);
+        const maxF = Math.max(...sig);
+        const minF = Math.min(...sig);
+        const rango = maxF - minF;
+
+        txt += `Perm ${idx+1}:  P = [${perm.join(', ')}]\n`;
+        txt += `  Firma F = [${sig.join(', ')}]  (fi = P[i] + P[(i+1) mod 5])\n`;
+        txt += `  Rango   = ${rango}  = max(${maxF}) - min(${minF})\n`;
+        txt += `  Lehmer-rank r = ${lehmerRank(perm)}\n\n`;
+      });
+
+      // 3) Posición (Shift‑Rank)
+      txt += '--- 3) Posición (Shift‑Rank) --------------------------------\n';
+      txt += 'Teoría:\n';
+      txt += '  R = LehmerRank(P)\n';
+      txt += '  S = (Σ (P₃+P₄+P₅) de la escena) mod 125\n';
+      txt += '  I = (R + S) mod 125\n';
+      txt += '  (x,y,z) = (⌊I/25⌋, ⌊(I mod 25)/5⌋, I mod 5)\n';
+      txt += '  (X,Y,Z) = (x−2, y−2, z−2) × 7.5\n';
+      txt += '\nCódigo actual usado:\n';
+      txt += '  I = (r + sceneSeed) mod 125\n';
+      if(true){ // calculamos S teórico para que se vea
+        const S_theory = (permsArr.reduce((acc,p)=>acc + p[2]+p[3]+p[4],0)) % 125;
+        txt += `  · S(teoría) = ${S_theory}\n\n`;
+      }
+
+      const step = cubeSize/5;
+      permsArr.forEach((perm, idx)=>{
+        const r  = lehmerRank(perm);
+        const I_code   = (r + sceneSeed_code) % 125;
+        const x_code   = Math.floor(I_code / 25);
+        const y_code   = Math.floor((I_code % 25) / 5);
+        const z_code   = I_code % 5;
+        const Xc = (x_code-2)*step, Yc = (y_code-2)*step, Zc = (z_code-2)*step;
+
+        // Posición real en escena (por si hay clamp)
+        const o = permutationGroup.children[idx];
+        const realPos = o ? `(${o.position.x.toFixed(2)}, ${o.position.y.toFixed(2)}, ${o.position.z.toFixed(2)})` : '(?)';
+
+        txt += `Perm ${idx+1}:\n`;
+        txt += `  r = ${r}\n`;
+        txt += `  I(código) = (r + sceneSeed) mod 125 = (${r} + ${sceneSeed_code}) mod 125 = ${I_code}\n`;
+        txt += `  (x,y,z) = (${x_code}, ${y_code}, ${z_code})\n`;
+        txt += `  (X,Y,Z) = (${Xc.toFixed(2)}, ${Yc.toFixed(2)}, ${Zc.toFixed(2)})  (step = ${step})\n`;
+        txt += `  Posición real THREE.js ≈ ${realPos}\n\n`;
+      });
+
+      // 4) Color (retícula HSV determinista)
+      txt += '--- 4) Color (retícula HSV determinista) ---------------------\n';
+      txt += '  • Retícula: H=144 (Δ2.5°), S=12 (0.25→0.97), V=12 (0.20→0.95)\n';
+      txt += '  • slot = LehmerRank(P) mod 12\n';
+      txt += '  • [hI,sI,vI] = PATTERNS[patternId](firma, sceneSeed, slot)\n';
+      txt += `  • sI = (sI * PHI_S) % 12  (PHI_S = ${PHI_S})\n`;
+      txt += `  • vI = (vI * PHI_V) % 12  (PHI_V = ${PHI_V})\n`;
+      txt += '  • HSV = idxToHSV(hI,sI,vI)\n';
+      txt += '  • RGB = hsvToRgb(HSV)\n';
+      txt += '  • ensureContrastRGB() ajusta V para ΔE>=22 con el fondo\n\n';
+
+      permsArr.forEach((perm, idx)=>{
+        const sig  = computeSignature(perm);
+        const slot = lehmerRank(perm) % 12;
+
+        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        const sI2 = (sI * PHI_S) % 12;
+        const vI2 = (vI * PHI_V) % 12;
+
+        const hsv = idxToHSV(hI, sI2, vI2);
+        let rgb   = hsvToRgb(hsv.h, hsv.s, hsv.v);
+        const rgbBefore = rgb.slice();
+        rgb = ensureContrastRGB(rgb);
+        const hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
+
+        txt += `Perm ${idx+1}:\n`;
+        txt += `  slot = rank % 12 = ${slot}\n`;
+        txt += `  PATTERN → [hI,sI,vI] = [${hI}, ${sI}, ${vI}]\n`;
+        txt += `  Dispersión coprima → sI'=${sI2}, vI'=${vI2}\n`;
+        txt += `  idxToHSV → (h=${hsv.h.toFixed(2)}°, s=${hsv.s.toFixed(2)}, v=${hsv.v.toFixed(2)})\n`;
+        txt += `  hsvToRgb → rgb = [${rgbBefore.join(', ')}] → ensureContrast → [${rgb.join(', ')}] → ${hex}\n\n`;
+      });
+
+      // 5) Fondo y paredes
+      const firstSig = permsArr[0] ? computeSignature(permsArr[0]) : [0,0,0,0,0];
+      const lastSig  = permsArr[permsArr.length - 1] ? computeSignature(permsArr[permsArr.length - 1]) : [0,0,0,0,0];
+      const fondoHSVIdx = PATTERNS[activePatternId](firstSig, sceneSeed, permsArr.length);
+      const cuboHSVIdx  = PATTERNS[activePatternId](lastSig,  sceneSeed, permsArr.length + 1);
+      const fondoHSV    = idxToHSV(...fondoHSVIdx);
+      const cuboHSV     = idxToHSV(...cuboHSVIdx);
+
+      txt += '--- 5) Fondo y paredes --------------------------------------\n';
+      txt += `Fondo: slot = #${permsArr.length}\n`;
+      txt += `  idx = [${fondoHSVIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°,${fondoHSV.s.toFixed(2)},${fondoHSV.v.toFixed(2)})\n`;
+      txt += `Paredes: slot = #${permsArr.length + 1}\n`;
+      txt += `  idx = [${cuboHSVIdx.join(', ')}] → HSV = (${cuboHSV.h.toFixed(2)}°,${cuboHSV.s.toFixed(2)},${cuboHSV.v.toFixed(2)})\n\n`;
+
+      // 6) Rotación
+      txt += '--- 6) Rotación ----------------------------------------------\n';
+      txt += '  Velocidad ω = mapRangeToSpeed(rango, 2, 6)\n\n';
+      permutationGroup.children.forEach((o, i)=>{
+        if(!o) return;
+        txt += `Perm ${i+1}: rango=${o.userData.range}, ω=${o.userData.rotationSpeed}\n`;
+      });
+
+      // Render panel flotante
+      renderArchPanel(txt);
+    }
+
+    function renderArchPanel(text){
+      let panel = document.getElementById('archPanel');
+      if(!panel){
+        panel = document.createElement('div');
+        panel.id = 'archPanel';
+        panel.style.cssText = `
+          position:fixed; z-index:1000; top:5%; left:50%; transform:translateX(-50%);
+          width:85%; height:90%; background:#fff; color:#000; border:1px solid #333;
+          box-shadow:0 8px 24px rgba(0,0,0,.25); padding:16px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap;
+        `;
+        const btn = document.createElement('button');
+        btn.textContent = 'Cerrar';
+        btn.style.cssText = 'position:absolute; top:8px; right:8px;';
+        btn.onclick = ()=> panel.remove();
+        const pre = document.createElement('pre');
+        pre.id = 'archPanelText';
+        pre.style.marginTop = '32px';
+        panel.appendChild(btn);
+        panel.appendChild(pre);
+        document.body.appendChild(panel);
+      }
+      document.getElementById('archPanelText').textContent = text;
+    }
     function initCustomCursor(){
       const c=document.getElementById('customCursor');
       window.addEventListener('mousemove',e=>{
@@ -1541,7 +1712,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
   </script>
-  <button onclick="mostrarInformacion()">Información de la configuración</button>
   <!-- DROPZONE SCRIPT FINAL -->
   <script>
   document.addEventListener("DOMContentLoaded", function() {
@@ -1615,30 +1785,6 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
   });
-  </script>
-  <script>
-  function mostrarInformacion() {
-    const opts = Array.from(document.getElementById('permutationList').selectedOptions);
-    const currentConfig = opts.map(o => o.value.split(',').map(Number));
-    let info = `Información de la configuración:\n\nSceneSeed = ${sceneSeed}\n\n`;
-    currentConfig.forEach((perm, i) => {
-      const rank = lehmerRank(perm);
-      const shifted = (rank + sceneSeed) % 125;
-      const x = shifted % 5;
-      const y = Math.floor(shifted / 5) % 5;
-      const z = Math.floor(shifted / 25);
-      const sig = computeSignature(perm);
-      const color = PATTERNS[activePatternId](sig, sceneSeed, i);
-      info += `Permutación ${i + 1} [${perm.join(',')}] : Pos (${x},${y},${z}) - HSV [${color.join(',')}]\n`;
-    });
-    const firstSig = currentConfig[0] ? computeSignature(currentConfig[0]) : [0,0,0,0,0];
-    const lastSig  = currentConfig[currentConfig.length - 1] ? computeSignature(currentConfig[currentConfig.length - 1]) : [0,0,0,0,0];
-    const fondo = PATTERNS[activePatternId](firstSig, sceneSeed, currentConfig.length);
-    const cubo  = PATTERNS[activePatternId](lastSig, sceneSeed, currentConfig.length + 1);
-    info += `\nFondo HSV: [${fondo.join(',')}]\n`;
-    info += `Cubo HSV: [${cubo.join(',')}]\n`;
-    alert(info);
-  }
   </script>
 </body>
 </html>
