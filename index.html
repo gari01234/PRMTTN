@@ -47,15 +47,15 @@
     background:rgba(255,255,255,0.20);
   }
 
-  /* === LAYOUT (orden nuevo) === */
-  #aiPlanningButton     { position:fixed; right:10px; bottom: 10px;  }
-  #toggleTextButton     { position:fixed; right:10px; bottom: 40px;  }  /* Minimal UI */
-  #uploadConfigButton   { position:fixed; right:10px; bottom: 70px;  }
-  #saveImageButton      { position:fixed; right:10px; bottom:100px;  }
-  #exportEmbedButton    { position:fixed; right:10px; bottom:130px;  }
-  #archDescButton       { position:fixed; right:10px; bottom:160px;  }  /* Architectural Description */
-  #randomConfigButton   { position:fixed; right:10px; bottom:190px;  }  /* BUILD */
-  #perm120Button        { position:fixed; right:10px; bottom:220px;  }
+  /* === LAYOUT (orden y espacios nuevos) === */
+  #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }  /* Minimal UI (debajo de AI Planning) */
+  #aiPlanningButton     { position:fixed; right:10px; bottom:50px;   }  /* AI Planning */
+  #uploadConfigButton   { position:fixed; right:10px; bottom:100px;  }  /* Load JSON */
+  #saveImageButton      { position:fixed; right:10px; bottom:140px;  }  /* Save Image (A2) */
+  #exportEmbedButton    { position:fixed; right:10px; bottom:180px;  }  /* Save JSON */
+  #archDescButton       { position:fixed; right:10px; bottom:220px;  }  /* Architectural Description */
+  #randomConfigButton   { position:fixed; right:10px; bottom:260px;  }  /* BUILD */
+  #perm120Button        { position:fixed; right:10px; bottom:300px;  }  /* 120 Architectural Permutations */
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -106,9 +106,11 @@
     background:#fff; color:#000;
     border:1px solid #333; box-shadow:0 8px 24px rgba(0,0,0,.25);
     padding:24px 32px 48px; overflow:auto;
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;
     font-size:14px; line-height:1.4;
+    cursor:auto;
   }
+  #archPanel *{ cursor:auto !important; }
   #archClose{
     position:fixed; right:calc(7.5% + 16px); top:5%;
     border:none; padding:6px 10px; border-radius:4px;
@@ -129,16 +131,17 @@
 
   /* Panel 120 perms */
   #perm120Panel{
-    position:fixed; right:10px; bottom:260px; z-index:260;
+    position:fixed; right:10px; bottom:340px; z-index:260;
     background:rgba(255,255,255,0.12);
-    padding:8px 10px; border-radius:4px; width:260px; display:none;
+    padding:8px 10px; border-radius:4px; width:260px;
+    display:none; /* ← cerrado por defecto */
   }
   #perm120Panel label{ display:block; margin-bottom:6px; }
   #perm120Panel input, #perm120Panel button{ width:100%; margin-top:4px; }
   #perm120Status{
     margin-top:8px;
-    font-size:16px;
-    font-weight:bold;
+    font-size:12px;       /* ← mismo tamaño que los demás */
+    font-weight:normal;
     text-align:center;
   }
   </style>
@@ -1080,9 +1083,9 @@ function updateScene(attemptResolve=true){
 
 
       function saveImage(){
-        // A2: 4961 × 7016 px
-        const targetW = 4961;
-        const targetH = 7016;
+        // A2 horizontal (landscape): 7016 × 4961 px
+        const targetW = 7016;
+        const targetH = 4961;
 
         // backup
         const prevPixelRatio = renderer.getPixelRatio();
@@ -1099,13 +1102,12 @@ function updateScene(attemptResolve=true){
         controls.target.set(0,0,0);
         controls.update();
 
-        // upscale render
+        // hi-res render
         renderer.setPixelRatio(1);
         renderer.setSize(targetW, targetH, false);
         camera.aspect = targetW / targetH;
         camera.updateProjectionMatrix();
 
-        // asegura color de limpieza
         if (prevBg) {
           renderer.setClearColor(prevBg, 1);
         } else {
@@ -1115,13 +1117,12 @@ function updateScene(attemptResolve=true){
         renderer.render(scene, camera);
         renderer.getContext().finish?.();
 
-        // copiar a canvas 2D para evitar bug de negro
+        // copiar a canvas 2D para evitar imagen negra
         const tmp = document.createElement('canvas');
         tmp.width = targetW;
         tmp.height = targetH;
         const ctx = tmp.getContext('2d');
         ctx.drawImage(renderer.domElement, 0, 0);
-
         const url = tmp.toDataURL('image/png');
 
         // download
@@ -1552,7 +1553,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       switch(view){
         case "isometric": pos.set(50,50,50); break;
         case "top":       pos.set(0,80,0);   break;
-        case "front":     pos.set(0,0,50);   break;
+        case "front":     pos.set(0,0,40);   break;  // antes 50
         case "side":      pos.set(50,0,0);   break;
         case "diagonal":  pos.set(-50,50,-50);break;
         default:          pos.set(0,0,50);
@@ -1695,7 +1696,7 @@ function showArchitecturalDescription(){
   const perms    = selOpts.map(o => o.value.split(',').map(Number));
   const m        = attributeMapping.slice(0,5);
 
-  // recompute with the deterministic theory
+  // determinism
   const sceneSeed_new = computeSceneSeedFrom(perms, m);
   const S_new         = computeGlobalS(perms, m);
   const mRank         = mappingRank(m);
@@ -1706,54 +1707,60 @@ function showArchitecturalDescription(){
 
   const step = cubeSize/5;
 
-  // ======= ARCHITECTURAL STRUCTURE (formulas + breve explicación) =======
+  // ======= STRUCTURE =======
   const structureHTML = `
-  <h3>Architectural Structure</h3>
-  <p>Below are the deterministic formulas that define the whole system —why every scene, color, and position is reproducible given the same inputs.</p>
+  <h3>Structure</h3>
+  <p>
+    Below are the deterministic formulas that explain
+    <b>why each permutation is exactly at its position,
+    why permutations and their environment have those colors</b>,
+    and why <b>the whole scene — shapes, colors and positions — is reproducible
+    whenever the inputs are the same</b>.
+  </p>
 
   <div class="formula">
-    <b>1) sceneSeed</b><br>
-    sumR = Σ LehmerRank(Pᵢ)<br>
-    sumR2 = Σ (LehmerRank(Pᵢ))²<br>
-    mRank = LehmerRank([m₀+1, m₁+1, m₂+1, m₃+1, m₄+1])<br><br>
-    <span class="box">
-      sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360
-    </span>
+    <b>1) Global scene seed (sceneSeed)</b><br>
+    It fixes the chromatic base angle of the whole scene.
+    <br><br>
+    sumR = Σ LehmerRank(Pᵢ) &nbsp;|&nbsp; sumR2 = Σ (LehmerRank(Pᵢ))² <br>
+    mRank = LehmerRank([m₀+1,m₁+1,m₂+1,m₃+1,m₄+1])<br><br>
+    <span class="box">sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360</span>
   </div>
 
   <div class="formula">
-    <b>2) Structural Shift for positions (S)</b><br>
-    Given mapping m = [shape,color,x,y,z]:<br>
-    <span class="box">
-      S = ( Σ (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125
-    </span>
+    <b>2) Structural term for positions (S)</b><br>
+    <i>S</i> couples positions to the attribute reorganization (mapping) used for (x,y,z).
+    <br><br>
+    <span class="box">S = ( Σ (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125</span>
   </div>
 
   <div class="formula">
-    <b>3) Shift‑Rank position of each permutation</b><br>
-    Let r = LehmerRank(P), then:<br>
-    <span class="box">
-      I = (r + sceneSeed + S) mod 125
-    </span><br>
-    From I → (x,y,z) in a 5×5×5 lattice, then scaled to the cube.
+    <b>3) Shift‑Rank: position of each permutation</b><br>
+    Combines the permutation Lehmer rank with the global invariants to assign
+    a unique index over a 5×5×5 lattice.
+    <br><br>
+    <span class="box">I = (r + sceneSeed + S) mod 125</span><br>
+    From I → (x,y,z) ∈ {0..4}³ → position inside the 30×30×30 cube.
   </div>
 
   <div class="formula">
-    <b>4) Deterministic chroma (HSV lattice)</b><br>
-    H ∈ 144 steps (2.5°), S ∈ 12, V ∈ 12.<br>
-    slot = r mod 12.<br>
-    Pattern(activePatternId) returns [hIdx,sIdx,vIdx]. Coprime spreads:<br>
-    s' = (sIdx·${PHI_S}) mod 12, v' = (vIdx·${PHI_V}) mod 12.<br>
-    HSV = idxToHSV(hIdx, s', v') → RGB.
+    <b>4) Deterministic color (HSV lattice 144×12×12)</b><br>
+    Each permutation color comes from a well‑distributed slot (r mod 12)
+    and a chromatic pattern (1–11) with coprime spreads for S and V.
+    <br><br>
+    H ∈ 144 steps (2.5°), S ∈ 12, V ∈ 12<br>
+    slot = r mod 12<br>
+    pattern → [hIdx,sIdx,vIdx]; s' = (sIdx·5) mod 12; v' = (vIdx·7) mod 12<br>
+    HSV = idxToHSV(hIdx,s',v') → RGB
   </div>
 
   <div class="formula">
-    <b>5) Contrast enforcement</b><br>
-    Colors are adjusted to ensure ΔE (CIE76) ≥ ${ΔE_BG_MIN} against background.
+    <b>5) Minimum contrast against background</b><br>
+    Each color is automatically adjusted to satisfy ΔE (CIE76) ≥ 22 against the current background.
   </div>
   `;
 
-  // ======= ARCHITECTURAL PLANS (aplicación a la escena actual) =======
+  // ======= ARCHITECTURAL PLANS =======
   let plansHTML = `
   <h3>Architectural Plans</h3>
 
@@ -1825,7 +1832,7 @@ function showArchitecturalDescription(){
 
   plansHTML += `
     <section>
-      <h4>Background and Cube walls</h4>
+      <h4>Background & cube walls</h4>
       <div class="formula">
         Background (slot = #${perms.length}) → idx = [${fondoIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°, ${fondoHSV.s.toFixed(2)}, ${fondoHSV.v.toFixed(2)})
       </div>
@@ -1869,9 +1876,11 @@ function renderArchPanel(html){
         background:#fff; color:#000;
         border:1px solid #333; box-shadow:0 8px 24px rgba(0,0,0,.25);
         padding:24px 32px 48px; overflow:auto;
-        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;
         font-size:14px; line-height:1.4;
+        cursor:auto;
       }
+      #archPanel *{ cursor:auto !important; }
       #archClose{
         position:fixed; right:calc(7.5% + 16px); top:5%;
         border:none; padding:6px 10px; border-radius:4px;
@@ -1892,8 +1901,10 @@ function renderArchPanel(html){
     `;
     document.head.appendChild(css);
 
-    document.getElementById('archClose').onclick = ()=> panel.remove();
+  document.getElementById('archClose').onclick = ()=> panel.remove();
   }
+  panel.addEventListener('mouseenter', ()=> document.getElementById('customCursor').style.display='none');
+  panel.addEventListener('mouseleave', ()=> document.getElementById('customCursor').style.display='block');
   document.getElementById('archContent').innerHTML = html;
 }
     function initCustomCursor(){
