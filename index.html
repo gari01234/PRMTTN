@@ -365,12 +365,13 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
     const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = [...Array(12)].map((_,i)=>0.15 + i*0.85/11); // 0.15 – 1.00
-    const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + i*0.80/11); // 0.20 – 1.00
+    const S_LEVELS = [...Array(12)].map((_,i)=>0.25 + 0.72*i/11); // 0.25 – 0.97
+    const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + 0.75*i/11); // 0.20 – 0.95
 
     function idxToHSV(hIdx,sIdx,vIdx){
+      const h = ((hIdx%H_STEPS)+H_STEPS) % H_STEPS;      // 0-143
       return {
-        h: ( (hIdx%H_STEPS)+H_STEPS ) * 360 / H_STEPS,
+        h: h * 360 / H_STEPS,                            // 0-359.5 °
         s: S_LEVELS[ ((sIdx%12)+12)%12 ],
         v: V_LEVELS[ ((vIdx%12)+12)%12 ]
       };
@@ -443,6 +444,7 @@ function rgbToHsv(r,g,b){
   return [h,s,v];
 }
 function hsvToRgb(h,s,v){
+  h = h % 360;
   const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
   let [r,g,b]=[0,0,0];
   if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;}
