@@ -844,8 +844,12 @@ let perm120Index = 0;
 let perm120Timer = null;
 
 function togglePerm120Panel(){
-  const p = document.getElementById('perm120Panel');
-  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+  const p = document.getElementById("perm120Panel");
+  const isHidden = (p.style.display === "none" || !p.style.display);
+  p.style.display = isHidden ? "block" : "none";
+  // asegúrate de que el cursor personalizado vuelva a mostrarse
+  const cc = document.getElementById("customCursor");
+  if (cc) cc.style.display = "block";
 }
 
 function msFromUI(){
@@ -959,23 +963,24 @@ function findCollisionFreeMapping(perms){
      *
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
+
     async function generateRandomConfigurationNoCollision(MAX_TRIES = 200){
-      // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
+      // random chromatic pattern (1..11, avoiding legacy 0)
       const randPattern = Math.floor(Math.random() * 11) + 1;
 
       for(let t = 0; t < MAX_TRIES; t++){
-        showPopup(`Buscando configuración sin colisiones… (intento ${t+1})`, 500);
+        showPopup(`Searching collision-free configuration… (try ${t+1})`, 2500);
 
         const perms   = pickRandomPerms();
         const mapping = findCollisionFreeMapping(perms);
 
         if(mapping){
-          // 1) Setea el patrón cromático escogido
+          // 1) set chosen chromatic pattern
           activePatternId = randPattern;
           const selPattern = document.getElementById('patternSelect');
           if (selPattern) selPattern.value = String(randPattern);
 
-          // 2) Pon las permutaciones en el <select>
+          // 2) put perms into the <select>
           const sel = document.getElementById('permutationList');
           Array.from(sel.options).forEach(o => o.selected = false);
           perms.forEach(p=>{
@@ -984,33 +989,33 @@ function findCollisionFreeMapping(perms){
             if(opt) opt.selected = true;
           });
 
-          // 3) Aplica el mapping encontrado
+          // 3) apply mapping found
           attributeMapping = mapping;
 
-          // mantenemos tu ciclo de atributo "color"
+          // keep your color attribute cycling
           attributeMapping[1] = colorAttrCycle % 5;
           colorAttrCycle++;
 
           document.getElementById('attrMapping').value =
             `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
 
-          // 4) Reconstruye escena completa
+          // 4) rebuild
           refreshAll({rebuild:true});
 
-          showPopup("¡Configuración sin colisiones encontrada!", 2000);
+          showPopup("Collision-free configuration found!", 2500);
           return true;
         }
 
-        // cede el hilo para no congelar la UI
+        // yield to keep UI responsive
         await new Promise(r => setTimeout(r, 0));
       }
 
-      showPopup("No se encontró configuración sin colisiones tras varios intentos.", 4000);
+      showPopup("No collision-free configuration was found after several tries.", 3500);
       return false;
     }
 
-    function showPopup(msg, dur = 2000){
-      dur = Math.max(dur, 3000); // ← asegura al menos 3 segundos
+    function showPopup(msg, dur = 2500){
+      dur = Math.max(dur, 2000); // mínimo 2 s
       const p = document.getElementById('hoverPopup');
       p.style.display = "block";
       p.style.opacity = 1;
@@ -1022,7 +1027,6 @@ function findCollisionFreeMapping(perms){
         setTimeout(()=>{ p.style.display="none"; p.innerHTML=""; }, 300);
       }, dur);
     }
-
 
 function updateScene(attemptResolve=true){
   // Limpia grupo
@@ -1082,10 +1086,21 @@ function updateScene(attemptResolve=true){
     }
 
 
-      function saveImage(){
+
+      async function saveImage(){
         // A2 horizontal (landscape): 7016 × 4961 px
-        const targetW = 7016;
-        const targetH = 4961;
+        let targetW = 7016;
+        let targetH = 4961;
+
+        // respeta el límite de la GPU para evitar canvas negro
+        const gl = renderer.getContext();
+        const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        if (targetW > max || targetH > max){
+          const scale = Math.min(max / targetW, max / targetH);
+          targetW = Math.floor(targetW * scale);
+          targetH = Math.floor(targetH * scale);
+          console.warn(`Clamped to ${targetW}×${targetH} due to MAX_TEXTURE_SIZE=${max}`);
+        }
 
         // backup
         const prevPixelRatio = renderer.getPixelRatio();
@@ -1095,7 +1110,7 @@ function updateScene(attemptResolve=true){
         const prevTarget = controls.target.clone();
         const prevBg = scene.background ? scene.background.clone() : null;
 
-        // FRONT + close
+        // FRONT + zoom-in
         const closeZ = 22;
         camera.position.set(0, 0, closeZ);
         camera.lookAt(new THREE.Vector3(0,0,0));
@@ -1108,24 +1123,24 @@ function updateScene(attemptResolve=true){
         camera.aspect = targetW / targetH;
         camera.updateProjectionMatrix();
 
-        if (prevBg) {
-          renderer.setClearColor(prevBg, 1);
-        } else {
-          renderer.setClearColor(0xffffff, 1);
-        }
+        const bgColor = prevBg ? prevBg : new THREE.Color(0xffffff);
+        renderer.setClearColor(bgColor, 1);
+        renderer.clear(true, true, true);
 
         renderer.render(scene, camera);
-        renderer.getContext().finish?.();
 
-        // copiar a canvas 2D para evitar imagen negra
+        // espera un frame para asegurar el flush del pipeline
+        await new Promise(r => requestAnimationFrame(r));
+        gl.finish?.();
+
+        // copiar a canvas 2D para evitar bug de negro
         const tmp = document.createElement('canvas');
         tmp.width = targetW;
         tmp.height = targetH;
-        const ctx = tmp.getContext('2d');
+        const ctx = tmp.getContext('2d', { willReadFrequently:true });
         ctx.drawImage(renderer.domElement, 0, 0);
         const url = tmp.toDataURL('image/png');
 
-        // download
         const a = document.createElement("a");
         a.href = url;
         a.download = "PRMTTN_A2.png";
@@ -1142,7 +1157,6 @@ function updateScene(attemptResolve=true){
         camera.updateProjectionMatrix();
         controls.update();
       }
-
     /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
      * 1. Semilla RGB = suma ponderada de posiciones y P1-P3 (firma).    *
      * 2. Selección de armonía idx = (R+2G+3B) mod 7                     */
@@ -1312,57 +1326,28 @@ function makePalette(){
       document.getElementById("cubeColor").value = hex;
     }
 
-    function toggleTexts(){
-      const elems=[
-        'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','perm120Panel'
-      ].map(id=>document.getElementById(id));
-      elems.forEach(e=>e && (e.style.display=textsVisible?"none":"block"));
-      document.getElementById('toggleTextButton').textContent=
-        textsVisible?"Show UI":"Minimal UI";
-      textsVisible=!textsVisible;
-    }
+function toggleTexts(){
+  const ids = [
+    "controls","topRightDisplay","ratingContainer",
+    "randomConfigButton","aiPlanningButton","saveImageButton",
+    "exportEmbedButton","archDescButton","uploadConfigButton","perm120Button"
+  ];
+  ids.forEach(id=>{
+    const e=document.getElementById(id);
+    if(e) e.style.display = textsVisible ? "none" : "block";
+  });
 
-    function setMode(m){
-      currentMode=m;
-      document.getElementById('manualControls').style.display=
-        m==="manual"?"block":"none";
-      document.getElementById('evolutionControls').style.display=
-        m==="evolution"?"block":"none";
-      refreshAll({rebuild:true});
-    }
+  // El panel de 120 perms nunca se re-abre automáticamente
+  const p = document.getElementById("perm120Panel");
+  if(p) p.style.display = "none";
 
-/**
- * Dada una firma [f1,f2,f3,f4,f5], devuelve los colores triádicos
- * { colorShape, colorCube, colorBG } en formato CSS HSL.
- */
-function computeTriadicColors(firma) {
-  // 1) Normaliza f_i ∈ {3…9} a u_i ∈ [0,1]
-  const u = firma.map(fi => (fi - 3) / 6);
+  document.getElementById("toggleTextButton").textContent =
+    textsVisible ? "Show UI" : "Minimal UI";
+  textsVisible = !textsVisible;
 
-  // 2) Hue base mixto (60% de u[1], 10% de cada otro)
-  const phi0 = 360 * (
-    0.1 * u[0] +
-    0.6 * u[1] +
-    0.1 * u[2] +
-    0.1 * u[3] +
-    0.1 * u[4]
-  );
-
-  // 3) Triádico: +0°, +120°, +240°
-  const shapeHue =  phi0;
-  const cubeHue  = (phi0 + 120) % 360;
-  const bgHue    = (phi0 + 240) % 360;
-
-  // 4) Saturación y luminosidad fijas
-  const S = 80, L = 50;
-
-  return {
-    colorShape: `hsl(${shapeHue.toFixed(1)},${S}%,${L}%)`,
-    colorCube:  `hsl(${cubeHue.toFixed(1)},${S}%,${L}%)`,
-    colorBG:    `hsl(${bgHue.toFixed(1)},${S}%,${L}%)`
-  };
+  // Re-mostrar siempre el cursor personalizado
+  const cc = document.getElementById("customCursor");
+  if (cc) cc.style.display = "block";
 }
 function applyTriadicConfiguration() {
   // 1) Repite la selección aleatoria de permutaciones
@@ -1903,7 +1888,7 @@ function renderArchPanel(html){
 
   document.getElementById('archClose').onclick = ()=> panel.remove();
   }
-  panel.addEventListener('mouseenter', ()=> document.getElementById('customCursor').style.display='none');
+  panel.addEventListener('mouseenter', ()=> document.getElementById('customCursor').style.display='block');
   panel.addEventListener('mouseleave', ()=> document.getElementById('customCursor').style.display='block');
   document.getElementById('archContent').innerHTML = html;
 }
@@ -1954,6 +1939,8 @@ function renderArchPanel(html){
       makePalette();
       setMode("manual");
       refreshAll({rebuild:true});
+      // auto-build a fresh random, collision-free configuration on first load
+      setTimeout(()=>generateRandomConfigurationNoCollision(), 0);
       animate();
     }
     function onWindowResize(){
