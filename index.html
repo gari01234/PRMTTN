@@ -475,6 +475,40 @@ function rgbToLab(r,g,b){                      // aproximación rápida
   const [fx,fy,fz]=[x,y,z].map((v,i)=>f(v/xyzN[i]));
   return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
 }
+
+/* ======  NUEVO  — utilidades de contraste con el FONDO  ====== */
+const ΔE_BG_MIN = 22;          // contraste mínimo CIE76
+
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  const n = parseInt(m[1],16);
+  return [(n>>16)&255, (n>>8)&255, n&255];
+}
+
+/**
+ * Sube o baja la luminosidad (v) del color RGB recibido hasta que
+ * alcance ΔE_BG_MIN puntos de contraste contra el fondo actual.
+ * Devuelve el RGB corregido.
+ */
+function ensureContrastRGB(rgb){
+  /* color de fondo efectivo */
+  const bgRgb = bgOverride
+      ? hexToRgb(bgOverride)
+      : hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+
+  let [h,s,v] = rgbToHsv(...rgb);          // pasamos a HSV
+  let tries = 0;
+  while (deltaE(rgbToLab(...rgb),
+                rgbToLab(...bgRgb)) < ΔE_BG_MIN && tries < 24){
+    /* estrategia: alterna aclarar / oscurecer en pasos de 0.04 */
+    v = (tries % 2)
+        ? Math.max(0, v - 0.04)
+        : Math.min(1, v + 0.04);
+    rgb = hsvToRgb(h, s, v);
+    tries++;
+  }
+  return rgb;
+}
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
 /* ——— calcula HSV para fondo (slot 5) y paredes (slot 6) ——— */
 function rebuildSceneColours(){
@@ -612,19 +646,22 @@ function evalProp(prop, args = [], fallback = 0){
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
       /* --- CÁLCULO de color (cuadrícula) -------------------------------- */
       let rgb;
-      if(activePatternId === 0){                       // modo legacy
-        rgb = paletteRGB[cv-1] || [255,255,255];
-      }else{
-        const sig  = computeSignature(pa);
-        /* slot bien distribuido: rank(perm) mod 12 */
-        const slot = lehmerRank(pa) % 12;      // 0-11
-        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-        /* dispersión coprima en S y V */
-        sI = (sI * PHI_S) % 12;
-        vI = (vI * PHI_V) % 12;
-        const {h,s,v}    = idxToHSV(hI,sI,vI);
-        rgb              = hsvToRgb(h,s,v);
-      }
+        if(activePatternId === 0){                       // modo legacy
+          rgb = paletteRGB[cv-1] || [255,255,255];
+        }else{
+          const sig  = computeSignature(pa);
+          /* slot bien distribuido: rank(perm) mod 12 */
+          const slot = lehmerRank(pa) % 12;      // 0-11
+          let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+          /* dispersión coprima en S y V */
+          sI = (sI * PHI_S) % 12;
+          vI = (vI * PHI_V) % 12;
+          const {h,s,v} = idxToHSV(hI,sI,vI);
+          rgb = hsvToRgb(h,s,v);
+        }
+
+        /* —— AJUSTE AUTOMÁTICO DE CONTRASTE CON EL FONDO —— */
+        rgb = ensureContrastRGB(rgb);
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
         color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
@@ -1275,12 +1312,12 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         alert('No hay permutaciones en pantalla'); return;
       }
 
-      /* LAB del color de fondo —para contraste ΔE— */
-      const bgLab = rgbToLab(
-        scene.background.r * 255,
-        scene.background.g * 255,
-        scene.background.b * 255
-      );
+      /* color de fondo efectivo para contraste ΔE */
+      const bgRgb = bgOverride
+          ? hexToRgb(bgOverride)
+          : hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+
+      const bgLab = rgbToLab(...bgRgb);
 
       let txt =
         'Permutación |slot|  h° |  s  |  v  | ΔEbg |  #hex\n' +
@@ -1298,21 +1335,18 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         vI = (vI * PHI_V) % 12;
         const {h,s,v} = idxToHSV(hI, sI, vI);
 
-        /* Color real pintado por Three.js */
+        const rgb = [
+          Math.round(mesh.material.color.r * 255),
+          Math.round(mesh.material.color.g * 255),
+          Math.round(mesh.material.color.b * 255)
+        ];
+        const ΔEbg = deltaE(rgbToLab(...rgb), bgLab).toFixed(1);
         const hex = '#' + mesh.material.color.getHexString();
-
-        /* Contraste ΔE contra fondo */
-        const colLab = rgbToLab(
-          mesh.material.color.r * 255,
-          mesh.material.color.g * 255,
-          mesh.material.color.b * 255
-        );
-        const dE = deltaE(colLab, bgLab);
 
         txt += `${permStr.padEnd(12)}|${slot.toString().padStart(2)} |`+
                `${normHue(h).toFixed(1).padStart(5)}|`+
                `${s.toFixed(2)}|${v.toFixed(2)}|`+
-               `${dE.toFixed(1).padStart(5)}| ${hex}\n`;
+               `${ΔEbg.padStart(5)}| ${hex}\n`;
       });
 
       console.log(txt);   // copia completa al log
