@@ -47,15 +47,15 @@
     background:rgba(255,255,255,0.20);
   }
 
-  /* === LAYOUT (orden y espacios nuevos) === */
-  #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }  /* Minimal UI */
-  #aiPlanningButton     { position:fixed; right:10px; bottom:50px;   }  /* AI Planning */
-  #saveImageButton      { position:fixed; right:10px; bottom:60px;   }  /* Save Image (debajo de Load JSON) */
-  #uploadConfigButton   { position:fixed; right:10px; bottom:100px;  }  /* Load JSON */
-  #exportEmbedButton    { position:fixed; right:10px; bottom:180px;  }  /* Save JSON */
-  #archDescButton       { position:fixed; right:10px; bottom:220px;  }  /* Architectural Description */
-  #perm120Button        { position:fixed; right:10px; bottom:300px;  }  /* 120 Architectural Permutations */
-  #randomConfigButton   { position:fixed; right:10px; bottom:340px;  }  /* BUILD (↑ arriba del de 120…) */
+  /* === LAYOUT (orden y ESPACIADO nuevos) === */
+  #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }   /* Minimal UI */
+  #aiPlanningButton     { position:fixed; right:10px; bottom:60px;   }   /* AI Planning */
+  #saveImageButton      { position:fixed; right:10px; bottom:110px;  }   /* Save Image (A2) – debajo de Load JSON */
+  #uploadConfigButton   { position:fixed; right:10px; bottom:160px;  }   /* Load JSON */
+  #exportEmbedButton    { position:fixed; right:10px; bottom:210px;  }   /* Save JSON */
+  #archDescButton       { position:fixed; right:10px; bottom:260px;  }   /* Architectural Description */
+  #perm120Button        { position:fixed; right:10px; bottom:310px;  }   /* 120 Architectural Permutations */
+  #randomConfigButton   { position:fixed; right:10px; bottom:360px;  }   /* BUILD (arriba del de 120…) */
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -1917,11 +1917,19 @@ function renderArchPanel(html){
       code, pre{ font-family:monospace; }
     `;
     document.head.appendChild(css);
-
-  document.getElementById('archClose').onclick = ()=> panel.remove();
   }
-  panel.addEventListener('mouseenter', ()=> document.getElementById('customCursor').style.display='none');
-  panel.addEventListener('mouseleave', ()=> document.getElementById('customCursor').style.display='block');
+
+  // NUNCA ocultamos el cursor; y al cerrar lo forzamos a mostrarse
+  const closeBtn = panel.querySelector('#archClose');
+  closeBtn.onclick = ()=>{
+    const cc = document.getElementById('customCursor');
+    if (cc) cc.style.display = 'block';
+    panel.remove();
+  };
+
+  const cc = document.getElementById('customCursor');
+  if (cc) cc.style.display = 'block';
+
   document.getElementById('archContent').innerHTML = html;
 }
     function initCustomCursor(){
@@ -1971,6 +1979,10 @@ function renderArchPanel(html){
       makePalette();
       setMode("manual");
       refreshAll({rebuild:true});
+
+      // ← NUEVO: como si hubieras presionado BUILD al cargar
+      generateRandomConfigurationNoCollision().catch(console.error);
+
       animate();
     }
     function onWindowResize(){
