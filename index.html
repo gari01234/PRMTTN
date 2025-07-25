@@ -144,6 +144,37 @@
     font-weight:normal;
     text-align:center;
   }
+  /* === Information button & panel === */
+  #infoButton{
+    position:fixed; left:10px; bottom:10px; z-index:260;
+  }
+  #infoPanel{
+    position:fixed; z-index:1000; top:5%; left:50%;
+    transform:translateX(-50%);
+    width:85%; height:90%;
+    background:#fff; color:#000;
+    border:1px solid #333; box-shadow:0 8px 24px rgba(0,0,0,.25);
+    padding:24px 32px 48px; overflow:auto;
+    font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size:14px; line-height:1.45;
+    cursor:auto;
+  }
+  #infoPanel *{ cursor:auto !important; }
+  #infoClose{
+    position:fixed; right:calc(7.5% + 16px); top:5%;
+    border:none; padding:6px 10px; border-radius:4px;
+    background:#eee; cursor:pointer; z-index:1001;
+  }
+  #infoPanel h2{ margin-top:0; }
+  #infoPanel .formula{
+    margin:10px 0; padding:8px 10px; background:#f7f7f7; border-left:3px solid #222; font-family:monospace;
+  }
+  #infoPanel .box{
+    display:inline-block; padding:2px 6px; border:1px solid #444; background:#fff; margin-bottom:4px;
+    font-family:monospace;
+  }
+  #infoPanel section{ margin-bottom:18px; }
+  #infoPanel hr{ border:none; border-top:1px dashed #aaa; margin:18px 0; }
   </style>
 </head>
 <body>
@@ -160,6 +191,7 @@
   <button id="archDescButton"     onclick="showArchitecturalDescription()">Architectural Description</button>
   <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
+  <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
           onclick="mostrarDebugColores()">
@@ -2092,6 +2124,397 @@ function renderArchPanel(html){
         console.error(e);
         alert("Error mint NFT: " + e.message);
       }
+    }
+
+    /* ============================================================
+     * INFORMATION PANEL — delivers the consolidated, corrected EN text
+     * Title: "PRMMTN – Architecture for thought without words"
+     * Ends with: "work in progress"
+     * ============================================================ */
+    function showInformation(){
+      const html = `
+      <h2>PRMMTN – Architecture for thought without words</h2>
+
+      <h3>I. Structural and mathematical foundation</h3>
+
+      <h4>1. Definition</h4>
+      <p>
+        <b>PRMMTN</b> is a visual architecture grounded in finite combinatorics that
+        defines a space where thought can emerge without language. It does not
+        represent, interpret, or communicate. It neither translates signs nor
+        proposes meanings. What it organizes is not addressed to any recipient, and
+        what it disposes does not refer to anything outside itself. Each
+        configuration is pure form: irreducible, non‑codifiable, without symbolic
+        intention.
+      </p>
+      <p>
+        Its starting point is a closed, exhaustive, non‑expandable set of the 120
+        permutations of {1,2,3,4,5}. The whole system emerges from there. There is
+        no random generation and no future expansion — only ordered combinatorics.
+      </p>
+
+      <h4>2. Signature: structural DNA</h4>
+      <p>
+        For each permutation P = [P₁,P₂,P₃,P₄,P₅] we define its signature:
+      </p>
+      <div class="formula">
+        Signature(P) = [P₁+P₂, P₂+P₃, P₃+P₄, P₄+P₅, P₅+P₁]
+      </div>
+      <ul>
+        <li>Its sum is always 30.</li>
+        <li>It always has 5 components.</li>
+        <li>It is unique and immutable for each permutation.</li>
+      </ul>
+      <p>
+        The signature is an internal relation vector: it summarizes how the
+        elements of the permutation relate to one another. It does not directly
+        determine the visual attributes, but it regulates their dynamic behaviour
+        (e.g., rotation). Shape, color and position depend directly on the
+        individual values of the permutation.
+      </p>
+
+      <h4>3. Phenotype: shape, color, position, rotation</h4>
+      <p>
+        Visual attributes derive directly from internal structure, without aesthetic
+        intervention or manual assignment. They are defined by fixed, invariant
+        mathematical rules:
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr><th style="text-align:left">Attribute</th><th style="text-align:left">Structural source</th><th style="text-align:left">Rule</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Shape</td><td>P₁</td><td>Height &propto; √(P₁)</td></tr>
+          <tr><td>Color</td><td>P₂, signature, sceneSeed</td><td>Deterministic from HSV lattice (see formula)</td></tr>
+          <tr><td>Position</td><td>Lehmer rank + sceneSeed + S</td><td>3D mapping inside the cube (Shift‑Rank)</td></tr>
+          <tr><td>Rotation</td><td>Signature range</td><td>ω &propto; (max − min) of the signature</td></tr>
+        </tbody>
+      </table>
+      <p>
+        These rules allow 120 different phenotypic reorganizations per permutation:
+        each is an internal reassignment of the five values [P₁–P₅] to the system’s
+        formal roles without breaking its logic or structure.
+      </p>
+
+      <h5>3.1 Global seed (sceneSeed)</h5>
+      <p>
+        To keep internal coherence between position and color, each scene is
+        characterized by a unique structural seed (<code>sceneSeed</code>) derived
+        exclusively from the active permutations and the attribute mapping. In the
+        current implementation:
+      </p>
+      <div class="formula">
+        rᵢ = LehmerRank(Pᵢ)<br>
+        sumR  = Σ rᵢ &nbsp; | &nbsp; sumR2 = Σ rᵢ² &nbsp; | &nbsp;
+        mRank = LehmerRank([m₀+1,…,m₄+1])<br><br>
+        <span class="box">sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360</span>
+      </div>
+
+      <h5>3.2 Position: Shift‑Rank</h5>
+      <p>
+        The 3D location inside the 30×30×30 cube is obtained in two steps: a lattice
+        index, then a conversion to physical coordinates.
+      </p>
+      <div class="formula">
+        R = LehmerRank(P)<br>
+        S = ( Σ<sub>P ∈ scene</sub> (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125<br>
+        I = (R + sceneSeed + S) mod 125
+      </div>
+      <div class="formula">
+        (x,y,z) = (⌊I/25⌋, ⌊(I mod 25)/5⌋, I mod 5)<br>
+        (X,Y,Z) = (x − 2, y − 2, z − 2) × 6
+      </div>
+      <p>
+        Each axis has five discrete slots → 5×5×5 = 125 total positions. The system
+        tries to avoid duplicates through deterministic assignment; injectivity is
+        not universally guaranteed for arbitrary sets + mappings, and a resolver may
+        be invoked.
+      </p>
+
+      <h5>3.3 Color: deterministic HSV lattice</h5>
+      <p>
+        The chromatic engine uses a structured HSV lattice with 20,736 unique
+        tones:
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr><th>Channel</th><th>Range</th><th>Levels</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>H</td><td>0°–360°</td><td>144</td><td>ΔH = 2.5°</td></tr>
+          <tr><td>S</td><td>0.25–0.97</td><td>12</td><td>S = 0.25 + 0.72·(i/11)</td></tr>
+          <tr><td>V</td><td>0.20–0.95</td><td>12</td><td>V = 0.20 + 0.75·(i/11)</td></tr>
+        </tbody>
+      </table>
+      <p>Total: 144 × 12 × 12 = 20,736 discrete combinations.</p>
+
+      <h5>3.4 Deterministic mapping</h5>
+      <ol>
+        <li>Compute signature F = [F₁…F₅].</li>
+        <li>Compute Lehmer rank r.</li>
+        <li>slot = r mod 12.</li>
+        <li>Apply one of the 11 structural chromatic patterns using coprime jumps
+            (PHI_H = 89, PHI_S = 5, PHI_V = 7) for dispersion.</li>
+      </ol>
+      <p>
+        Colors are reproducible and internally consistent. A minimum contrast
+        constraint (ΔE CIE76 ≥ 22) against the background is enforced.
+      </p>
+
+      <h5>3.5 Background and cube walls</h5>
+      <p>
+        They are computed with the same chromatic engine (reserved slots) using a
+        dummy signature, avoiding hierarchies and keeping full coherence between
+        glyphs and container.
+      </p>
+
+      <h4>4. The 30×30×30 cube: preverbal emergence space</h4>
+      <p>
+        The invariant sum of the signature (30) is mirrored by a 30×30×30 cube
+        segmented into 5 slots per axis (step = 6). Positions are obtained from
+        Lehmer rank plus the global invariants, not directly from P₃–P₅.
+      </p>
+      <ul>
+        <li>No center, hierarchy, or narrative direction. Only structured presence.</li>
+        <li>Pure visual disposition under formal rules, without assigned content.</li>
+      </ul>
+
+      <h4>5. Combinatorial totality: design & habitability space</h4>
+      <h5>5.1 Phenotypic reorganization</h5>
+      <p>
+        Each permutation admits 120 phenotypic reorganizations (reassignments of
+        P₁–P₅ to [shape, color, x, y, z]). Total: 120 × 120 = 14,400.
+      </p>
+
+      <h5>5.2 Spatial configurations</h5>
+      <p>
+        With 125 available positions and k ∈ [1,30] active permutations, without
+        overlap:
+      </p>
+      <div class="formula">
+        Config(k) = (120 C k) × (125 C k) × k!<br>
+        Total = Σ<sub>k=1..30</sub> (120 C k) × (125 C k) × k! ≈ 3.10 × 10¹²⁵
+      </div>
+      <p>
+        This counts spatial possibilities only, not colors or phenotypic
+        reorganizations.
+      </p>
+
+      <h5>5.3 Single geometric origin</h5>
+      <p>
+        Everything stems from a single geometric body: the cube whose internal
+        proportions are tied to √P₁. If P₁ changes, scale changes; permutations,
+        signatures and ranks do not. The logic remains intact.
+      </p>
+
+      <h5>5.4 Note</h5>
+      <p>
+        The model is not decorative: the structure itself produces a cognitively
+        habitable environment. Each configuration is valid if coherent with that
+        internal logic.
+      </p>
+
+      <h4>6. Possible modes of thought inside the system</h4>
+      <h5>6.1 Operational definition of preverbal thought</h5>
+      <p>
+        PRMMTN does not represent, interpret, or communicate. It offers a space
+        where visual organization can be contemplated without translation, symbol or
+        code.
+      </p>
+      <ul>
+        <li>Pre‑verbal impulses, impressions, resonances.</li>
+        <li>Relations perceived directly, without a linguistic detour.</li>
+        <li>“Out‑of‑place” thoughts that never found a non‑conditioning space.</li>
+        <li>Internal dialogues with no communicative intent.</li>
+      </ul>
+      <p>Nothing guarantees that any of this occurs. It is only an open possibility.</p>
+
+      <h5>6.2 Minimal activation conditions</h5>
+      <ul>
+        <li>Closed combinatorial disposition: every configuration derives from a
+            unique signature, without ambiguity or visual arbitrariness.</li>
+        <li>Structural isolation: everything happens inside a bounded space, with no
+            narrative context or external references.</li>
+        <li>Visible rules: each attribute is traceable to internal logic.</li>
+        <li>Absence of semantics: no symbols, icons, or linguistic substitutes.</li>
+      </ul>
+
+      <h4>7. Habitability</h4>
+      <p>
+        A configuration is visually habitable if:
+      </p>
+      <ul>
+        <li><b>Direct structural accessibility:</b> fully visible elements, no hidden
+            symbolic layers.</li>
+        <li><b>Combinatorial stability:</b> its logic does not change with context or
+            observer.</li>
+        <li><b>No signs:</b> no letters, icons, or codifiable elements.</li>
+        <li><b>Contained without closure:</b> inside a closed space, but with no
+            imposed hierarchy or narrative.</li>
+      </ul>
+
+      <h4>8. Grammar without semantics</h4>
+      <h5>8.1 Non‑negotiable rules</h5>
+      <ul>
+        <li>Shape: &propto; √(P₁)</li>
+        <li>Color: P₂ indexed into the HSV lattice derived from signature + sceneSeed</li>
+        <li>Position: Lehmer rank corrected by the global invariants</li>
+        <li>Rotation: derived from the signature’s range</li>
+      </ul>
+
+      <h5>8.2 Activation without translation</h5>
+      <p>
+        If activation occurs, it is not by decoding but by rigorously structured
+        visual relations that can trigger mental organization without becoming a
+        concept.
+      </p>
+
+      <h4>9. Functional glossary</h4>
+      <p>(Reserved for later drafting.)</p>
+
+      <h4>10. Technical appendix I: manual template</h4>
+      <p>(Reserved for later drafting.)</p>
+
+      <h4>11. Structural persistence without narrative</h4>
+      <p>
+        There is no automatic register or interpretive archive, but a structural
+        memory can be built: every configuration is fully reconstructible from its
+        base permutation and the deterministic rules.
+      </p>
+      <ul>
+        <li>P = [P₁,…,P₅]</li>
+        <li>Chosen phenotypic reorganization</li>
+        <li>Lehmer rank</li>
+        <li>sceneSeed</li>
+        <li>Derived color & position formulas</li>
+      </ul>
+      <p>
+        Persistence can be on Firestore or Arweave/Thirdweb, storing structures
+        without semantics.
+      </p>
+
+      <h4>12. Internal evolution of thought</h4>
+      <p>
+        No accumulation, improvement, or progress — only structural reorganization
+        inside a closed set. Thought does not advance; it reconfigures.
+      </p>
+
+      <h5>12.1 Phenotypic reorganization</h5>
+      <p>
+        The 120 permutations never change; only their phenotypic assignment to
+        visual attributes varies. All variation remains within the combinatorial
+        frame.
+      </p>
+
+      <h5>12.2 No adaptive progress</h5>
+      <p>
+        No function, no aesthetic hierarchy. Each configuration is validated by its
+        internal coherence, not by usefulness or beauty.
+      </p>
+
+      <h4>13. Shared architecture across cognitive species</h4>
+      <p>
+        This is not a language. No translation, no communicative intent. What can be
+        shared is not content but logic: both humans and AIs can operate inside the
+        rules without semantic understanding.
+      </p>
+
+      <h4>14. Scientific validation</h4>
+      <p>
+        The structural conditions can be empirically tested. The palette of each
+        scene is computed from the permutation’s signature, the global seed, and a
+        deterministic function over the 20,736‑tone HSV lattice — ensuring
+        uniqueness, reproducibility and visual coherence.
+      </p>
+      <h5>14.1 Relevant evidence (indicative)</h5>
+      <ul>
+        <li>Early neurodevelopment: pre‑linguistic cognitive patterns in infants.</li>
+        <li>Non‑semantic visual perception.</li>
+        <li>Label‑free structural learning in some AIs.</li>
+        <li>Abstract contemplation triggering cognition without narrative.</li>
+      </ul>
+      <h5>14.2 Operational hypothesis</h5>
+      <p>
+        The system does not claim results; it formulates a structural hypothesis:
+        that a non‑semantic visual disposition can affect pre‑linguistic mental
+        organization. It can be evaluated, but not demonstrated within the system.
+      </p>
+
+      <h4>15. Technical appendix II: refined critical points</h4>
+      <p>(Reserved for later drafting.)</p>
+
+      <h4>16. No beauty, no representation</h4>
+      <p>
+        There is no search for beauty, emotion, or evocation. Every visible trait is
+        a direct consequence of the system’s mathematics. If something appears
+        beautiful, it is a projection outside the system.
+      </p>
+
+      <h4>17. To move without communicating</h4>
+      <p>
+        A configuration can affect without transmitting: not by what it “says”, but
+        by the internal tension of its organization.
+      </p>
+
+      <h4>18. Anti‑aesthetic manifesto</h4>
+      <p>
+        No expressive, decorative or provocative intention. Each glyph is formal
+        consequence, not aesthetic decision. The system asserts non‑representation.
+      </p>
+
+      <h4>19. Epistemic closure</h4>
+      <ul>
+        <li>Finite, irrepeatable set of permutations.</li>
+        <li>Strict rules from numeric signatures.</li>
+        <li>Disposal in a 30×30×30 cube.</li>
+        <li>No language, no representation, no evolution, no communication.</li>
+        <li>Only dispositions that may —under specific conditions— favour
+            preverbal thought.</li>
+      </ul>
+      <p>
+        No outside, no behind. No correct interpretation. The only variable is the
+        gaze.
+      </p>
+
+      <h4>20. Epilogue: thought unbound</h4>
+      <p>
+        No language has been built, no work created, no experience designed to be
+        understood. A closed structural system has been formulated where everything
+        is anchored in finite combinatorics. Nothing is said. Nothing needs to be
+        interpreted. Everything can be contemplated.
+      </p>
+      <p>
+        The hypothesis remains open: that a non‑semantic visual organization can
+        enable pre‑verbal mental activity — without narration, without symbol,
+        without recipient, without instruction.
+      </p>
+
+      <p><i>work in progress</i></p>
+      `;
+      renderInfoPanel(html);
+    }
+
+    /* Minimal renderer for the panel (include once; remove if you already have it) */
+    function renderInfoPanel(html){
+      let panel = document.getElementById('infoPanel');
+      if(!panel){
+        panel = document.createElement('div');
+        panel.id = 'infoPanel';
+        panel.innerHTML = `
+          <div id="infoContent"></div>
+          <button id="infoClose">Close</button>
+        `;
+        document.body.appendChild(panel);
+        const btn = panel.querySelector('#infoClose');
+        btn.onclick = ()=>{
+          const cc = document.getElementById('customCursor');
+          if (cc) cc.style.display = 'block';
+          panel.remove();
+        };
+      }
+      const cc = document.getElementById('customCursor');
+      if (cc) cc.style.display = 'block';
+      document.getElementById('infoContent').innerHTML = html;
     }
   </script>
   <!-- DROPZONE SCRIPT FINAL -->
