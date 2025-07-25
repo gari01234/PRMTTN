@@ -964,54 +964,61 @@ function findCollisionFreeMapping(perms){
      *
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
-    async function generateRandomConfigurationNoCollision(MAX_TRIES = 200){
+    async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
       // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
       const randPattern = Math.floor(Math.random() * 11) + 1;
 
-      for(let t = 0; t < MAX_TRIES; t++){
-        showPopup(`Buscando configuración sin colisiones… (intento ${t+1})`, 500);
+      let round = 0;
+      while (true) { // sigue intentando hasta que realmente encuentre una sin colisiones
+        round++;
+        for (let t = 0; t < MAX_TRIES; t++) {
+          showPopup(`Buscando configuración sin colisiones… (ronda ${round}, intento ${t+1})`, 500);
 
-        const perms   = pickRandomPerms();
-        const mapping = findCollisionFreeMapping(perms);
+          const perms   = pickRandomPerms();
+          const mapping = findCollisionFreeMapping(perms);
 
-        if(mapping){
-          // 1) Setea el patrón cromático escogido
-          activePatternId = randPattern;
-          const selPattern = document.getElementById('patternSelect');
-          if (selPattern) selPattern.value = String(randPattern);
+          if (mapping) {
+            // 1) Setea el patrón cromático escogido
+            activePatternId = randPattern;
+            const selPattern = document.getElementById('patternSelect');
+            if (selPattern) selPattern.value = String(randPattern);
 
-          // 2) Pon las permutaciones en el <select>
-          const sel = document.getElementById('permutationList');
-          Array.from(sel.options).forEach(o => o.selected = false);
-          perms.forEach(p=>{
-            const val = p.join(',');
-            const opt = sel.querySelector(`option[value="${val}"]`);
-            if(opt) opt.selected = true;
-          });
+            // 2) Pon las permutaciones en el <select>
+            const sel = document.getElementById('permutationList');
+            Array.from(sel.options).forEach(o => o.selected = false);
+            perms.forEach(p=>{
+              const val = p.join(',');
+              const opt = sel.querySelector(`option[value="${val}"]`);
+              if(opt) opt.selected = true;
+            });
 
-          // 3) Aplica el mapping encontrado
-          attributeMapping = mapping;
+            // 3) Aplica el mapping encontrado
+            attributeMapping = mapping;
 
-          // mantenemos tu ciclo de atributo "color"
-          attributeMapping[1] = colorAttrCycle % 5;
-          colorAttrCycle++;
+            // mantenemos tu ciclo de atributo "color"
+            attributeMapping[1] = colorAttrCycle % 5;
+            colorAttrCycle++;
 
-          document.getElementById('attrMapping').value =
-            `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
+            document.getElementById('attrMapping').value =
+              `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
 
-          // 4) Reconstruye escena completa
-          refreshAll({rebuild:true});
+            // 4) Reconstruye escena completa
+            refreshAll({rebuild:true});
 
-          showPopup("¡Configuración sin colisiones encontrada!", 2000);
-          return true;
+            // 5) Verificación final (por si acaso)
+            const hasCol = checkCollisionsInGroup(permutationGroup);
+            if (!hasCol) {
+              showPopup("¡Configuración sin colisiones encontrada!", 2000);
+              return true;
+            }
+          }
+
+          // cede el hilo para no congelar la UI
+          if ((t % 25) === 0) await new Promise(r => setTimeout(r, 0));
         }
-
-        // cede el hilo para no congelar la UI
-        await new Promise(r => setTimeout(r, 0));
+        // pequeña pausa entre rondas largas
+        await new Promise(r => setTimeout(r, 10));
       }
-
-      showPopup("No se encontró configuración sin colisiones tras varios intentos.", 4000);
-      return false;
     }
 
     function showPopup(msg, dur = 2000){
@@ -1092,13 +1099,14 @@ function updateScene(attemptResolve=true){
         const targetW = 7016;
         const targetH = 4961;
 
-        // backup
+        // ===== backups =====
         const prevPixelRatio = renderer.getPixelRatio();
-        const prevSize = renderer.getSize(new THREE.Vector2());
-        const prevAspect = camera.aspect;
-        const prevPos = camera.position.clone();
-        const prevTarget = controls.target.clone();
-        const prevBg = scene.background ? scene.background.clone() : null;
+        const prevSize       = renderer.getSize(new THREE.Vector2());
+        const prevAspect     = camera.aspect;
+        const prevPos        = camera.position.clone();
+        const prevTarget     = controls.target.clone();
+        const prevBg         = scene.background ? scene.background.clone() : null;
+        const prevRt         = renderer.getRenderTarget?.() || null;
 
         // FRONT + close
         const closeZ = 22;
@@ -1107,38 +1115,56 @@ function updateScene(attemptResolve=true){
         controls.target.set(0,0,0);
         controls.update();
 
-        // hi-res render
+        // preparar render hi‑res en RT
         renderer.setPixelRatio(1);
         renderer.setSize(targetW, targetH, false);
         camera.aspect = targetW / targetH;
         camera.updateProjectionMatrix();
 
-        if (prevBg) {
-          renderer.setClearColor(prevBg, 1);
-        } else {
-          renderer.setClearColor(0xffffff, 1);
-        }
+        const rt = new THREE.WebGLRenderTarget(targetW, targetH, {
+          depthBuffer: true,
+          stencilBuffer: false
+        });
 
+        const clearHex = prevBg ? prevBg.getHex() : 0xffffff;
+        renderer.setClearColor(clearHex, 1);
+        renderer.setRenderTarget(rt);
+        renderer.clear(true, true, true);
         renderer.render(scene, camera);
-        renderer.getContext().finish?.();
 
-        // copiar a canvas 2D para evitar imagen negra
+        // leer los píxeles del RT (y voltear en Y)
+        const pixels = new Uint8Array(targetW * targetH * 4);
+        renderer.readRenderTargetPixels(rt, 0, 0, targetW, targetH, pixels);
+
         const tmp = document.createElement('canvas');
         tmp.width = targetW;
         tmp.height = targetH;
         const ctx = tmp.getContext('2d');
-        ctx.drawImage(renderer.domElement, 0, 0);
-        const url = tmp.toDataURL('image/png');
+        const imgData = ctx.createImageData(targetW, targetH);
 
-        // download
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "PRMTTN_A2.png";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        const row = targetW * 4;
+        for(let y = 0; y < targetH; y++){
+          const srcStart = (targetH - 1 - y) * row; // ← flip Y
+          const dstStart = y * row;
+          imgData.data.set(pixels.subarray(srcStart, srcStart + row), dstStart);
+        }
+        ctx.putImageData(imgData, 0, 0);
 
-        // restore
+        tmp.toBlob((blob)=>{
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'PRMTTN_A2.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        }, 'image/png');
+
+        // liberar RT
+        renderer.setRenderTarget(prevRt);
+        rt.dispose();
+
+        // ===== restore =====
         renderer.setPixelRatio(prevPixelRatio);
         renderer.setSize(prevSize.x, prevSize.y);
         camera.aspect = prevAspect;
@@ -1146,6 +1172,12 @@ function updateScene(attemptResolve=true){
         controls.target.copy(prevTarget);
         camera.updateProjectionMatrix();
         controls.update();
+
+        if(prevBg){
+          scene.background = prevBg;
+        }else{
+          scene.background = new THREE.Color(0xffffff);
+        }
       }
 
     /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
