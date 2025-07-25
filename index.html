@@ -1095,89 +1095,101 @@ function updateScene(attemptResolve=true){
 
 
       function saveImage(){
-        // A2 horizontal (landscape): 7016 × 4961 px
-        const targetW = 7016;
-        const targetH = 4961;
-
-        // ===== backups =====
-        const prevPixelRatio = renderer.getPixelRatio();
-        const prevSize       = renderer.getSize(new THREE.Vector2());
-        const prevAspect     = camera.aspect;
-        const prevPos        = camera.position.clone();
-        const prevTarget     = controls.target.clone();
-        const prevBg         = scene.background ? scene.background.clone() : null;
-        const prevRt         = renderer.getRenderTarget?.() || null;
-
-        // FRONT + close
-        const closeZ = 22;
-        camera.position.set(0, 0, closeZ);
-        camera.lookAt(new THREE.Vector3(0,0,0));
-        controls.target.set(0,0,0);
-        controls.update();
-
-        // preparar render hi‑res en RT
-        renderer.setPixelRatio(1);
-        renderer.setSize(targetW, targetH, false);
-        camera.aspect = targetW / targetH;
-        camera.updateProjectionMatrix();
-
-        const rt = new THREE.WebGLRenderTarget(targetW, targetH, {
-          depthBuffer: true,
-          stencilBuffer: false
-        });
-
-        const clearHex = prevBg ? prevBg.getHex() : 0xffffff;
-        renderer.setClearColor(clearHex, 1);
-        renderer.setRenderTarget(rt);
-        renderer.clear(true, true, true);
-        renderer.render(scene, camera);
-
-        // leer los píxeles del RT (y voltear en Y)
-        const pixels = new Uint8Array(targetW * targetH * 4);
-        renderer.readRenderTargetPixels(rt, 0, 0, targetW, targetH, pixels);
-
-        const tmp = document.createElement('canvas');
-        tmp.width = targetW;
-        tmp.height = targetH;
-        const ctx = tmp.getContext('2d');
-        const imgData = ctx.createImageData(targetW, targetH);
-
-        const row = targetW * 4;
-        for(let y = 0; y < targetH; y++){
-          const srcStart = (targetH - 1 - y) * row; // ← flip Y
-          const dstStart = y * row;
-          imgData.data.set(pixels.subarray(srcStart, srcStart + row), dstStart);
-        }
-        ctx.putImageData(imgData, 0, 0);
-
-        tmp.toBlob((blob)=>{
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'PRMTTN_A2.png';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(a.href);
-        }, 'image/png');
-
-        // liberar RT
-        renderer.setRenderTarget(prevRt);
-        rt.dispose();
-
-        // ===== restore =====
-        renderer.setPixelRatio(prevPixelRatio);
-        renderer.setSize(prevSize.x, prevSize.y);
-        camera.aspect = prevAspect;
-        camera.position.copy(prevPos);
-        controls.target.copy(prevTarget);
-        camera.updateProjectionMatrix();
-        controls.update();
-
-        if(prevBg){
-          scene.background = prevBg;
-        }else{
-          scene.background = new THREE.Color(0xffffff);
-        }
+          // Tamaño objetivo A2 landscape
+          const A2_W = 7016;
+          const A2_H = 4961;
+        
+          // ===== Backups del estado actual (para restaurar luego) =====
+          const prevPixelRatio = renderer.getPixelRatio();
+          const prevSize       = renderer.getSize(new THREE.Vector2());
+          const prevAspect     = camera.aspect;
+          const prevRt         = renderer.getRenderTarget?.() || null;
+          const prevBg         = scene.background ? scene.background.clone() : null;
+        
+          // Mantener EXACTAMENTE la vista actual:
+          const screenAspect = prevSize.x / prevSize.y;
+        
+          // Calculamos el tamaño de render que:
+          //  - mantiene el aspect de lo que ves (screenAspect)
+          //  - cabe dentro de A2 (contain, sin recortar)
+          let renderW, renderH;
+          const a2Aspect = A2_W / A2_H;
+          if (screenAspect > a2Aspect) {
+            renderW = A2_W;
+            renderH = Math.round(A2_W / screenAspect);
+          } else {
+            renderH = A2_H;
+            renderW = Math.round(A2_H * screenAspect);
+          }
+        
+          // Preparar render hi-res a un RenderTarget
+          renderer.setPixelRatio(1);
+          renderer.setSize(renderW, renderH, false);
+          camera.aspect = screenAspect;            // mismo aspect que la vista actual
+          camera.updateProjectionMatrix();
+        
+          const rt = new THREE.WebGLRenderTarget(renderW, renderH, {
+            depthBuffer: true,
+            stencilBuffer: false
+          });
+        
+          const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
+          renderer.setClearColor(clearHex, 1);
+          renderer.setRenderTarget(rt);
+          renderer.clear(true, true, true);
+          renderer.render(scene, camera);
+        
+          // Leer los píxeles (y voltear en Y)
+          const pixels = new Uint8Array(renderW * renderH * 4);
+          renderer.readRenderTargetPixels(rt, 0, 0, renderW, renderH, pixels);
+        
+          // Canvas intermedio con el render exacto (sin A2 aún)
+          const tmp = document.createElement('canvas');
+          tmp.width = renderW;
+          tmp.height = renderH;
+          const tctx = tmp.getContext('2d');
+          const imgData = tctx.createImageData(renderW, renderH);
+          const row = renderW * 4;
+          for (let y = 0; y < renderH; y++) {
+            const src = (renderH - 1 - y) * row;   // flip Y
+            const dst = y * row;
+            imgData.data.set(pixels.subarray(src, src + row), dst);
+          }
+          tctx.putImageData(imgData, 0, 0);
+        
+          // Canvas final A2 donde centramos la imagen manteniendo lo visto
+          const final = document.createElement('canvas');
+          final.width = A2_W;
+          final.height = A2_H;
+          const fctx = final.getContext('2d');
+        
+          fctx.fillStyle = clearHex;
+          fctx.fillRect(0, 0, A2_W, A2_H);
+        
+          const offX = Math.floor((A2_W - renderW) / 2);
+          const offY = Math.floor((A2_H - renderH) / 2);
+          fctx.drawImage(tmp, offX, offY);
+        
+          // Descargar PNG
+          final.toBlob((blob)=>{
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'PRMTTN_A2.png';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+          }, 'image/png');
+        
+          // Liberar y restaurar estado
+          renderer.setRenderTarget(prevRt);
+          rt.dispose();
+          renderer.setPixelRatio(prevPixelRatio);
+          renderer.setSize(prevSize.x, prevSize.y);
+          camera.aspect = prevAspect;
+          camera.updateProjectionMatrix();
+          if (prevBg) scene.background = prevBg;
+          controls.update();
       }
 
     /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
