@@ -489,88 +489,69 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isFRBN    = false;
     const SKY_R = 250;
 
-    /* -------- shader interno: gradiente angular + modulador radial ---------- */
-    function initSkySphere(){
-      const geo = new THREE.SphereGeometry(SKY_R, 64, 64);      // cubre toda la escena
-      const mat = new THREE.ShaderMaterial({
-        side     : THREE.BackSide,
-        uniforms : {
-          u_count : { value: 0 },
-          u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) },
-          time    : { value: 0 }
-        },
-        vertexShader: `
-          varying vec3 vPos;
-          void main(){
-            vPos = (modelMatrix * vec4(position,1.0)).xyz;
-            gl_Position = projectionMatrix * viewMatrix * vec4(vPos,1.0);
-          }`,
-          fragmentShader: `
-            uniform int  u_count;
-            uniform vec3 u_colors[12];
-            uniform float time;
-            varying vec3 vPos;
 
-            vec3 rand(vec3 c){
-              return fract(sin(vec3(dot(c, vec3(1.0,57.0,113.0)),
-                                   dot(c, vec3(57.0,113.0,1.0)),
-                                   dot(c, vec3(113.0,1.0,57.0))))*43758.5453);
-            }
+/* ──────────────────────────────────────────────────────────────
+ *  REEMPLAZO íntegro: initSkySphere → plano pantalla “Ganzfeld”
+ * ──────────────────────────────────────────────────────────── */
+function initSkySphere() {
 
-            /* === Perlin 3D simplificado (3 gradientes) === */
-            float n3(vec3 p){
-              vec3 i = floor(p);
-              vec3 f = fract(p);
-              f = f*f*(3.0-2.0*f);
-              float dot000 = dot(rand(i+vec3(0,0,0)), f-vec3(0,0,0));
-              float dot100 = dot(rand(i+vec3(1,0,0)), f-vec3(1,0,0));
-              float dot010 = dot(rand(i+vec3(0,1,0)), f-vec3(0,1,0));
-              float dot110 = dot(rand(i+vec3(1,1,0)), f-vec3(1,1,0));
-              float dot001 = dot(rand(i+vec3(0,0,1)), f-vec3(0,0,1));
-              float dot101 = dot(rand(i+vec3(1,0,1)), f-vec3(1,0,1));
-              float dot011 = dot(rand(i+vec3(0,1,1)), f-vec3(0,1,1));
-              float dot111 = dot(rand(i+vec3(1,1,1)), f-vec3(1,1,1));
-              float lerpx0 = mix(dot000,dot100,f.x);
-              float lerpx1 = mix(dot010,dot110,f.x);
-              float lerpx2 = mix(dot001,dot101,f.x);
-              float lerpx3 = mix(dot011,dot111,f.x);
-              float lerpy0 = mix(lerpx0,lerpx1,f.y);
-              float lerpy1 = mix(lerpx2,lerpx3,f.y);
-              return mix(lerpy0,lerpy1,f.z);
-            }
+  // 1) Geometría: plano NDC 2×2 que cubre toda la pantalla
+  const geo = new THREE.PlaneGeometry(2, 2);
 
-            void main(){
-              vec3 dir = normalize(vPos);
+  // 2) Shader: color totalmente uniforme que cambia muy lento (“respira”)
+  const mat = new THREE.ShaderMaterial({
 
-              /* ------ 2 anillos (-0.3…0.3 y resto) ------- */
-              float ring = step(0.3, abs(dir.y));
-              float t = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
-              t += ring * 0.5;
-              float idx = t * float(u_count);
-              int   i = int(floor(idx)) % u_count;
-              int   j = (i + 1) % u_count;
-              float f = fract(idx);
-              vec3 col = mix(u_colors[i], u_colors[j], f);
+    uniforms : {
+      u_count : { value: 0 },
+      u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) },
+      time    : { value: 0 }
+    },
 
-              /* ------ nubes Perlin -------- */
-              float cloud = n3(dir*4.0 + time*0.05);
-              cloud = smoothstep(0.2, 0.8, cloud);
-              col   = mix(col, vec3(1.0), 0.08*cloud);
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest : false,
 
-              /* ------ halo radial ---------- */
-              float d = length(vPos) / 250.0;
-              col += pow(1.0 - d, 4.0) * 0.22;
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;                          // 0‑1
+        gl_Position = vec4(position.xy, 0.0, 1.0);   // clip‑space
+      }`,
 
-              /* gamma lift */
-              col = pow(col, vec3(0.8));
-              gl_FragColor = vec4(col, 1.0);
-            }`
-      });
-      skySphere = new THREE.Mesh(geo, mat);
-      skySphere.visible = false;                       // arranca apagado
-      scene.add(skySphere);
-    }
+    fragmentShader: `
+      uniform int   u_count;
+      uniform vec3  u_colors[12];
+      uniform float time;
 
+      // plano uniforme: el color depende solo del tiempo
+      void main() {
+
+        // velocidad de cambio (↓  =  más lento)
+        float t = time * 0.04;
+
+        // selecciona dos colores contiguos y hace un cross‑fade muy paulatino
+        float idx = fract(t) * float(u_count);
+        int   i   = int(floor(idx)) % u_count;
+        int   j   = (i + 1) % u_count;
+        float f   = fract(idx);
+
+        vec3 col = mix(u_colors[i], u_colors[j], f);
+
+        // “respiración” en luminancia (±2 %)
+        col += 0.02 * sin(time * 0.5);
+
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  });
+
+  // 3) Mesh siempre visible (sin frustum‑culling)
+  const plane = new THREE.Mesh(geo, mat);
+  plane.frustumCulled = false;
+
+  // 4) Mantiene el mismo nombre global para no tocar más código
+  skySphere = plane;
+  scene.add(skySphere);
+}
     /* ---------- extrae TODOS los colores deterministas del sistema ---------- */
     function collectSceneColors(){
       // 1) Todos los RGB deterministas
