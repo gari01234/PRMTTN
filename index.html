@@ -2220,7 +2220,13 @@ function renderArchPanel(html){
       renderer.setSize(window.innerWidth,window.innerHeight);
       document.body.appendChild(renderer.domElement);
 
+      /* compositor -------------------------------------------------- */
       composer   = new THREE.EffectComposer(renderer);
+
+      /* \ud83d\udd27 FIX pantalla negra --------------------------------------- */
+      composer.setSize(window.innerWidth, window.innerHeight);   //  \u2190  \ud83d\udd0d  \u2190  \ud83d\udd0d
+
+      /* pases ------------------------------------------------------- */
       renderPass = new THREE.RenderPass(scene, camera);
       composer.addPass(renderPass);
 
