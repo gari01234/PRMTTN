@@ -9,6 +9,10 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Three.js extras: post-process -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
   <style>
   body {
     margin: 0;
@@ -489,6 +493,20 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isFRBN    = false;
     const SKY_R = 250;
 
+    /* post-process */
+    let composer, renderPass, bloomPass;
+    /* control de niebla/bloom */
+    function enableTurrellFog(on){
+      if(on){
+        const c = skySphere.material.uniforms.u_colors.value[0];
+        scene.fog      = new THREE.FogExp2(c.getHex(), 0.015);   // densidad fija
+        bloomPass.enabled = true;
+      }else{
+        scene.fog      = null;
+        bloomPass.enabled = false;
+      }
+    }
+
     /* -------- shader interno: gradiente angular + modulador radial ---------- */
     function initSkySphere(){
       const geo = new THREE.SphereGeometry(SKY_R, 64, 64);      // cubre toda la escena
@@ -506,65 +524,75 @@ document.getElementById('json-upload').addEventListener('change', function(event
             gl_Position = projectionMatrix * viewMatrix * vec4(vPos,1.0);
           }`,
           fragmentShader: `
-            uniform int  u_count;
-            uniform vec3 u_colors[12];
-            uniform float time;
-            varying vec3 vPos;
+  uniform int    u_count;
+  uniform vec3   u_colors[12];
+  uniform float  time;
+  varying vec3   vPos;
 
-            vec3 rand(vec3 c){
-              return fract(sin(vec3(dot(c, vec3(1.0,57.0,113.0)),
-                                   dot(c, vec3(57.0,113.0,1.0)),
-                                   dot(c, vec3(113.0,1.0,57.0))))*43758.5453);
-            }
+  vec3 rand(vec3 c){
+    return fract(sin(vec3(dot(c, vec3(1.0,57.0,113.0)),
+                         dot(c, vec3(57.0,113.0,1.0)),
+                         dot(c, vec3(113.0,1.0,57.0))))*43758.5453);
+  }
 
-            /* === Perlin 3D simplificado (3 gradientes) === */
-            float n3(vec3 p){
-              vec3 i = floor(p);
-              vec3 f = fract(p);
-              f = f*f*(3.0-2.0*f);
-              float dot000 = dot(rand(i+vec3(0,0,0)), f-vec3(0,0,0));
-              float dot100 = dot(rand(i+vec3(1,0,0)), f-vec3(1,0,0));
-              float dot010 = dot(rand(i+vec3(0,1,0)), f-vec3(0,1,0));
-              float dot110 = dot(rand(i+vec3(1,1,0)), f-vec3(1,1,0));
-              float dot001 = dot(rand(i+vec3(0,0,1)), f-vec3(0,0,1));
-              float dot101 = dot(rand(i+vec3(1,0,1)), f-vec3(1,0,1));
-              float dot011 = dot(rand(i+vec3(0,1,1)), f-vec3(0,1,1));
-              float dot111 = dot(rand(i+vec3(1,1,1)), f-vec3(1,1,1));
-              float lerpx0 = mix(dot000,dot100,f.x);
-              float lerpx1 = mix(dot010,dot110,f.x);
-              float lerpx2 = mix(dot001,dot101,f.x);
-              float lerpx3 = mix(dot011,dot111,f.x);
-              float lerpy0 = mix(lerpx0,lerpx1,f.y);
-              float lerpy1 = mix(lerpx2,lerpx3,f.y);
-              return mix(lerpy0,lerpy1,f.z);
-            }
+  /* === Simplex-ish ruido 3-D de baja freq. === */
+  float n3(vec3 p){
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    float dot000 = dot(rand(i+vec3(0,0,0)), f-vec3(0,0,0));
+    float dot100 = dot(rand(i+vec3(1,0,0)), f-vec3(1,0,0));
+    float dot010 = dot(rand(i+vec3(0,1,0)), f-vec3(0,1,0));
+    float dot110 = dot(rand(i+vec3(1,1,0)), f-vec3(1,1,0));
+    float dot001 = dot(rand(i+vec3(0,0,1)), f-vec3(0,0,1));
+    float dot101 = dot(rand(i+vec3(1,0,1)), f-vec3(1,0,1));
+    float dot011 = dot(rand(i+vec3(0,1,1)), f-vec3(0,1,1));
+    float dot111 = dot(rand(i+vec3(1,1,1)), f-vec3(1,1,1));
+    float lerpx0 = mix(dot000,dot100,f.x);
+    float lerpx1 = mix(dot010,dot110,f.x);
+    float lerpx2 = mix(dot001,dot101,f.x);
+    float lerpx3 = mix(dot011,dot111,f.x);
+    float lerpy0 = mix(lerpx0,lerpx1,f.y);
+    float lerpy1 = mix(lerpx2,lerpx3,f.y);
+    return mix(lerpy0,lerpy1,f.z);
+  }
 
-            void main(){
-              vec3 dir = normalize(vPos);
+  void main(){
+    vec3 dir = normalize(vPos);
 
-              /* ------ 2 anillos (-0.3…0.3 y resto) ------- */
-              float ring = step(0.3, abs(dir.y));
-              float t = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
-              t += ring * 0.5;
-              float idx = t * float(u_count);
-              int   i = int(floor(idx)) % u_count;
-              int   j = (i + 1) % u_count;
-              float f = fract(idx);
-              vec3 col = mix(u_colors[i], u_colors[j], f);
+    /* -------- gradiente angular, sin banda central -------- */
+    float t   = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
+    float idx = t * float(u_count);
+    int   i   = int(floor(idx)) % u_count;
+    int   j   = (i + 1) % u_count;
+    float f   = fract(idx);
+    vec3 col  = mix(u_colors[i], u_colors[j], f);
 
-              /* ------ nubes Perlin -------- */
-              float cloud = n3(dir*4.0 + time*0.05);
-              cloud = smoothstep(0.2, 0.8, cloud);
-              col   = mix(col, vec3(1.0), 0.08*cloud);
+    /* -------- micro-deriva cromática (determinista) -------- */
+    float drift = n3(dir*3.0 + time*0.02) * 0.06;     // ±6° en el círculo de H
+    col = vec3(
+      col.r + drift,
+      col.g,
+      col.b - drift
+    );
 
-              /* ------ halo radial ---------- */
-              float d = length(vPos) / 250.0;
-              col += pow(1.0 - d, 4.0) * 0.22;
+    /* -------- nubes de ruido -------- */
+    float cloud = n3(dir*4.0 + time*0.05);
+    cloud = smoothstep(0.2, 0.8, cloud);
+    col   = mix(col, vec3(1.0), 0.08*cloud);
 
-              /* gamma lift */
-              col = pow(col, vec3(0.8));
-              gl_FragColor = vec4(col, 1.0);
-            }`
+    /* -------- halo radial ---------- */
+    float d = length(vPos) / 250.0;
+    col += pow(1.0 - d, 4.0) * 0.22;
+
+    /* -------- pulso de luminosidad (±3 %, 0.008 Hz) -------- */
+    float pulse = sin(time*6.2831853*0.008) * 0.03;
+    col *= (1.0 + pulse);
+
+    /* gamma lift */
+    col = pow(col, vec3(0.8));
+    gl_FragColor = vec4(col, 1.0);
+  }`
       });
       skySphere = new THREE.Mesh(geo, mat);
       skySphere.visible = false;                       // arranca apagado
@@ -632,15 +660,17 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       isFRBN = !isFRBN;
       if(isFRBN){
-        buildGanzfeld();
+        buildGanzfeld();              // paleta actual
         permutationGroup.visible = false;
         cubeUniverse.visible     = false;
         skySphere.visible        = true;
+        enableTurrellFog(true);       // ← fog + bloom
       }else{
         skySphere.visible        = false;
         permutationGroup.visible = true;
         cubeUniverse.visible     = true;
-        refreshAll({keepManual:true});                 // riesgo 2 (re-contraste)
+        enableTurrellFog(false);
+        refreshAll({keepManual:true});    // re-contraste
       }
     }
 
@@ -1559,6 +1589,7 @@ function makePalette(){
       /* contrast-fix eliminado – 19-Jul-2025 */
       updateBackground(false);
       updateCubeColor(false);
+      if(isFRBN) buildGanzfeld();   // actualiza la esfera si el modo ya estaba activo
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2214,6 +2245,21 @@ function renderArchPanel(html){
       renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth,window.innerHeight);
+
+      composer    = new THREE.EffectComposer(renderer);
+      renderPass  = new THREE.RenderPass(scene, camera);
+      composer.addPass(renderPass);
+
+      /* bloom muy suave – sólo se enciende dentro de FRBN */
+      bloomPass   = new THREE.UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        0.6,     // strength
+        0.4,     // radius
+        0.85     // threshold
+      );
+      bloomPass.enabled = false;
+      composer.addPass(bloomPass);
+
       document.body.appendChild(renderer.domElement);
     }
     function init(){
@@ -2260,6 +2306,7 @@ function renderArchPanel(html){
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
+      composer.setSize(window.innerWidth,window.innerHeight);
     }
     function animate(){
       requestAnimationFrame(animate);
@@ -2270,7 +2317,7 @@ function renderArchPanel(html){
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
         controls.update();
-        renderer.render(scene,camera);
+        composer.render();
       }
     init();
 
