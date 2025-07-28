@@ -55,6 +55,8 @@
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
   #randomConfigButton   { position:fixed; right:10px; bottom:290px;  }   /* BUILD (arriba del de 120…) */
+  /* === FRBN toggle === */
+  #frbnButton          { position:fixed; right:10px; bottom:330px; }
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -190,6 +192,7 @@
   <button id="archDescButton"     onclick="showArchitecturalDescription()">Architectural Description</button>
   <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
+  <button id="frbnButton"        onclick="toggleFRBN()">FRBN</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -478,6 +481,122 @@ document.getElementById('json-upload').addEventListener('change', function(event
     
     // >>> NUEVO:
     let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
+
+    /* ─────────────────────────────
+     *   FRBN  ·  deterministic Ganzfeld
+     * ───────────────────────────── */
+    let skySphere = null;
+    let isFRBN    = false;
+
+    /* -------- shader interno: gradiente angular + modulador radial ---------- */
+    function initSkySphere(){
+      const geo = new THREE.SphereGeometry(120, 64, 64);      // cubre toda la escena
+      const mat = new THREE.ShaderMaterial({
+        side     : THREE.BackSide,
+        uniforms : {
+          u_count : { value: 0 },
+          u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) }
+        },
+        vertexShader: `
+          varying vec3 vPos;
+          void main(){
+            vPos = (modelMatrix * vec4(position,1.0)).xyz;
+            gl_Position = projectionMatrix * viewMatrix * vec4(vPos,1.0);
+          }`,
+        fragmentShader: `
+          uniform int  u_count;
+          uniform vec3 u_colors[12];
+          varying vec3 vPos;
+          void main(){
+            vec3 dir = normalize(vPos);
+            /* \u00e1ngulo 0..1 alrededor del eje Y */
+            float t = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
+            float idx = t * float(u_count);
+            int   i   = int(floor(idx)) % u_count;
+            int   j   = (i + 1) % u_count;
+            float f   = fract(idx);
+            vec3 col  = mix(u_colors[i], u_colors[j], f);
+
+            /* modulador radial muy lento  \u2013 mitigaci\u00f3n riesgo 1 */
+            float v = pow(abs(dir.y), 0.4);            // 0 = ecuador, 1 = polos
+            col = mix(col * 0.92, col, v);             // \u00b112 % de luma
+
+            gl_FragColor = vec4(col, 1.0);
+          }`
+      });
+      skySphere = new THREE.Mesh(geo, mat);
+      skySphere.visible = false;                       // arranca apagado
+      scene.add(skySphere);
+    }
+
+    /* ---------- extrae TODOS los colores deterministas del sistema ---------- */
+    function collectSceneColors(){
+      const list = [];
+
+      // glifos
+      permutationGroup.children.forEach(m => list.push(m.material.color.clone()));
+
+      // fondo actual
+      if (bgOverride){
+        const [r,g,b] = hexToRgb(bgOverride);
+        list.push(new THREE.Color(r/255,g/255,b/255));
+      } else {
+        const rgb = hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+        list.push(new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255));
+      }
+
+      // paredes cubo
+      if (cubeOverride){
+        const [r,g,b] = hexToRgb(cubeOverride);
+        list.push(new THREE.Color(r/255,g/255,b/255));
+      } else {
+        const rgb = hsvToRgb(wallHSV.h, wallHSV.s, wallHSV.v);
+        list.push(new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255));
+      }
+
+      /* \u2014 mitiga riesgo 1: reduce a m\u00e1x 12 colores, eliminando tonos muy pr\u00f3ximos \u2014 */
+      const uniq = [];
+      list.forEach(c=>{
+        const [h] = rgbToHsv(c.r*255,c.g*255,c.b*255);
+        if(!uniq.some(u=>{const [uh]=rgbToHsv(u.r*255,u.g*255,u.b*255); return Math.abs(uh-h)<10;})){
+          uniq.push(c);
+        }
+      });
+      return uniq.slice(0,12);
+    }
+
+    /* ---------- actualiza uniforms del shader con la paleta elegida ---------- */
+    function updateSkySphereColors(arr){
+      if(!skySphere) initSkySphere();
+      const mat = skySphere.material;
+      const n   = arr.length;
+      mat.uniforms.u_count.value = n;
+      for(let i=0;i<12;i++){
+        const src = arr[i % n];
+        mat.uniforms.u_colors.value[i].copy(src);
+      }
+    }
+
+    /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
+    function toggleFRBN(){
+      if(!skySphere) initSkySphere();
+
+      isFRBN = !isFRBN;
+      if(isFRBN){
+        updateSkySphereColors( collectSceneColors() ); // riesgo 1
+        permutationGroup.visible = false;
+        cubeUniverse.visible     = false;
+        skySphere.visible        = true;
+      }else{
+        skySphere.visible        = false;
+        permutationGroup.visible = true;
+        cubeUniverse.visible     = true;
+        refreshAll({keepManual:true});                 // riesgo 2 (re-contraste)
+      }
+    }
+
+    /* --------- inicializa esfera al arrancar (sin coste GPU extra) -------- */
+    window.addEventListener('load', () => { if(!skySphere) initSkySphere(); });
 
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
