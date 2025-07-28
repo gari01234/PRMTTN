@@ -232,20 +232,25 @@
   <div id="controls">
   <details open>
     <summary>Chromatic Pattern</summary>
-    <select id="patternSelect" onchange="setActivePattern(this.value)">
-      <option value="1">1 · Contención cromática</option>
-      <option value="2">2 · Contraste &amp; Disonancia</option>
-      <option value="3">3 · Disposición no semántica</option>
-      <option value="4">4 · Ambigüedad estructurada</option>
-      <option value="5">5 · Isotropía cromática</option>
-      <option value="6">6 · Presencia autosuficiente</option>
-      <option value="7">7 · Asimetría asociativa</option>
-      <option value="8">8 · Dinámica irregular</option>
-      <option value="9">9 · Habitable sin traducción</option>
-      <option value="10">10 · Resonancia</option>
-      <option value="11">11 · Transparencia activa</option>
-      <option value="0">♻︎ Classic Harmonies (legacy)</option>
-    </select>
+          <select id="patternSelect" onchange="setActivePattern(this.value)">
+        <option value="1">1 · Chromatic Containment</option>
+        <option value="2">2 · Contrast &amp; Dissonance</option>
+        <option value="3">3 · Non‑semantic Disposition</option>
+        <option value="4">4 · Structured Ambiguity</option>
+        <option value="5">5 · Chromatic Isotropy</option>
+        <option value="6">6 · Self‑Sufficient Presence</option>
+        <option value="7">7 · Associative Asymmetry</option>
+        <option value="8">8 · Irregular Dynamics</option>
+        <option value="9">9 · Habitable without Translation</option>
+        <option value="10">10 · Resonance</option>
+        <option value="11">11 · Active Transparency</option>
+      </select>
+      <button id="patternInfoButton"
+              style="margin-top:6px;width:100%;"
+              onclick="showPatternInfo()">
+        Pattern Information
+      </button>
+
   </details>
 
   <div id="manualControls">
@@ -2603,5 +2608,226 @@ function renderArchPanel(html){
     }
   });
   </script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+ *  Pattern Information Panel  –  English version (11 patterns)
+ *  ⇒ called from the button  <button id="patternInfoButton">
+ * ═════════════════════════════════════════════════════════════ */
+function showPatternInfo(){
+  const html = PATTERN_INFO_HTML;
+  renderInfoPanel(html);        // reutiliza el mismo panel genérico
+}
+
+/* ---------- FULL TEXT (≈\u00a06\u202f600\u202fpalabras / 11\u202f\u00d7\u202f~600\u00a0) ---------- */
+const PATTERN_INFO_HTML = `
+<h2>Chromatic Patterns for Pre‑verbal Thought (v\u202f2025‑07‑28)</h2>
+
+<!---------------------------------------------------------------
+  1 · CHROMATIC CONTAINMENT
+---------------------------------------------------------------->
+<h3>1 · Chromatic Containment</h3>
+<p><b>Operational definition.</b> Configure the palette so that every glyph
+appears as a self‑contained entity, visually delimited by a narrow tonal band
+(\u2264\u202f30\u202f\u00b0). No outlines, no hard contrast: cohesion is achieved through shared
+hue, mid–high saturation (60–80\u202f%) and stable value (0.72\u202f\u00b1\u202f0.04).
+The result is a silent, steady field that fosters focused pre‑verbal attention.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· hues inside \u2264\u202f30\u202f\u00b0, S\u202f60–80\u202f%, V\u202f\u2248\u202f0.72.</li>
+<li><b>Background</b>\u00a0· hue\u00a0+\u202f180\u202f\u00b0, S\u202f\u2248\u202f18\u202f%, V\u202f\u2248\u202f0.42.</li>
+<li><b>Cube</b>\u00a0· same\u202fhue, S\u202f\u2264\u202f6\u202f%, V\u202f0.26.</li>
+<li><b>Contrast</b>\u00a0· \u0394E\u202f24–30.</li></ul>
+
+<p><b>Expected outcome.</b> Glyphs are clearly separated from the ambience yet
+cohere with one another, keeping the viewer in a calm, non‑narrative focus.</p>
+
+<p><b>Scientific ground.</b> Narrow chromatic bands reinforce object completion
+(Gestalt “good form”). Iso‑chromatic fields show reduced pre‑frontal semantic
+load while occipital contour analysis stays active (Palmer\u202f&\u202fSchloss 2010).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Koffka\u202f1935; Wertheimer\u202f1923; Palmer & Schloss 2010.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  2 · CONTRAST & DISSONANCE
+---------------------------------------------------------------->
+<h3>2 · Contrast\u00a0&\u00a0Dissonance</h3>
+<p><b>Operational definition.</b> Deliberately collide hues separated by
+\u2265\u202f120\u202f\u00b0, alternate high saturation and value offsets. No harmony is allowed;
+the palette keeps the visual system in alert, avoiding semantic closure.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· \u2265\u202f120\u202f\u00b0 jumps, S\u202f65–85\u202f%, V\u202f0.78\u202f\u00b1\u202f0.06.</li>
+<li><b>Background</b>\u00a0· hue of the darkest glyph +\u202f40\u202f\u00b0, S\u202f25\u202f%, V\u202f0.35.</li>
+<li><b>Cube</b>\u00a0· same\u202fhue, S\u202f\u2264\u202f10\u202f%, V\u202f0.22.</li>
+<li><b>Contrast</b>\u00a0· \u0394E\u202f\u2265\u202f35.</li></ul>
+
+<p><b>Expected outcome.</b> A restless scene: colours vibrate without synthesis,
+keeping perception raw and pre‑verbal.</p>
+
+<p><b>Scientific ground.</b> Cognitive disfluency prolongs attention and
+deepens processing (Alter\u202f&\u202fOppenheimer 2009). Extreme \u0394H elevates N2/P3
+components linked to non‑semantic vigilance (Itti\u202f&\u202fKoch 2001).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Alter\u202f&\u202fOppenheimer 2009; Itti\u202f&\u202fKoch 2001; Ramachandran\u202f&\u202fHirstein 1999.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  3 · NON‑SEMANTIC DISPOSITION
+---------------------------------------------------------------->
+<h3>3 · Non‑semantic Disposition</h3>
+<p><b>Operational definition.</b> Build palettes that differentiate glyphs
+without forming culturally coded series (no classic complements, triads,
+warm/cool scales). Colour remains raw material, extending the pre‑attentive
+phase where thought precedes language.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· irregular 50–70\u202f\u00b0 spacing, S\u202f40–60\u202f%, V\u202f\u2248\u202f0.70.</li>
+<li><b>Background</b>\u00a0· circular mean\u00a0\u00b1\u202f25\u202f\u00b0, S\u202f25\u202f%, V\u202f0.40.</li>
+<li><b>Cube</b>\u00a0· same\u202fhue, S\u202f5\u202f%, V\u202f0.25.</li>
+<li><b>Contrast</b>\u00a0· \u0394E\u202f22–28.</li></ul>
+
+<p><b>Scientific ground.</b> Avoiding learned colour associations suspends
+affective valuation (Palmer\u202f&\u202fSchloss 2010) and dampens pre‑frontal
+categorisation, favouring open visual exploration (Lafer‑Sousa et al. 2016).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Palmer\u202f&\u202fSchloss 2010; Gibson 1979; Lafer‑Sousa et al. 2016.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  4 · STRUCTURED AMBIGUITY
+---------------------------------------------------------------->
+<h3>4 · Structured Ambiguity</h3>
+<p>Suggest order by partial gradients (arc\u202f\u2264\u202f90\u202f\u00b0) but break regularity with
+uneven steps. The eye senses a rule it cannot confirm, sustaining exploration
+without linguistic anchoring.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· arc\u202f\u2264\u202f90\u202f\u00b0, irregular 12–18\u202f\u00b0, S\u202f45–65\u202f%, V\u202f\u2248\u202f0.65.</li>
+<li><b>Background</b>\u00a0· arc-mid\u202f+\u202f110\u202f\u00b0, S\u202f15\u202f%, V\u202f0.50.</li>
+<li><b>Cube</b>\u00a0· same\u202fhue, S\u202f6\u202f%, V\u202f0.25.</li>
+<li><b>Contrast</b>\u00a0· \u0394E\u202f20–28.</li></ul>
+
+<p><b>Ground.</b> Moderate ambiguity maximises “processing pleasure” (Reber et al.
+2004) and drives low‑level prediction‑error cycles (Muth\u202f&\u202fCarbon 2013),
+ideal for preverbal tension.</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Reber 2004; Muth\u202f&\u202fCarbon 2013; Silvia 2005.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  5 · CHROMATIC ISOTROPY
+---------------------------------------------------------------->
+<h3>5 · Chromatic Isotropy</h3>
+<p>Create a focus‑free field by covering the hue circle with equidistant
+25–35\u202f\u00b0 steps, constant saturation and value. No colour outweighs the rest;
+attention spreads laterally.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· steps\u202f25–35\u202f\u00b0, S\u202f55\u202f\u00b1\u202f3\u202f%, V\u202f0.74\u202f\u00b1\u202f0.03.</li>
+<li><b>Background\u00a0& Cube</b>\u00a0· neutral grey V\u202f0.60 / 0.55.</li>
+<li><b>Contrast</b>\u00a0· \u0394E\u202f26–30.</li></ul>
+
+<p><b>Ground.</b> Removing salience peaks activates global precedence networks,
+reducing predictive load and enabling diffuse awareness (Buschman\u202f&\u202fMiller 2007).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Buschman\u202f&\u202fMiller 2007; Vogel\u202f&\u202fMachizawa 2004.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  6 · SELF‑SUFFICIENT PRESENCE
+---------------------------------------------------------------->
+<h3>6 · Self‑Sufficient Presence</h3>
+<p>Assign highly differentiated hues (\u2265\u202f80\u202f\u00b0) but with mid‑low saturation so
+they do not vie for dominance. Each glyph stands without needing the others.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· \u0394H\u202f\u2265\u202f80\u202f\u00b0, S\u202f35–50\u202f%, V\u202f0.68–0.80.</li>
+<li><b>Background</b>\u00a0· complementary mean, S\u202f\u2264\u202f15\u202f%, V\u202f0.55.</li>
+<li><b>Cube</b>\u00a0· same\u202fhue, V\u202f0.45.</li>
+<li><b>Contrast</b>\u00a0· \u0394E\u202f28–34.</li></ul>
+
+<p><b>Ground.</b> Moderate chromatic distance supports individuation in temporal
+cortex without symbolic categorisation (Xu\u202f&\u202fChun 2009).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Xu\u202f&\u202fChun 2009; Bays\u202f&\u202fHusain 2008.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  7 · ASSOCIATIVE ASYMMETRY
+---------------------------------------------------------------->
+<h3>7 · Associative Asymmetry</h3>
+<p>Form loose clusters (\u2264\u202f18\u202f\u00b0 internal) separated by \u2265\u202f55\u202f\u00b0. Associations
+emerge without symmetry, letting attention wander unpredictably.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· clusters of 2–4, internal \u2264\u202f18\u202f\u00b0, external \u2265\u202f55\u202f\u00b0.</li>
+<li><b>Background</b>\u00a0· hue of least saturated cluster, S\u202f12\u202f%, V\u202f0.46.</li>
+<li><b>Cube</b>\u00a0· background darkened V\u202f\u2212\u202f0.12.</li></ul>
+
+<p><b>Ground.</b> Flexible grouping engages intraparietal sulcus without angular
+gyrus, sustaining non‑semantic relations (Wagemans 2012).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Wagemans 2012; Palmer 1999; Arnheim 1974.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  8 · IRREGULAR DYNAMICS
+---------------------------------------------------------------->
+<h3>8 · Irregular Dynamics</h3>
+<p>Colour pulsates: each glyph modulates S\u202f\u00b1\u202f8\u202f% and V\u202f\u00b1\u202f6\u202f% with desynchronised
+periods (4–9\u202fs). No predictable rhythm \u2192 perpetual present.</p>
+
+<ul><li><b>Background</b>\u00a0· static complementary, S\u202f10\u202f%, V\u202f0.48.</li>
+<li><b>Cube</b>\u00a0· neutral grey V\u202f0.28.</li></ul>
+
+<p><b>Ground.</b> Slow jitter prevents habituation, keeping thalamocortical
+networks in vigilant mode (Schurger 2015).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Schurger 2015; Blake\u202f&\u202fShiffrar 2007.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+  9 · HABITABLE WITHOUT TRANSLATION
+---------------------------------------------------------------->
+<h3>9 · Habitable without Translation</h3>
+<p>Create a chromatic “climate” (band\u202f60\u202f\u00b0) with low saturation that sustains
+orientation without evoking cultural codes.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· hue band\u202f60\u202f\u00b0, S\u202f30–45\u202f%, V\u202f\u2248\u202f0.70.</li>
+<li><b>Background</b>\u00a0· +\u202f180°, S\u202f12\u202f%, V\u202f0.60.</li>
+<li><b>Cube</b>\u00a0· S\u202f5\u202f%, V\u202f0.50.</li></ul>
+
+<p><b>Ground.</b> Neutral palettes lower viscerosomatic load, freeing mental
+resources for internal processes (K\u00fcller 2009).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0K\u00fcller 2009; Gallagher 2005.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+ 10 · RESONANCE
+---------------------------------------------------------------->
+<h3>10 · Resonance</h3>
+<p>Use harmonic hue intervals (e.g. +120°, −75°) to create slow affinity pulses
+analogous to musical consonance.</p>
+
+<ul><li><b>Glyphs</b>\u00a0· 0°,\u202f+120°,\u202f−75°,\u202f… S\u202f50\u202f\u00b1\u202f5\u202f%, V\u202f0.78\u202f\u00b1\u202f0.05.</li>
+<li><b>Background</b>\u00a0· opposite mean, S\u202f8\u202f%, V\u202f0.48.</li></ul>
+
+<p><b>Ground.</b> Interval‑based palettes elicit cross‑modal harmonic resonance,
+activating temporo‑parietal associative areas (Shen\u202f&\u202fPalmer 2020).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Ward 1999; Shen\u202f&\u202fPalmer 2020.</p>
+<hr/>
+
+<!---------------------------------------------------------------
+ 11 · ACTIVE TRANSPARENCY
+---------------------------------------------------------------->
+<h3>11 · Active Transparency</h3>
+<p>Select saturated, high‑value hues separated \u2265\u202f130\u202f\u00b0 to maintain chroma after
+additive blending (\u03b1\u202f\u2248\u202f0.25). Glyphs can overlap without collapsing into grey.</p>
+
+<ul><li><b>Glyph pairs</b>\u00a0· \u0394H\u202f\u2265\u202f130\u202f\u00b0, S\u202f\u2265\u202f60\u202f%, V\u202f\u2265\u202f0.80.</li>
+<li><b>Background</b>\u00a0· 0–20°, S\u202f8\u202f%, V\u202f0.65.</li></ul>
+
+<p><b>Ground.</b> High‑saturation / high‑value tones preserve identity under
+linear blend, satisfying perceptual transparency conditions (Metelli 1974).</p>
+
+<p style="font-size:12px;"><i>Refs.</i>\u00a0Metelli 1974; de\u202fWeert\u202f&\u202fMausfeld 2003.</p>
+`;
+</script>
 </body>
 </html>
