@@ -487,15 +487,17 @@ document.getElementById('json-upload').addEventListener('change', function(event
      * ───────────────────────────── */
     let skySphere = null;
     let isFRBN    = false;
+    const SKY_R = 250;
 
     /* -------- shader interno: gradiente angular + modulador radial ---------- */
     function initSkySphere(){
-      const geo = new THREE.SphereGeometry(120, 64, 64);      // cubre toda la escena
+      const geo = new THREE.SphereGeometry(SKY_R, 64, 64);      // cubre toda la escena
       const mat = new THREE.ShaderMaterial({
         side     : THREE.BackSide,
         uniforms : {
           u_count : { value: 0 },
-          u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) }
+          u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) },
+          time    : { value: 0 }
         },
         vertexShader: `
           varying vec3 vPos;
@@ -506,31 +508,61 @@ document.getElementById('json-upload').addEventListener('change', function(event
           fragmentShader: `
             uniform int  u_count;
             uniform vec3 u_colors[12];
+            uniform float time;
             varying vec3 vPos;
+
+            vec3 rand(vec3 c){
+              return fract(sin(vec3(dot(c, vec3(1.0,57.0,113.0)),
+                                   dot(c, vec3(57.0,113.0,1.0)),
+                                   dot(c, vec3(113.0,1.0,57.0))))*43758.5453);
+            }
+
+            /* === Perlin 3D simplificado (3 gradientes) === */
+            float n3(vec3 p){
+              vec3 i = floor(p);
+              vec3 f = fract(p);
+              f = f*f*(3.0-2.0*f);
+              float dot000 = dot(rand(i+vec3(0,0,0)), f-vec3(0,0,0));
+              float dot100 = dot(rand(i+vec3(1,0,0)), f-vec3(1,0,0));
+              float dot010 = dot(rand(i+vec3(0,1,0)), f-vec3(0,1,0));
+              float dot110 = dot(rand(i+vec3(1,1,0)), f-vec3(1,1,0));
+              float dot001 = dot(rand(i+vec3(0,0,1)), f-vec3(0,0,1));
+              float dot101 = dot(rand(i+vec3(1,0,1)), f-vec3(1,0,1));
+              float dot011 = dot(rand(i+vec3(0,1,1)), f-vec3(0,1,1));
+              float dot111 = dot(rand(i+vec3(1,1,1)), f-vec3(1,1,1));
+              float lerpx0 = mix(dot000,dot100,f.x);
+              float lerpx1 = mix(dot010,dot110,f.x);
+              float lerpx2 = mix(dot001,dot101,f.x);
+              float lerpx3 = mix(dot011,dot111,f.x);
+              float lerpy0 = mix(lerpx0,lerpx1,f.y);
+              float lerpy1 = mix(lerpx2,lerpx3,f.y);
+              return mix(lerpy0,lerpy1,f.z);
+            }
 
             void main(){
               vec3 dir = normalize(vPos);
 
-              /* ------- componente angular (horizontal) ------- */
+              /* ------ 2 anillos (-0.3…0.3 y resto) ------- */
+              float ring = step(0.3, abs(dir.y));
               float t = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
+              t += ring * 0.5;
               float idx = t * float(u_count);
               int   i = int(floor(idx)) % u_count;
               int   j = (i + 1) % u_count;
               float f = fract(idx);
               vec3 col = mix(u_colors[i], u_colors[j], f);
 
-              /* ------- gradiente vertical (cielo-suelo) ------- */
-              float vMix = smoothstep(-0.8, 0.8, dir.y);   // -1 (suelo) → +1 (cielo)
-              vec3 sky   = mix(col, vec3(1.0,1.0,1.0), 0.12);  // un 12 % hacia blanco
-              vec3 earth = mix(col, vec3(0.0,0.0,0.0), 0.18);  // un 18 % hacia negro
-              col = mix(earth, sky, vMix);
+              /* ------ nubes Perlin -------- */
+              float cloud = n3(dir*4.0 + time*0.05);
+              cloud = smoothstep(0.2, 0.8, cloud);
+              col   = mix(col, vec3(1.0), 0.08*cloud);
 
-              /* ------- halo radial suave ------- */
-              float d = length(vPos) / 120.0;              // 0 en cámara, 1 en esfera
-              col += pow(1.0 - d, 6.0) * 0.15;             // añade 15 % bloom céntrico
+              /* ------ halo radial ---------- */
+              float d = length(vPos) / 250.0;
+              col += pow(1.0 - d, 4.0) * 0.22;
 
-              /* ------- gamma-lift tipo bloom ------- */
-              col = pow(col, vec3(0.8));                  // γ<1 → aparente sobre-exposición
+              /* gamma lift */
+              col = pow(col, vec3(0.8));
               gl_FragColor = vec4(col, 1.0);
             }`
       });
@@ -541,45 +573,56 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ---------- extrae TODOS los colores deterministas del sistema ---------- */
     function collectSceneColors(){
-      // 1) todos los RGB deterministas (igual que antes)
+      // 1) Todos los RGB deterministas
       const raw = [];
-      permutationGroup.children.forEach(m => raw.push(m.material.color.clone()));
-      [bgOverride ? new THREE.Color(...hexToRgb(bgOverride).map(v=>v/255))
-                  : new THREE.Color(...hsvToRgb(bgHSV.h,bgHSV.s,bgHSV.v).map(v=>v/255)),
-       cubeOverride ? new THREE.Color(...hexToRgb(cubeOverride).map(v=>v/255))
-                    : new THREE.Color(...hsvToRgb(wallHSV.h,wallHSV.s,wallHSV.v).map(v=>v/255))
-      ].forEach(c=>raw.push(c));
+      permutationGroup.traverse(o=>{
+        if(o.isMesh) raw.push(o.material.color.clone());
+      });
 
-      // 2) ––– FORZAMOS brillantez mínimo V≥0.75, S≥0.55 –––
-      const bright = raw.map(c=>{
+      // 2) Normaliza a S≥0.60  V≥0.80  (más extremos)
+      const boosted = raw.map(c=>{
         let [h,s,v] = rgbToHsv(c.r*255,c.g*255,c.b*255);
-        if(v < 0.75) v = 0.75;
-        if(s < 0.55) s = 0.55;
+        s = Math.max(s, 0.60);
+        v = Math.max(v, 0.80);
         const [R,G,B] = hsvToRgb(h,s,v);
         return new THREE.Color(R/255,G/255,B/255);
       });
 
-      // 3) eliminamos casi-duplicados (ΔH <10°) y limitamos a 8
+      // 3) Agrupa por ΔH≥18°  (dejamos tonos bien separados)
       const uniq = [];
-      bright.forEach(c=>{
+      boosted.forEach(c=>{
         const [h] = rgbToHsv(c.r*255,c.g*255,c.b*255);
-        if(!uniq.some(u=>{const [uh]=rgbToHsv(u.r*255,u.g*255,u.b*255); return Math.abs(uh-h)<10;})){
+        if(!uniq.some(u=>{
+          const [hu] = rgbToHsv(u.r*255,u.g*255,u.b*255);
+          return Math.abs(hu-h) < 18;
+        })){
           uniq.push(c);
         }
       });
-      return uniq.slice(0,8);     // ⇒ entre 4 y 8 tonos vivos
+
+      // 4) Si siguen faltando, completa con rueda de color base
+      const fallback = [
+        0,60,120,180,240,300
+      ].map(h=>{
+        const [R,G,B] = hsvToRgb(h,0.75,0.85);
+        return new THREE.Color(R/255,G/255,B/255);
+      });
+      while(uniq.length < 6) uniq.push( fallback[uniq.length] );
+
+      // → devolvemos máx. 8 primeros
+      return uniq.slice(0,8);
     }
 
 
     /* ---------- actualiza uniforms del shader con la paleta elegida ---------- */
-    function updateSkySphereColors(arr){
+    function buildGanzfeld(){
       if(!skySphere) initSkySphere();
-      const mat = skySphere.material;
-      const n   = arr.length;
+      const cols = collectSceneColors();
+      const n    = cols.length;
+      const mat  = skySphere.material;
       mat.uniforms.u_count.value = n;
       for(let i=0;i<12;i++){
-        const src = arr[i % n];
-        mat.uniforms.u_colors.value[i].copy(src);
+        mat.uniforms.u_colors.value[i] = cols[i % n];
       }
     }
 
@@ -589,7 +632,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       isFRBN = !isFRBN;
       if(isFRBN){
-        updateSkySphereColors( collectSceneColors() ); // riesgo 1
+        buildGanzfeld();
         permutationGroup.visible = false;
         cubeUniverse.visible     = false;
         skySphere.visible        = true;
@@ -2225,9 +2268,10 @@ function renderArchPanel(html){
           if(o.userData.rotationSpeed) o.rotation.y+=o.userData.rotationSpeed;
         });
       }
-      controls.update();
-      renderer.render(scene,camera);
-    }
+        if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
+        controls.update();
+        renderer.render(scene,camera);
+      }
     init();
 
     // Web3 + NFT Mint (tu código original)
