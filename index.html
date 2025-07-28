@@ -233,17 +233,17 @@
   <details open>
     <summary>Chromatic Pattern</summary>
     <select id="patternSelect" onchange="setActivePattern(this.value)">
-      <option value="1">1 · Structural Containment</option>
-      <option value="2">2 · Contrast &amp; Dissonance</option>
-      <option value="3">3 · Non-semantic Disposition</option>
-      <option value="4">4 · Structured Ambiguity</option>
-      <option value="5">5 · Field without Center</option>
-      <option value="6">6 · Self-sufficient Presence</option>
-      <option value="7">7 · Associative Asymmetry</option>
-      <option value="8">8 · Irregular Dynamics</option>
-      <option value="9">9 · Habitable without Translation</option>
-      <option value="10">10 · Resonance</option>
-      <option value="11">11 · Active Transparency</option>
+      <option value="1">1 · Contención cromática</option>
+      <option value="2">2 · Contraste &amp; Disonancia</option>
+      <option value="3">3 · Disposición no semántica</option>
+      <option value="4">4 · Ambigüedad estructurada</option>
+      <option value="5">5 · Isotropía cromática</option>
+      <option value="6">6 · Presencia autosuficiente</option>
+      <option value="7">7 · Asimetría asociativa</option>
+      <option value="8">8 · Dinámica irregular</option>
+      <option value="9">9 · Habitable sin traducción</option>
+      <option value="10">10 · Resonancia</option>
+      <option value="11">11 · Transparencia activa</option>
       <option value="0">♻︎ Classic Harmonies (legacy)</option>
     </select>
   </details>
@@ -504,12 +504,25 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ 11 patrones cromáticos — versión PHI_H (89) ═════════ */
 const PATTERNS = {
-  1:  (sig,seed,i)=>{const b=(sig.reduce((a,v)=>a+v,0)+seed*13)%144;
-                     const h=(b+(i*19+sig[i%5])*PHI_H)%144;
-                     return [h,(sig[3]+seed+i)%12,(sig[1]+sig[4]+i)%12];},
+  1: (sig, seed, i) => {
+    const base = (sig.reduce((a,v)=>a+v,0) + seed*7) % 144;
+    const hIdx = (base + (i%12)*6) % 144;
+    return [
+      hIdx,
+      (sig[3] + seed + i) % 12,
+      (sig[1] + sig[4] + i) % 12
+    ];
+  },
 
-  2:  (s,seed,i)=>{const b=(s[0]*17+seed*5+i*39)%144;
-                   return [(b+i*PHI_H)%144,(s[1]+i*3+seed)%12,(s[2]*2+i+seed)%12];},
+  2: (sig, seed, i) => {
+    const base = (sig[0]*17 + seed*5) % 144;
+    const hIdx = (base + ((i%12)*48)) % 144;
+    return [
+      hIdx,
+      (sig[1] + i*3 + seed) % 12,
+      (sig[2]*2 + i + seed) % 12
+    ];
+  },
 
   3:  (s,seed,i)=>{const b=(s[2]*13+seed*5+i*11)%144;
                    return [(b+i*PHI_H)%144,(s[0]+i*2+seed)%12,(s[1]+s[3]+i)%12];},
