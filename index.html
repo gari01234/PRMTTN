@@ -503,26 +503,36 @@ document.getElementById('json-upload').addEventListener('change', function(event
             vPos = (modelMatrix * vec4(position,1.0)).xyz;
             gl_Position = projectionMatrix * viewMatrix * vec4(vPos,1.0);
           }`,
-        fragmentShader: `
-          uniform int  u_count;
-          uniform vec3 u_colors[12];
-          varying vec3 vPos;
-          void main(){
-            vec3 dir = normalize(vPos);
-            /* \u00e1ngulo 0..1 alrededor del eje Y */
-            float t = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
-            float idx = t * float(u_count);
-            int   i   = int(floor(idx)) % u_count;
-            int   j   = (i + 1) % u_count;
-            float f   = fract(idx);
-            vec3 col  = mix(u_colors[i], u_colors[j], f);
+          fragmentShader: `
+            uniform int  u_count;
+            uniform vec3 u_colors[12];
+            varying vec3 vPos;
 
-            /* modulador radial muy lento  \u2013 mitigaci\u00f3n riesgo 1 */
-            float v = pow(abs(dir.y), 0.4);            // 0 = ecuador, 1 = polos
-            col = mix(col * 0.92, col, v);             // \u00b112 % de luma
+            void main(){
+              vec3 dir = normalize(vPos);
 
-            gl_FragColor = vec4(col, 1.0);
-          }`
+              /* ------- componente angular (horizontal) ------- */
+              float t = (atan(dir.z, dir.x) + 3.14159265) / 6.2831853;
+              float idx = t * float(u_count);
+              int   i = int(floor(idx)) % u_count;
+              int   j = (i + 1) % u_count;
+              float f = fract(idx);
+              vec3 col = mix(u_colors[i], u_colors[j], f);
+
+              /* ------- gradiente vertical (cielo-suelo) ------- */
+              float vMix = smoothstep(-0.8, 0.8, dir.y);   // -1 (suelo) → +1 (cielo)
+              vec3 sky   = mix(col, vec3(1.0,1.0,1.0), 0.12);  // un 12 % hacia blanco
+              vec3 earth = mix(col, vec3(0.0,0.0,0.0), 0.18);  // un 18 % hacia negro
+              col = mix(earth, sky, vMix);
+
+              /* ------- halo radial suave ------- */
+              float d = length(vPos) / 120.0;              // 0 en cámara, 1 en esfera
+              col += pow(1.0 - d, 6.0) * 0.15;             // añade 15 % bloom céntrico
+
+              /* ------- gamma-lift tipo bloom ------- */
+              col = pow(col, vec3(0.8));                  // γ<1 → aparente sobre-exposición
+              gl_FragColor = vec4(col, 1.0);
+            }`
       });
       skySphere = new THREE.Mesh(geo, mat);
       skySphere.visible = false;                       // arranca apagado
@@ -531,39 +541,35 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ---------- extrae TODOS los colores deterministas del sistema ---------- */
     function collectSceneColors(){
-      const list = [];
+      // 1) todos los RGB deterministas (igual que antes)
+      const raw = [];
+      permutationGroup.children.forEach(m => raw.push(m.material.color.clone()));
+      [bgOverride ? new THREE.Color(...hexToRgb(bgOverride).map(v=>v/255))
+                  : new THREE.Color(...hsvToRgb(bgHSV.h,bgHSV.s,bgHSV.v).map(v=>v/255)),
+       cubeOverride ? new THREE.Color(...hexToRgb(cubeOverride).map(v=>v/255))
+                    : new THREE.Color(...hsvToRgb(wallHSV.h,wallHSV.s,wallHSV.v).map(v=>v/255))
+      ].forEach(c=>raw.push(c));
 
-      // glifos
-      permutationGroup.children.forEach(m => list.push(m.material.color.clone()));
+      // 2) ––– FORZAMOS brillantez mínimo V≥0.75, S≥0.55 –––
+      const bright = raw.map(c=>{
+        let [h,s,v] = rgbToHsv(c.r*255,c.g*255,c.b*255);
+        if(v < 0.75) v = 0.75;
+        if(s < 0.55) s = 0.55;
+        const [R,G,B] = hsvToRgb(h,s,v);
+        return new THREE.Color(R/255,G/255,B/255);
+      });
 
-      // fondo actual
-      if (bgOverride){
-        const [r,g,b] = hexToRgb(bgOverride);
-        list.push(new THREE.Color(r/255,g/255,b/255));
-      } else {
-        const rgb = hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
-        list.push(new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255));
-      }
-
-      // paredes cubo
-      if (cubeOverride){
-        const [r,g,b] = hexToRgb(cubeOverride);
-        list.push(new THREE.Color(r/255,g/255,b/255));
-      } else {
-        const rgb = hsvToRgb(wallHSV.h, wallHSV.s, wallHSV.v);
-        list.push(new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255));
-      }
-
-      /* \u2014 mitiga riesgo 1: reduce a m\u00e1x 12 colores, eliminando tonos muy pr\u00f3ximos \u2014 */
+      // 3) eliminamos casi-duplicados (ΔH <10°) y limitamos a 8
       const uniq = [];
-      list.forEach(c=>{
+      bright.forEach(c=>{
         const [h] = rgbToHsv(c.r*255,c.g*255,c.b*255);
         if(!uniq.some(u=>{const [uh]=rgbToHsv(u.r*255,u.g*255,u.b*255); return Math.abs(uh-h)<10;})){
           uniq.push(c);
         }
       });
-      return uniq.slice(0,12);
+      return uniq.slice(0,8);     // ⇒ entre 4 y 8 tonos vivos
     }
+
 
     /* ---------- actualiza uniforms del shader con la paleta elegida ---------- */
     function updateSkySphereColors(arr){
