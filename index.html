@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -456,6 +457,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
+    let gradMat = null;          // material del plano-degradado
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
@@ -576,6 +578,12 @@ function hsvToHex({h,s,v}){
   const [r,g,b] = hsvToRgb(h,s,v);
   return '#'+new THREE.Color(r/255,g/255,b/255).getHexString();
 }
+
+function applyGradientBG(hexTop, hexBottom){
+  if(!gradMat) return;
+  gradMat.uniforms.colorA.value.set(hexTop);
+  gradMat.uniforms.colorB.value.set(hexBottom);
+}
 /* contraste CIE76 */
 function deltaE(lab1,lab2){
   return Math.sqrt(
@@ -634,9 +642,27 @@ function ensureContrastRGB(rgb){
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
 /* ——— calcula HSV para fondo (slot 5) y paredes (slot 6) ——— */
 function rebuildSceneColours(){
-  const dummySig = [0,0,0,0,0];            // sólo necesitamos el patrón
-  bgHSV   = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 5) );
-  wallHSV = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 6) );
+  /* 1 · firma global (sig₅) a partir de las permutaciones activas */
+  const sel   = Array.from(document.getElementById('permutationList').selectedOptions);
+  const perms = sel.map(o=>o.value.split(',').map(Number));
+  const gSig  = globalSceneSig(perms);
+
+  /* 2 · dos slots reservados para el degradado vertical */
+  const hsvTop    = idxToHSV(...PATTERNS[activePatternId](gSig, sceneSeed, 5));
+  const hsvBottom = idxToHSV(...PATTERNS[activePatternId](gSig, sceneSeed, 6));
+
+  /* 3 · “curva” Munsell → más claro arriba, más oscuro abajo */
+  hsvTop.v    = Math.min(1, hsvTop.v + 0.12);
+  hsvBottom.v = Math.max(0, hsvBottom.v - 0.12);
+
+  /* 4 · actualiza globals (para contraste / paredes) */
+  bgHSV   = hsvTop;                                                 // fondo
+  wallHSV = idxToHSV(...PATTERNS[activePatternId](gSig, sceneSeed, 7)); // cubo
+
+  /* 5 · pinta el degradado */
+  const hexTop    = hsvToHex(hsvTop);
+  const hexBottom = hsvToHex(hsvBottom);
+  applyGradientBG(hexTop, hexBottom);
 }
 
 /* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
@@ -763,6 +789,16 @@ function evalProp(prop, args = [], fallback = 0){
         S += p[mx] + p[my] + p[mz];
       });
       return S % 125;
+    }
+
+    /* ===== firma global sig₅ = Σ firmas mod 9 (estable, 0-8) ===== */
+    function globalSceneSig(perms){
+      const acc = [0,0,0,0,0];
+      perms.forEach(p=>{
+        const f = computeSignature(p);      // fᵢ ∈ {3…9}
+        for(let i=0;i<5;i++) acc[i] = (acc[i] + f[i]) % 9;
+      });
+      return acc;
     }
     function computeShiftRankXYZ(p){
       const r = lehmerRank(p);
@@ -1371,7 +1407,6 @@ function makePalette(){
       makePalette();
       applyPalette();
       /* contrast-fix eliminado – 19-Jul-2025 */
-      updateBackground(false);
       updateCubeColor(false);
     }
     function onColourPick(idx,hex){
@@ -1386,12 +1421,10 @@ function makePalette(){
       refreshAll({keepManual:false});   // reconstruye escena y pickers
     }
     function updateBackground(manual=true){
-      if (manual){
+      if(manual){
         bgOverride = document.getElementById("bgColor").value;
+        applyGradientBG(bgOverride, bgOverride);   // degradado uniforme (color sólido)
       }
-      const hex = manual ? bgOverride : hsvToHex(bgHSV);
-      scene.background = new THREE.Color(hex);
-      document.getElementById("bgColor").value = hex;
     }
 
     function updateCubeColor(manual=true){
@@ -2033,6 +2066,34 @@ function renderArchPanel(html){
     function init(){
       scene=new THREE.Scene();
       scene.background=new THREE.Color(0xffffff);
+
+      /* === fondo degradado determinista ================================= */
+      const gradGeo = new THREE.PlaneGeometry(cubeSize*12, cubeSize*12); // enorme
+      gradMat = new THREE.ShaderMaterial({
+        uniforms:{
+          colorA:{ value:new THREE.Color(0xffffff) },
+          colorB:{ value:new THREE.Color(0xffffff) }
+        },
+        vertexShader:`
+          varying vec2 vUv;
+          void main(){
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+          }`,
+        fragmentShader:`
+          uniform vec3 colorA;
+          uniform vec3 colorB;
+          varying vec2 vUv;
+          void main(){
+            gl_FragColor = vec4( mix(colorA, colorB, vUv.y), 1.0 );
+          }`,
+        depthWrite:false,
+        depthTest:false
+      });
+      const gradPlane = new THREE.Mesh(gradGeo, gradMat);
+      gradPlane.position.set(0,0,-200);      // detrás de todo
+      scene.add(gradPlane);
+      /* ================================================================ */
       camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
       initRenderer();
