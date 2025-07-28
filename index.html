@@ -494,66 +494,52 @@ document.getElementById('json-upload').addEventListener('change', function(event
  *  REEMPLAZO íntegro: initSkySphere → plano pantalla “Ganzfeld”
  * ──────────────────────────────────────────────────────────── */
 function initSkySphere() {
-
-  // 1) Geometría: plano NDC 2×2 que cubre toda la pantalla
   const geo = new THREE.PlaneGeometry(2, 2);
 
-  // 2) Shader: color totalmente uniforme que cambia muy lento (“respira”)
   const mat = new THREE.ShaderMaterial({
-
     uniforms : {
       u_count : { value: 0 },
       u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) },
-      time    : { value: 0 }
+      time    : { value: 0 },
+      u_rate  : { value: 0.04 }
     },
-
     side: THREE.DoubleSide,
     depthWrite: false,
     depthTest : false,
-
     vertexShader: `
       varying vec2 vUv;
       void main() {
-        vUv = uv;                          // 0‑1
-        gl_Position = vec4(position.xy, 0.0, 1.0);   // clip‑space
+        vUv = uv;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
       }`,
-
     fragmentShader: `
       uniform int   u_count;
       uniform vec3  u_colors[12];
       uniform float time;
+      uniform float u_rate;
 
-      // plano uniforme: el color depende solo del tiempo
+      varying vec2 vUv;
+
       void main() {
-
-        // velocidad de cambio (↓  =  más lento)
-        float t = time * 0.04;
-
-        // selecciona dos colores contiguos y hace un cross‑fade muy paulatino
+        float t = time * u_rate;
         float idx = fract(t) * float(u_count);
         int   i   = int(floor(idx)) % u_count;
         int   j   = (i + 1) % u_count;
         float f   = fract(idx);
 
         vec3 col = mix(u_colors[i], u_colors[j], f);
-
-        // “respiración” en luminancia (±2 %)
         col += 0.02 * sin(time * 0.5);
 
-        // halo radial tipo “fog”
         vec2 cUv = vUv - 0.5;
-        float d  = length(cUv) * 2.0;          // 0‑1
+        float d  = length(cUv) * 2.0;
         col += 0.10 * pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
 
         gl_FragColor = vec4(col, 1.0);
       }`
   });
 
-  // 3) Mesh siempre visible (sin frustum‑culling)
   const plane = new THREE.Mesh(geo, mat);
   plane.frustumCulled = false;
-
-  // 4) Mantiene el mismo nombre global para no tocar más código
   skySphere = plane;
   scene.add(skySphere);
 }
@@ -603,6 +589,8 @@ function initSkySphere() {
     /* ---------- actualiza uniforms del shader con la paleta elegida ---------- */
     function buildGanzfeld(){
       if(!skySphere) initSkySphere();
+
+      /* ---------- 1) paleta determinista ---------- */
       const cols = collectSceneColors();
       const n    = cols.length;
       const mat  = skySphere.material;
@@ -610,48 +598,36 @@ function initSkySphere() {
       for(let i=0;i<12;i++){
         mat.uniforms.u_colors.value[i] = cols[i % n];
       }
+
+      /* ---------- 2) velocidad ligada al movimiento ---------- */
+      let sum=0, cnt=0;
+      permutationGroup.traverse(o=>{
+        if(o.isMesh && o.userData.rotationSpeed){
+          sum += o.userData.rotationSpeed;
+          cnt ++;
+        }
+      });
+      const avg = cnt ? sum/cnt : 0.002;
+      mat.uniforms.u_rate.value = avg * 15;
     }
 
     /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
     function toggleFRBN () {
-      if (!skySphere) initSkySphere();     // seguridad
+      if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
 
-      if (isFRBN) {                        // ----- ENTRAR -----
-        buildGanzfeld();                   // paleta actual
+      if (isFRBN) {                       // ——— ENTRAR ———
+        buildGanzfeld();                  // sincroniza paleta + u_rate
         skySphere.visible        = true;
-        cubeUniverse.visible     = false;  // sin “paredes”
-        permutationGroup.visible = true;   // prismas visibles
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
 
-        // cada prisma se vuelve emisor de luz
-        permutationGroup.traverse(o => {
-          if (o.isMesh) {
-            o.material._origEmissive   = o.material.emissive?.clone() || new THREE.Color(0x000000);
-            o.material._origIntensity  = o.material.emissiveIntensity || 0;
-            o.material.emissive        = o.material.color.clone();
-            o.material.emissiveIntensity = 0.9;
-            o.material.needsUpdate     = true;
-          }
-        });
-
-      } else {                             // ----- SALIR -----
+      } else {                            // ——— SALIR ———
         skySphere.visible        = false;
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
-
-        // restaurar materiales originales
-        permutationGroup.traverse(o => {
-          if (o.isMesh && o.material._origEmissive) {
-            o.material.emissive.copy(o.material._origEmissive);
-            o.material.emissiveIntensity = o.material._origIntensity;
-            delete o.material._origEmissive;
-            delete o.material._origIntensity;
-            o.material.needsUpdate = true;
-          }
-        });
-
-        refreshAll({ keepManual: true });  // re‑contraste/colores
+        refreshAll({ keepManual: true }); // reconstruye escena normal
       }
     }
 
