@@ -54,9 +54,9 @@
   #exportEmbedButton    { position:fixed; right:10px; bottom:170px;  }   /* Save JSON */
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
-  #randomConfigButton   { position:fixed; right:10px; bottom:290px;  }   /* BUILD (arriba del de 120…) */
+  #randomConfigButton   { position:fixed; right:10px; bottom:330px;  }   /* BUILD (arriba del de 120…) */
   /* === FRBN toggle === */
-  #frbnButton          { position:fixed; right:10px; bottom:250px; }
+  #frbnButton          { position:fixed; right:10px; bottom:290px; }
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -532,7 +532,7 @@ function initSkySphere() {
 
         vec2 cUv = vUv - 0.5;
         float d  = length(cUv) * 2.0;
-        col += 0.18 * pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
+        col += 0.12 * pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
 
         gl_FragColor = vec4(col, 1.0);
       }`
