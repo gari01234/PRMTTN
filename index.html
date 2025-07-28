@@ -9,6 +9,9 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
   <style>
   body {
     margin: 0;
@@ -464,6 +467,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
+    let composer, renderPass, bloomPass;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
@@ -2215,6 +2219,18 @@ function renderArchPanel(html){
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth,window.innerHeight);
       document.body.appendChild(renderer.domElement);
+
+      composer   = new THREE.EffectComposer(renderer);
+      renderPass = new THREE.RenderPass(scene, camera);
+      composer.addPass(renderPass);
+
+      bloomPass  = new THREE.UnrealBloomPass(
+                     new THREE.Vector2(window.innerWidth, window.innerHeight),
+                     0.9,   // strength
+                     0.4,   // radius
+                     0.85); // threshold
+      bloomPass.renderToScreen = true;
+      composer.addPass(bloomPass);
     }
     function init(){
       scene=new THREE.Scene();
@@ -2260,6 +2276,7 @@ function renderArchPanel(html){
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
+      composer.setSize(window.innerWidth, window.innerHeight);
     }
     function animate(){
       requestAnimationFrame(animate);
@@ -2270,7 +2287,7 @@ function renderArchPanel(html){
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
         controls.update();
-        renderer.render(scene,camera);
+        composer.render();
       }
     init();
 
