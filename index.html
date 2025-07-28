@@ -540,6 +540,11 @@ function initSkySphere() {
         // “respiración” en luminancia (±2 %)
         col += 0.02 * sin(time * 0.5);
 
+        // halo radial tipo “fog”
+        vec2 cUv = vUv - 0.5;
+        float d  = length(cUv) * 2.0;          // 0‑1
+        col += 0.10 * pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
+
         gl_FragColor = vec4(col, 1.0);
       }`
   });
@@ -608,20 +613,45 @@ function initSkySphere() {
     }
 
     /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
-    function toggleFRBN(){
-      if(!skySphere) initSkySphere();
+    function toggleFRBN () {
+      if (!skySphere) initSkySphere();     // seguridad
 
       isFRBN = !isFRBN;
-      if(isFRBN){
-        buildGanzfeld();
-        permutationGroup.visible = false;
-        cubeUniverse.visible     = false;
+
+      if (isFRBN) {                        // ----- ENTRAR -----
+        buildGanzfeld();                   // paleta actual
         skySphere.visible        = true;
-      }else{
+        cubeUniverse.visible     = false;  // sin “paredes”
+        permutationGroup.visible = true;   // prismas visibles
+
+        // cada prisma se vuelve emisor de luz
+        permutationGroup.traverse(o => {
+          if (o.isMesh) {
+            o.material._origEmissive   = o.material.emissive?.clone() || new THREE.Color(0x000000);
+            o.material._origIntensity  = o.material.emissiveIntensity || 0;
+            o.material.emissive        = o.material.color.clone();
+            o.material.emissiveIntensity = 0.9;
+            o.material.needsUpdate     = true;
+          }
+        });
+
+      } else {                             // ----- SALIR -----
         skySphere.visible        = false;
-        permutationGroup.visible = true;
         cubeUniverse.visible     = true;
-        refreshAll({keepManual:true});                 // riesgo 2 (re-contraste)
+        permutationGroup.visible = true;
+
+        // restaurar materiales originales
+        permutationGroup.traverse(o => {
+          if (o.isMesh && o.material._origEmissive) {
+            o.material.emissive.copy(o.material._origEmissive);
+            o.material.emissiveIntensity = o.material._origIntensity;
+            delete o.material._origEmissive;
+            delete o.material._origIntensity;
+            o.material.needsUpdate = true;
+          }
+        });
+
+        refreshAll({ keepManual: true });  // re‑contraste/colores
       }
     }
 
@@ -1269,6 +1299,7 @@ function updateScene(attemptResolve=true){
 
   if(attemptResolve) autoResolveColisionesGlobal();
   else updateTopRightDisplay();
+  if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
 }
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
@@ -1540,6 +1571,7 @@ function makePalette(){
       /* contrast-fix eliminado – 19-Jul-2025 */
       updateBackground(false);
       updateCubeColor(false);
+      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
