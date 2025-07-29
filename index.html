@@ -2065,6 +2065,15 @@ function showArchitecturalDescription(){
       <li>activePatternId = <b>${activePatternId}</b></li>
     </ul>
   </section>
+  <section>
+    <h4>Phenotypic scope of this edition</h4>
+    <div class="formula">
+      <b>BUILD:</b> 120 attribute‑mappings × 11 chromatic‑patterns = <b>1 320</b> deterministic visuals.<br>
+      <b>FRBN:</b> catalog parameter K = <b>144</b> → <b>1 320 × 144 = 190 080</b> canonical states.<br>
+      The permutations are acquired as a <b>group</b>; the count does not multiply by the number of permutations in the group.
+    </div>
+    <small>K is a catalog parameter (editorial choice). Any change is documented and applies only to future editions.</small>
+  </section>
   <hr/>
   `;
 
@@ -2500,6 +2509,13 @@ function renderArchPanel(html){
         habitable environment. Each configuration is valid if coherent with that
         internal logic.
       </p>
+      <h4>Phenotypic scope (edition domain)</h4>
+      <ul>
+        <li><b>BUILD (static):</b> 120 attribute‑mappings × 11 chromatic‑patterns → <b>1 320</b> deterministic visuals.</li>
+        <li><b>FRBN (dynamic):</b> continuous deterministic field; for cataloging we adopt <b>K = 144</b> canonical phases → <b>190 080</b> canonical states.</li>
+        <li><b>Acquisition:</b> permutations are acquired as a <b>group</b>; the count does not multiply by the number of permutations in the group.</li>
+      </ul>
+      <p style="font-size:12px;color:#555">K is a catalog parameter. Any change is documented and applies only to future editions.</p>
 
       <h4>6. Possible modes of thought inside the system</h4>
       <h5>6.1 Operational definition of preverbal thought</h5>
@@ -2929,14 +2945,15 @@ openssl dgst -sha256 prmttn_config.json</pre>
   </details>
 </div>
 
-<h2>Phenotypic scope · Alcance fenotípico</h2>
+
+<h2>Phenotypic scope</h2>
 <div class="box">
   <ul>
-    <li><b>BUILD (estático):</b> 120 attribute‑mappings × 11 chromatic‑patterns = <b>${fmt(TOTAL_BUILD)}</b> expresiones visuales deterministas.</li>
-    <li><b>FRBN (dinámico):</b> campo determinista continuo. Para catalogación se adoptan <b>K = ${FRBN_K}</b> fases canónicas → <b>${fmt(TOTAL_FRBN)}</b> estados canónicos.</li>
+    <li><b>BUILD (static):</b> 120 attribute‑mappings × 11 chromatic‑patterns = <b>${fmt(TOTAL_BUILD)}</b> deterministic visuals.</li>
+    <li><b>FRBN (dynamic):</b> continuous deterministic field. For cataloging we adopt <b>K = ${FRBN_K}</b> canonical phases → <b>${fmt(TOTAL_FRBN)}</b> canonical states.</li>
   </ul>
   <p style="font-size:12px;color:#555;margin:8px 0 0;">
-    Nota: las permutaciones se adquieren como <b>conjunto</b>; el número de piezas no se multiplica por el tamaño del conjunto.
+    Note: permutations are acquired as a <b>group</b>; the count does not multiply by the size of the group.
   </p>
 </div>
 
