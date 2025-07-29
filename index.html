@@ -55,6 +55,7 @@
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
   #randomConfigButton   { position:fixed; right:10px; bottom:330px;  }   /* BUILD (arriba del de 120…) */
+  #certButton           { position:fixed; right:10px; bottom:370px; }   /* Edition Certificate */
   /* === FRBN toggle === */
 #frbnWrap { position:fixed; right:10px; bottom:290px; z-index:260; }
 #frbnButton { position:relative; }  /* dentro del wrap */
@@ -202,6 +203,7 @@
   <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
   <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
 </div>
+  <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -1914,42 +1916,12 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function exportEmbed(){
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
-      const mapping = {
-        forma: attributeMapping[0],
-        color: attributeMapping[1],
-        x: attributeMapping[2],
-        y: attributeMapping[3],
-        z: attributeMapping[4]
-      };
-      const colors = {};
-      for(let i=1;i<=5;i++){
-        colors[i] = document.getElementById('color'+i).value;
-      }
-      const bg   = document.getElementById('bgColor').value;
-      const cube = document.getElementById('cubeColor').value;
-
-      // for reproducibility
-      const view = "front"; // force saving front
-      const config = {
-        perms,
-        mapping,
-        colors,
-        bg,
-        cube,
-        view,
-        pattern: activePatternId,
-        sceneSeed,
-        S_global
-      };
-
+      const config = exportCurrentConfiguration();     // ← usa la misma fuente de verdad
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'prmttn_config.json';
-      document.body.appendChild(a);
-      a.click();
+      a.href = url; a.download = 'prmttn_config_pretty.json';
+      document.body.appendChild(a); a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
@@ -2754,6 +2726,218 @@ function showFRBNInfo(){
       if (cc) cc.style.display = 'block';
       document.getElementById('infoContent').innerHTML = html;
     }
+
+    /* ======== CERTIFICADO DE EDICIÓN: utilidades base ======== */
+
+    /* Ordena claves de forma determinista (objetos y arrays) */
+    function sortDeep(x){
+      if (Array.isArray(x)) return x.map(sortDeep);
+      if (x && typeof x === 'object') {
+        const out = {};
+        Object.keys(x).sort().forEach(k => { out[k] = sortDeep(x[k]); });
+        return out;
+      }
+      return x;
+    }
+    /* JSON canónico (minificado y con claves ordenadas) */
+    function stableStringify(obj){ return JSON.stringify(sortDeep(obj)); }
+
+    /* SHA‑256 en hex */
+    async function sha256Hex(text){
+      const enc = new TextEncoder().encode(text);
+      const buf = await crypto.subtle.digest('SHA-256', enc);
+      const bytes = Array.from(new Uint8Array(buf));
+      return bytes.map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+
+    /* Descarga un blob */
+    function downloadBlob(filename, blob){
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /* PNG A2 de la vista ACTUAL (sin recortar lo que ves) → Blob */
+    async function renderA2ImageBlob(){
+      const A2_W = 7016, A2_H = 4961;
+
+      // backups
+      const prevPixelRatio = renderer.getPixelRatio();
+      const prevSize       = renderer.getSize(new THREE.Vector2());
+      const prevAspect     = camera.aspect;
+      const prevRt         = renderer.getRenderTarget?.() || null;
+      const prevBg         = scene.background ? scene.background.clone() : null;
+
+      const screenAspect = prevSize.x / prevSize.y;
+      const a2Aspect = A2_W / A2_H;
+      let renderW, renderH;
+      if (screenAspect > a2Aspect) { renderW = A2_W; renderH = Math.round(A2_W / screenAspect); }
+      else { renderH = A2_H; renderW = Math.round(A2_H * screenAspect); }
+
+      renderer.setPixelRatio(1);
+      renderer.setSize(renderW, renderH, false);
+      camera.aspect = screenAspect;
+      camera.updateProjectionMatrix();
+
+      const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
+      const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
+
+      renderer.setClearColor(clearHex, 1);
+      renderer.setRenderTarget(rt);
+      renderer.clear(true, true, true);
+      renderer.render(scene, camera);
+
+      const pixels = new Uint8Array(renderW * renderH * 4);
+      renderer.readRenderTargetPixels(rt, 0, 0, renderW, renderH, pixels);
+
+      // canvas intermedio con flip vertical
+      const tmp = document.createElement('canvas');
+      tmp.width = renderW; tmp.height = renderH;
+      const tctx = tmp.getContext('2d');
+      const imgData = tctx.createImageData(renderW, renderH);
+      const row = renderW * 4;
+      for (let y = 0; y < renderH; y++) {
+        const src = (renderH - 1 - y) * row;
+        const dst = y * row;
+        imgData.data.set(pixels.subarray(src, src + row), dst);
+      }
+      tctx.putImageData(imgData, 0, 0);
+
+      // composita A2 con mismo aspect (centrado)
+      const final = document.createElement('canvas');
+      final.width = A2_W; final.height = A2_H;
+      const fctx = final.getContext('2d');
+      fctx.fillStyle = clearHex; fctx.fillRect(0, 0, A2_W, A2_H);
+      const offX = Math.floor((A2_W - renderW) / 2);
+      const offY = Math.floor((A2_H - renderH) / 2);
+      fctx.drawImage(tmp, offX, offY);
+
+      const blob = await new Promise(res => final.toBlob(res, 'image/png'));
+
+      // restaurar
+      renderer.setRenderTarget(prevRt);
+      rt.dispose();
+      renderer.setPixelRatio(prevPixelRatio);
+      renderer.setSize(prevSize.x, prevSize.y);
+      camera.aspect = prevAspect;
+      camera.updateProjectionMatrix();
+      if (prevBg) scene.background = prevBg;
+      controls.update();
+
+      return blob;
+    }
+
+    /* Configuración actual (mismo formato que exportEmbed) */
+    function exportCurrentConfiguration(){
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+      const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
+                        x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
+      const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
+      const bg   = document.getElementById('bgColor').value;
+      const cube = document.getElementById('cubeColor').value;
+      const view = "front";
+      return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global };
+    }
+
+    /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
+    async function computeConfigHash(){
+      const cfg = exportCurrentConfiguration();
+      const canonical = stableStringify(cfg);
+      return sha256Hex(canonical);
+    }
+
+    /* ======== Acción principal: crear CERTIFICADO + JSON + PNG ======== */
+    async function exportEditionCertificate(){
+      try{
+        showPopup("Generando certificado…",2000);
+
+        // 1) JSON canónico + hash
+        const cfg = exportCurrentConfiguration();
+        const canonicalJSON = stableStringify(cfg);            // ← archivo exacto para hash
+        const hashHex = await sha256Hex(canonicalJSON);
+
+        // 2) Imagen A2
+        const pngBlob = await renderA2ImageBlob();
+        const pngDataURL = await new Promise(res=>{
+          const r = new FileReader();
+          r.onload = ()=>res(r.result);
+          r.readAsDataURL(pngBlob);
+        });
+
+        // 3) Certificado HTML auto‑contenible
+        const now = new Date();
+        const prettyJSON = JSON.stringify(cfg, null, 2);
+        const certHTML =
+`<!doctype html>
+<meta charset="utf-8">
+<title>PRMMTN · Edition Certificate</title>
+<style>
+  body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin:32px; color:#111;}
+  h1{font-weight:600; margin:0 0 4px;}
+  h2{margin:24px 0 8px;}
+  .meta{font-size:12px; color:#555; margin-bottom:24px;}
+  .box{border:1px solid #ccc; padding:12px; border-radius:8px; background:#fafafa;}
+  img{max-width:100%; height:auto; display:block; margin:12px 0 4px;}
+  code{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;}
+  details{margin-top:8px;}
+  .sig{margin-top:28px; display:flex; gap:48px;}
+  .sig div{border-top:1px solid #000; padding-top:6px; width:260px; text-align:center;}
+</style>
+<h1>PRMMTN · Edition Certificate</h1>
+<div class="meta">
+  <div>Date: ${now.toISOString()}</div>
+  <div>Chromatic pattern: ${activePatternId}</div>
+  <div>sceneSeed: ${sceneSeed} · S_global: ${S_global}</div>
+</div>
+
+<h2>Image (A2)</h2>
+<div class="box">
+  <img src="${pngDataURL}" alt="PRMMTN A2 snapshot">
+  <div style="font-size:12px;color:#444">Resolution: 7016×4961 px (A2 landscape)</div>
+</div>
+
+<h2>Integrity</h2>
+<div class="box">
+  <div>SHA‑256 (prmttn_config.json):</div>
+  <div><code>${hashHex}</code></div>
+  <details><summary>How to verify</summary>
+    <pre>shasum -a 256 prmttn_config.json
+# o bien
+openssl dgst -sha256 prmttn_config.json</pre>
+  </details>
+</div>
+
+<h2>Configuration (pretty view)</h2>
+<div class="box">
+  <details open><summary>Show JSON</summary>
+    <pre>${prettyJSON.replace(/</g,"&lt;")}</pre>
+  </details>
+</div>
+
+<div class="sig">
+  <div>Edition signature</div>
+  <div>Witness</div>
+</div>
+
+<p style="margin-top:24px;color:#777;font-size:12px">This certificate is self‑contained (image + data). Work in progress.</p>
+`;
+
+        // 4) Descargas (3 archivos + hash opcional)
+        downloadBlob('PRMMTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
+        downloadBlob('PRMTTN_A2.png', pngBlob);
+        downloadBlob('prmttn_config.json', new Blob([canonicalJSON], {type:'application/json'}));
+        downloadBlob('prmttn_hash.txt', new Blob([`sha256  prmttn_config.json\n${hashHex}\n`], {type:'text/plain'}));
+
+        showPopup("Certificado, imagen A2, JSON y hash descargados.", 3000);
+      }catch(err){
+        console.error(err);
+        showPopup("Error generando certificado", 4000);
+      }
+    }
+
   </script>
   <!-- DROPZONE SCRIPT FINAL -->
   <script>
