@@ -56,7 +56,13 @@
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
   #randomConfigButton   { position:fixed; right:10px; bottom:330px;  }   /* BUILD (arriba del de 120…) */
   /* === FRBN toggle === */
-  #frbnButton          { position:fixed; right:10px; bottom:290px; }
+#frbnWrap { position:fixed; right:10px; bottom:290px; z-index:260; }
+#frbnButton { position:relative; }  /* dentro del wrap */
+#frbnInfoButton{
+  position:absolute; top:-6px; right:-6px;
+  padding:2px 6px; font-size:10px; opacity:.9;
+  background:rgba(255,255,255,0.2);
+}
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -192,7 +198,10 @@
   <button id="archDescButton"     onclick="showArchitecturalDescription()">Architectural Description</button>
   <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
-  <button id="frbnButton"        onclick="toggleFRBN()">FRBN</button>
+<div id="frbnWrap">
+  <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
+  <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
+</div>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -570,6 +579,7 @@ function initSkySphere() {
 
   const plane = new THREE.Mesh(geo, mat);
   plane.frustumCulled = false;
+  plane.visible = false;
   skySphere = plane;
   scene.add(skySphere);
 }
@@ -659,6 +669,9 @@ function initSkySphere() {
         permutationGroup.visible = true;
         refreshAll({ keepManual: true }); // reconstruye escena normal
       }
+  // ← muestra el mini‑botón solo en FRBN
+  const ib = document.getElementById('frbnInfoButton');
+  if (ib) ib.style.display = isFRBN ? 'inline-block' : 'none';
     }
 
     /* --------- inicializa esfera al arrancar (sin coste GPU extra) -------- */
@@ -1340,104 +1353,96 @@ function updateScene(attemptResolve=true){
       b.textContent="Resume Motion";
     }
 
+function saveImage(){
+  const A2_W = 7016, A2_H = 4961;
 
-      function saveImage(){
-          // Tamaño objetivo A2 landscape
-          const A2_W = 7016;
-          const A2_H = 4961;
-        
-          // ===== Backups del estado actual (para restaurar luego) =====
-          const prevPixelRatio = renderer.getPixelRatio();
-          const prevSize       = renderer.getSize(new THREE.Vector2());
-          const prevAspect     = camera.aspect;
-          const prevRt         = renderer.getRenderTarget?.() || null;
-          const prevBg         = scene.background ? scene.background.clone() : null;
-        
-          // Mantener EXACTAMENTE la vista actual:
-          const screenAspect = prevSize.x / prevSize.y;
-        
-          // Calculamos el tamaño de render que:
-          //  - mantiene el aspect de lo que ves (screenAspect)
-          //  - cabe dentro de A2 (contain, sin recortar)
-          let renderW, renderH;
-          const a2Aspect = A2_W / A2_H;
-          if (screenAspect > a2Aspect) {
-            renderW = A2_W;
-            renderH = Math.round(A2_W / screenAspect);
-          } else {
-            renderH = A2_H;
-            renderW = Math.round(A2_H * screenAspect);
-          }
-        
-          // Preparar render hi-res a un RenderTarget
-          renderer.setPixelRatio(1);
-          renderer.setSize(renderW, renderH, false);
-          camera.aspect = screenAspect;            // mismo aspect que la vista actual
-          camera.updateProjectionMatrix();
-        
-          const rt = new THREE.WebGLRenderTarget(renderW, renderH, {
-            depthBuffer: true,
-            stencilBuffer: false
-          });
-        
-          const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
-          renderer.setClearColor(clearHex, 1);
-          renderer.setRenderTarget(rt);
-          renderer.clear(true, true, true);
-          renderer.render(scene, camera);
-        
-          // Leer los píxeles (y voltear en Y)
-          const pixels = new Uint8Array(renderW * renderH * 4);
-          renderer.readRenderTargetPixels(rt, 0, 0, renderW, renderH, pixels);
-        
-          // Canvas intermedio con el render exacto (sin A2 aún)
-          const tmp = document.createElement('canvas');
-          tmp.width = renderW;
-          tmp.height = renderH;
-          const tctx = tmp.getContext('2d');
-          const imgData = tctx.createImageData(renderW, renderH);
-          const row = renderW * 4;
-          for (let y = 0; y < renderH; y++) {
-            const src = (renderH - 1 - y) * row;   // flip Y
-            const dst = y * row;
-            imgData.data.set(pixels.subarray(src, src + row), dst);
-          }
-          tctx.putImageData(imgData, 0, 0);
-        
-          // Canvas final A2 donde centramos la imagen manteniendo lo visto
-          const final = document.createElement('canvas');
-          final.width = A2_W;
-          final.height = A2_H;
-          const fctx = final.getContext('2d');
-        
-          fctx.fillStyle = clearHex;
-          fctx.fillRect(0, 0, A2_W, A2_H);
-        
-          const offX = Math.floor((A2_W - renderW) / 2);
-          const offY = Math.floor((A2_H - renderH) / 2);
-          fctx.drawImage(tmp, offX, offY);
-        
-          // Descargar PNG
-          final.toBlob((blob)=>{
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'PRMTTN_A2.png';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(a.href);
-          }, 'image/png');
-        
-          // Liberar y restaurar estado
-          renderer.setRenderTarget(prevRt);
-          rt.dispose();
-          renderer.setPixelRatio(prevPixelRatio);
-          renderer.setSize(prevSize.x, prevSize.y);
-          camera.aspect = prevAspect;
-          camera.updateProjectionMatrix();
-          if (prevBg) scene.background = prevBg;
-          controls.update();
-      }
+  const prevPixelRatio = renderer.getPixelRatio();
+  const prevSize       = renderer.getSize(new THREE.Vector2());
+  const prevAspect     = camera.aspect;
+  const prevRt         = renderer.getRenderTarget?.() || null;
+  const prevBg         = scene.background ? scene.background.clone() : null;
+
+  const screenAspect = prevSize.x / prevSize.y;
+
+  // Render con el MISMO aspect que se ve en pantalla
+  let renderW, renderH;
+  const a2Aspect = A2_W / A2_H;
+  if (screenAspect > a2Aspect) {
+    renderW = A2_W;
+    renderH = Math.round(A2_W / screenAspect);
+  } else {
+    renderH = A2_H;
+    renderW = Math.round(A2_H * screenAspect);
+  }
+
+  renderer.setPixelRatio(1);
+  renderer.setSize(renderW, renderH, false);
+  camera.aspect = screenAspect;
+  camera.updateProjectionMatrix();
+
+  const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
+
+  const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
+  renderer.setClearColor(clearHex, 1);
+  renderer.setRenderTarget(rt);
+  renderer.clear(true, true, true);
+  renderer.render(scene, camera);
+
+  const pixels = new Uint8Array(renderW * renderH * 4);
+  renderer.readRenderTargetPixels(rt, 0, 0, renderW, renderH, pixels);
+
+  const tmp = document.createElement('canvas');
+  tmp.width = renderW; tmp.height = renderH;
+  const tctx = tmp.getContext('2d');
+  const imgData = tctx.createImageData(renderW, renderH);
+  const row = renderW * 4;
+  for (let y = 0; y < renderH; y++) {
+    const src = (renderH - 1 - y) * row;
+    const dst = y * row;
+    imgData.data.set(pixels.subarray(src, src + row), dst);
+  }
+  tctx.putImageData(imgData, 0, 0);
+
+  const final = document.createElement('canvas');
+  final.width = A2_W; final.height = A2_H;
+  const fctx = final.getContext('2d');
+
+  if (isFRBN) {
+    // —— FRBN: cubrir A2 sin bandas (recorte centrado)
+    const scale = Math.max(A2_W / renderW, A2_H / renderH);
+    const drawW = Math.ceil(renderW * scale);
+    const drawH = Math.ceil(renderH * scale);
+    const offX  = Math.floor((A2_W - drawW) / 2);
+    const offY  = Math.floor((A2_H - drawH) / 2);
+    fctx.drawImage(tmp, offX, offY, drawW, drawH);
+  } else {
+    // —— Modo normal: mantener todo visible (letterbox centrado)
+    fctx.fillStyle = clearHex;
+    fctx.fillRect(0, 0, A2_W, A2_H);
+    const offX = Math.floor((A2_W - renderW) / 2);
+    const offY = Math.floor((A2_H - renderH) / 2);
+    fctx.drawImage(tmp, offX, offY);
+  }
+
+  final.toBlob((blob)=>{
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'PRMTTN_A2.png';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }, 'image/png');
+
+  renderer.setRenderTarget(prevRt);
+  rt.dispose();
+  renderer.setPixelRatio(prevPixelRatio);
+  renderer.setSize(prevSize.x, prevSize.y);
+  camera.aspect = prevAspect;
+  camera.updateProjectionMatrix();
+  if (prevBg) scene.background = prevBg;
+  controls.update();
+}
+
 
     /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
      * 1. Semilla RGB = suma ponderada de posiciones y P1-P3 (firma).    *
@@ -1613,7 +1618,7 @@ function makePalette(){
       const ids = [
         'controls','topRightDisplay','ratingContainer',
         'randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button'
+        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','infoButton'
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -2701,6 +2706,32 @@ function renderArchPanel(html){
       renderInfoPanel(html);
     }
 
+function showFRBNInfo(){
+  const html = `
+    <h2>FRBN — Deterministic Ganzfeld</h2>
+    <p><b>What you see cannot be otherwise</b> given the current scene. FRBN does not invent a palette:
+       it extracts it deterministically from the active permutations and the chromatic engine.</p>
+    <ul>
+      <li><b>Source palette.</b> Colors are collected from the glyphs currently on stage
+          (their materials are computed by the same deterministic HSV lattice used in BUILD).
+          If needed, hues are normalised to ensure separation.</li>
+      <li><b>Pattern coupling.</b> The chromatic pattern (1–11) and the global seed
+          (<code>sceneSeed</code>) bias hue selection in BUILD; FRBN reads the result,
+          not a new random set.</li>
+      <li><b>Temporal blend.</b> The shader interpolates the collected colors over time.
+          The rate is tied to the average rotation speed of the permutations, so color
+          breathing <i>follows</i> the scene dynamics.</li>
+      <li><b>No alternatives.</b> For the same set of permutations, mapping and pattern,
+          the FRBN field is reproducible. Change the scene → the field changes; keep the
+          scene → the field must be identical.</li>
+      <li><b>Banding control.</b> A high‑precision dither (blue‑noise) is applied in linear
+          space to avoid contour banding without altering the palette.</li>
+    </ul>
+    <p>FRBN is therefore a <b>deterministic projection</b> of the current combinatorial state,
+       not a decorative background.</p>
+  `;
+  renderInfoPanel(html);
+}
     /* Minimal renderer for the panel (include once; remove if you already have it) */
     function renderInfoPanel(html){
       let panel = document.getElementById('infoPanel');
