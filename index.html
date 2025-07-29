@@ -693,6 +693,9 @@ function initSkySphere() {
     const S_LEVELS = [...Array(12)].map((_,i)=>0.25 + 0.72*i/11); // 0.25 – 0.97
     const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + 0.75*i/11); // 0.20 – 0.95
 
+    /* ——— Discretización canónica para FRBN (catálogo de fases) ——— */
+    const FRBN_K = 144;   // alineado con H_STEPS (2.5° × 144)
+
     function idxToHSV(hIdx,sIdx,vIdx){
       const h = ((hIdx%H_STEPS)+H_STEPS) % H_STEPS;      // 0-143
       return {
@@ -2851,7 +2854,7 @@ function showFRBNInfo(){
       const bg   = document.getElementById('bgColor').value;
       const cube = document.getElementById('cubeColor').value;
       const view = "front";
-      return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global };
+      return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global, frbnK: FRBN_K };
     }
 
     /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
@@ -2882,6 +2885,9 @@ function showFRBNInfo(){
         // 3) Certificado HTML auto‑contenible
         const now = new Date();
         const prettyJSON = JSON.stringify(cfg, null, 2);
+        const TOTAL_BUILD = 120 * 11;                 // 1,320 (no se multiplica por el tamaño del conjunto de permutaciones)
+        const TOTAL_FRBN  = TOTAL_BUILD * FRBN_K;     // estados canónicos para FRBN
+        const fmt = n => n.toLocaleString('en-US').replace(/,/g,'\u202f'); // separador fino
 
         const certHTML =
 `<!doctype html>
@@ -2903,7 +2909,7 @@ function showFRBNInfo(){
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
   <div>Chromatic pattern: ${activePatternId}</div>
-  <div>sceneSeed: ${sceneSeed} · S_global: ${S_global}</div>
+  <div>sceneSeed: ${sceneSeed} · S_global: ${S_global} · FRBN_K: ${FRBN_K}</div>
 </div>
 
 <h2>Image (A2)</h2>
@@ -2918,19 +2924,20 @@ function showFRBNInfo(){
   <div><code>${hashHex}</code></div>
   <details><summary>How to verify</summary>
     <pre>shasum -a 256 prmttn_config.json
-# o bien
+# or
 openssl dgst -sha256 prmttn_config.json</pre>
   </details>
 </div>
 
 <h2>Phenotypic scope · Alcance fenotípico</h2>
 <div class="box">
-  <p>La obra adquirida es el <b>conjunto de permutaciones</b> S (genotipo). Los fenotipos válidos se obtienen aplicando las reglas del sistema.</p>
   <ul>
-    <li><b>BUILD (estático):</b> 120 <i>attribute‑mappings</i> × 11 <i>chromatic‑patterns</i> = <b>1 320</b> fenotipos deterministas.</li>
-    <li><b>FRBN (dinámico):</b> familia determinista continua. Para catalogación se adoptan <b>K = 144</b> fases canónicas → <b>1 320 × 144 = 190 080</b> estados catalogables.</li>
+    <li><b>BUILD (estático):</b> 120 attribute‑mappings × 11 chromatic‑patterns = <b>${fmt(TOTAL_BUILD)}</b> expresiones visuales deterministas.</li>
+    <li><b>FRBN (dinámico):</b> campo determinista continuo. Para catalogación se adoptan <b>K = ${FRBN_K}</b> fases canónicas → <b>${fmt(TOTAL_FRBN)}</b> estados canónicos.</li>
   </ul>
-  <p style="font-size:12px;color:#555">Nota: el certificado no otorga derechos sobre permutaciones individuales sino sobre el <b>conjunto S</b> y todos los fenotipos válidos que deriven de estas reglas.</p>
+  <p style="font-size:12px;color:#555;margin:8px 0 0;">
+    Nota: las permutaciones se adquieren como <b>conjunto</b>; el número de piezas no se multiplica por el tamaño del conjunto.
+  </p>
 </div>
 
 <h2>Configuration (pretty view)</h2>
