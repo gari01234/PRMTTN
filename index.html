@@ -55,7 +55,7 @@
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
   #randomConfigButton   { position:fixed; right:10px; bottom:330px;  }   /* BUILD (arriba del de 120…) */
-  #certButton           { position:fixed; right:10px; bottom:370px; }   /* Edition Certificate */
+   #certButton           { position:fixed; right:10px; bottom:30px; }   /* Edition Certificate */
   /* === FRBN toggle === */
 #frbnWrap { position:fixed; right:10px; bottom:290px; z-index:260; }
 #frbnButton { position:relative; }  /* dentro del wrap */
@@ -1620,7 +1620,7 @@ function makePalette(){
       const ids = [
         'controls','topRightDisplay','ratingContainer',
         'randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','infoButton'
+        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','infoButton','certButton'
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -2806,17 +2806,29 @@ function showFRBNInfo(){
       }
       tctx.putImageData(imgData, 0, 0);
 
-      // composita A2 con mismo aspect (centrado)
+
+      // composita A2 con cubierta según modo
       const final = document.createElement('canvas');
       final.width = A2_W; final.height = A2_H;
       const fctx = final.getContext('2d');
-      fctx.fillStyle = clearHex; fctx.fillRect(0, 0, A2_W, A2_H);
-      const offX = Math.floor((A2_W - renderW) / 2);
-      const offY = Math.floor((A2_H - renderH) / 2);
-      fctx.drawImage(tmp, offX, offY);
+
+      if (isFRBN) {
+        // — FRBN: cubrir A2 (recorte centrado, sin bandas)
+        const scale = Math.max(A2_W / renderW, A2_H / renderH);
+        const drawW = Math.ceil(renderW * scale);
+        const drawH = Math.ceil(renderH * scale);
+        const offX  = Math.floor((A2_W - drawW) / 2);
+        const offY  = Math.floor((A2_H - drawH) / 2);
+        fctx.drawImage(tmp, offX, offY, drawW, drawH);
+      } else {
+        // — Modo normal: letterbox centrado
+        fctx.fillStyle = clearHex; fctx.fillRect(0, 0, A2_W, A2_H);
+        const offX = Math.floor((A2_W - renderW) / 2);
+        const offY = Math.floor((A2_H - renderH) / 2);
+        fctx.drawImage(tmp, offX, offY);
+      }
 
       const blob = await new Promise(res => final.toBlob(res, 'image/png'));
-
       // restaurar
       renderer.setRenderTarget(prevRt);
       rt.dispose();
@@ -2870,6 +2882,7 @@ function showFRBNInfo(){
         // 3) Certificado HTML auto‑contenible
         const now = new Date();
         const prettyJSON = JSON.stringify(cfg, null, 2);
+
         const certHTML =
 `<!doctype html>
 <meta charset="utf-8">
@@ -2910,6 +2923,16 @@ openssl dgst -sha256 prmttn_config.json</pre>
   </details>
 </div>
 
+<h2>Phenotypic scope · Alcance fenotípico</h2>
+<div class="box">
+  <p>La obra adquirida es el <b>conjunto de permutaciones</b> S (genotipo). Los fenotipos válidos se obtienen aplicando las reglas del sistema.</p>
+  <ul>
+    <li><b>BUILD (estático):</b> 120 <i>attribute‑mappings</i> × 11 <i>chromatic‑patterns</i> = <b>1 320</b> fenotipos deterministas.</li>
+    <li><b>FRBN (dinámico):</b> familia determinista continua. Para catalogación se adoptan <b>K = 144</b> fases canónicas → <b>1 320 × 144 = 190 080</b> estados catalogables.</li>
+  </ul>
+  <p style="font-size:12px;color:#555">Nota: el certificado no otorga derechos sobre permutaciones individuales sino sobre el <b>conjunto S</b> y todos los fenotipos válidos que deriven de estas reglas.</p>
+</div>
+
 <h2>Configuration (pretty view)</h2>
 <div class="box">
   <details open><summary>Show JSON</summary>
@@ -2919,12 +2942,9 @@ openssl dgst -sha256 prmttn_config.json</pre>
 
 <div class="sig">
   <div>Edition signature</div>
-  <div>Witness</div>
 </div>
 
-<p style="margin-top:24px;color:#777;font-size:12px">This certificate is self‑contained (image + data). Work in progress.</p>
-`;
-
+<p style="margin-top:24px;color:#777;font-size:12px">This certificate is self‑contained (image + data). Work in progress.</p>`;
         // 4) Descargas (3 archivos + hash opcional)
         downloadBlob('PRMMTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
         downloadBlob('PRMTTN_A2.png', pngBlob);
