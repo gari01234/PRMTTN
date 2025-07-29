@@ -1405,27 +1405,26 @@ function saveImage(){
   }
   tctx.putImageData(imgData, 0, 0);
 
-  /* ---------- Canvas final A2 (sin letter-box) ---------- */
   const final = document.createElement('canvas');
-  final.width  = A2_W;
-  final.height = A2_H;
+  final.width = A2_W; final.height = A2_H;
   const fctx = final.getContext('2d');
 
-  /* "cover" → nunca aparecen franjas de relleno                 *
-   *   – calcula la escala que llena A2                           *
-   *   – recorta el render central si sobra en X o Y              */
-  const coverScale = Math.max(A2_W / renderW, A2_H / renderH);
-  const srcW = Math.round(A2_W / coverScale);
-  const srcH = Math.round(A2_H / coverScale);
-  const srcX = Math.floor((renderW - srcW) / 2);
-  const srcY = Math.floor((renderH - srcH) / 2);
-
-  /* Copiamos el área central → llena todo el papel A2            */
-  fctx.drawImage(
-    tmp,
-    srcX, srcY, srcW, srcH,      // recorte origen
-    0,   0,   A2_W, A2_H         // destino: todo A2
-  );
+  if (isFRBN) {
+    // —— FRBN: cubrir A2 sin bandas (recorte centrado)
+    const scale = Math.max(A2_W / renderW, A2_H / renderH);
+    const drawW = Math.ceil(renderW * scale);
+    const drawH = Math.ceil(renderH * scale);
+    const offX  = Math.floor((A2_W - drawW) / 2);
+    const offY  = Math.floor((A2_H - drawH) / 2);
+    fctx.drawImage(tmp, offX, offY, drawW, drawH);
+  } else {
+    // —— Modo normal: mantener todo visible (letterbox centrado)
+    fctx.fillStyle = clearHex;
+    fctx.fillRect(0, 0, A2_W, A2_H);
+    const offX = Math.floor((A2_W - renderW) / 2);
+    const offY = Math.floor((A2_H - renderH) / 2);
+    fctx.drawImage(tmp, offX, offY);
+  }
 
   final.toBlob((blob)=>{
     const a = document.createElement('a');
