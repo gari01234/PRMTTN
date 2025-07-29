@@ -497,6 +497,7 @@ function initSkySphere() {
   const geo = new THREE.PlaneGeometry(2, 2);
 
   const mat = new THREE.ShaderMaterial({
+    dithering: true, // ← habilita el dither en este ShaderMaterial
     uniforms : {
       u_count : { value: 0 },
       u_colors: { value: Array(12).fill(new THREE.Color(0x000000)) },
@@ -513,6 +514,10 @@ function initSkySphere() {
         gl_Position = vec4(position.xy, 0.0, 1.0);
       }`,
     fragmentShader: `
+      #include <common>
+      #include <dithering_pars_fragment>
+      #include <encodings_pars_fragment>
+
       uniform int   u_count;
       uniform vec3  u_colors[12];
       uniform float time;
@@ -532,15 +537,16 @@ function initSkySphere() {
 
         vec2 cUv = vUv - 0.5;
         float d  = length(cUv) * 2.0;
-        col += 0.07 * pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
+        col += 0.10 * pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
 
         gl_FragColor = vec4(col, 1.0);
+        #include <dithering_fragment>                 // dither (Bayer 8×8)
+        gl_FragColor = linearToOutputTexel(gl_FragColor); // salida sRGB
       }`
   });
 
   const plane = new THREE.Mesh(geo, mat);
   plane.frustumCulled = false;
-  plane.visible = false;
   skySphere = plane;
   scene.add(skySphere);
 }
@@ -993,7 +999,8 @@ function evalProp(prop, args = [], fallback = 0){
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
         color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
-        shininess:50
+        shininess:50,
+        dithering:true
       });
       const geo=new THREE.BoxGeometry(w,h,t);
       const mesh=new THREE.Mesh(geo,mat);
@@ -2204,6 +2211,7 @@ function renderArchPanel(html){
       renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth,window.innerHeight);
+      renderer.outputEncoding = THREE.sRGBEncoding; // salida en sRGB → menos banding
       document.body.appendChild(renderer.domElement);
     }
     function init(){
@@ -2222,7 +2230,7 @@ function renderArchPanel(html){
       scene.add(dir);
 
       const cubeGeo=new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
-            cubeMat=new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide});
+            cubeMat=new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide,dithering:true});
       cubeUniverse=new THREE.Mesh(cubeGeo,cubeMat);
       scene.add(cubeUniverse);
 
