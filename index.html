@@ -2327,376 +2327,193 @@ function renderArchPanel(html){
      * Title: "PRMMTN – Architecture for thought without words"
      * Ends with: "work in progress"
      * ============================================================ */
-    function showInformation(){
-      const html = `
-      <h2>PRMMTN – Architecture for thought without words</h2>
 
-      <h3>I. Structural and mathematical foundation</h3>
+function showInformation(){
+  const html = `
+      <h2>Version 31.07.2025, PRMTTN‑Architecture for thought without words</h2>
 
-      <h4>1. Definition</h4>
-      <p>
-        <b>PRMMTN</b> is a visual architecture grounded in finite combinatorics that
-        defines a space where thought can emerge without language. It does not
-        represent, interpret, or communicate. It neither translates signs nor
-        proposes meanings. What it organizes is not addressed to any recipient, and
-        what it disposes does not refer to anything outside itself. Each
-        configuration is pure form: irreducible, non‑codifiable, without symbolic
-        intention.
-      </p>
-      <p>
-        Its starting point is a closed, exhaustive, non‑expandable set of the 120
-        permutations of {1,2,3,4,5}. The whole system emerges from there. There is
-        no random generation and no future expansion — only ordered combinatorics.
-      </p>
+      <h3>Structural Introduction</h3>
+      <p><em>Nothing else is needed. Combinatorics is enough.</em></p>
 
-      <h4>2. Signature: structural DNA</h4>
-      <p>
-        For each permutation P = [P₁,P₂,P₃,P₄,P₅] we define its signature:
-      </p>
-      <div class="formula">
-        Signature(P) = [P₁+P₂, P₂+P₃, P₃+P₄, P₄+P₅, P₅+P₁]
-      </div>
+      <h3>1. What is PRMTTN?</h3>
+      <p>PRMTTN is a finite combinatorial architecture where preverbal thought (thought without words) may occur. Its starting point is a closed and non‑expandable set of 120 permutations of the set {1, 2, 3, 4, 5}. From this set, visual configurations of permutations are generated, governed by fixed structural rules, without semantics or interpretation. Each configuration is pure form. Its logic is self‑sufficient.</p>
+      <p>Each work in PRMTTN consists of a specific group of permutations, acquired as a structural unit. This group can be projected across different visual engines/editions—current or future—that apply deterministic rules to translate it into visible phenotypic configurations.</p>
+      <p>The content is neither an image nor a file: it is a verifiable formal structure (a specific subset of the 120 permutations). The visualization may vary depending on the engine used, but the original group of permutations does not change. The identity of a work is defined by that group and the internal rules of the system. The work is not its visualization, but the underlying structure that remains invariant across projections.</p>
+      <p>PRMTTN does not operate as language, nor as a medium of expression. What it shows refers to nothing outside itself. Each configuration is a visual form that does not communicate, represent, or explain. Its existence does not depend on taste, interpretation, or intention, but on a combinatorial logic that gives structure to the invisible.</p>
+
+      <h3>Structural Grammar</h3>
+      <p><em>A single permutation, reorganized, may contain a complete architecture for what cannot be said.</em></p>
+
+      <h3>2. Internal Rules</h3>
+      <p>PRMTTN operates through a fixed visual grammar, derived from numerically assigned structural values. Each configuration is composed of visual elements whose attributes are calculated from a permutation of the set {1, 2, 3, 4, 5}. There are no exceptions or manual assignments.</p>
+      <p>Each permutation is internally reorganized to define its visual properties. This reorganization—phenotypic and not genetic—assigns a specific role to each of the five values, without breaking the system's logic.</p>
+
+      <h4>Structural attributions:</h4>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr><th>Attribute</th><th>Numerical Source</th><th>Deterministic Rule</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Shape</td><td>First value (P₁)</td><td>Height proportional to √(P₁)</td></tr>
+          <tr><td>Color</td><td>Second value (P₂) + signature + global seed</td><td>Deterministic HSV mapping on discrete grid</td></tr>
+          <tr><td>Position</td><td>Lehmer-rank + global seed + sum</td><td>3D mapping inside the 30×30×30 cube</td></tr>
+          <tr><td>Rotation</td><td>Range of signature</td><td>Rotation proportional to (max − min)</td></tr>
+        </tbody>
+      </table>
+      <p>Each attribute is tied to a traceable internal structure. There is no aesthetic intervention or subjective choice. The visual result depends solely on explicit structural rules.</p>
+
+      <h3>3. Phenotype and Engines</h3>
+      <p><em>There is no decoration here. Only structure.</em></p>
+
+      <p>The system allows for multiple phenotypic reorganizations of each permutation or group of permutations. These reorganizations do not modify the value group, but rather their role within the formal attribution logic. This is an internal reassignment of functions, not a genetic mutation. All are valid.</p>
+      <p>A single set of permutations can be projected across different engines, each with specific visual rules:</p>
       <ul>
-        <li>Its sum is always 30.</li>
-        <li>It always has 5 components.</li>
-        <li>It is unique and immutable for each permutation.</li>
+        <li><b>BUILD</b>: Static layout inside a 30×30×30 cube, segmented into 5×5×5 positions.</li>
+        <li><b>FRBN</b>: Deterministic color field associated with BUILD</li>
+        <li><b>Future engines</b>: Additional visual structures compatible with the base logic</li>
       </ul>
-      <p>
-        The signature is an internal relation vector: it summarizes how the
-        elements of the permutation relate to one another. It does not directly
-        determine the visual attributes, but it regulates their dynamic behaviour
-        (e.g., rotation). Shape, color and position depend directly on the
-        individual values of the permutation.
-      </p>
+      <p>Engines do not alter the genotype. What changes is the derived phenotypic visualization. All future expansions are applied to the same acquired set of permutations. Given the same input, the system always produces the same output.</p>
+      <p>A work grows through the addition of grammars, not by transformation of content. Structural identity remains fixed. PRMTTN does not evolve by accumulation, but by multiplying valid projections over a single combinatorial base.</p>
 
-      <h4>3. Phenotype: shape, color, position, rotation</h4>
-      <p>
-        Visual attributes derive directly from internal structure, without aesthetic
-        intervention or manual assignment. They are defined by fixed, invariant
-        mathematical rules:
-      </p>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-          <tr><th style="text-align:left">Attribute</th><th style="text-align:left">Structural source</th><th style="text-align:left">Rule</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Shape</td><td>P₁</td><td>Height &propto; √(P₁)</td></tr>
-          <tr><td>Color</td><td>P₂, signature, sceneSeed</td><td>Deterministic from HSV lattice (see formula)</td></tr>
-          <tr><td>Position</td><td>Lehmer rank + sceneSeed + S</td><td>3D mapping inside the cube (Shift‑Rank)</td></tr>
-          <tr><td>Rotation</td><td>Signature range</td><td>ω &propto; (max − min) of the signature</td></tr>
-        </tbody>
-      </table>
-      <p>
-        These rules allow 120 different phenotypic reorganizations per permutation:
-        each is an internal reassignment of the five values [P₁–P₅] to the system’s
-        formal roles without breaking its logic or structure.
-      </p>
+      <h3>4. Reorganization without Progress</h3>
+      <p><em>Nothing improves. Everything reorganizes.</em></p>
 
-      <h5>3.1 Global seed (sceneSeed)</h5>
-      <p>
-        To keep internal coherence between position and color, each scene is
-        characterized by a unique structural seed (<code>sceneSeed</code>) derived
-        exclusively from the active permutations and the attribute mapping. In the
-        current implementation:
-      </p>
-      <div class="formula">
-        rᵢ = LehmerRank(Pᵢ)<br>
-        sumR  = Σ rᵢ &nbsp; | &nbsp; sumR2 = Σ rᵢ² &nbsp; | &nbsp;
-        mRank = LehmerRank([m₀+1,…,m₄+1])<br><br>
-        <span class="box">sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360</span>
-      </div>
+      <p>PRMTTN has no narrative development, functional evolution, or symbolic accumulation. There is only internal reorganization within a fixed combinatorial set.</p>
+      <p>Each layout is a phenotypic mutation: a new assignment of the five values to the system's visual functions. The permutations do not change. What changes is their structural presentation.</p>
+      <p>These variations do not seek efficiency, meaning, or beauty. There is no adaptation or improvement. Only formal transformations, all compatible with the original rules.</p>
+      <p>There is no direction or goal. Internal evolution is purely combinatorial.</p>
 
-      <h5>3.2 Position: Shift‑Rank</h5>
-      <p>
-        The 3D location inside the 30×30×30 cube is obtained in two steps: a lattice
-        index, then a conversion to physical coordinates.
-      </p>
-      <div class="formula">
-        R = LehmerRank(P)<br>
-        S = ( Σ<sub>P ∈ scene</sub> (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125<br>
-        I = (R + sceneSeed + S) mod 125
-      </div>
-      <div class="formula">
-        (x,y,z) = (⌊I/25⌋, ⌊(I mod 25)/5⌋, I mod 5)<br>
-        (X,Y,Z) = (x − 2, y − 2, z − 2) × 6
-      </div>
-      <p>
-        Each axis has five discrete slots → 5×5×5 = 125 total positions. The system
-        tries to avoid duplicates through deterministic assignment; injectivity is
-        not universally guaranteed for arbitrary sets + mappings, and a resolver may
-        be invoked.
-      </p>
+      <h3><em>Structural Antiaesthetic Manifesto</em></h3>
+      <p>PRMTTN does not produce beauty. Nor ugliness. What it produces is structure: visible form generated by deterministic combinatorics, without symbols, intention, or narrative.</p>
+      <p>Each element appears because a rule requires it. No attribute is chosen. Everything responds to fixed formulas applied to closed permutations. The structure is complete, with no need for interpretation. What is seen is exactly what it is.</p>
+      <p>There is nothing behind a configuration. No latent layers, no metaphors, no hidden meaning. That does not make it empty. What sustains it is not content, but the internal logic that arranges it.</p>
+      <p>There is no user manual. The system does not ask to be understood. It can only be contemplated.</p>
+      <p>Each arrangement is self-sufficient. It does not represent, communicate, or refer to anything outside itself. Its formal consistency is its only condition of existence.</p>
+      <p>What appears offers no reward. It does not propose emotion or understanding. But it may impose presence: an organization that does not justify itself, but imposes itself through consistency. Not because it says so, but because it is.</p>
+      <p>All possible variation is fixed by mathematics. Forms, colors, positions, and motions are determined by invariant rules. The only variable is the gaze: who observes, when, and with what perceptual disposition. That is the only entry point.</p>
+      <p>No language has been built. No artwork has been designed. No communicative experience has been produced. What has been formulated is a closed system: finite, reproducible, without semantic expansion.</p>
+      <p>Each configuration of permutations derives from a mathematical operation. Each visible attribute—form, color, position, motion—is a direct consequence of that operation. There is no expression. No style. No decision. Only pure structure.</p>
+      <p>Nothing is stated. Nothing needs to be interpreted.</p>
+      <p>The system does not claim that preverbal thought occurs. Nor does it represent it. It only defines with precision the conditions in which it could emerge: without signs, without recipient, without translation.</p>
+      <p>What appears in each scene has no name, no purpose, no story. It is a visible mathematical configuration: without image, metaphor, or context.</p>
+      <p>And if something occurs in front of that arrangement—a form of non-verbal mental organization, a perceptual orientation without words—that cannot be guaranteed. It can only be made possible by structure.</p>
+      <p>The system is fully defined. There is no future expansion. No exception. No part left unformalized.</p>
+      <p>It is a space outside language.</p>
+      <p>If something occurs in front of these dispositions—a mental organization, a non-verbal activation, a form of thought without words—that cannot be affirmed or denied.</p>
+      <p>It can only be made possible by structure.</p>
+      <p>And in that exact structure, non-representational and beyond interpretation, the system closes.</p>
 
-      <h5>3.3 Color: deterministic HSV lattice</h5>
-      <p>
-        The chromatic engine uses a structured HSV lattice with 20,736 unique
-        tones:
-      </p>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-          <tr><th>Channel</th><th>Range</th><th>Levels</th><th>Detail</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>H</td><td>0°–360°</td><td>144</td><td>ΔH = 2.5°</td></tr>
-          <tr><td>S</td><td>0.25–0.97</td><td>12</td><td>S = 0.25 + 0.72·(i/11)</td></tr>
-          <tr><td>V</td><td>0.20–0.95</td><td>12</td><td>V = 0.20 + 0.75·(i/11)</td></tr>
-        </tbody>
-      </table>
-      <p>Total: 144 × 12 × 12 = 20,736 discrete combinations.</p>
+      <h3>5. Operational Architecture</h3>
+      <p>For readers interested in the internal logic, this section details the mathematical foundation of PRMTTN:</p>
 
-      <h5>3.4 Deterministic mapping</h5>
+      <h4>a. Structural Signature (DNA)</h4>
+      <p>Each permutation P = [P₁, P₂, P₃, P₄, P₅] from the set {1, 2, 3, 4, 5} is transformed into a signature F = [F₁, F₂, F₃, F₄, F₅] through the application of a phenotypic pattern that reorders the numerical values according to their function in the system (shape, color, X/Y/Z position, rotation).</p>
+      <p>The signature is the structural basis from which all visual attributes are derived.</p>
+
+      <h4>b. Global Scene Seed (sceneSeed)</h4>
+      <p>To ensure structural coherence between color, position, and rotation within a scene, a unique global seed is calculated from all active permutations.</p>
+
+      <h5>Formulas:</h5>
+      <p>For each active permutation Pₐ:</p>
+      <ul>
+        <li>rₐ = LehmerRank(Pₐ)</li>
+        <li>sumR = Σ rₐ</li>
+        <li>sumR2 = Σ rₐ²</li>
+        <li>mRank = LehmerRank([m₀+1, ..., m₄+1]) (where [m₀, ..., m₄] is the lexicographically smallest permutation in the active set)</li>
+      </ul>
+      <p>Then:</p>
+      <pre>sceneSeed = (37 × sumR + 101 × sumR2 + 53 × mRank) mod 360</pre>
+
+      <h4>c. Position inside the cube (Shift‑Rank)</h4>
+      <p>The 3D space is defined by a 30×30×30 cube. Each axis contains 5 discrete positions, totaling 125 valid spatial slots.</p>
+      <p><b>Procedure:</b></p>
       <ol>
-        <li>Compute signature F = [F₁…F₅].</li>
-        <li>Compute Lehmer rank r.</li>
-        <li>slot = r mod 12.</li>
-        <li>Apply one of the 11 structural chromatic patterns using coprime jumps
-            (PHI_H = 89, PHI_S = 5, PHI_V = 7) for dispersion.</li>
+        <li>Compute Lehmer‑rank of P:<br><pre>R = LehmerRank(P)</pre></li>
+        <li>Scene shift sum:<br><pre>S = ( ΣP ∈ scene (Pmx + Pmy + Pmz) ) mod 125</pre></li>
+        <li>Index:<br><pre>I = (R + sceneSeed + S) mod 125</pre></li>
+        <li>Discrete coordinates:<br><pre>(x, y, z) = (⌈I / 25⌉, ⌈(I mod 25) / 5⌉, I mod 5)</pre></li>
+        <li>Physical coordinates:<br><pre>(X, Y, Z) = (x − 2, y − 2, z − 2) × 6</pre></li>
       </ol>
-      <p>
-        Colors are reproducible and internally consistent. A minimum contrast
-        constraint (ΔE CIE76 ≥ 22) against the background is enforced.
-      </p>
+      <p>Each permutation occupies a 6‑unit cube cell in the space.</p>
 
-      <h5>3.5 Background and cube walls</h5>
-      <p>
-        They are computed with the same chromatic engine (reserved slots) using a
-        dummy signature, avoiding hierarchies and keeping full coherence between
-        glyphs and container.
-      </p>
-
-      <h4>4. The 30×30×30 cube: preverbal emergence space</h4>
-      <p>
-        The invariant sum of the signature (30) is mirrored by a 30×30×30 cube
-        segmented into 5 slots per axis (step = 6). Positions are obtained from
-        Lehmer rank plus the global invariants, not directly from P₃–P₅.
-      </p>
+      <h4>d. Color: Deterministic HSV Grid</h4>
+      <p>Colors are computed structurally within a discrete HSV grid of 20,736 unique combinations.</p>
+      <p><b>Grid structure:</b></p>
       <ul>
-        <li>No center, hierarchy, or narrative direction. Only structured presence.</li>
-        <li>Pure visual disposition under formal rules, without assigned content.</li>
+        <li>H (Hue): 144 levels, 2.5° steps</li>
+        <li>S (Saturation): 12 levels, Sₐ = 0.25 + 0.72 × (i / 11)</li>
+        <li>V (Value): 12 levels, Vₐ = 0.20 + 0.75 × (i / 11)</li>
+      </ul>
+      <p><b>Total combinations:</b></p>
+      <pre>N_colors = 144 × 12 × 12 = 20,736</pre>
+      <p><b>Assignment:</b></p>
+      <ol>
+        <li>Compute signature F = [F₁…F₅]</li>
+        <li>Compute Lehmer‑rank r</li>
+        <li>slot = r mod 12</li>
+        <li>Indexes:<br><pre>H_idx = (slot × 89) mod 144
+S_idx = (slot × 5) mod 12
+V_idx = (slot × 7) mod 12</pre></li>
+        <li>Real values:<br><pre>H = H_idx × 2.5
+S = 0.25 + 0.72 × (S_idx / 11)
+V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
+      </ol>
+
+      <h4>e. Rotation: Signature Range</h4>
+      <pre>ω = max(F) − min(F)</pre>
+      <p>This determines the angular variation. There is no imposed symmetry or manual control.</p>
+
+      <h4>f. Total Combinatorics</h4>
+      <ul>
+        <li>Reorganizations per permutation: 120</li>
+        <li>Spatial configurations:<br><pre>Config(k) = (120 C k) × (125 C k) × k!</pre></li>
+        <li>Total:<br><pre>Total = Σk=1..30 Config(k) ≈ 3.10 × 10^125</pre></li>
       </ul>
 
-      <h4>5. Combinatorial totality: design & habitability space</h4>
-      <h5>5.1 Phenotypic reorganization</h5>
-      <p>
-        Each permutation admits 120 phenotypic reorganizations (reassignments of
-        P₁–P₅ to [shape, color, x, y, z]). Total: 120 × 120 = 14,400.
-      </p>
+      <h4>g. Geometric Origin</h4>
+      <p>The shape of each unit is derived from the root of its first value:</p>
+      <pre>Height = base × √(P₁)</pre>
+      <p>All proportions derive from this value.</p>
 
-      <h5>5.2 Spatial configurations</h5>
-      <p>
-        With 125 available positions and k ∈ [1,30] active permutations, without
-        overlap:
-      </p>
-      <div class="formula">
-        Config(k) = (120 C k) × (125 C k) × k!<br>
-        Total = Σ<sub>k=1..30</sub> (120 C k) × (125 C k) × k! ≈ 3.10 × 10¹²⁵
-      </div>
-      <p>
-        This counts spatial possibilities only, not colors or phenotypic
-        reorganizations.
-      </p>
+      <h3>6. Coexistence and Persistence</h3>
+      <p><em>Language is not shared. Logic is.</em></p>
 
-      <h5>5.3 Single geometric origin</h5>
-      <p>
-        Everything stems from a single geometric body: the cube whose internal
-        proportions are tied to √P₁. If P₁ changes, scale changes; permutations,
-        signatures and ranks do not. The logic remains intact.
-      </p>
-
-      <h5>5.4 Note</h5>
-      <p>
-        The model is not decorative: the structure itself produces a cognitively
-        habitable environment. Each configuration is valid if coherent with that
-        internal logic.
-      </p>
-      <h4>Phenotypic scope (edition domain)</h4>
+      <h4>a. Coexistence without Translation</h4>
+      <p>PRMTTN does not require semantic comprehension to be operated. Humans and artificial intelligences can engage with the system by applying the same rules, without interpretation.</p>
+      <p>This is possible because:</p>
       <ul>
-        <li><b>BUILD (static):</b> 120 attribute‑mappings × 11 chromatic‑patterns → <b>1 320</b> deterministic visuals.</li>
-        <li><b>FRBN (dynamic):</b> continuous deterministic field; for cataloging we adopt <b>K = 144</b> canonical phases → <b>190 080</b> canonical states.</li>
-        <li><b>Acquisition:</b> permutations are acquired as a <b>group</b>; the count does not multiply by the number of permutations in the group.</li>
+        <li>The structural grammar is fully explicit and reproducible.</li>
+        <li>Reorganization rules are independent of any symbolic context.</li>
+        <li>Configurations can be generated or perceived without attributing meaning.</li>
       </ul>
-      <p style="font-size:12px;color:#555">K is a catalog parameter. Any change is documented and applies only to future editions.</p>
+      <p>What is shared is not language, but structure. Both AI and humans can operate on the same permutation set using only formal logic. This redefines thought as a non-narrative, non-emotional activity based on combinatorial manipulation of visible structures.</p>
+      <p>The system does not aim for biological symmetry. It defines a common zone: an environment where different forms of thought may coexist without translation.</p>
 
-      <h4>6. Possible modes of thought inside the system</h4>
-      <h5>6.1 Operational definition of preverbal thought</h5>
-      <p>
-        PRMMTN does not represent, interpret, or communicate. It offers a space
-        where visual organization can be contemplated without translation, symbol or
-        code.
-      </p>
+      <h4>b. Structural Persistence</h4>
+      <p><em>To remember, in this system, is simply to reconstruct.</em></p>
+      <p>Configurations in PRMTTN do not need to be remembered to be reproduced. Each one can be reconstructed entirely from:</p>
       <ul>
-        <li>Pre‑verbal impulses, impressions, resonances.</li>
-        <li>Relations perceived directly, without a linguistic detour.</li>
-        <li>“Out‑of‑place” thoughts that never found a non‑conditioning space.</li>
-        <li>Internal dialogues with no communicative intent.</li>
+        <li>The original permutation P = [P₁, P₂, P₃, P₄, P₅]</li>
+        <li>The phenotypic assignment of attributes</li>
+        <li>The Lehmer-rank of the permutation</li>
+        <li>The global scene seed (sceneSeed)</li>
+        <li>The deterministic formulas for position and color</li>
       </ul>
-      <p>Nothing guarantees that any of this occurs. It is only an open possibility.</p>
-
-      <h5>6.2 Minimal activation conditions</h5>
+      <p>This allows storing configurations as formal states, without interpretive metadata or narrative memory. What is preserved is not content, but exact disposition.</p>
+      <p><b>Storage methods include:</b></p>
       <ul>
-        <li>Closed combinatorial disposition: every configuration derives from a
-            unique signature, without ambiguity or visual arbitrariness.</li>
-        <li>Structural isolation: everything happens inside a bounded space, with no
-            narrative context or external references.</li>
-        <li>Visible rules: each attribute is traceable to internal logic.</li>
-        <li>Absence of semantics: no symbols, icons, or linguistic substitutes.</li>
+        <li><b>Firestore</b>: structural persistence without semantic metadata</li>
+        <li><b>Arweave / Thirdweb</b>: blockchain anchoring with verifiable integrity</li>
       </ul>
+      <p>Storing a configuration does not tell a story. It preserves its future possibility of structural reactivation.</p>
 
-      <h4>7. Habitability</h4>
-      <p>
-        A configuration is visually habitable if:
-      </p>
-      <ul>
-        <li><b>Direct structural accessibility:</b> fully visible elements, no hidden
-            symbolic layers.</li>
-        <li><b>Combinatorial stability:</b> its logic does not change with context or
-            observer.</li>
-        <li><b>No signs:</b> no letters, icons, or codifiable elements.</li>
-        <li><b>Contained without closure:</b> inside a closed space, but with no
-            imposed hierarchy or narrative.</li>
-      </ul>
-
-      <h4>8. Grammar without semantics</h4>
-      <h5>8.1 Non‑negotiable rules</h5>
-      <ul>
-        <li>Shape: &propto; √(P₁)</li>
-        <li>Color: P₂ indexed into the HSV lattice derived from signature + sceneSeed</li>
-        <li>Position: Lehmer rank corrected by the global invariants</li>
-        <li>Rotation: derived from the signature’s range</li>
-      </ul>
-
-      <h5>8.2 Activation without translation</h5>
-      <p>
-        If activation occurs, it is not by decoding but by rigorously structured
-        visual relations that can trigger mental organization without becoming a
-        concept.
-      </p>
-
-      <h4>9. Functional glossary</h4>
-      <p>(Reserved for later drafting.)</p>
-
-      <h4>10. Technical appendix I: manual template</h4>
-      <p>(Reserved for later drafting.)</p>
-
-      <h4>11. Structural persistence without narrative</h4>
-      <p>
-        There is no automatic register or interpretive archive, but a structural
-        memory can be built: every configuration is fully reconstructible from its
-        base permutation and the deterministic rules.
-      </p>
-      <ul>
-        <li>P = [P₁,…,P₅]</li>
-        <li>Chosen phenotypic reorganization</li>
-        <li>Lehmer rank</li>
-        <li>sceneSeed</li>
-        <li>Derived color & position formulas</li>
-      </ul>
-      <p>
-        Persistence can be on Firestore or Arweave/Thirdweb, storing structures
-        without semantics.
-      </p>
-
-      <h4>12. Internal evolution of thought</h4>
-      <p>
-        No accumulation, improvement, or progress — only structural reorganization
-        inside a closed set. Thought does not advance; it reconfigures.
-      </p>
-
-      <h5>12.1 Phenotypic reorganization</h5>
-      <p>
-        The 120 permutations never change; only their phenotypic assignment to
-        visual attributes varies. All variation remains within the combinatorial
-        frame.
-      </p>
-
-      <h5>12.2 No adaptive progress</h5>
-      <p>
-        No function, no aesthetic hierarchy. Each configuration is validated by its
-        internal coherence, not by usefulness or beauty.
-      </p>
-
-      <h4>13. Shared architecture across cognitive species</h4>
-      <p>
-        This is not a language. No translation, no communicative intent. What can be
-        shared is not content but logic: both humans and AIs can operate inside the
-        rules without semantic understanding.
-      </p>
-
-      <h4>14. Scientific validation</h4>
-      <p>
-        The structural conditions can be empirically tested. The palette of each
-        scene is computed from the permutation’s signature, the global seed, and a
-        deterministic function over the 20,736‑tone HSV lattice — ensuring
-        uniqueness, reproducibility and visual coherence.
-      </p>
-      <h5>14.1 Relevant evidence (indicative)</h5>
-      <ul>
-        <li>Early neurodevelopment: pre‑linguistic cognitive patterns in infants.</li>
-        <li>Non‑semantic visual perception.</li>
-        <li>Label‑free structural learning in some AIs.</li>
-        <li>Abstract contemplation triggering cognition without narrative.</li>
-      </ul>
-      <h5>14.2 Operational hypothesis</h5>
-      <p>
-        The system does not claim results; it formulates a structural hypothesis:
-        that a non‑semantic visual disposition can affect pre‑linguistic mental
-        organization. It can be evaluated, but not demonstrated within the system.
-      </p>
-
-      <h4>15. Technical appendix II: refined critical points</h4>
-      <p>(Reserved for later drafting.)</p>
-
-      <h4>16. No beauty, no representation</h4>
-      <p>
-        There is no search for beauty, emotion, or evocation. Every visible trait is
-        a direct consequence of the system’s mathematics. If something appears
-        beautiful, it is a projection outside the system.
-      </p>
-
-      <h4>17. To move without communicating</h4>
-      <p>
-        A configuration can affect without transmitting: not by what it “says”, but
-        by the internal tension of its organization.
-      </p>
-
-      <h4>18. Anti‑aesthetic manifesto</h4>
-      <p>
-        No expressive, decorative or provocative intention. Each glyph is formal
-        consequence, not aesthetic decision. The system asserts non‑representation.
-      </p>
-
-      <h4>19. Epistemic closure</h4>
-      <ul>
-        <li>Finite, irrepeatable set of permutations.</li>
-        <li>Strict rules from numeric signatures.</li>
-        <li>Disposal in a 30×30×30 cube.</li>
-        <li>No language, no representation, no evolution, no communication.</li>
-        <li>Only dispositions that may —under specific conditions— favour
-            preverbal thought.</li>
-      </ul>
-      <p>
-        No outside, no behind. No correct interpretation. The only variable is the
-        gaze.
-      </p>
-
-      <h4>20. Epilogue: thought unbound</h4>
-      <p>
-        No language has been built, no work created, no experience designed to be
-        understood. A closed structural system has been formulated where everything
-        is anchored in finite combinatorics. Nothing is said. Nothing needs to be
-        interpreted. Everything can be contemplated.
-      </p>
-      <p>
-        The hypothesis remains open: that a non‑semantic visual organization can
-        enable pre‑verbal mental activity — without narration, without symbol,
-        without recipient, without instruction.
-      </p>
-
-      <p><i>work in progress</i></p>
+      <h3>End.</h3>
+      <p>PRMTTN does not assert results. It proposes a strictly structural hypothesis:</p>
+      <blockquote>That a visual organization without semantics may generate favorable conditions for thought without words.</blockquote>
+      <p><i>work in progress.</i><br><i>MARTINEZ</i></p>
       `;
-      renderInfoPanel(html);
-    }
-
+  renderInfoPanel(html);
+}
 function showFRBNInfo(){
   const html = `
     <h2>FRBN — Deterministic Ganzfeld</h2>
