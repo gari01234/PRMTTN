@@ -507,8 +507,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const SKY_R = 250;
     /* Intensidad global para los tubos encendidos (≥ 1) */
     const LCHT_INTENSITY_MULT = 3.0;
-    /* Intensidad base de las lámparas reales */
-    const LCHT_LIGHT_INTENSITY = 30;
+    const LCHT_LIGHT_INTENSITY = 30;   // intensidad “real” base
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -740,29 +739,46 @@ function initSkySphere() {
 
       perms.forEach(pa=>{
         const sig  = computeSignature(pa);
-        const rng  = computeRange(sig);
+        const rng  = computeRange(sig);                 // 2 … 10
         const r    = lehmerRank(pa);
         const Iidx = (r + sceneSeed + S_global) % 125;
         let x = Math.floor(Iidx/25),
             y = Math.floor((Iidx%25)/5),
             z = Iidx % 5;
 
-        const axis = (r + sceneSeed + mRank) % 3;
+        const axis = (r + sceneSeed + mRank) % 3;       // 0 X  1 Y  2 Z
         let nx=x, ny=y, nz=z;
         if(axis===0) nx = (x<4)? x+1 : x-1;
         if(axis===1) ny = (y<4)? y+1 : y-1;
         if(axis===2) nz = (z<4)? z+1 : z-1;
 
-        const id = tubeId(Math.min(x,nx), Math.min(y,ny), Math.min(z,nz), axis);
-        used[id] = true;
+        /* === VARIANTE B — nº de tramos consecutivos dependiente del rango === */
+        const litSegments = Math.min(4, 1 + Math.floor(rng/2)); // 1-4 tubos
 
-        const col = colorForPerm(pa);
-        const Pshape = pa[ attributeMapping[0] ];
-        const I0  = 0.35 + 0.65 * Math.sqrt(Pshape/5);
-        const f   = 0.10 + 0.175 * rng;
-        const amp = 0.05 + 0.10  * rng;
-        const phi = 2*Math.PI*((r%360)/360);
-        litInfo.set(id, { color: col, lcht: {I0, amp, f, phi} });
+        for(let s=0; s<litSegments; s++){
+          const xx = x + (axis===0 ? s : 0);
+          const yy = y + (axis===1 ? s : 0);
+          const zz = z + (axis===2 ? s : 0);
+          const nx2 = xx + (axis===0 ? 1 : 0);
+          const ny2 = yy + (axis===1 ? 1 : 0);
+          const nz2 = zz + (axis===2 ? 1 : 0);
+          if(nx2>=5 || ny2>=5 || nz2>=5) break;         // fuera del cubo
+
+          const id = tubeId(Math.min(xx,nx2), Math.min(yy,ny2), Math.min(zz,nz2), axis);
+
+          /* solo si todavía no está asignado */
+          if(!used[id]){
+            used[id] = true;
+
+            const col  = colorForPerm(pa);
+            const I0   = 0.35 + 0.65 * Math.sqrt(pa[ attributeMapping[0] ]/5);
+            const amp  = 0.05 + 0.10  * rng;
+            const freq = 0.10 + 0.175 * rng;
+            const phi  = 2*Math.PI*((r%360)/360);
+
+            litInfo.set(id, { color: col, lcht: { I0, amp, f: freq, phi } });
+          }
+        }
       });
 
       /* --- construye los 300 tubos ------------------------------------- */
@@ -798,16 +814,17 @@ function initSkySphere() {
                 });
                 tube = new THREE.Mesh(geo, mat);
                 tube.userData.lcht = info.lcht;
-                const mid = p1.clone().add(p2).multiplyScalar(0.5);
-                const pt  = new THREE.PointLight(
+                /*  — luz real que baña el entorno — */
+                const center = tube.position.clone();
+                const pt = new THREE.PointLight(
                   info.color,
-                  LCHT_LIGHT_INTENSITY * info.lcht.I0,
-                  cubeSize * 1.2,
-                  2
+                  LCHT_LIGHT_INTENSITY * info.lcht.I0,   // intensidad base
+                  cubeSize * 1.2,                        // alcance: todo el cubo
+                  2                                       // decaimiento cuadrático
                 );
-                pt.position.copy(mid);
+                pt.position.copy(center);
                 lichtGroup.add(pt);
-                tube.userData.pointLight = pt;
+                tube.userData.pointLight = pt;            // referencia para animación
               } else {                                // tubo apagado
                 mat = new THREE.MeshStandardMaterial({
                   color: 0xffffff,
@@ -833,21 +850,37 @@ function initSkySphere() {
     function toggleLCHT(){
       isLCHT = !isLCHT;
 
-      if (isLCHT){
-        if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-        if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
-        buildLCHT();
-        lichtGroup.visible        = true;
-        cubeUniverse.visible      = false;
-        permutationGroup.visible  = false;
-      } else {
-        if (lichtGroup) lichtGroup.visible = false;
-        if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
-        lchtPrevBg = null;
-        cubeUniverse.visible      = true;
-        permutationGroup.visible  = true;
-      }
+        if (isLCHT){
+          /* — cambia material del cubo a lambert para que capte luz — */
+          if(!cubeUniverse.userData.prevMat){
+            cubeUniverse.userData.prevMat = cubeUniverse.material;
+            cubeUniverse.material = new THREE.MeshLambertMaterial({
+              color: cubeUniverse.userData.prevMat.color,
+              transparent: true,
+              opacity: cubeUniverse.userData.prevMat.opacity,
+              side: cubeUniverse.userData.prevMat.side
+            });
+          }
+          if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
+          scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
+          if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
+          buildLCHT();
+          lichtGroup.visible        = true;
+          cubeUniverse.visible      = false;
+          permutationGroup.visible  = false;
+        } else {
+          /* — restaura material original — */
+          if(cubeUniverse.userData.prevMat){
+            cubeUniverse.material.dispose();
+            cubeUniverse.material = cubeUniverse.userData.prevMat;
+            delete cubeUniverse.userData.prevMat;
+          }
+          if (lichtGroup) lichtGroup.visible = false;
+          if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
+          lchtPrevBg = null;
+          cubeUniverse.visible      = true;
+          permutationGroup.visible  = true;
+        }
       const b = document.getElementById('lchtButton');
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
@@ -2458,21 +2491,19 @@ function renderArchPanel(html){
         });
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
-        if(isLCHT && lichtGroup){
-          const t = performance.now()*0.001;
-          lichtGroup.children.forEach(o=>{
-            const d = o.userData.lcht;
-            if(d){
-              const I = d.I0 * (1 - d.amp *
-                      (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
-                      * LCHT_INTENSITY_MULT;
-              o.material.emissiveIntensity = I;
-              if (o.userData.pointLight){
-                o.userData.pointLight.intensity = I * 10;
+          if(isLCHT && lichtGroup){
+            const t = performance.now()*0.001;
+            lichtGroup.children.forEach(o=>{
+              const d = o.userData.lcht;
+              if(d){
+                const I = d.I0 * (1 - d.amp *
+                        (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
+                        * LCHT_INTENSITY_MULT;
+                o.material.emissiveIntensity = I;
+                if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
               }
-            }
-          });
-        }
+            });
+          }
         controls.update();
         renderer.render(scene,camera);
       }
