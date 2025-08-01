@@ -707,7 +707,9 @@ function initSkySphere() {
   // ← muestra el mini‑botón solo en FRBN
   const ib = document.getElementById('frbnInfoButton');
   if (ib) ib.style.display = isFRBN ? 'inline-block' : 'none';
-    }
+  const fb = document.getElementById('frbnButton');
+  if (fb) fb.textContent = isFRBN ? 'FRBN ON' : 'FRBN';
+}
 
     /* --------- inicializa esfera al arrancar (sin coste GPU extra) -------- */
     window.addEventListener('load', () => { if(!skySphere) initSkySphere(); });
@@ -729,10 +731,14 @@ function initSkySphere() {
     /* color determinista = mismo que la permutación                    */
     function colorForPerm(pa){
       const idx = pa[ attributeMapping[1] ];            // 1–5
-      const val = getColor(idx);                       // #rrggbb o [ r,g,b ]
-      return Array.isArray(val)
+      const val = getColor(idx);                       // #rrggbb o [r,g,b]
+
+      const base = Array.isArray(val)
         ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255).convertSRGBToLinear()
-        : new THREE.Color(val).convertSRGBToLinear();  // → lineal, no se lava a blanco
+        : new THREE.Color(val).convertSRGBToLinear();
+
+      /* multiplicador global: simula fuente de luz real */
+      return base.multiplyScalar(LCHT_INTENSITY_MULT);  // ← usa const 3.0 ya definida arriba
     }
 
     /* ═══════════════════════════════════════════════════════
@@ -880,8 +886,12 @@ function initSkySphere() {
             });
           }
           if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-          scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-          if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
+          /* fondo oscuro: realza la luminosidad de los tubos */
+          scene.background = new THREE.Color(0x111111);
+
+          if (isFRBN) toggleFRBN();       // exclusividad asegurada
+          const fb = document.getElementById('frbnButton'); // ← actualiza texto
+          if (fb) fb.textContent = 'FRBN';
           buildLCHT();
           lichtGroup.visible        = true;
           cubeUniverse.visible      = false;
