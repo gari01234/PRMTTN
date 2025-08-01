@@ -670,11 +670,13 @@ function initSkySphere() {
         skySphere.visible        = true;
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
 
       } else {                            // ——— SALIR ———
         skySphere.visible        = false;
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
+        if (isLCHT && lichtGroup) lichtGroup.visible = true;
         refreshAll({ keepManual: true }); // reconstruye escena normal
       }
   // ← muestra el mini‑botón solo en FRBN
@@ -690,6 +692,7 @@ function initSkySphere() {
      * ───────────────────────────── */
     let lichtGroup = null;
     let isLCHT     = false;
+    let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
     /* id único 0-299 para cada tramo ortogonal                        */
     function tubeId(x,y,z,axis){
@@ -707,81 +710,128 @@ function initSkySphere() {
         : new THREE.Color(val);
     }
 
+    /* ═══════════════════════════════════════════════════════
+     *  buildLCHT — genera los 300 tubos “de vidrio”
+     *  · Todos los tubos están presentes y transparentes
+     *  · Solo los asignados se iluminan y palpitan
+     * ═══════════════════════════════════════════════════════ */
     function buildLCHT(){
-      /* limpia anterior */
       if (lichtGroup){
-        lichtGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
+        lichtGroup.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
         scene.remove(lichtGroup);
       }
       lichtGroup = new THREE.Group();
       scene.add(lichtGroup);
 
-      const used = new Array(300).fill(false);
-      const step = cubeSize/5;                                   // 6 u
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                          .map(o => o.value.split(',').map(Number));
-      const mRank = mappingRank(attributeMapping.slice(0,5));
+      /* --- tubos que van encendidos ------------------------------------ */
+      const litInfo = new Map();          // id → { color, lcht }
+      const used    = new Array(300).fill(false);
+      const perms   = Array.from(document.getElementById('permutationList').selectedOptions)
+                           .map(o => o.value.split(',').map(Number));
+      const mRank   = mappingRank(attributeMapping.slice(0,5));
 
       perms.forEach(pa=>{
-        const sig   = computeSignature(pa);
-        const rng   = computeRange(sig);
-        const r     = lehmerRank(pa);
-        const Iidx  = (r + sceneSeed + S_global) % 125;
-        let   x     = Math.floor(Iidx/25),
-              y     = Math.floor((Iidx%25)/5),
-              z     = Iidx % 5;
+        const sig  = computeSignature(pa);
+        const rng  = computeRange(sig);
+        const r    = lehmerRank(pa);
+        const Iidx = (r + sceneSeed + S_global) % 125;
+        let x = Math.floor(Iidx/25),
+            y = Math.floor((Iidx%25)/5),
+            z = Iidx % 5;
 
-        const axis  = (r + sceneSeed + mRank) % 3;               // 0=X 1=Y 2=Z
-        let nx = x, ny = y, nz = z;
+        const axis = (r + sceneSeed + mRank) % 3;
+        let nx=x, ny=y, nz=z;
         if(axis===0) nx = (x<4)? x+1 : x-1;
         if(axis===1) ny = (y<4)? y+1 : y-1;
         if(axis===2) nz = (z<4)? z+1 : z-1;
 
-        let id = tubeId(Math.min(x,nx), Math.min(y,ny), Math.min(z,nz), axis);
-        while (used[id]) id = (id + 89) % 300;                   // salto coprimo
+        const id = tubeId(Math.min(x,nx), Math.min(y,ny), Math.min(z,nz), axis);
         used[id] = true;
 
-        const p1 = new THREE.Vector3((x-2)*step,  (y-2)*step,  (z-2)*step);
-        const p2 = new THREE.Vector3((nx-2)*step, (ny-2)*step, (nz-2)*step);
-        const dir= new THREE.Vector3().subVectors(p2,p1);
-        const len= dir.length();
-
-        const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
         const col = colorForPerm(pa);
-        const mat = new THREE.MeshStandardMaterial({
-          color:col, emissive:col, emissiveIntensity:1, roughness:0.35, metalness:0.0
-        });
-        const tube = new THREE.Mesh(geo,mat);
-        tube.position.copy(new THREE.Vector3().addVectors(p1,p2).multiplyScalar(0.5));
-        tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
-
-        /* dinámica determinista */
         const Pshape = pa[ attributeMapping[0] ];
         const I0  = 0.35 + 0.65 * Math.sqrt(Pshape/5);
-        const f   = 0.10 + 0.175 * rng;                          // 0.10–0.80 Hz
-        const amp = 0.05 + 0.10  * rng;                          // 0.05–0.45
+        const f   = 0.10 + 0.175 * rng;
+        const amp = 0.05 + 0.10  * rng;
         const phi = 2*Math.PI*((r%360)/360);
-        tube.userData.lcht = {I0,amp,f,phi};
-
-        lichtGroup.add(tube);
+        litInfo.set(id, { color: col, lcht: {I0, amp, f, phi} });
       });
+
+      /* --- construye los 300 tubos ------------------------------------- */
+      const step = cubeSize/5;
+      for (let axis=0; axis<3; axis++){
+        for (let x=0; x<5; x++){
+          for (let y=0; y<5; y++){
+            for (let z=0; z<5; z++){
+              if ((axis===0 && x===4) || (axis===1 && y===4) || (axis===2 && z===4)) continue;
+
+              const id  = tubeId(x,y,z,axis);
+              const p1  = new THREE.Vector3((x-2)*step, (y-2)*step, (z-2)*step);
+              const p2  = p1.clone();
+              if (axis===0) p2.x += step;
+              if (axis===1) p2.y += step;
+              if (axis===2) p2.z += step;
+
+              const dir = new THREE.Vector3().subVectors(p2,p1);
+              const len = dir.length();
+              const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
+
+              let mat, tube;
+              if (used[id]){                          // tubo iluminado
+                const info = litInfo.get(id);
+                mat = new THREE.MeshStandardMaterial({
+                  color: info.color,
+                  emissive: info.color,
+                  emissiveIntensity: 1,
+                  transparent: true,
+                  opacity: 0.25,
+                  roughness: 0.35,
+                  metalness: 0
+                });
+                tube = new THREE.Mesh(geo, mat);
+                tube.userData.lcht = info.lcht;
+              } else {                                // tubo apagado
+                mat = new THREE.MeshStandardMaterial({
+                  color: 0xffffff,
+                  emissive: 0x000000,
+                  emissiveIntensity: 0,
+                  transparent: true,
+                  opacity: 0.12,
+                  roughness: 0.15,
+                  metalness: 0
+                });
+                tube = new THREE.Mesh(geo, mat);
+              }
+
+              tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
+              tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
+              lichtGroup.add(tube);
+            }
+          }
+        }
+      }
     }
 
     function toggleLCHT(){
       isLCHT = !isLCHT;
-      if(isLCHT){
-        if(isFRBN) toggleFRBN();          // LCHT excluye FRBN
+
+      if (isLCHT){
+        if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
+        scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
+        if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
         buildLCHT();
         lichtGroup.visible        = true;
         cubeUniverse.visible      = false;
         permutationGroup.visible  = false;
-      }else{
-        if(lichtGroup) lichtGroup.visible = false;
+      } else {
+        if (lichtGroup) lichtGroup.visible = false;
+        if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
+        lchtPrevBg = null;
         cubeUniverse.visible      = true;
         permutationGroup.visible  = true;
       }
       const b = document.getElementById('lchtButton');
-      if(b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
+      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
 
     /* reconstruye LCHT si hay cambios de escena */
