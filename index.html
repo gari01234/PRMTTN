@@ -505,6 +505,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let skySphere = null;
     let isFRBN    = false;
     const SKY_R = 250;
+    /* Intensidad global para los tubos encendidos (≥ 1) */
+    const LCHT_INTENSITY_MULT = 3.0;
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -780,11 +782,11 @@ function initSkySphere() {
               if (used[id]){                          // tubo iluminado
                 const info = litInfo.get(id);
                 mat = new THREE.MeshStandardMaterial({
-                  color: info.color,
+                  color:  info.color,
                   emissive: info.color,
-                  emissiveIntensity: 1,
+                  emissiveIntensity: LCHT_INTENSITY_MULT,  // ← antes 1
                   transparent: true,
-                  opacity: 0.25,
+                  opacity: 0.35,                           // ← antes 0.25 (más cuerpo)
                   roughness: 0.35,
                   metalness: 0
                 });
@@ -2443,7 +2445,8 @@ function renderArchPanel(html){
           lichtGroup.children.forEach(o=>{
             const d = o.userData.lcht;
             if(d){
-              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi))/2);
+              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
+                        * LCHT_INTENSITY_MULT;          // ← escala final
               o.material.emissiveIntensity = I;
             }
           });
