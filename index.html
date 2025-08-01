@@ -747,141 +747,175 @@ function initSkySphere() {
      *  · Todos los tubos están presentes y transparentes
      *  · Solo los asignados se iluminan y palpitan
      * ═══════════════════════════════════════════════════════ */
-    function buildLCHT(){
-      if (lichtGroup){
-        lichtGroup.traverse(o=>{
-          if(o.isPointLight) o.dispose && o.dispose();
-          if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }
-        });
-        scene.remove(lichtGroup);
+/* ==========================================================
+ *  buildLCHT – versión 100 % determinista
+ *  (ningún número “externo”; solo constantes ya definidas)
+ * ========================================================== */
+function buildLCHT(){
+  /* --- limpieza previa idéntica -------------------------------- */
+  if (lichtGroup){
+    lichtGroup.traverse(o=>{
+      if(o.isPointLight) o.dispose && o.dispose();
+      if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }
+    });
+    scene.remove(lichtGroup);
+  }
+  lichtGroup = new THREE.Group();
+  scene.add(lichtGroup);
+
+  /* --- CONSTANTES DERIVADAS DEL SISTEMA ------------------------ */
+  const STEP_I      = PHI_H;            // 89  ← ya definido en el motor cromático
+  const AXIS_NODES  = 5;                // malla 5×5×5 (usada globalmente)
+  const MAX_LIT_SEG = AXIS_NODES - 1;   // 4 tramos posibles
+
+  /* --- contenedores ------------------------------------------- */
+  const used    = new Array(300).fill(false);   // 300 tubos posibles
+  const litInfo = new Map();                    // id → datos de luz
+
+  const perms = Array.from(
+    document.getElementById('permutationList').selectedOptions
+  ).map(o => o.value.split(',').map(Number));
+
+  const mRank = mappingRank(attributeMapping.slice(0,5));
+
+  /* ===========================================================
+   * 1. Selección determinista de tubos “encendidos”
+   *    (ninguna constante arbitraria)
+   * =========================================================== */
+  perms.forEach(pa=>{
+    const r   = lehmerRank(pa);          // 0…119
+    const sig = computeSignature(pa);    // [f1…f5]
+
+    /* 1-A) Índice 0…124 sobre la malla 5×5×5 */
+    const Iidx = (r * STEP_I + sceneSeed + S_global) % 125;
+
+    let x = Math.floor(Iidx/25);
+    let y = Math.floor((Iidx%25)/5);
+    let z = Iidx % 5;
+
+    /* 1-B) Eje ortogonal (0:X, 1:Y, 2:Z) */
+    const axis = (sig[0] + sig[4] + mRank + sceneSeed) % 3;
+
+    /* 1-C) Sentido ±1 reproducible */
+    const dirSign = ((r + sceneSeed) % 2) ? 1 : -1;
+
+    /* nodo vecino inicial (para evitar quedar en borde sin salida) */
+    let nx = x, ny = y, nz = z;
+    if(axis===0) nx = clamp(x + dirSign, 0, 4);
+    if(axis===1) ny = clamp(y + dirSign, 0, 4);
+    if(axis===2) nz = clamp(z + dirSign, 0, 4);
+
+    /* 1-D) Cantidad de tubos iluminados (misma fórmula canónica) */
+    const rng = computeRange(sig);           // 2…10
+    const litSegments = Math.max(
+      2,
+      Math.min(
+        MAX_LIT_SEG,
+        2 + Math.floor(
+              (rng - minRangeValue) *
+              (MAX_LIT_SEG - 1) /
+              (maxRangeValue - minRangeValue)
+            )
+      )
+    );
+
+    /* 1-E) Reserva de tubos encendidos */
+    for(let s=0; s<litSegments; s++){
+      const xx  = x  + (axis===0 ? s*dirSign : 0);
+      const yy  = y  + (axis===1 ? s*dirSign : 0);
+      const zz  = z  + (axis===2 ? s*dirSign : 0);
+      const xx2 = xx + (axis===0 ? dirSign : 0);
+      const yy2 = yy + (axis===1 ? dirSign : 0);
+      const zz2 = zz + (axis===2 ? dirSign : 0);
+      if(xx2<0||xx2>4||yy2<0||yy2>4||zz2<0||zz2>4) break;
+
+      const id = tubeId(
+        Math.min(xx,xx2),
+        Math.min(yy,yy2),
+        Math.min(zz,zz2),
+        axis
+      );
+
+      if(!used[id]){
+        used[id] = true;
+
+        const col = colorForPerm(pa);          // color reproducible
+        /* parámetros de pulso luz – mismos que antes */
+        const I0   = 0.35 + 0.65 * Math.sqrt(pa[attributeMapping[0]]/5);
+        const amp  = 0.05 + 0.10  * rng;
+        const freq = 0.10 + 0.175 * rng;
+        const phi  = 2*Math.PI*((r%360)/360);
+
+        litInfo.set(id, { color: col, lcht: { I0, amp, f: freq, phi } });
       }
-      lichtGroup = new THREE.Group();
-      scene.add(lichtGroup);
+    }
+  });
 
-      /* --- tubos que van encendidos ------------------------------------ */
-      const litInfo = new Map();          // id → { color, lcht }
-      const used    = new Array(300).fill(false);
-      const perms   = Array.from(document.getElementById('permutationList').selectedOptions)
-                           .map(o => o.value.split(',').map(Number));
-      const mRank   = mappingRank(attributeMapping.slice(0,5));
+  /* ===========================================================
+   * 2. Construcción física de los 300 tubos (sin cambios)
+   * =========================================================== */
+  const step = cubeSize / AXIS_NODES;
+  for (let axis=0; axis<3; axis++){
+    for (let x=0; x<5; x++){
+      for (let y=0; y<5; y++){
+        for (let z=0; z<5; z++){
+          if ((axis===0 && x===4) ||
+              (axis===1 && y===4) ||
+              (axis===2 && z===4)) continue;
 
-      perms.forEach(pa=>{
-        const sig  = computeSignature(pa);
-        const rng  = computeRange(sig);                 // 2 … 10
-        const r    = lehmerRank(pa);
-        const Iidx = (r + sceneSeed + S_global) % 125;
-        let x = Math.floor(Iidx/25),
-            y = Math.floor((Iidx%25)/5),
-            z = Iidx % 5;
+          const id  = tubeId(x,y,z,axis);
+          const p1  = new THREE.Vector3((x-2)*step,(y-2)*step,(z-2)*step);
+          const p2  = p1.clone();
+          if(axis===0) p2.x += step;
+          if(axis===1) p2.y += step;
+          if(axis===2) p2.z += step;
 
-        const axis = (r + sceneSeed + mRank) % 3;       // 0 X  1 Y  2 Z
-        let nx=x, ny=y, nz=z;
-        if(axis===0) nx = (x<4)? x+1 : x-1;
-        if(axis===1) ny = (y<4)? y+1 : y-1;
-        if(axis===2) nz = (z<4)? z+1 : z-1;
+          const dir = new THREE.Vector3().subVectors(p2,p1);
+          const len = dir.length();
+          const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
-        /* --- constantes coherentes con la malla -------------------- */
-        const AXIS_NODES   = 5;                          // nodos por eje
-        const MAX_LIT_SEG  = AXIS_NODES - 1;             // 4 tramos posibles (5\u2009nodos \u2192 4\u2009tubos)
+          let mat, tube;
+          if (used[id]){                       // tubo encendido
+            const info = litInfo.get(id);
+            mat = new THREE.MeshBasicMaterial({
+              color: info.color,
+              transparent: true,
+              opacity: 0.90,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
+              toneMapped: false
+            });
+            tube = new THREE.Mesh(geo, mat);
+            tube.userData.lcht = info.lcht;
 
-        /* --- nº de tubos iluminados (determinista & normalizado) --- */
-        const litSegments = Math.max(2,
-          Math.min(
-            MAX_LIT_SEG,
-            2 + Math.floor(
-                  (rng - minRangeValue) * (MAX_LIT_SEG - 1) /
-                  (maxRangeValue  - minRangeValue)
-                )
-          )
-        );
-
-        for(let s=0; s<litSegments; s++){
-          const xx = x + (axis===0 ? s : 0);
-          const yy = y + (axis===1 ? s : 0);
-          const zz = z + (axis===2 ? s : 0);
-          const nx2 = xx + (axis===0 ? 1 : 0);
-          const ny2 = yy + (axis===1 ? 1 : 0);
-          const nz2 = zz + (axis===2 ? 1 : 0);
-          if(nx2>=5 || ny2>=5 || nz2>=5) break;         // fuera del cubo
-
-          const id = tubeId(Math.min(xx,nx2), Math.min(yy,ny2), Math.min(zz,nz2), axis);
-
-          /* solo si todavía no está asignado */
-          if(!used[id]){
-            used[id] = true;
-
-            const col  = colorForPerm(pa);
-            const I0   = 0.35 + 0.65 * Math.sqrt(pa[ attributeMapping[0] ]/5);
-            const amp  = 0.05 + 0.10  * rng;
-            const freq = 0.10 + 0.175 * rng;
-            const phi  = 2*Math.PI*((r%360)/360);
-
-            litInfo.set(id, { color: col, lcht: { I0, amp, f: freq, phi } });
+            const halo = new THREE.Mesh(geo, mat.clone());
+            halo.scale.multiplyScalar(1.06);
+            halo.material.opacity = 0.18;
+            halo.material.toneMapped = false;
+            halo.userData.lcht = info.lcht;
+            lichtGroup.add(halo);
+          } else {                            // tubo apagado
+            mat = new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.05,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending
+            });
+            tube = new THREE.Mesh(geo, mat);
           }
-        }
-      });
 
-      /* --- construye los 300 tubos ------------------------------------- */
-      const step = cubeSize/5;
-      for (let axis=0; axis<3; axis++){
-        for (let x=0; x<5; x++){
-          for (let y=0; y<5; y++){
-            for (let z=0; z<5; z++){
-              if ((axis===0 && x===4) || (axis===1 && y===4) || (axis===2 && z===4)) continue;
-
-              const id  = tubeId(x,y,z,axis);
-              const p1  = new THREE.Vector3((x-2)*step, (y-2)*step, (z-2)*step);
-              const p2  = p1.clone();
-              if (axis===0) p2.x += step;
-              if (axis===1) p2.y += step;
-              if (axis===2) p2.z += step;
-
-              const dir = new THREE.Vector3().subVectors(p2,p1);
-              const len = dir.length();
-              const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
-
-              let mat, tube;
-              if (used[id]){                          // tubo iluminado
-                const info = litInfo.get(id);
-                // — tubo encendido (Rozendaal) —
-                mat = new THREE.MeshBasicMaterial({
-                  color: info.color,
-                  transparent: true,
-                  opacity: 0.90,
-                  depthWrite: false,
-                  blending: THREE.AdditiveBlending,
-                  toneMapped: false                 /* impide corrección γ que velaba el color */
-                });
-                tube = new THREE.Mesh(geo, mat);
-                tube.userData.lcht = info.lcht;
-
-                /* halo duplicado */
-                const halo = new THREE.Mesh(geo, mat.clone());
-                halo.scale.multiplyScalar(1.06);
-                halo.material.opacity = 0.18;          // brillo periférico
-                halo.material.toneMapped = false;
-                halo.userData.lcht = info.lcht;
-                lichtGroup.add(halo);
-              } else {                                // tubo apagado
-                // — tubo apagado —
-                mat = new THREE.MeshBasicMaterial({
-                  color: 0xffffff,
-                  transparent: true,
-                  opacity: 0.05,
-                  depthWrite: false,
-                  blending: THREE.AdditiveBlending
-                });
-                tube = new THREE.Mesh(geo, mat);
-              }
-
-              tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
-              tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
-              lichtGroup.add(tube);
-            }
-          }
+          tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
+          tube.quaternion.setFromUnitVectors(
+            new THREE.Vector3(0,1,0),
+            dir.normalize()
+          );
+          lichtGroup.add(tube);
         }
       }
     }
+  }
+}
 
     function toggleLCHT(){
       isLCHT = !isLCHT;
