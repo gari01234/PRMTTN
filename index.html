@@ -28,6 +28,14 @@
     pointer-events: none; z-index: 300;
     transform: translate(-50%, -50%);
   }
+  #backGlow{
+    position:fixed; inset:0;
+    background:radial-gradient(circle at 50% 50%, #4ef, #025 85%);
+    mix-blend-mode:screen;
+    pointer-events:none; z-index:1;
+  }
+  /* canvas debe pintar por encima */
+  canvas{position:relative; z-index:2;}
   /* HUD eliminado */
   #topRightDisplay{
     display:none !important;
@@ -190,10 +198,10 @@
 </head>
 <body>
   <div id="customCursor"></div>
+  <div id="backGlow"></div>
   <div id="topRightDisplay"></div>
 
   <input type="file" id="json-upload" accept=".json" style="display:none;" />
-
   <button id="aiPlanningButton"   onclick="applyEvolutionAI()">AI Planning</button>
   <button id="toggleTextButton"   onclick="toggleTexts()">Minimal UI</button>
   <button id="uploadConfigButton" onclick="document.getElementById('json-upload').click()">Load JSON</button>
@@ -803,37 +811,31 @@ function initSkySphere() {
               let mat, tube;
               if (used[id]){                          // tubo iluminado
                 const info = litInfo.get(id);
-                mat = new THREE.MeshStandardMaterial({
-                  color:  info.color,
-                  emissive: info.color,
-                  emissiveIntensity: LCHT_INTENSITY_MULT,  // ← antes 1
+                // — tubo encendido (Rozendaal) —
+                mat = new THREE.MeshBasicMaterial({
+                  color: info.color,
                   transparent: true,
-                  opacity: 0.55,                           // más “cuerpo”
-                  roughness: 0.35,
-                  metalness: 0
+                  opacity: 0.90,
+                  depthWrite: false,
+                  blending: THREE.AdditiveBlending
                 });
                 tube = new THREE.Mesh(geo, mat);
                 tube.userData.lcht = info.lcht;
-                /*  — luz real que baña el entorno — */
-                const center = tube.position.clone();
-                const pt = new THREE.PointLight(
-                  info.color,
-                  LCHT_LIGHT_INTENSITY * info.lcht.I0,   // intensidad base
-                  cubeSize * 1.2,                        // alcance: todo el cubo
-                  2                                       // decaimiento cuadrático
-                );
-                pt.position.copy(center);
-                lichtGroup.add(pt);
-                tube.userData.pointLight = pt;            // referencia para animación
+
+                /* halo duplicado */
+                const halo = new THREE.Mesh(geo, mat.clone());
+                halo.scale.multiplyScalar(1.06);
+                halo.material.opacity = 0.18;          // brillo periférico
+                halo.userData.lcht = info.lcht;
+                lichtGroup.add(halo);
               } else {                                // tubo apagado
-                mat = new THREE.MeshStandardMaterial({
+                // — tubo apagado —
+                mat = new THREE.MeshBasicMaterial({
                   color: 0xffffff,
-                  emissive: 0x000000,
-                  emissiveIntensity: 0,
                   transparent: true,
-                  opacity: 0.12,
-                  roughness: 0.15,
-                  metalness: 0
+                  opacity: 0.05,
+                  depthWrite: false,
+                  blending: THREE.AdditiveBlending
                 });
                 tube = new THREE.Mesh(geo, mat);
               }
@@ -2491,19 +2493,18 @@ function renderArchPanel(html){
         });
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
-          if(isLCHT && lichtGroup){
-            const t = performance.now()*0.001;
-            lichtGroup.children.forEach(o=>{
-              const d = o.userData.lcht;
-              if(d){
-                const I = d.I0 * (1 - d.amp *
-                        (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
-                        * LCHT_INTENSITY_MULT;
-                o.material.emissiveIntensity = I;
-                if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
-              }
-            });
-          }
+        if (isLCHT && lichtGroup){
+          const t = performance.now()*0.001;
+          lichtGroup.children.forEach(o=>{
+            const d = o.userData.lcht;
+            if(d){
+              /* intensidad → opacidad (0 – 1) */
+              const I = d.I0 * (1 - d.amp *
+                       (1 + Math.cos(2*Math.PI*d.f*t + d.phi))*0.5);
+              o.material.opacity = I * (o.scale.x > 1.05 ? 0.20 : 1.0);
+            }
+          });
+        }
         controls.update();
         renderer.render(scene,camera);
       }
