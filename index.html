@@ -30,9 +30,22 @@
   }
   #backGlow{
     position:fixed; inset:0;
-    background:radial-gradient(circle at 50% 50%, #4ef, #025 85%);
-    mix-blend-mode:screen;
     pointer-events:none; z-index:1;
+
+    /* gradiente multicolor + halo blanco */
+    background:
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 60%),
+      conic-gradient(from 45deg at 50% 50%, #63d8ff, #ff6dfb, #ffe76d, #63d8ff);
+    mix-blend-mode:screen;
+    filter:blur(140px);
+
+    /* animación lenta */
+    animation:glowShift 18s ease-in-out infinite alternate;
+  }
+
+  @keyframes glowShift{
+    0%   {transform:scale(1)   translate(0 ,0 ) rotate(0deg);}
+    100% {transform:scale(1.25)translate(-6%,6%) rotate(90deg);}
   }
   /* canvas debe pintar por encima */
   canvas{position:relative; z-index:2;}
@@ -715,11 +728,11 @@ function initSkySphere() {
 
     /* color determinista = mismo que la permutación                    */
     function colorForPerm(pa){
-      const idx = pa[ attributeMapping[1] ];                // 1–5
-      const val = getColor(idx);
+      const idx = pa[ attributeMapping[1] ];            // 1–5
+      const val = getColor(idx);                       // #rrggbb o [ r,g,b ]
       return Array.isArray(val)
-        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
-        : new THREE.Color(val);
+        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255).convertSRGBToLinear()
+        : new THREE.Color(val).convertSRGBToLinear();  // → lineal, no se lava a blanco
     }
 
     /* ═══════════════════════════════════════════════════════
@@ -817,7 +830,8 @@ function initSkySphere() {
                   transparent: true,
                   opacity: 0.90,
                   depthWrite: false,
-                  blending: THREE.AdditiveBlending
+                  blending: THREE.AdditiveBlending,
+                  toneMapped: false                 /* impide corrección γ que velaba el color */
                 });
                 tube = new THREE.Mesh(geo, mat);
                 tube.userData.lcht = info.lcht;
@@ -826,6 +840,7 @@ function initSkySphere() {
                 const halo = new THREE.Mesh(geo, mat.clone());
                 halo.scale.multiplyScalar(1.06);
                 halo.material.opacity = 0.18;          // brillo periférico
+                halo.material.toneMapped = false;
                 halo.userData.lcht = info.lcht;
                 lichtGroup.add(halo);
               } else {                                // tubo apagado
@@ -853,6 +868,7 @@ function initSkySphere() {
       isLCHT = !isLCHT;
 
         if (isLCHT){
+          if (skySphere) skySphere.visible = false;   // garantiza que FRBN quede oculto
           /* — cambia material del cubo a lambert para que capte luz — */
           if(!cubeUniverse.userData.prevMat){
             cubeUniverse.userData.prevMat = cubeUniverse.material;
