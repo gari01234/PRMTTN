@@ -54,10 +54,10 @@
   #exportEmbedButton    { position:fixed; right:10px; bottom:170px;  }   /* Save JSON */
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
-  #randomConfigButton   { position:fixed; right:10px; bottom:330px;  }   /* BUILD (arriba del de 120…) */
+#randomConfigButton   { position:fixed; left:10px; bottom:130px;  }   /* BUILD  */
    #certButton           { position:fixed; right:10px; bottom:30px; }   /* Edition Certificate */
   /* === FRBN toggle === */
-#frbnWrap { position:fixed; right:10px; bottom:290px; z-index:260; }
+#frbnWrap { position:fixed; left:10px; bottom:90px; z-index:260; }
 #frbnButton { position:relative; }  /* dentro del wrap */
 #frbnInfoButton{
   position:absolute; top:-6px; right:-6px;
@@ -507,6 +507,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const SKY_R = 250;
     /* Intensidad global para los tubos encendidos (≥ 1) */
     const LCHT_INTENSITY_MULT = 3.0;
+    /* Intensidad base de las lámparas reales */
+    const LCHT_LIGHT_INTENSITY = 30;
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -668,6 +670,7 @@ function initSkySphere() {
       isFRBN = !isFRBN;
 
       if (isFRBN) {                       // ——— ENTRAR ———
+        if (isLCHT) toggleLCHT();         // asegura exclusividad
         buildGanzfeld();                  // sincroniza paleta + u_rate
         skySphere.visible        = true;
         cubeUniverse.visible     = false;
@@ -719,7 +722,10 @@ function initSkySphere() {
      * ═══════════════════════════════════════════════════════ */
     function buildLCHT(){
       if (lichtGroup){
-        lichtGroup.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
+        lichtGroup.traverse(o=>{
+          if(o.isPointLight) o.dispose && o.dispose();
+          if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }
+        });
         scene.remove(lichtGroup);
       }
       lichtGroup = new THREE.Group();
@@ -786,12 +792,22 @@ function initSkySphere() {
                   emissive: info.color,
                   emissiveIntensity: LCHT_INTENSITY_MULT,  // ← antes 1
                   transparent: true,
-                  opacity: 0.35,                           // ← antes 0.25 (más cuerpo)
+                  opacity: 0.55,                           // más “cuerpo”
                   roughness: 0.35,
                   metalness: 0
                 });
                 tube = new THREE.Mesh(geo, mat);
                 tube.userData.lcht = info.lcht;
+                const mid = p1.clone().add(p2).multiplyScalar(0.5);
+                const pt  = new THREE.PointLight(
+                  info.color,
+                  LCHT_LIGHT_INTENSITY * info.lcht.I0,
+                  cubeSize * 1.2,
+                  2
+                );
+                pt.position.copy(mid);
+                lichtGroup.add(pt);
+                tube.userData.pointLight = pt;
               } else {                                // tubo apagado
                 mat = new THREE.MeshStandardMaterial({
                   color: 0xffffff,
@@ -1432,6 +1448,8 @@ function findCollisionFreeMapping(perms){
             // 5) Verificación final (por si acaso)
             const hasCol = checkCollisionsInGroup(permutationGroup);
             if (!hasCol) {
+              if (isFRBN) toggleFRBN();   // BUILD apaga FRBN
+              if (isLCHT) toggleLCHT();   // BUILD apaga LCHT
               showPopup("¡Configuración sin colisiones encontrada!", 2000);
               return true;
             }
@@ -2445,9 +2463,13 @@ function renderArchPanel(html){
           lichtGroup.children.forEach(o=>{
             const d = o.userData.lcht;
             if(d){
-              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
-                        * LCHT_INTENSITY_MULT;          // ← escala final
+              const I = d.I0 * (1 - d.amp *
+                      (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
+                      * LCHT_INTENSITY_MULT;
               o.material.emissiveIntensity = I;
+              if (o.userData.pointLight){
+                o.userData.pointLight.intensity = I * 10;
+              }
             }
           });
         }
