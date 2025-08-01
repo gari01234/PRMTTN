@@ -1258,7 +1258,8 @@ function evalProp(prop, args = [], fallback = 0){
         rgb = ensureContrastRGB(rgb);
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
-        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
+        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255)
+                    .convertSRGBToLinear(),          // ← CORRECCIÓN γ
         shininess:50,
         dithering:true
       });
@@ -1777,6 +1778,7 @@ function makePalette(){
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
         o.material.color.setStyle(hex);
+        o.material.color.convertSRGBToLinear();        // ← mantiene linealidad
       });
       updateColorPickersFromScene();
     }
@@ -1828,7 +1830,7 @@ function makePalette(){
         bgOverride = document.getElementById("bgColor").value;
       }
       const hex = manual ? bgOverride : hsvToHex(bgHSV);
-      scene.background = new THREE.Color(hex);
+      scene.background = new THREE.Color(hex).convertSRGBToLinear();
       document.getElementById("bgColor").value = hex;
     }
 
@@ -1837,7 +1839,8 @@ function makePalette(){
         cubeOverride = document.getElementById("cubeColor").value;
       }
       const hex = manual ? cubeOverride : hsvToHex(wallHSV);
-      cubeUniverse.material.color = new THREE.Color(hex);
+      cubeUniverse.material.color = new THREE.Color(hex)
+                                   .convertSRGBToLinear();
       document.getElementById("cubeColor").value = hex;
     }
 
@@ -2448,7 +2451,7 @@ function renderArchPanel(html){
         renderer.physicallyCorrectLights = true;          // unidades reales (lúmenes / cd)
         renderer.outputEncoding          = THREE.sRGBEncoding;
         renderer.toneMapping             = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure     = 1.25;          // brillo global
+        renderer.toneMappingExposure     = 0.90;          // → evita sobre-exposición
         document.body.appendChild(renderer.domElement);
       }
     function init(){
