@@ -9,6 +9,9 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/postprocessing/UnrealBloomPass.js"></script>
   <style>
   body {
     margin: 0;
@@ -480,6 +483,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
+    let ambLight, dirLight, composer;
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
@@ -508,6 +512,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /* Intensidad global para los tubos encendidos (≥ 1) */
     const LCHT_INTENSITY_MULT = 3.0;
     const LCHT_LIGHT_INTENSITY = 30;   // intensidad “real” base
+    const LCHT_POINT_INTENSITY = 70;            // lumen base por tubo
+    const LCHT_POINT_REACH     = cubeSize * 1.6; // alcanza todo el cubo
+    const LCHT_POINT_DECAY     = 2;             // caída cuadrática real
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -801,31 +808,33 @@ function initSkySphere() {
               const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
               let mat, tube;
-              if (used[id]){                          // tubo iluminado
-                const info = litInfo.get(id);
-                mat = new THREE.MeshStandardMaterial({
-                  color:  info.color,
-                  emissive: info.color,
-                  emissiveIntensity: LCHT_INTENSITY_MULT,  // ← antes 1
-                  transparent: true,
-                  opacity: 0.55,                           // más “cuerpo”
-                  roughness: 0.35,
-                  metalness: 0
-                });
-                tube = new THREE.Mesh(geo, mat);
-                tube.userData.lcht = info.lcht;
-                /*  — luz real que baña el entorno — */
-                const center = tube.position.clone();
-                const pt = new THREE.PointLight(
-                  info.color,
-                  LCHT_LIGHT_INTENSITY * info.lcht.I0,   // intensidad base
-                  cubeSize * 1.2,                        // alcance: todo el cubo
-                  2                                       // decaimiento cuadrático
-                );
-                pt.position.copy(center);
-                lichtGroup.add(pt);
-                tube.userData.pointLight = pt;            // referencia para animación
-              } else {                                // tubo apagado
+                if (used[id]){                          // tubo iluminado
+                  const info = litInfo.get(id);
+                  mat = new THREE.MeshPhysicalMaterial({
+                    color:  info.color,
+                    emissive: info.color,
+                    emissiveIntensity: LCHT_INTENSITY_MULT,   // animado en animate()
+                    roughness: 0.25,
+                    metalness: 0,
+                    transparent: true,
+                    opacity: 0.55,
+                    side: THREE.DoubleSide
+                  });
+
+                  tube = new THREE.Mesh(geo, mat);
+                  tube.userData.lcht = info.lcht;
+
+                  /* ★ NUEVA luz puntual real que baña la escena */
+                  const pt = new THREE.PointLight(
+                    info.color,
+                    LCHT_POINT_INTENSITY * info.lcht.I0,
+                    LCHT_POINT_REACH,
+                    LCHT_POINT_DECAY
+                  );
+                  pt.position.copy(tube.position);
+                  tube.add(pt);                      // queda ligado al tubo
+                  tube.userData.point = pt;          // referencia para animar
+                } else {                                // tubo apagado
                 mat = new THREE.MeshStandardMaterial({
                   color: 0xffffff,
                   emissive: 0x000000,
@@ -850,7 +859,9 @@ function initSkySphere() {
     function toggleLCHT(){
       isLCHT = !isLCHT;
 
-        if (isLCHT){
+      if (isLCHT){
+        ambLight.intensity = 0;
+        dirLight.intensity = 0;
           /* — cambia material del cubo a lambert para que capte luz — */
           if(!cubeUniverse.userData.prevMat){
             cubeUniverse.userData.prevMat = cubeUniverse.material;
@@ -869,6 +880,8 @@ function initSkySphere() {
           cubeUniverse.visible      = false;
           permutationGroup.visible  = false;
         } else {
+          ambLight.intensity = 0.8;
+          dirLight.intensity = 0.5;
           /* — restaura material original — */
           if(cubeUniverse.userData.prevMat){
             cubeUniverse.material.dispose();
@@ -2431,9 +2444,13 @@ function renderArchPanel(html){
         c.style.left=e.clientX+"px"; c.style.top=e.clientY+"px";
       });
     }
-    function initRenderer(){
-      renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
-      renderer.setPixelRatio(window.devicePixelRatio);
+      function initRenderer(){
+        renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+        renderer.physicallyCorrectLights = true;
+        renderer.outputEncoding          = THREE.sRGBEncoding;
+        renderer.toneMapping             = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure     = 1.2;
+        renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth,window.innerHeight);
       renderer.outputEncoding = THREE.sRGBEncoding; // salida en sRGB → menos banding
       document.body.appendChild(renderer.domElement);
@@ -2443,15 +2460,26 @@ function renderArchPanel(html){
       scene.background=new THREE.Color(0xffffff);
       camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
-      initRenderer();
-      controls=new THREE.OrbitControls(camera,renderer.domElement);
+        initRenderer();
+        composer = new THREE.EffectComposer(renderer);
+        composer.addPass(new THREE.RenderPass(scene, camera));
+        const bloom = new THREE.UnrealBloomPass(
+          new THREE.Vector2(window.innerWidth, window.innerHeight),
+          0.9,   // strength
+          0.8,   // radius
+          0.001  // threshold
+        );
+        composer.addPass(bloom);
+        controls=new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
       document.getElementById('standardView').value = 'front';
       applyStandardView();
-      scene.add(new THREE.AmbientLight(0xffffff,0.8));
-      const dir=new THREE.DirectionalLight(0xffffff,0.5);
-      dir.position.set(1,1,1);
-      scene.add(dir);
+        ambLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambLight);
+
+        dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        dirLight.position.set(1, 1, 1);
+        scene.add(dirLight);
 
       const cubeGeo=new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
             cubeMat=new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide,dithering:true});
@@ -2491,21 +2519,22 @@ function renderArchPanel(html){
         });
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
-          if(isLCHT && lichtGroup){
-            const t = performance.now()*0.001;
-            lichtGroup.children.forEach(o=>{
-              const d = o.userData.lcht;
-              if(d){
-                const I = d.I0 * (1 - d.amp *
+        if (isLCHT && lichtGroup){
+          const t = performance.now() * 0.001;
+          lichtGroup.children.forEach(o=>{
+            const d = o.userData.lcht;
+            if (d){
+              const I = d.I0 * (1 - d.amp *
                         (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
                         * LCHT_INTENSITY_MULT;
-                o.material.emissiveIntensity = I;
-                if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
-              }
-            });
-          }
+              o.material.emissiveIntensity = I;
+              if (o.userData.point) o.userData.point.intensity =
+                   I * LCHT_POINT_INTENSITY;      // sincroniza la luz real
+            }
+          });
+        }
         controls.update();
-        renderer.render(scene,camera);
+        composer.render();
       }
     init();
 
