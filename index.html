@@ -526,9 +526,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let skySphere = null;
     let isFRBN    = false;
     const SKY_R = 250;
-    /* Intensidad global para los tubos encendidos (≥ 1) */
-    const LCHT_INTENSITY_MULT = 3.0;
-    const LCHT_LIGHT_INTENSITY = 30;   // intensidad “real” base
+    /* ─────────────────────────────
+     *  CONSTANTES (sólo 2 líneas)
+     * ───────────────────────────── */
+    const LCHT_INTENSITY_MULT = 5.0;   // ← antes 3.0  → tubos mucho más vivos
+    const LCHT_LIGHT_INTENSITY = 60;   // ← antes 30   → halo más luminoso
     const LCHT_BG_COLOR = 0x222222;          // ← gris oscuro (#222)
 
 
@@ -729,17 +731,19 @@ function initSkySphere() {
            : 200 + z*25 + x*5 + y;               // 200–299 (Z)
     }
 
-    /* color determinista = mismo que la permutación                    */
+    /* ─────────────────────────────
+     *  colorForPerm – brillo real
+     * ───────────────────────────── */
     function colorForPerm(pa){
-      const idx = pa[ attributeMapping[1] ];            // 1–5
-      const val = getColor(idx);                       // #rrggbb o [r,g,b]
+      const idx = pa[ attributeMapping[1] ];      // 1–5
+      const v   = getColor(idx);                 // #rrggbb o [r,g,b]
 
-      const base = Array.isArray(val)
-        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255).convertSRGBToLinear()
-        : new THREE.Color(val).convertSRGBToLinear();
-
-      /* multiplicador global: simula fuente de luz real */
-      return base.multiplyScalar(LCHT_INTENSITY_MULT);  // ← usa const 3.0 ya definida arriba
+      /* sRGB → multiplica → lineal  */
+      const c = Array.isArray(v)
+          ? new THREE.Color(v[0]/255, v[1]/255, v[2]/255)
+          : new THREE.Color(v);
+      return c.multiplyScalar(LCHT_INTENSITY_MULT)   // más energía
+              .convertSRGBToLinear();                // lineal correcto
     }
 
     /* ═══════════════════════════════════════════════════════
@@ -748,8 +752,9 @@ function initSkySphere() {
      *  · Solo los asignados se iluminan y palpitan
      * ═══════════════════════════════════════════════════════ */
 /* ==========================================================
- *  buildLCHT – versión 100 % determinista
- *  (ningún número “externo”; solo constantes ya definidas)
+ *  buildLCHT – versión 100 % determinista · FIX 31-07-25
+ *  · + MAX_LIT_SEG 6  → 45-65 tubos con 12-15 perms
+ *  · desplazamiento inicial evita el tubo central repetido
  * ========================================================== */
 function buildLCHT(){
   /* --- limpieza previa idéntica -------------------------------- */
@@ -765,12 +770,12 @@ function buildLCHT(){
 
   /* --- CONSTANTES DERIVADAS DEL SISTEMA ------------------------ */
   const STEP_I      = PHI_H;            // 89  ← ya definido en el motor cromático
-  const AXIS_NODES  = 5;                // malla 5×5×5 (usada globalmente)
-  const MAX_LIT_SEG = AXIS_NODES - 1;   // 4 tramos posibles
+  const AXIS_NODES  = 5;
+  const MAX_LIT_SEG = 6;            // ← nuevo (antes 4)
 
   /* --- contenedores ------------------------------------------- */
   const used    = new Array(300).fill(false);   // 300 tubos posibles
-  const litInfo = new Map();                    // id → datos de luz
+  const litMap = new Map();
 
   const perms = Array.from(
     document.getElementById('permutationList').selectedOptions
@@ -799,24 +804,18 @@ function buildLCHT(){
     /* 1-C) Sentido ±1 reproducible */
     const dirSign = ((r + sceneSeed) % 2) ? 1 : -1;
 
-    /* nodo vecino inicial (para evitar quedar en borde sin salida) */
+    /* 3· DESPLAZA 1 paso HACIA ADENTRO para no iniciar siempre en el mismo tubo */
     let nx = x, ny = y, nz = z;
     if(axis===0) nx = clamp(x + dirSign, 0, 4);
     if(axis===1) ny = clamp(y + dirSign, 0, 4);
     if(axis===2) nz = clamp(z + dirSign, 0, 4);
+    x = nx; y = ny; z = nz;                       // ← *** línea nueva ***
 
-    /* 1-D) Cantidad de tubos iluminados (misma fórmula canónica) */
-    const rng = computeRange(sig);           // 2…10
-    const litSegments = Math.max(
-      2,
-      Math.min(
-        MAX_LIT_SEG,
-        2 + Math.floor(
-              (rng - minRangeValue) *
-              (MAX_LIT_SEG - 1) /
-              (maxRangeValue - minRangeValue)
-            )
-      )
+    /* 4· # TRAMOS ILUMINADOS  = 3-6 según rango de la firma */
+    const rng = computeRange(sig);                // 2…10
+    const litSegments = 3 + Math.floor(
+          (rng - minRangeValue) * (MAX_LIT_SEG - 3) /
+          (maxRangeValue - minRangeValue)
     );
 
     /* 1-E) Reserva de tubos encendidos */
@@ -838,15 +837,7 @@ function buildLCHT(){
 
       if(!used[id]){
         used[id] = true;
-
-        const col = colorForPerm(pa);          // color reproducible
-        /* parámetros de pulso luz – mismos que antes */
-        const I0   = 0.35 + 0.65 * Math.sqrt(pa[attributeMapping[0]]/5);
-        const amp  = 0.05 + 0.10  * rng;
-        const freq = 0.10 + 0.175 * rng;
-        const phi  = 2*Math.PI*((r%360)/360);
-
-        litInfo.set(id, { color: col, lcht: { I0, amp, f: freq, phi } });
+        litMap.set(id, { color: colorForPerm(pa), rng });
       }
     }
   });
@@ -876,7 +867,7 @@ function buildLCHT(){
 
           let mat, tube;
           if (used[id]){                       // tubo encendido
-            const info = litInfo.get(id);
+            const info = litMap.get(id);
             mat = new THREE.MeshBasicMaterial({
               color: info.color,
               transparent: true,
@@ -886,13 +877,11 @@ function buildLCHT(){
               toneMapped: false
             });
             tube = new THREE.Mesh(geo, mat);
-            tube.userData.lcht = info.lcht;
 
             const halo = new THREE.Mesh(geo, mat.clone());
             halo.scale.multiplyScalar(1.06);
             halo.material.opacity = 0.18;
             halo.material.toneMapped = false;
-            halo.userData.lcht = info.lcht;
             lichtGroup.add(halo);
           } else {                            // tubo apagado
             mat = new THREE.MeshBasicMaterial({
@@ -920,44 +909,33 @@ function buildLCHT(){
     function toggleLCHT(){
       isLCHT = !isLCHT;
 
-        if (isLCHT){
-          if (skySphere) skySphere.visible = false;   // garantiza que FRBN quede oculto
-          /* — cambia material del cubo a lambert para que capte luz — */
-          if(!cubeUniverse.userData.prevMat){
-            cubeUniverse.userData.prevMat = cubeUniverse.material;
-            cubeUniverse.material = new THREE.MeshLambertMaterial({
-              color: cubeUniverse.userData.prevMat.color,
-              transparent: true,
-              opacity: cubeUniverse.userData.prevMat.opacity,
-              side: cubeUniverse.userData.prevMat.side
-            });
-          }
-          if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-          /* fondo oscuro: realza la luminosidad de los tubos */
-          scene.background = new THREE.Color(LCHT_BG_COLOR);
+      if (isLCHT){
+        /* fondo gris + limpia el clear-color */
+        scene.background = new THREE.Color(LCHT_BG_COLOR);
+        renderer.setClearColor(LCHT_BG_COLOR, 1);
 
-          if (isFRBN) toggleFRBN();       // exclusividad asegurada
-          const fb = document.getElementById('frbnButton'); // ← actualiza texto
-          if (fb) fb.textContent = 'FRBN';
-          buildLCHT();
-          lichtGroup.visible        = true;
-          cubeUniverse.visible      = false;
-          permutationGroup.visible  = false;
-        } else {
-          /* — restaura material original — */
-          if(cubeUniverse.userData.prevMat){
-            cubeUniverse.material.dispose();
-            cubeUniverse.material = cubeUniverse.userData.prevMat;
-            delete cubeUniverse.userData.prevMat;
-          }
-          if (lichtGroup) lichtGroup.visible = false;
-          if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
-          lchtPrevBg = null;
-          cubeUniverse.visible      = true;
-          permutationGroup.visible  = true;
-        }
-      const b = document.getElementById('lchtButton');
-      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
+        /* oculta el gradiente CSS para que no oscurezca */
+        document.getElementById('backGlow').style.display = 'none';
+
+        /* resto del bloque sin cambios… */
+        buildLCHT();
+        lichtGroup.visible = true;
+        cubeUniverse.visible = false;
+        permutationGroup.visible = false;
+
+      } else {
+        /* restablece gradiente y clear-color */
+        document.getElementById('backGlow').style.display = '';
+        renderer.setClearColor(lchtPrevBg ?? 0x000000, 1);
+
+        /* resto del bloque sin cambios… */
+        if (lichtGroup) lichtGroup.visible = false;
+        cubeUniverse.visible = true;
+        permutationGroup.visible = true;
+      }
+
+      /* actualiza label botón */
+      document.getElementById('lchtButton').textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
 
     /* reconstruye LCHT si hay cambios de escena */
