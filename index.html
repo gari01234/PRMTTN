@@ -529,6 +529,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /* Intensidad global para los tubos encendidos (≥ 1) */
     const LCHT_INTENSITY_MULT = 3.0;
     const LCHT_LIGHT_INTENSITY = 30;   // intensidad “real” base
+    const LCHT_BG_COLOR = 0x222222;          // ← gris oscuro (#222)
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -779,8 +780,20 @@ function initSkySphere() {
         if(axis===1) ny = (y<4)? y+1 : y-1;
         if(axis===2) nz = (z<4)? z+1 : z-1;
 
-        /* === VARIANTE B — nº de tramos consecutivos dependiente del rango === */
-        const litSegments = Math.min(4, 1 + Math.floor(rng/2)); // 1-4 tubos
+        /* --- constantes coherentes con la malla -------------------- */
+        const AXIS_NODES   = 5;                          // nodos por eje
+        const MAX_LIT_SEG  = AXIS_NODES - 1;             // 4 tramos posibles (5\u2009nodos \u2192 4\u2009tubos)
+
+        /* --- nº de tubos iluminados (determinista & normalizado) --- */
+        const litSegments = Math.max(2,
+          Math.min(
+            MAX_LIT_SEG,
+            2 + Math.floor(
+                  (rng - minRangeValue) * (MAX_LIT_SEG - 1) /
+                  (maxRangeValue  - minRangeValue)
+                )
+          )
+        );
 
         for(let s=0; s<litSegments; s++){
           const xx = x + (axis===0 ? s : 0);
@@ -887,7 +900,7 @@ function initSkySphere() {
           }
           if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
           /* fondo oscuro: realza la luminosidad de los tubos */
-          scene.background = new THREE.Color(0x111111);
+          scene.background = new THREE.Color(LCHT_BG_COLOR);
 
           if (isFRBN) toggleFRBN();       // exclusividad asegurada
           const fb = document.getElementById('frbnButton'); // ← actualiza texto
