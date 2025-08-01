@@ -480,7 +480,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
-    let ambLight, dirLight;          // luces escena (accesibles globalmente)
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
@@ -509,9 +508,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /* Intensidad global para los tubos encendidos (≥ 1) */
     const LCHT_INTENSITY_MULT = 3.0;
     const LCHT_LIGHT_INTENSITY = 30;   // intensidad “real” base
-    const LCHT_POINT_POWER   = 900;          // lúmenes (candela≈lúmenes/π)
-    const LCHT_POINT_REACH   = cubeSize * 1.6;
-    const LCHT_POINT_DECAY   = 2;            // física real (cuadrática)
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -804,38 +800,36 @@ function initSkySphere() {
               const len = dir.length();
               const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
-                let mat, tube;
-                if (used[id]){                          // tubo iluminado
-                  const info = litInfo.get(id);
-                  mat = new THREE.MeshPhysicalMaterial({
-                    color:              info.color,
-                    emissive:           info.color,
-                    emissiveIntensity:  LCHT_INTENSITY_MULT,   // animado en animate()
-                    roughness: 0.25,
-                    metalness: 0,
-                    transparent: true,
-                    opacity: 0.55,
-                    side: THREE.DoubleSide
-                  });
-
-                  tube = new THREE.Mesh(geo, mat);
-                  tube.userData.lcht = info.lcht;
-
-                  /* luz puntual “real” que baña la escena */
-                  const pt = new THREE.PointLight(
-                    info.color,
-                    LCHT_POINT_POWER * info.lcht.I0,   // lúmenes base × I0
-                    LCHT_POINT_REACH,
-                    LCHT_POINT_DECAY
-                  );
-                  pt.position.set(0, 0, 0);            // centro geométrico del tubo
-                  tube.add(pt);                        // queda ligado al mesh
-                  tube.userData.point = pt;            // referencia para animate()
-                } else {                                // tubo apagado
-                  mat = new THREE.MeshStandardMaterial({
-                    color: 0xffffff,
-                    emissive: 0x000000,
-                    emissiveIntensity: 0,
+              let mat, tube;
+              if (used[id]){                          // tubo iluminado
+                const info = litInfo.get(id);
+                mat = new THREE.MeshStandardMaterial({
+                  color:  info.color,
+                  emissive: info.color,
+                  emissiveIntensity: LCHT_INTENSITY_MULT,  // ← antes 1
+                  transparent: true,
+                  opacity: 0.55,                           // más “cuerpo”
+                  roughness: 0.35,
+                  metalness: 0
+                });
+                tube = new THREE.Mesh(geo, mat);
+                tube.userData.lcht = info.lcht;
+                /*  — luz real que baña el entorno — */
+                const center = tube.position.clone();
+                const pt = new THREE.PointLight(
+                  info.color,
+                  LCHT_LIGHT_INTENSITY * info.lcht.I0,   // intensidad base
+                  cubeSize * 1.2,                        // alcance: todo el cubo
+                  2                                       // decaimiento cuadrático
+                );
+                pt.position.copy(center);
+                lichtGroup.add(pt);
+                tube.userData.pointLight = pt;            // referencia para animación
+              } else {                                // tubo apagado
+                mat = new THREE.MeshStandardMaterial({
+                  color: 0xffffff,
+                  emissive: 0x000000,
+                  emissiveIntensity: 0,
                   transparent: true,
                   opacity: 0.12,
                   roughness: 0.15,
@@ -853,12 +847,10 @@ function initSkySphere() {
       }
     }
 
-      function toggleLCHT(){
-        isLCHT = !isLCHT;
+    function toggleLCHT(){
+      isLCHT = !isLCHT;
 
         if (isLCHT){
-          ambLight.intensity = 0;
-          dirLight.intensity = 0;
           /* — cambia material del cubo a lambert para que capte luz — */
           if(!cubeUniverse.userData.prevMat){
             cubeUniverse.userData.prevMat = cubeUniverse.material;
@@ -878,8 +870,6 @@ function initSkySphere() {
           permutationGroup.visible  = false;
         } else {
           /* — restaura material original — */
-          ambLight.intensity = 1.5;
-          dirLight.intensity = 50;
           if(cubeUniverse.userData.prevMat){
             cubeUniverse.material.dispose();
             cubeUniverse.material = cubeUniverse.userData.prevMat;
@@ -1258,8 +1248,7 @@ function evalProp(prop, args = [], fallback = 0){
         rgb = ensureContrastRGB(rgb);
       /* --------------------------------------------------------------- */
       const mat=new THREE.MeshPhongMaterial({
-        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255)
-                    .convertSRGBToLinear(),          // ← CORRECCIÓN γ
+        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
         shininess:50,
         dithering:true
       });
@@ -1778,7 +1767,6 @@ function makePalette(){
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
         o.material.color.setStyle(hex);
-        o.material.color.convertSRGBToLinear();        // ← mantiene linealidad
       });
       updateColorPickersFromScene();
     }
@@ -1830,7 +1818,7 @@ function makePalette(){
         bgOverride = document.getElementById("bgColor").value;
       }
       const hex = manual ? bgOverride : hsvToHex(bgHSV);
-      scene.background = new THREE.Color(hex).convertSRGBToLinear();
+      scene.background = new THREE.Color(hex);
       document.getElementById("bgColor").value = hex;
     }
 
@@ -1839,8 +1827,7 @@ function makePalette(){
         cubeOverride = document.getElementById("cubeColor").value;
       }
       const hex = manual ? cubeOverride : hsvToHex(wallHSV);
-      cubeUniverse.material.color = new THREE.Color(hex)
-                                   .convertSRGBToLinear();
+      cubeUniverse.material.color = new THREE.Color(hex);
       document.getElementById("cubeColor").value = hex;
     }
 
@@ -2444,16 +2431,13 @@ function renderArchPanel(html){
         c.style.left=e.clientX+"px"; c.style.top=e.clientY+"px";
       });
     }
-      function initRenderer(){
-        renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth,window.innerHeight);
-        renderer.physicallyCorrectLights = true;          // unidades reales (lúmenes / cd)
-        renderer.outputEncoding          = THREE.sRGBEncoding;
-        renderer.toneMapping             = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure     = 0.90;          // → evita sobre-exposición
-        document.body.appendChild(renderer.domElement);
-      }
+    function initRenderer(){
+      renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth,window.innerHeight);
+      renderer.outputEncoding = THREE.sRGBEncoding; // salida en sRGB → menos banding
+      document.body.appendChild(renderer.domElement);
+    }
     function init(){
       scene=new THREE.Scene();
       scene.background=new THREE.Color(0xffffff);
@@ -2464,12 +2448,10 @@ function renderArchPanel(html){
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
       document.getElementById('standardView').value = 'front';
       applyStandardView();
-        ambLight = new THREE.AmbientLight(0xffffff, 1.5);     // lux neutros
-        scene.add(ambLight);
-
-        dirLight = new THREE.DirectionalLight(0xffffff, 50);  // 50 lux ≈ sol suave
-        dirLight.position.set(1,1,1);
-        scene.add(dirLight);
+      scene.add(new THREE.AmbientLight(0xffffff,0.8));
+      const dir=new THREE.DirectionalLight(0xffffff,0.5);
+      dir.position.set(1,1,1);
+      scene.add(dir);
 
       const cubeGeo=new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
             cubeMat=new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide,dithering:true});
@@ -2508,21 +2490,20 @@ function renderArchPanel(html){
           if(o.userData.rotationSpeed) o.rotation.y+=o.userData.rotationSpeed;
         });
       }
-          if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
-            if (isLCHT && lichtGroup){
-              const t = performance.now() * 0.001;
-              lichtGroup.children.forEach(o=>{
-                const d = o.userData.lcht;
-                if (d){
-                  const I = d.I0 * (1 - d.amp *
-                            (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
-                            * LCHT_INTENSITY_MULT;
-                  o.material.emissiveIntensity = I;
-                  if (o.userData.point) o.userData.point.intensity =
-                       I * LCHT_POINT_POWER;      // sincroniza la luz real
-                }
-              });
-            }
+        if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
+          if(isLCHT && lichtGroup){
+            const t = performance.now()*0.001;
+            lichtGroup.children.forEach(o=>{
+              const d = o.userData.lcht;
+              if(d){
+                const I = d.I0 * (1 - d.amp *
+                        (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
+                        * LCHT_INTENSITY_MULT;
+                o.material.emissiveIntensity = I;
+                if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
+              }
+            });
+          }
         controls.update();
         renderer.render(scene,camera);
       }
