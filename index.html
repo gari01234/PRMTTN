@@ -506,8 +506,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isFRBN    = false;
     const SKY_R = 250;
     /* Intensidad global para los tubos encendidos (≥ 1) */
-    const LCHT_INTENSITY_MULT = 3.0;
-    const LCHT_LIGHT_INTENSITY = 30;   // intensidad “real” base
+    const LCHT_INTENSITY_MULT = 12.0;   // ← antes 3.0
+    const LCHT_LIGHT_INTENSITY = 120;   // ← antes 30
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -803,14 +803,12 @@ function initSkySphere() {
               let mat, tube;
               if (used[id]){                          // tubo iluminado
                 const info = litInfo.get(id);
-                mat = new THREE.MeshStandardMaterial({
-                  color:  info.color,
-                  emissive: info.color,
-                  emissiveIntensity: LCHT_INTENSITY_MULT,  // ← antes 1
+                mat = new THREE.MeshBasicMaterial({
+                  color: info.color,
                   transparent: true,
-                  opacity: 0.55,                           // más “cuerpo”
-                  roughness: 0.35,
-                  metalness: 0
+                  opacity: 0.85,          // cuerpo visible
+                  depthWrite: false,      // evita z-fighting
+                  blending: THREE.AdditiveBlending
                 });
                 tube = new THREE.Mesh(geo, mat);
                 tube.userData.lcht = info.lcht;
