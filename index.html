@@ -733,11 +733,14 @@ function initSkySphere() {
       const collisions = new Set();   // keys duplicados → negro
       const step       = cubeSize / 5;
 
-      function inBounds(x, y, z){        // 5×5×5 → 0…4 inclusive
-        return x >= 0 && x <= 4 &&
-               y >= 0 && y <= 4 &&
-               z >= 0 && z <= 4;
-      }
+      /* ——————————————— límites núcleo / concha ——————————————— */
+      const LIM = 5;                          // hasta 5 celdas fuera del 0-4
+      function inCore (x,y,z){ return x>=0   && x<=4   &&
+                                      y>=0   && y<=4   &&
+                                      z>=0   && z<=4;  }
+      function inShell(x,y,z){ return x>=-LIM && x<=4+LIM &&
+                                      y>=-LIM && y<=4+LIM &&
+                                      z>=-LIM && z<=4+LIM; }
 
       /* === 1) recopila tramos de todas las permutaciones ==================== */
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
@@ -763,11 +766,14 @@ function initSkySphere() {
         const phi  = 2*Math.PI*((r%360)/360);
 
         function addSeg(x1, y1, z1,  x2, y2, z2){
-          if(!inBounds(x1,y1,z1) || !inBounds(x2,y2,z2)) return;   // fuera de la grilla → descarta
+          // al menos uno de los extremos debe caer dentro del núcleo 5×5×5
+          if(!inShell(x1,y1,z1) || !inShell(x2,y2,z2)) return;   // fuera de la concha
+          if(!inCore (x1,y1,z1) && !inCore (x2,y2,z2)) return;   // ambos fuera
+
           const key = tubeKey(x1,y1,z1,x2,y2,z2);
-          if(litInfo.has(key))  collisions.add(key);
-          else litInfo.set(key, { color: col.clone(),
-                                  lcht : { I0, amp, f: freq, phi } });
+          if(litInfo.has(key)) collisions.add(key);
+          else litInfo.set(key,{ color: col.clone(),
+                                 lcht : { I0, amp, f: freq, phi } });
         }
 
         /* eje vertical (L tramos) */
@@ -836,24 +842,22 @@ function initSkySphere() {
         const R_NODE = 0.60;   // tamaño del cubo-nudo (vértice con ≥3 aristas)
 
         function makeEdge(x1,y1,z1, x2,y2,z2, neonCol){
-          if(!inBounds(x2,y2,z2)) return;          // ahora nunca sale del 5×5×5
+          if(!inShell(x2,y2,z2)) return;          // seguimos limitando a la concha
 
           const k = tubeKey(x1,y1,z1, x2,y2,z2);
-          if(litInfo.has(k) || collisions.has(k)) return;   // ya existe algo ahí
+          if(litInfo.has(k) || collisions.has(k)) return;
 
           const dir = new THREE.Vector3(x2-x1, y2-y1, z2-z1);
           const len = step * dir.length();
           const geo = new THREE.CylinderGeometry(0.35, 0.35, len, 8, 1, true);
 
-          /* —— color neón, opaco —— */
-          const hsl   = {}; neonCol.getHSL(hsl);
-          neonCol.setHSL(hsl.h, 1, Math.min(0.7, hsl.l + 0.2));   // S = 100 %, +lum.
+          /* — mismo “neón” opaco — */
+          const hsl = {}; neonCol.getHSL(hsl);
+          neonCol.setHSL(hsl.h, 1, Math.min(0.7, hsl.l + 0.2));
 
-          const mat = new THREE.MeshPhongMaterial({
-            color      : neonCol,
-            shininess  : 0,
-            dithering  : true          // sin transparencia en ningún caso
-          });
+          const mat = new THREE.MeshPhongMaterial({ color: neonCol,
+                                                    shininess: 0,
+                                                    dithering: true });
 
           const m   = new THREE.Mesh(geo, mat);
           const p1  = new THREE.Vector3((x1-2)*step, (y1-2)*step, (z1-2)*step);
