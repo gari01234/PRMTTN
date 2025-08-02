@@ -865,13 +865,22 @@ function initSkySphere() {
           if (dy) axes.push([1,0,0], [0,0,1]);    // tubo era Y → añade X y Z
           if (dz) axes.push([1,0,0], [0,1,0]);    // tubo era Z → añade X y Y
 
-          axes.forEach(([ax,ay,az])=>{
-            [[x1,y1,z1],[x2,y2,z2]].forEach(([px,py,pz])=>{
-              const nx = px + ax, ny = py + ay, nz = pz + az;
-              if (nx>4 || ny>4 || nz>4) return;   // fuera del cubo 5×5×5
-              makeEdge(px,py,pz, nx,ny,nz, info.color.clone());
+            axes.forEach(([ax, ay, az]) => {
+              [[x1, y1, z1], [x2, y2, z2]].forEach(([px, py, pz]) => {
+
+                // NUEVO — coordenadas del tramo que podría salir de la grilla 5×5×5
+                const nx = px + ax;
+                const ny = py + ay;
+                const nz = pz + az;
+
+                /*  ⬇️  ➜  Ya no bloqueamos valores fuera de 0-4
+                 *  (así se crean los tubos que sobresalen). 
+                 *  Opcional – si quieres un límite duro, cambia ±12 por otro valor. */
+                if (Math.abs(nx) > 12 || Math.abs(ny) > 12 || Math.abs(nz) > 12) return;
+
+                makeEdge(px, py, pz, nx, ny, nz, info.color.clone());
+              });
             });
-          });
         });
 
         /* 2)  Coloca cubitos en los vértices con ≥3 aristas */
