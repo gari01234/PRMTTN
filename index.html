@@ -776,61 +776,10 @@ function initSkySphere() {
                                  lcht : { I0, amp, f: freq, phi } });
         }
 
-        /* —— 4 cubos (12 aristas cada uno) alrededor del tubo —————————— */
-        function addCubeAround(x0, y0, z0, L){
-          const dirs = [
-            [ 1, 0],   // +X
-            [-1, 0],   // –X
-            [ 0, 1],   // +Z
-            [ 0,-1]    // –Z
-          ];
-          dirs.forEach(([dx, dz])=>{
-            const xC = x0 + dx*L;
-            const zC = z0 + dz*L;
-
-            const vs = [
-              [xC,          y0,     zC         ],
-              [xC+dx*L,     y0,     zC+dz*L    ],
-              [xC+dx*L,     y0+L,   zC+dz*L    ],
-              [xC,          y0+L,   zC         ]
-            ];
-            // verticales
-            addSeg(...vs[0], ...vs[3]);
-            addSeg(...vs[1], ...vs[2]);
-            // inferiores
-            addSeg(...vs[0], ...vs[1]);
-            addSeg(...vs[1], ...vs[2]);
-            addSeg(...vs[2], ...vs[3]);
-            addSeg(...vs[3], ...vs[0]);
-            // superiores
-            const v4 = [vs[0][0], vs[0][1]+L, vs[0][2]];
-            const v5 = [vs[1][0], vs[1][1]+L, vs[1][2]];
-            const v6 = [vs[2][0], vs[2][1]+L, vs[2][2]];
-            const v7 = [vs[3][0], vs[3][1]+L, vs[3][2]];
-            addSeg(...v4, ...v5);
-            addSeg(...v5, ...v6);
-            addSeg(...v6, ...v7);
-            addSeg(...v7, ...v4);
-            // pilares
-            addSeg(...vs[0], ...v4);
-            addSeg(...vs[1], ...v5);
-            addSeg(...vs[2], ...v6);
-            addSeg(...vs[3], ...v7);
-          });
-        }
-
         /* eje vertical (L tramos) */
         for(let s=0;s<L;s++){
           addSeg(x0, y0+s,   z0,
                  x0, y0+s+1, z0);
-
-          // —— NUEVO —— cubo lateral en este nivel
-          addCubeAround(
-            (x0-2)*step,
-            (y0+s-2)*step,
-            (z0-2)*step,
-            step
-          );
         }
 
         /* brazos horizontales en ±X y ±Z para y = y0 y y = y0+L */
@@ -868,6 +817,8 @@ function initSkySphere() {
         const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
         const neonCol = info.color.clone();
+        const hslCol  = {}; neonCol.getHSL(hslCol);
+        neonCol.setHSL(hslCol.h, 1, Math.min(0.7, hslCol.l + 0.2));   // neón puro
 
         const mat = new THREE.MeshPhongMaterial({
           color     : neonCol,
@@ -885,6 +836,80 @@ function initSkySphere() {
         // ya no hay luz puntual separada
       });
 
+      /* === 2-bis)  RELLENO COMPLETO LEWITT  ===================================== */
+      (function addLewittFillers(){
+        const step   = cubeSize / 5;
+        const R_NODE = 0.60;   // tamaño del cubo-nudo (vértice con ≥3 aristas)
+
+        function makeEdge(x1,y1,z1, x2,y2,z2, neonCol){
+          if(!inShell(x2,y2,z2)) return;          // seguimos limitando a la concha
+
+          const k = tubeKey(x1,y1,z1, x2,y2,z2);
+          if(litInfo.has(k) || collisions.has(k)) return;
+
+          const dir = new THREE.Vector3(x2-x1, y2-y1, z2-z1);
+          const len = step * dir.length();
+          const geo = new THREE.CylinderGeometry(0.35, 0.35, len, 8, 1, true);
+
+          /* — mismo “neón” opaco — */
+          const hsl = {}; neonCol.getHSL(hsl);
+          neonCol.setHSL(hsl.h, 1, Math.min(0.7, hsl.l + 0.2));
+
+          const mat = new THREE.MeshPhongMaterial({ color: neonCol,
+                                                    shininess: 0,
+                                                    dithering: true });
+
+          const m   = new THREE.Mesh(geo, mat);
+          const p1  = new THREE.Vector3((x1-2)*step, (y1-2)*step, (z1-2)*step);
+          const p2  = new THREE.Vector3((x2-2)*step, (y2-2)*step, (z2-2)*step);
+          m.position.copy( p1.clone().add(p2).multiplyScalar(0.5) );
+          m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
+          lichtGroup.add(m);
+
+          litInfo.set(k, { color: neonCol, lcht:{ I0:0, amp:0, f:0, phi:0 } });
+        }
+
+        /* 1)  Para cada tubo existente, extiende las dos direcciones ortogonales */
+        litInfo.forEach((info, key)=>{
+          const [a,b]   = key.split('|').map(s=>s.split(',').map(Number));
+          const [x1,y1,z1] = a, [x2,y2,z2] = b;
+          const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;   // orientación principal
+
+          const axes = [];
+          if (dx) axes.push([0,1,0], [0,0,1]);    // tubo era X → añade Y y Z
+          if (dy) axes.push([1,0,0], [0,0,1]);    // tubo era Y → añade X y Z
+          if (dz) axes.push([1,0,0], [0,1,0]);    // tubo era Z → añade X y Y
+
+            axes.forEach(([ax, ay, az]) => {
+              [[x1, y1, z1], [x2, y2, z2]].forEach(([px, py, pz]) => {
+                const nx = px + ax;
+                const ny = py + ay;
+                const nz = pz + az;
+                makeEdge(px, py, pz, nx, ny, nz, info.color.clone());
+              });
+            });
+        });
+
+        /* 2)  Coloca cubitos en los vértices con ≥3 aristas */
+        const degree = new Map();               // "x,y,z" → nº de aristas
+        litInfo.forEach((_, k)=>{
+          const [a,b] = k.split('|');
+          [a,b].forEach(s=>{
+            degree.set(s, (degree.get(s)||0)+1);
+          });
+        });
+
+        degree.forEach((d, str)=>{
+          if (d < 3) return;                    // sólo nudos “fuertes”
+          const [x,y,z] = str.split(',').map(Number);
+          const geo = new THREE.BoxGeometry(R_NODE, R_NODE, R_NODE);
+          const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess:0, dithering:true });
+          const n   = new THREE.Mesh(geo, mat);
+          n.material.color.copy( litInfo.get([...litInfo.keys()][0]).color ); // cualquier color de escena
+          n.position.set((x-2)*step, (y-2)*step, (z-2)*step);
+          lichtGroup.add(n);
+        });
+      })();
     }
     /* ═════════════════ FIN BLOQUE ACTUALIZADO ═════════════════ */
 
