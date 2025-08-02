@@ -731,6 +731,17 @@ function initSkySphere() {
 
       const litInfo    = new Map();   // key → { color, lcht }
       const collisions = new Set();   // keys duplicados → negro
+      const endpointMap = new Map();   // "x,y,z" → { count, owners: [] }
+
+      function markEndpoint(x, y, z, segKey){
+        const k = `${x},${y},${z}`;
+        let e = endpointMap.get(k);
+        if (!e) e = { count: 0, owners: [] };
+        e.count++;
+        e.owners.push(segKey);         // para recuperar color luego
+        endpointMap.set(k, e);
+      }
+
       const step       = cubeSize / 5;
 
       /* ——————————————— límites núcleo / concha ——————————————— */
@@ -774,6 +785,10 @@ function initSkySphere() {
           if(litInfo.has(key)) collisions.add(key);
           else litInfo.set(key,{ color: col.clone(),
                                  lcht : { I0, amp, f: freq, phi } });
+
+          /* ★★★ registramos los dos extremos */
+          markEndpoint(x1,y1,z1,key);
+          markEndpoint(x2,y2,z2,key);
         }
 
         // eje vertical = P1
@@ -880,6 +895,27 @@ function initSkySphere() {
         lichtGroup.add(tube);
 
         // ya no hay luz puntual separada
+      });
+
+      const cubeGeo = new THREE.BoxGeometry(step*0.6, step*0.6, step*0.6);
+
+      endpointMap.forEach((info, coord) => {
+        if (info.count !== 1) return;               // solo extremos hoja
+
+        // recupera el color del único segmento que toca este extremo
+        const segKey = info.owners[0];
+        const segData = litInfo.get(segKey);
+        const isBlack = collisions.has(segKey);
+        const cubeMat = new THREE.MeshPhongMaterial({
+          color: isBlack ? 0x000000 : segData.color,
+          shininess: 20,
+          dithering: true
+        });
+
+        const [x,y,z] = coord.split(',').map(Number);
+        const cube = new THREE.Mesh(cubeGeo, cubeMat);
+        cube.position.set((x-2)*step, (y-2)*step, (z-2)*step);
+        lichtGroup.add(cube);
       });
     }
     /* ═════════════════ FIN BLOQUE ACTUALIZADO ═════════════════ */
