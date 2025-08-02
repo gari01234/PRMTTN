@@ -494,14 +494,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let wallHSV = {h:0,s:0,v:1};
     let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
-    const ΔE_MIN = 20;
-    
-    // >>> NUEVO:
-    let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
+      const ΔE_MIN = 20;
 
-    /* ─────────────────────────────
-     *   FRBN  ·  deterministic Ganzfeld
-     * ───────────────────────────── */
+      // >>> NUEVO:
+      let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
+      let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
+
+      /* ─────────────────────────────
+       *   FRBN  ·  deterministic Ganzfeld
+       * ───────────────────────────── */
     let skySphere = null;
     let isFRBN    = false;
     const SKY_R = 250;
@@ -763,15 +764,21 @@ function buildLCHT() {
 
   /* ── recopilar aristas de todas las permutaciones ───────── */
 
-  const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                     .map(o => o.value.split(',').map(Number));
+    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                       .map(o => o.value.split(',').map(Number));
 
-  perms.forEach((pa, permIdx) => {
-    const L       = pa[attributeMapping[0]];               // altura torre
-    const col     = colorForPerm(pa);
-    const sig     = computeSignature(pa);
-    const rng     = computeRange(sig);
-    const r       = lehmerRank(pa);
+    /* — rango promedio de la escena — */
+    {
+      const rgs = perms.map(p => computeRange(computeSignature(p)));
+      avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
+    }
+
+    perms.forEach((pa, permIdx) => {
+      const L       = pa[attributeMapping[0]];               // altura torre
+      const col     = colorForPerm(pa);
+      const sig     = computeSignature(pa);
+      const rng     = computeRange(sig);
+      const r       = lehmerRank(pa);
     const I       = (r + sceneSeed + S_global) % 125;
     const x0      = Math.floor(I / 25);
     const y0      = Math.floor((I % 25) / 5);
@@ -836,8 +843,10 @@ function buildLCHT() {
     const SEG  = Math.max(1, Math.ceil(len / step));
     const hSeg = len / SEG;            // altura de cada sub-cilindro
 
-    for(let s = 0; s < SEG; s++){
-      const mid = p1.clone().addScaledVector(dN, (s + 0.5) * hSeg);
+    const [h, s, v] = rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
+
+    for(let i = 0; i < SEG; i++){
+      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
 
       const col = colorFromVolume(mid);   // sin pruebas de I0
 
@@ -847,11 +856,15 @@ function buildLCHT() {
         shininess: 0,
         dithering: true
       });
-      const seg = new THREE.Mesh(geo, mat);
-      seg.position.copy(mid);
-      seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
-      seg.userData.lcht = info.lcht;   // mantiene intensidad/emissive
-      lichtGroup.add(seg);
+      const tube = new THREE.Mesh(geo, mat);
+      tube.position.copy(mid);
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
+
+      /* --- HSV original para animar color --- */
+      tube.userData.baseHsv = { h, s, v };
+
+      tube.userData.lcht = info.lcht;   // mantiene intensidad/emissive
+      lichtGroup.add(tube);
     }
   });
 }
@@ -2519,19 +2532,29 @@ function renderArchPanel(html){
         });
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
-          if(isLCHT && lichtGroup){
-            const t = performance.now()*0.001;
-            lichtGroup.children.forEach(o=>{
-              const d = o.userData.lcht;
-              if(d){
-                // solo modulamos un leve “emissive” sobre el propio material
-                const I = d.I0 * (1 - d.amp *
-                        (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
-                o.material.emissive        = o.material.color.clone();
-                o.material.emissiveIntensity = I * 0.15;  // suave, sin deslumbrar
-              }
-            });
-          }
+        if (isLCHT && lichtGroup) {
+          const t   = performance.now() * 0.001;
+          const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
+
+          lichtGroup.children.forEach(o => {
+
+            /* — luz pulsante (ya existía) — */
+            const d = o.userData.lcht;
+            if (d) {
+              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
+              o.material.emissive         = o.material.color.clone();
+              o.material.emissiveIntensity = I * 0.15;
+            }
+
+            /* — desplazamiento del tono HSV — */
+            if (o.userData.baseHsv) {
+              const { h, s, v } = o.userData.baseHsv;
+              const hShift = (h + t * vHz * 360) % 360;
+              const rgb    = hsvToRgb(hShift, s, v);
+              o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+            }
+          });
+        }
         controls.update();
         renderer.render(scene,camera);
       }
