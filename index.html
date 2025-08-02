@@ -820,29 +820,42 @@ function buildLCHT() {
     if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
   });
 
-  /* ── geometría final ────────────────────────────────────── */
+  /* ── geometría final  ·  cada arista → varios segmentos coloreados ── */
   litInfo.forEach((info, key) => {
-    const [a, b]      = key.split('|');
-    const [x1, y1, z1] = a.split(',').map(Number);
-    const [x2, y2, z2] = b.split(',').map(Number);
+    const [a, b]        = key.split('|');
+    const [x1, y1, z1]  = a.split(',').map(Number);
+    const [x2, y2, z2]  = b.split(',').map(Number);
 
-    const p1  = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
-    const p2  = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
-    const dir = new THREE.Vector3().subVectors(p2, p1);
-    const len = dir.length();
+    const p1   = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
+    const p2   = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
+    const dir  = new THREE.Vector3().subVectors(p2, p1);
+    const len  = dir.length();
+    const dN   = dir.clone().normalize();
 
-    const geo = new THREE.CylinderGeometry(0.4, 0.4, len, 8, 1, true);
-    const mat = new THREE.MeshPhongMaterial({
-      color: info.color,
-      shininess: 0,
-      dithering: true
-    });
+    /* nº de segmentos = 1 por celda de 6 u, mínimo 1 */
+    const SEG  = Math.max(1, Math.ceil(len / step));
+    const hSeg = len / SEG;            // altura de cada sub-cilindro
 
-    const tube = new THREE.Mesh(geo, mat);
-    tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
-    tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-    tube.userData.lcht = info.lcht;
-    lichtGroup.add(tube);
+    for(let s = 0; s < SEG; s++){
+      const mid = p1.clone().addScaledVector(dN, (s + 0.5) * hSeg);
+
+      /* colisión ⇒ negro, si no → campo volumétrico */
+      const col = (info.lcht.I0 === 0)
+                    ? new THREE.Color(0x000000)
+                    : colorFromVolume(mid);
+
+      const geo = new THREE.CylinderGeometry(0.4, 0.4, hSeg, 8, 1, true);
+      const mat = new THREE.MeshPhongMaterial({
+        color: col,
+        shininess: 0,
+        dithering: true
+      });
+      const seg = new THREE.Mesh(geo, mat);
+      seg.position.copy(mid);
+      seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
+      seg.userData.lcht = info.lcht;   // mantiene intensidad/emissive
+      lichtGroup.add(seg);
+    }
   });
 }
 /* ════════════════════════════════════════════════════════════ */
@@ -913,6 +926,23 @@ function buildLCHT() {
         s: S_LEVELS[ ((sIdx%12)+12)%12 ],
         v: V_LEVELS[ ((vIdx%12)+12)%12 ]
       };
+    }
+
+    /* ═════════ COLOR-FIELD 144 × 12 × 12  ═════════════════════════════ */
+    /* Devuelve el color del «voxel HSV» que ocupa la posición p (mundo) */
+    function colorFromVolume(p){
+      const HALF = cubeSize / 2;          // ±15  (cubo 30×30×30 ya existe)
+      const HX = 144, HY = 12, HZ = 12;   // rejilla 20 736 colores
+
+      /* índices enteros en cada eje, envueltos al rango válido */
+      const ix = ((Math.floor((p.x + HALF) / cubeSize * HX) % HX) + HX) % HX;
+      const iy = ((Math.floor((p.y + HALF) / cubeSize * HY) % HY) + HY) % HY;
+      const iz = ((Math.floor((p.z + HALF) / cubeSize * HZ) % HZ) + HZ) % HZ;
+
+      /* HSV determinista → RGB → THREE.Color */
+      const {h,s,v} = idxToHSV(ix, iy, iz);
+      const [R,G,B] = hsvToRgb(h, s, v);
+      return new THREE.Color(R/255, G/255, B/255);
     }
 
     /* Normaliza cualquier hue a rango [0 … 360) */
