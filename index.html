@@ -703,222 +703,150 @@ function initSkySphere() {
         : new THREE.Color(val);
     }
 
-    /* ═════════════ ACTUALIZA LCHT (reglas “tubos que se escapan”) ═════════════
-     * Sustituye —o añade justo debajo— el antiguo tubeId() y buildLCHT() por
-     * este bloque. No requiere tocar nada más del código.
-     * ───────────────────────────────────────────────────────────────────────── */
+    /* ═════════ LCHT “cubos-de-tubos” (Sol LeWitt) ═════════════════ */
 
-    /* ── 1 · Identificador de tramo sin límite de cuadrícula ────────────────── */
-    function tubeKey(x1,y1,z1,x2,y2,z2){
-      // ordenamos los extremos para que ↑↓ y ↓↑ sean el mismo tramo
-      const a = `${x1},${y1},${z1}`;
-      const b = `${x2},${y2},${z2}`;
-      return (a < b) ? `${a}|${b}` : `${b}|${a}`;
+function tubeKey(x1, y1, z1, x2, y2, z2) {
+  const a = `${x1},${y1},${z1}`;
+  const b = `${x2},${y2},${z2}`;
+  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function buildLCHT() {
+  /* ── limpiar escena previa ─────────────────────────────── */
+  if (lichtGroup) {
+    lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    scene.remove(lichtGroup);
+  }
+  lichtGroup = new THREE.Group();
+  scene.add(lichtGroup);
+
+  const step       = cubeSize / 5;
+  const litInfo    = new Map();      // key → { color, lcht, perm }
+  const collisions = new Set();      // aristas compartidas entre perms
+
+  /* ── helpers ───────────────────────────────────────────── */
+
+  /* inserta una arista evitando duplicados intra-perm */
+  function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
+    const key = tubeKey(x1, y1, z1, x2, y2, z2);
+    if (seen.has(key)) return;                 // ya la añadió este perm
+    seen.add(key);
+
+    if (litInfo.has(key)) {                    // ¿otra permutación?
+      if (litInfo.get(key).perm !== perm) collisions.add(key);
+      return;
+    }
+    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
+  }
+
+  /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
+  function addCube(cx, cy, cz, color, lcht, perm, seen) {
+    const v = [
+      [cx,     cy,     cz],
+      [cx + 1, cy,     cz],
+      [cx + 1, cy + 1, cz],
+      [cx,     cy + 1, cz],
+      [cx,     cy,     cz + 1],
+      [cx + 1, cy,     cz + 1],
+      [cx + 1, cy + 1, cz + 1],
+      [cx,     cy + 1, cz + 1]
+    ];
+    const E = [
+      [0, 1], [1, 2], [2, 3], [3, 0],   // base
+      [4, 5], [5, 6], [6, 7], [7, 4],   // tapa
+      [0, 4], [1, 5], [2, 6], [3, 7]    // pilares
+    ];
+    E.forEach(([a, b]) =>
+      addEdge(...v[a], ...v[b], color, lcht, perm, seen)
+    );
+  }
+
+  /* ── recopilar aristas de todas las permutaciones ───────── */
+
+  const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                     .map(o => o.value.split(',').map(Number));
+
+  perms.forEach((pa, permIdx) => {
+    const L       = pa[attributeMapping[0]];               // altura torre
+    const col     = colorForPerm(pa);
+    const sig     = computeSignature(pa);
+    const rng     = computeRange(sig);
+    const r       = lehmerRank(pa);
+    const I       = (r + sceneSeed + S_global) % 125;
+    const x0      = Math.floor(I / 25);
+    const y0      = Math.floor((I % 25) / 5);
+    const z0      = I % 5;
+
+    const lcht = {
+      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
+      amp: 0.05 + 0.10 * rng,
+      f  : 0.10 + 0.175 * rng,
+      phi: 2 * Math.PI * ((r % 360) / 360)
+    };
+
+    const seen = new Set();           // evita negros por duplicado interno
+
+    /* ① Torre central + cruz lateral (un cubo por nivel) */
+    for (let s = 0; s < L; s++) {
+      const y = y0 + s;
+
+      // cubo central
+      addCube(x0, y, z0, col, lcht, permIdx, seen);
+
+      // 4 cubos laterales
+      addCube(x0 + 1, y, z0,     col, lcht, permIdx, seen);
+      addCube(x0 - 1, y, z0,     col, lcht, permIdx, seen);
+      addCube(x0,     y, z0 + 1, col, lcht, permIdx, seen);
+      addCube(x0,     y, z0 - 1, col, lcht, permIdx, seen);
     }
 
-    /* ── 2 · Nuevo buildLCHT conforme a las reglas pactadas ─────────────────── */
-    function buildLCHT(){
-      /* limpia escena previa */
-      if (lichtGroup){
-        lichtGroup.traverse(o=>{
-          if(o.isPointLight) o.dispose && o.dispose();
-          if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }
-        });
-        scene.remove(lichtGroup);
-      }
-      lichtGroup = new THREE.Group();
-      scene.add(lichtGroup);
-
-      const litInfo    = new Map();   // key → { color, lcht }
-      const collisions = new Set();   // keys duplicados → negro
-      const endpointMap = new Map();   // "x,y,z" → { count, owners: [] }
-
-      function markEndpoint(x, y, z, segKey){
-        const k = `${x},${y},${z}`;
-        let e = endpointMap.get(k);
-        if (!e) e = { count: 0, owners: [] };
-        e.count++;
-        e.owners.push(segKey);         // para recuperar color luego
-        endpointMap.set(k, e);
-      }
-
-      const step       = cubeSize / 5;
-
-      /* ——————————————— límites núcleo / concha ——————————————— */
-      const LIM = 5;                          // hasta 5 celdas fuera del 0-4
-      function inCore (x,y,z){ return x>=0   && x<=4   &&
-                                      y>=0   && y<=4   &&
-                                      z>=0   && z<=4;  }
-      function inShell(x,y,z){ return x>=-LIM && x<=4+LIM &&
-                                      y>=-LIM && y<=4+LIM &&
-                                      z>=-LIM && z<=4+LIM; }
-
-      /* === 1) recopila tramos de todas las permutaciones ==================== */
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                         .map(o => o.value.split(',').map(Number));
-
-      perms.forEach(pa=>{
-        const sig  = computeSignature(pa);
-        const rng  = computeRange(sig);
-        const r    = lehmerRank(pa);
-
-        /* coordenada base (mismo índice que BUILD) */
-        const Iidx = (r + sceneSeed + S_global) % 125;
-        let x0 = Math.floor(Iidx/25),
-            y0 = Math.floor((Iidx%25)/5),
-            z0 = Iidx % 5;
-
-        const L = pa[ attributeMapping[0] ];          // longitud 1-5
-        const col = colorForPerm(pa).clone();
-
-        const I0   = 0.35 + 0.65 * Math.sqrt(L/5);
-        const amp  = 0.05 + 0.10  * rng;
-        const freq = 0.10 + 0.175 * rng;
-        const phi  = 2*Math.PI*((r%360)/360);
-
-        function addSeg(x1, y1, z1,  x2, y2, z2){
-          // al menos uno de los extremos debe caer dentro del núcleo 5×5×5
-          if(!inShell(x1,y1,z1) || !inShell(x2,y2,z2)) return;   // fuera de la concha
-          if(!inCore (x1,y1,z1) && !inCore (x2,y2,z2)) return;   // ambos fuera
-
-          const key = tubeKey(x1,y1,z1,x2,y2,z2);
-          if(litInfo.has(key)) collisions.add(key);
-          else litInfo.set(key,{ color: col.clone(),
-                                 lcht : { I0, amp, f: freq, phi } });
-
-          /* ★★★ registramos los dos extremos */
-          markEndpoint(x1,y1,z1,key);
-          markEndpoint(x2,y2,z2,key);
-        }
-
-        // eje vertical = P1
-        for (let s = 0; s < L; s++){
-          addSeg(x0, y0 + s,   z0,
-                 x0, y0 + s + 1, z0);
-
-          // 4 cubos laterales (arista = 1 celda) en este nivel
-          addCubeAround(x0, y0 + s, z0, 1);
-        }
-
-        /* ───────── Cubos laterales, uno por dirección ───────── */
-        function addCubeAround(x0, y0, z0, L){
-          const dirs = [
-            [ 1, 0],  // +X
-            [-1, 0],  // –X
-            [ 0, 1],  // +Z
-            [ 0,-1]   // –Z
-          ];
-          dirs.forEach(([dx, dz])=>{
-            // 12 aristas de un cubo centrado en (x0+dx*L, z0+dz*L)
-            const xC = x0 + dx*L;
-            const zC = z0 + dz*L;
-
-            const vs = [
-              [xC,     y0,     zC    ],
-              [xC+dx*L,y0,     zC+dz*L],
-              [xC+dx*L,y0+L,   zC+dz*L],
-              [xC,     y0+L,   zC    ]
-            ];
-            // verticales
-            addSeg(...vs[0], ...vs[3]);
-            addSeg(...vs[1], ...vs[2]);
-            // inferiores
-            addSeg(...vs[0], ...vs[1]);
-            addSeg(...vs[1], ...vs[2]);
-            addSeg(...vs[2], ...vs[3]);
-            addSeg(...vs[3], ...vs[0]);
-            // superiores
-            const v4 = [vs[0][0], vs[0][1]+L, vs[0][2]];
-            const v5 = [vs[1][0], vs[1][1]+L, vs[1][2]];
-            const v6 = [vs[2][0], vs[2][1]+L, vs[2][2]];
-            const v7 = [vs[3][0], vs[3][1]+L, vs[3][2]];
-
-            addSeg(...v4, ...v5);
-            addSeg(...v5, ...v6);
-            addSeg(...v6, ...v7);
-            addSeg(...v7, ...v4);
-            // pilares
-            addSeg(...vs[0], ...v4);
-            addSeg(...vs[1], ...v5);
-            addSeg(...vs[2], ...v6);
-            addSeg(...vs[3], ...v7);
-          });
-        }
-
-        /* brazos horizontales en ±X y ±Z para y = y0 y y = y0+L */
-        const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
-        [y0, y0+L].forEach(yy=>{
-          dirs.forEach(([dx,_,dz])=>{
-            for(let s=0;s<L;s++){
-              addSeg(x0+dx*s,  yy, z0+dz*s,
-                     x0+dx*(s+1),yy, z0+dz*(s+1));
-            }
-          });
-        });
-      });
-
-      /* === 2) pinta de negro los tramos con colisión ======================= */
-      collisions.forEach(k=>{
-        const d = litInfo.get(k);
-        if(d){
-          d.color.set(0x000000);
-          d.lcht.I0 = 0;           // sin luz en tubos negros
+    /* ② Brazos horizontales en ±X, ±Z (planos y = y₀ y y = y₀+L) */
+    const dirs = [
+      [ 1, 0,  0], [-1, 0,  0],
+      [ 0, 0,  1], [ 0, 0, -1]
+    ];
+    [y0, y0 + L].forEach(yy => {
+      dirs.forEach(([dx, _, dz]) => {
+        for (let s = 0; s < L; s++) {
+          addCube(x0 + dx * s, yy, z0 + dz * s, col, lcht, permIdx, seen);
         }
       });
+    });
+  });
 
-      /* === 3) genera geometría solo para los tramos presentes ============== */
-      litInfo.forEach((info,key)=>{
-        const [a,b] = key.split('|');
-        const [x1,y1,z1] = a.split(',').map(Number);
-        const [x2,y2,z2] = b.split(',').map(Number);
+  /* ── colisiones → negro + sin luz ───────────────────────── */
+  collisions.forEach(k => {
+    const d = litInfo.get(k);
+    if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
+  });
 
-        const p1 = new THREE.Vector3((x1-2)*step,(y1-2)*step,(z1-2)*step);
-        const p2 = new THREE.Vector3((x2-2)*step,(y2-2)*step,(z2-2)*step);
+  /* ── geometría final ────────────────────────────────────── */
+  litInfo.forEach((info, key) => {
+    const [a, b]      = key.split('|');
+    const [x1, y1, z1] = a.split(',').map(Number);
+    const [x2, y2, z2] = b.split(',').map(Number);
 
-        const dir = new THREE.Vector3().subVectors(p2,p1);
-        const len = dir.length();
-        const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
+    const p1  = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
+    const p2  = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
+    const dir = new THREE.Vector3().subVectors(p2, p1);
+    const len = dir.length();
 
-        const neonCol = info.color.clone();            // mismo color que BUILD
+    const geo = new THREE.CylinderGeometry(0.4, 0.4, len, 8, 1, true);
+    const mat = new THREE.MeshPhongMaterial({
+      color: info.color,
+      shininess: 0,
+      dithering: true
+    });
 
-        const mat = new THREE.MeshPhongMaterial({
-          color     : neonCol,
-          shininess : 0,
-          dithering : true
-        });
+    const tube = new THREE.Mesh(geo, mat);
+    tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
+    tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    tube.userData.lcht = info.lcht;
+    lichtGroup.add(tube);
+  });
+}
+/* ════════════════════════════════════════════════════════════ */
 
-        /* — geometría + orientación — */
-        const tube = new THREE.Mesh(geo, mat);
-        tube.position.copy( p1.clone().add(p2).multiplyScalar(0.5) );
-        tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
-        tube.userData.lcht = info.lcht;
-        lichtGroup.add(tube);
-
-        // ya no hay luz puntual separada
-      });
-
-      const cubeGeo = new THREE.BoxGeometry(step*0.6, step*0.6, step*0.6);
-
-      endpointMap.forEach((info, coord) => {
-        if (info.count !== 1) return;               // solo extremos hoja
-
-        // recupera el color del único segmento que toca este extremo
-        const segKey = info.owners[0];
-        const segData = litInfo.get(segKey);
-        const isBlack = collisions.has(segKey);
-        const cubeMat = new THREE.MeshPhongMaterial({
-          color: isBlack ? 0x000000 : segData.color,
-          shininess: 20,
-          dithering: true
-        });
-
-        const [x,y,z] = coord.split(',').map(Number);
-        const cube = new THREE.Mesh(cubeGeo, cubeMat);
-        cube.position.set((x-2)*step, (y-2)*step, (z-2)*step);
-        lichtGroup.add(cube);
-      });
-    }
-    /* ═════════════════ FIN BLOQUE ACTUALIZADO ═════════════════ */
 
     function toggleLCHT(){
       isLCHT = !isLCHT;
