@@ -807,12 +807,17 @@ function initSkySphere() {
         const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
         const isBlack = info.color.equals(new THREE.Color(0x000000));
-        const mat = new THREE.MeshBasicMaterial({
-          color: info.color,
-          transparent:true,
-          opacity: isBlack ? 0.30 : 0.85,
-          depthWrite:false,
-          blending: isBlack ? THREE.NormalBlending : THREE.AdditiveBlending
+        const mat = new THREE.MeshStandardMaterial({
+          color:            info.color,      // color base del tubo
+          emissive:         info.color,      // el mismo color como emisión
+          emissiveIntensity: 0,              // se anima en runtime
+          roughness:        0.20,
+          metalness:        0.00,
+          transparent:      true,
+          opacity:          isBlack ? 0.30 : 1.00,
+          depthWrite:       false,
+          blending:         THREE.NormalBlending, // evita el “wash-out” blanco
+          toneMapped:       false                 // mantiene la viveza HDR
         });
 
         const tube = new THREE.Mesh(geo,mat);
@@ -2488,7 +2493,9 @@ function renderArchPanel(html){
                 const I = d.I0 * (1 - d.amp *
                         (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
                         * LCHT_INTENSITY_MULT;
-                o.material.emissiveIntensity = I;
+                if (o.material && o.material.emissiveIntensity !== undefined){
+                  o.material.emissiveIntensity = I;
+                }
                 if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
               }
             });
