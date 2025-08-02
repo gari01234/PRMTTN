@@ -776,14 +776,17 @@ function initSkySphere() {
                                  lcht : { I0, amp, f: freq, phi } });
         }
 
-        /* eje vertical (L tramos) */
-        for(let s=0;s<L;s++){
-          addSeg(x0, y0+s,   z0,
-                 x0, y0+s+1, z0);
+        // eje vertical = P1
+        for (let s = 0; s < L; s++){
+          addSeg(x0, y0 + s,   z0,
+                 x0, y0 + s + 1, z0);
+
+          // 4 cubos laterales (arista = 1 celda) en este nivel
+          addCubeAround(x0, y0 + s, z0, 1);
         }
 
         /* ───────── Cubos laterales, uno por dirección ───────── */
-        function addCubeAround(x0, y0, z0, L, col){
+        function addCubeAround(x0, y0, z0, L){
           const dirs = [
             [ 1, 0],  // +X
             [-1, 0],  // –X
@@ -827,8 +830,6 @@ function initSkySphere() {
           });
         }
 
-        addCubeAround(x0, y0, z0, L, col);
-
         /* brazos horizontales en ±X y ±Z para y = y0 y y = y0+L */
         const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
         [y0, y0+L].forEach(yy=>{
@@ -863,14 +864,12 @@ function initSkySphere() {
         const len = dir.length();
         const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
-        const neonCol = info.color.clone();
-        const hslCol  = {}; neonCol.getHSL(hslCol);
-        neonCol.setHSL(hslCol.h, 1, Math.min(0.7, hslCol.l + 0.2));   // neón puro
+        const neonCol = info.color.clone();            // mismo color que BUILD
 
         const mat = new THREE.MeshPhongMaterial({
           color     : neonCol,
           shininess : 0,
-          dithering : true           // opaco; sin .transparent ni .opacity
+          dithering : true
         });
 
         /* — geometría + orientación — */
