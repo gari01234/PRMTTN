@@ -505,10 +505,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let skySphere = null;
     let isFRBN    = false;
     const SKY_R = 250;
-    /* Intensidad global para los tubos encendidos (≥ 1) */
-    const LCHT_INTENSITY_MULT = 2.0;   // ← antes 12.0
-    const LCHT_LIGHT_INTENSITY = 20;   // ← antes 120
-
 
 /* ──────────────────────────────────────────────────────────────
  *  initSkySphere — FRBN con micro-ruido “blue-noise” y highp
@@ -811,7 +807,7 @@ function initSkySphere() {
         /* — material idéntico al de las permutaciones — */
         const matProps = {
           color: info.color.clone(),
-          shininess: 50,
+          shininess: 0,          // ← sin brillo especular
           dithering: true
         };
         if (isBlack){
@@ -827,18 +823,7 @@ function initSkySphere() {
         tube.userData.lcht = info.lcht;
         lichtGroup.add(tube);
 
-        /* — luz puntual MUCHO más baja (no deslumbra) — */
-        if (!isBlack){
-          const pt = new THREE.PointLight(
-            info.color.clone(),
-            LCHT_LIGHT_INTENSITY * info.lcht.I0,
-            cubeSize * 1.5,
-            2
-          );
-          pt.position.copy(tube.position);
-          tube.userData.pointLight = pt;
-          lichtGroup.add(pt);
-        }
+        // ya no hay luz puntual separada
       });
     }
     /* ═════════════════ FIN BLOQUE ACTUALIZADO ═════════════════ */
@@ -2492,11 +2477,11 @@ function renderArchPanel(html){
             lichtGroup.children.forEach(o=>{
               const d = o.userData.lcht;
               if(d){
+                // solo modulamos un leve “emissive” sobre el propio material
                 const I = d.I0 * (1 - d.amp *
-                        (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
-                        * LCHT_INTENSITY_MULT;
-                o.material.emissiveIntensity = I;
-                if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
+                        (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
+                o.material.emissive        = o.material.color.clone();
+                o.material.emissiveIntensity = I * 0.15;  // suave, sin deslumbrar
               }
             });
           }
