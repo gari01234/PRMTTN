@@ -733,6 +733,12 @@ function initSkySphere() {
       const collisions = new Set();   // keys duplicados → negro
       const step       = cubeSize / 5;
 
+      function inBounds(x, y, z){        // 5×5×5 → 0…4 inclusive
+        return x >= 0 && x <= 4 &&
+               y >= 0 && y <= 4 &&
+               z >= 0 && z <= 4;
+      }
+
       /* === 1) recopila tramos de todas las permutaciones ==================== */
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                          .map(o => o.value.split(',').map(Number));
@@ -756,10 +762,12 @@ function initSkySphere() {
         const freq = 0.10 + 0.175 * rng;
         const phi  = 2*Math.PI*((r%360)/360);
 
-        function addSeg(x1,y1,z1,x2,y2,z2){
+        function addSeg(x1, y1, z1,  x2, y2, z2){
+          if(!inBounds(x1,y1,z1) || !inBounds(x2,y2,z2)) return;   // fuera de la grilla → descarta
           const key = tubeKey(x1,y1,z1,x2,y2,z2);
-          if(litInfo.has(key)){ collisions.add(key); }
-          else litInfo.set(key,{color:col.clone(),lcht:{I0,amp,f:freq,phi}});
+          if(litInfo.has(key))  collisions.add(key);
+          else litInfo.set(key, { color: col.clone(),
+                                  lcht : { I0, amp, f: freq, phi } });
         }
 
         /* eje vertical (L tramos) */
@@ -802,19 +810,15 @@ function initSkySphere() {
         const len = dir.length();
         const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
-        const isBlack = info.color.equals(new THREE.Color(0x000000));
+        const neonCol = info.color.clone();
+        const hslCol  = {}; neonCol.getHSL(hslCol);
+        neonCol.setHSL(hslCol.h, 1, Math.min(0.7, hslCol.l + 0.2));   // neón puro
 
-        /* — material idéntico al de las permutaciones — */
-        const matProps = {
-          color: info.color.clone(),
-          shininess: 0,          // ← sin brillo especular
-          dithering: true
-        };
-        if (isBlack){
-          matProps.opacity     = 0.30;
-          matProps.transparent = true;
-        }
-        const mat = new THREE.MeshPhongMaterial(matProps);
+        const mat = new THREE.MeshPhongMaterial({
+          color     : neonCol,
+          shininess : 0,
+          dithering : true           // opaco; sin .transparent ni .opacity
+        });
 
         /* — geometría + orientación — */
         const tube = new THREE.Mesh(geo, mat);
@@ -829,29 +833,36 @@ function initSkySphere() {
       /* === 2-bis)  RELLENO COMPLETO LEWITT  ===================================== */
       (function addLewittFillers(){
         const step   = cubeSize / 5;
-        const R_EDGE = 0.35;   // radio de los tubos añadidos
         const R_NODE = 0.60;   // tamaño del cubo-nudo (vértice con ≥3 aristas)
 
-        /* utilidades */
-        const exists = k => litInfo.has(k) || collisions.has(k);
+        function makeEdge(x1,y1,z1, x2,y2,z2, neonCol){
+          if(!inBounds(x2,y2,z2)) return;          // ahora nunca sale del 5×5×5
 
-        function makeEdge(x1,y1,z1, x2,y2,z2, col){
           const k = tubeKey(x1,y1,z1, x2,y2,z2);
-          if (exists(k)) return;                     // ya existe algo ahí
+          if(litInfo.has(k) || collisions.has(k)) return;   // ya existe algo ahí
 
           const dir = new THREE.Vector3(x2-x1, y2-y1, z2-z1);
           const len = step * dir.length();
-          const geo = new THREE.CylinderGeometry(R_EDGE, R_EDGE, len, 8, 1, true);
-          const mat = new THREE.MeshPhongMaterial({ color: col, shininess:0, dithering:true });
-          const m   = new THREE.Mesh(geo, mat);
+          const geo = new THREE.CylinderGeometry(0.35, 0.35, len, 8, 1, true);
 
-          const p1 = new THREE.Vector3((x1-2)*step, (y1-2)*step, (z1-2)*step);
-          const p2 = new THREE.Vector3((x2-2)*step, (y2-2)*step, (z2-2)*step);
+          /* —— color neón, opaco —— */
+          const hsl   = {}; neonCol.getHSL(hsl);
+          neonCol.setHSL(hsl.h, 1, Math.min(0.7, hsl.l + 0.2));   // S = 100 %, +lum.
+
+          const mat = new THREE.MeshPhongMaterial({
+            color      : neonCol,
+            shininess  : 0,
+            dithering  : true          // sin transparencia en ningún caso
+          });
+
+          const m   = new THREE.Mesh(geo, mat);
+          const p1  = new THREE.Vector3((x1-2)*step, (y1-2)*step, (z1-2)*step);
+          const p2  = new THREE.Vector3((x2-2)*step, (y2-2)*step, (z2-2)*step);
           m.position.copy( p1.clone().add(p2).multiplyScalar(0.5) );
           m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
           lichtGroup.add(m);
 
-          litInfo.set(k, { color: col, lcht:{ I0:0, amp:0, f:0, phi:0 } });
+          litInfo.set(k, { color: neonCol, lcht:{ I0:0, amp:0, f:0, phi:0 } });
         }
 
         /* 1)  Para cada tubo existente, extiende las dos direcciones ortogonales */
@@ -867,17 +878,9 @@ function initSkySphere() {
 
             axes.forEach(([ax, ay, az]) => {
               [[x1, y1, z1], [x2, y2, z2]].forEach(([px, py, pz]) => {
-
-                // NUEVO — coordenadas del tramo que podría salir de la grilla 5×5×5
                 const nx = px + ax;
                 const ny = py + ay;
                 const nz = pz + az;
-
-                /*  ⬇️  ➜  Ya no bloqueamos valores fuera de 0-4
-                 *  (así se crean los tubos que sobresalen). 
-                 *  Opcional – si quieres un límite duro, cambia ±12 por otro valor. */
-                if (Math.abs(nx) > 12 || Math.abs(ny) > 12 || Math.abs(nz) > 12) return;
-
                 makeEdge(px, py, pz, nx, ny, nz, info.color.clone());
               });
             });
