@@ -721,7 +721,7 @@ function buildLCHT() {
   scene.add(lichtGroup);
 
   const step       = cubeSize / 5;
-  const litInfo    = new Map();      // key → { color, lcht, perm }
+  const litInfo    = new Map();      // key → { permA, colorA, colorB, lcht }
   const collisions = new Set();      // aristas compartidas entre perms
 
   /* ── helpers ───────────────────────────────────────────── */
@@ -729,14 +729,26 @@ function buildLCHT() {
   /* inserta una arista evitando duplicados intra-perm */
   function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
     const key = tubeKey(x1, y1, z1, x2, y2, z2);
-    if (seen.has(key)) return;                 // ya la añadió este perm
+    if (seen.has(key)) return;            // ya añadido por este permut
     seen.add(key);
 
-    if (litInfo.has(key)) {                    // ¿otra permutación?
-      if (litInfo.get(key).perm !== perm) collisions.add(key);
+    //  ¿el tramo ya existía?  →  completa segundo color
+    if (litInfo.has(key)) {
+      const d = litInfo.get(key);
+      if (d.permA !== perm) {
+        d.colorB = color.clone();         // segundo extremo del gradiente
+        collisions.add(key);              // sigue marcando colisión
+      }
       return;
     }
-    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
+
+    //  tramo nuevo
+    litInfo.set(key, {
+      permA : perm,
+      colorA: color.clone(),              // primer color
+      colorB: null,                       // se rellenará si otro perm lo usa
+      lcht  : { ...lcht }
+    });
   }
 
   /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
@@ -817,30 +829,66 @@ function buildLCHT() {
   /* ── colisiones → negro + sin luz ───────────────────────── */
   collisions.forEach(k => {
     const d = litInfo.get(k);
-    if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
+    if (d) {
+      d.colorA.set(0x000000);
+      if (d.colorB) d.colorB.set(0x000000); else d.colorB = new THREE.Color(0x000000);
+      d.lcht.I0 = 0;
+    }
   });
 
-  /* ── geometría final ────────────────────────────────────── */
-  litInfo.forEach((info, key) => {
-    const [a, b]      = key.split('|');
-    const [x1, y1, z1] = a.split(',').map(Number);
-    const [x2, y2, z2] = b.split(',').map(Number);
+  // ===================================================
+  //  Shader “arcoiris diagonal” (φ-vector global)
+  // ===================================================
+  const PHI     = 1.618033988749895;
+  const gVec    = new THREE.Vector3(1, PHI, PHI*PHI).normalize(); // ⟨1,φ,φ²⟩
+  const PERIOD  = cubeSize;                                       // 5 celdas × step
 
-    const p1  = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
-    const p2  = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
+  litInfo.forEach((info, key) => {
+    const [a, b]       = key.split('|');
+    const [x1,y1,z1]   = a.split(',').map(Number);
+    const [x2,y2,z2]   = b.split(',').map(Number);
+
+    const p1  = new THREE.Vector3((x1-2)*step, (y1-2)*step, (z1-2)*step);
+    const p2  = new THREE.Vector3((x2-2)*step, (y2-2)*step, (z2-2)*step);
     const dir = new THREE.Vector3().subVectors(p2, p1);
     const len = dir.length();
 
+    // extremos C₀ / C₁
+    const c0 = info.colorA;
+    const c1 = info.colorB || info.colorA;      // vertical → mismo color
+
     const geo = new THREE.CylinderGeometry(0.4, 0.4, len, 8, 1, true);
-    const mat = new THREE.MeshPhongMaterial({
-      color: info.color,
-      shininess: 0,
-      dithering: true
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms : {
+        u_c0   : { value: c0 },
+        u_c1   : { value: c1 },
+        u_g    : { value: gVec },
+        u_P    : { value: PERIOD },
+        u_seed : { value: sceneSeed }
+      },
+      vertexShader: `
+        varying vec3 vPos;
+        void main(){
+          vPos = (modelMatrix * vec4(position,1.0)).xyz;
+          gl_Position = projectionMatrix * viewMatrix * vec4(vPos,1.0);
+        }`,
+      fragmentShader: `
+        uniform vec3  u_c0, u_c1, u_g;
+        uniform float u_P, u_seed;
+        varying vec3  vPos;
+        void main(){
+          float u = fract( (dot(vPos, u_g) + u_seed) / u_P );
+          vec3  col = mix(u_c0, u_c1, u);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+      side      : THREE.DoubleSide,
+      dithering : true
     });
 
     const tube = new THREE.Mesh(geo, mat);
     tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
-    tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
     tube.userData.lcht = info.lcht;
     lichtGroup.add(tube);
   });
