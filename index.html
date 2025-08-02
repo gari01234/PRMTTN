@@ -826,90 +826,72 @@ function initSkySphere() {
         // ya no hay luz puntual separada
       });
 
-      /* === 2-bis)  RELLENO DE “HUECOS” AL ESTILO LEWITT  ======================== */
+      /* === 2-bis)  RELLENO COMPLETO LEWITT  ===================================== */
       (function addLewittFillers(){
-        const step = cubeSize / 5;
-        const EDGE_R = 0.35;   // grosor de la arista añadida
-        const NODE   = 0.60;   // tamaño del cubito-nodo
+        const step   = cubeSize / 5;
+        const R_EDGE = 0.35;   // radio de los tubos añadidos
+        const R_NODE = 0.60;   // tamaño del cubo-nudo (vértice con ≥3 aristas)
 
-        /* -------- helpers comunes -------- */
-        const exists   = k => litInfo.has(k) || collisions.has(k);
-        const posKey   = (x,y,z)=>`${x},${y},${z}`;
+        /* utilidades */
+        const exists = k => litInfo.has(k) || collisions.has(k);
 
-        function nearestColor(x1,y1,z1,x2,y2,z2){
-          const cand = [
-            tubeKey(x1,y1,z1, x2,y2,z2),
-            tubeKey(x1,y1,z1, x1,y1,z1)     // mismo nodo, por si acaso
-          ];
-          for(const k of cand){ if (litInfo.has(k)) return litInfo.get(k).color.clone(); }
-          return new THREE.Color(0xffffff);
-        }
+        function makeEdge(x1,y1,z1, x2,y2,z2, col){
+          const k = tubeKey(x1,y1,z1, x2,y2,z2);
+          if (exists(k)) return;                     // ya existe algo ahí
 
-        function createEdge(x1,y1,z1, x2,y2,z2, col){
           const dir = new THREE.Vector3(x2-x1, y2-y1, z2-z1);
           const len = step * dir.length();
-          const geo = new THREE.CylinderGeometry(EDGE_R, EDGE_R, len, 8, 1, true);
-          const mat = new THREE.MeshPhongMaterial({ color: col, shininess:0, dithering:true});
+          const geo = new THREE.CylinderGeometry(R_EDGE, R_EDGE, len, 8, 1, true);
+          const mat = new THREE.MeshPhongMaterial({ color: col, shininess:0, dithering:true });
           const m   = new THREE.Mesh(geo, mat);
-          const p1  = new THREE.Vector3((x1-2)*step,(y1-2)*step,(z1-2)*step);
-          const p2  = new THREE.Vector3((x2-2)*step,(y2-2)*step,(z2-2)*step);
-          m.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
+
+          const p1 = new THREE.Vector3((x1-2)*step, (y1-2)*step, (z1-2)*step);
+          const p2 = new THREE.Vector3((x2-2)*step, (y2-2)*step, (z2-2)*step);
+          m.position.copy( p1.clone().add(p2).multiplyScalar(0.5) );
           m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
           lichtGroup.add(m);
 
-          const k = tubeKey(x1,y1,z1,x2,y2,z2);
-          litInfo.set(k, {color:col,lcht:{I0:0,amp:0,f:0,phi:0}});
+          litInfo.set(k, { color: col, lcht:{ I0:0, amp:0, f:0, phi:0 } });
         }
 
-        /* -------- 1) Mapa de cuántas aristas llegan a cada nodo -------- */
-        const degree = new Map();         // "x,y,z" -> nº de aristas
-        litInfo.forEach((_,k)=>{
-          const [a,b]=k.split('|');
+        /* 1)  Para cada tubo existente, extiende las dos direcciones ortogonales */
+        litInfo.forEach((info, key)=>{
+          const [a,b]   = key.split('|').map(s=>s.split(',').map(Number));
+          const [x1,y1,z1] = a, [x2,y2,z2] = b;
+          const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;   // orientación principal
+
+          const axes = [];
+          if (dx) axes.push([0,1,0], [0,0,1]);    // tubo era X → añade Y y Z
+          if (dy) axes.push([1,0,0], [0,0,1]);    // tubo era Y → añade X y Z
+          if (dz) axes.push([1,0,0], [0,1,0]);    // tubo era Z → añade X y Y
+
+          axes.forEach(([ax,ay,az])=>{
+            [[x1,y1,z1],[x2,y2,z2]].forEach(([px,py,pz])=>{
+              const nx = px + ax, ny = py + ay, nz = pz + az;
+              if (nx>4 || ny>4 || nz>4) return;   // fuera del cubo 5×5×5
+              makeEdge(px,py,pz, nx,ny,nz, info.color.clone());
+            });
+          });
+        });
+
+        /* 2)  Coloca cubitos en los vértices con ≥3 aristas */
+        const degree = new Map();               // "x,y,z" → nº de aristas
+        litInfo.forEach((_, k)=>{
+          const [a,b] = k.split('|');
           [a,b].forEach(s=>{
             degree.set(s, (degree.get(s)||0)+1);
           });
         });
 
-        /* -------- 2) Añadir TODAS las aristas faltantes alrededor de nodos “fuertes” -------- */
-        for(let x=0;x<5;x++){
-          for(let y=0;y<5;y++){
-            for(let z=0;z<5;z++){
-              const pk = posKey(x,y,z);
-              const deg = degree.get(pk)||0;
-              if(deg<2) continue;                  // sólo nodos relevantes
-
-              // recorre los 3 ejes positivos
-              [[1,0,0],[0,1,0],[0,0,1]].forEach(([dx,dy,dz])=>{
-                const nx=x+dx, ny=y+dy, nz=z+dz;
-                if(nx>4||ny>4||nz>4) return;       // fuera del cubo
-                const k = tubeKey(x,y,z,nx,ny,nz);
-                if(!exists(k)){
-                  const col = nearestColor(x,y,z,nx,ny,nz);
-                  createEdge(x,y,z,nx,ny,nz,col);  // completa arista faltante
-                }
-              });
-            }
-          }
-        }
-
-        /* -------- 3) Vuelve a contar y coloca cubitos-nodo (≥3 aristas) -------- */
-        const nodeCount = new Map();
-        litInfo.forEach((_,k)=>{
-          const [a,b]=k.split('|');
-          [a,b].forEach(s=>{
-            nodeCount.set(s, (nodeCount.get(s)||0)+1);
-          });
-        });
-
-        nodeCount.forEach((n,str)=>{
-          if(n<3) return;                           // umbral
-          const [x,y,z]=str.split(',').map(Number);
-          const box = new THREE.BoxGeometry(NODE,NODE,NODE);
-          const mat = new THREE.MeshPhongMaterial({ shininess:0, dithering:true});
-          mat.color.copy( nearestColor(x,y,z,x,y,z) );
-          const mesh = new THREE.Mesh(box, mat);
-          mesh.position.set((x-2)*step,(y-2)*step,(z-2)*step);
-          lichtGroup.add(mesh);
+        degree.forEach((d, str)=>{
+          if (d < 3) return;                    // sólo nudos “fuertes”
+          const [x,y,z] = str.split(',').map(Number);
+          const geo = new THREE.BoxGeometry(R_NODE, R_NODE, R_NODE);
+          const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess:0, dithering:true });
+          const n   = new THREE.Mesh(geo, mat);
+          n.material.color.copy( litInfo.get([...litInfo.keys()][0]).color ); // cualquier color de escena
+          n.position.set((x-2)*step, (y-2)*step, (z-2)*step);
+          lichtGroup.add(n);
         });
       })();
     }
