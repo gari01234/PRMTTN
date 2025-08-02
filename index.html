@@ -711,31 +711,6 @@ function tubeKey(x1, y1, z1, x2, y2, z2) {
   return (a < b) ? `${a}|${b}` : `${b}|${a}`;
 }
 
-/* -----------------------------------------------------------
- * Aplícale un gradiente determinista a un tubo (Mesh cylinder)
- * ----------------------------------------------------------- */
-function applyGradient(mesh, baseColor){
-  const geo   = mesh.geometry;
-  const pos   = geo.getAttribute('position');
-  const n     = pos.count;
-  const cols  = new Float32Array(n * 3);
-
-  const C0 = baseColor.clone();               // color A
-  const C1 = baseColor.clone().offsetHSL(0.33, 0, 0); // color B (+120°)
-
-  mesh.updateMatrixWorld(true);               // pos/quat ya fijados
-  for(let i=0; i<n; i++){
-    const v = new THREE.Vector3().fromBufferAttribute(pos, i)
-                                 .applyMatrix4(mesh.matrixWorld);
-    const u = ((v.dot(G_VEC) / P_GRAD) + sceneSeed/360) % 1;  // 0-1
-    const c = C0.clone().lerp(C1, u);            // mix A→B
-    cols[i*3]     = c.r;
-    cols[i*3 + 1] = c.g;
-    cols[i*3 + 2] = c.b;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-}
-
 function buildLCHT() {
   /* ── limpiar escena previa ─────────────────────────────── */
   if (lichtGroup) {
@@ -857,15 +832,16 @@ function buildLCHT() {
     const len = dir.length();
 
     const geo = new THREE.CylinderGeometry(0.4, 0.4, len, 8, 1, true);
-    const mat = new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.DoubleSide });
+    const mat = new THREE.MeshPhongMaterial({
+      color: info.color,
+      shininess: 0,
+      dithering: true
+    });
+
     const tube = new THREE.Mesh(geo, mat);
     tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
     tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
     tube.userData.lcht = info.lcht;
-
-    /* ← nuevo gradiente determinista */
-    applyGradient(tube, info.color);
-
     lichtGroup.add(tube);
   });
 }
@@ -916,10 +892,6 @@ function buildLCHT() {
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
-    /* === GRADIENTE GLOBAL DETERMINISTA (Rozendaal-like) ================ */
-    const G_VEC  = new THREE.Vector3(1, PHI2, PHI2*PHI2).normalize(); // dirección ∇φ
-    const P_GRAD = 5 * (cubeSize/5);   // periodo = 5 celdas (≈ 30 unid.)
-    /* ==================================================================== */
     /* ——— salto coprimo con 144: barre los 144 valores de H ——— */
     const PHI_H = 89;             // 89 ≡ 144 / φ  (gcd 89,144 = 1)
     /* ——— saltos coprimos para los 12 niveles de S y V ——— */
