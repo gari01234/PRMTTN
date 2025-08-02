@@ -698,13 +698,33 @@ function initSkySphere() {
     let isLCHT     = false;
     let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
-    /* color determinista = mismo que la permutación                    */
-    function colorForPerm(pa){
-      const idx = pa[ attributeMapping[1] ];                // 1–5
-      const val = getColor(idx);
-      return Array.isArray(val)
-        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
-        : new THREE.Color(val);
+    /* color determinista = exactamente el mismo que la permutación en BUILD */
+    function colorForPerm (pa) {
+      const idx = pa[ attributeMapping[1] ];         // 1-5
+
+      /* 1) ­— override manual, si existe */
+      if (manualOverride[idx]) {
+        return new THREE.Color( manualOverride[idx] );
+      }
+
+      /* 2) ­— modo legacy (patrón 0) */
+      if (activePatternId === 0) {
+        const rgb = paletteRGB[idx - 1] || [255, 255, 255];
+        return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+      }
+
+      /* 3) ­— patrones 1-11 (idéntica lógica que BUILD) */
+      const sig  = computeSignature(pa);
+      const slot = lehmerRank(pa) % 12;
+
+      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+
+      const { h, s, v } = idxToHSV(hI, sI, vI);
+      const rgb = ensureContrastRGB( hsvToRgb(h, s, v) );
+
+      return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
     }
 
     /* ═════════════ ACTUALIZA LCHT (reglas “tubos que se escapan”) ═════════════
