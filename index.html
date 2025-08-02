@@ -830,16 +830,36 @@ function buildLCHT() {
     const p2  = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
     const dir = new THREE.Vector3().subVectors(p2, p1);
     const len = dir.length();
+    const tubePos = p1.clone().add(p2).multiplyScalar(0.5);
 
     const geo = new THREE.CylinderGeometry(0.4, 0.4, len, 8, 1, true);
-    const mat = new THREE.MeshPhongMaterial({
-      color: info.color,
-      shininess: 0,
-      dithering: true
+    const gVec   = new THREE.Vector3(1, PHI2, PHI2 * PHI2).normalize();
+    const Pgrad  = 5 * step;
+    const colA   = info.color.clone();
+    const colB   = collisions.has(key) ? new THREE.Color(0x000000)
+                                       : colA.clone().offsetHSL(0.33, 0, 0);
+    geo.setAttribute('color',
+      new THREE.Float32BufferAttribute(
+        geo.attributes.position.array.map((_, i) => {
+          if (i % 3 !== 2) return 0;
+          const pos = new THREE.Vector3(
+            geo.attributes.position.array[i - 2],
+            geo.attributes.position.array[i - 1],
+            geo.attributes.position.array[i]
+          ).add(tubePos);
+          const u = (pos.dot(gVec) / Pgrad + sceneSeed / 360) % 1;
+          const mix = colA.clone().lerp(colB, u);
+          return [mix.r, mix.g, mix.b];
+        }).flat(), 3)
+    );
+
+    const mat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide
     });
 
     const tube = new THREE.Mesh(geo, mat);
-    tube.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
+    tube.position.copy(tubePos);
     tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
     tube.userData.lcht = info.lcht;
     lichtGroup.add(tube);
