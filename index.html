@@ -698,33 +698,13 @@ function initSkySphere() {
     let isLCHT     = false;
     let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
-    /* color determinista = exactamente el mismo que la permutación en BUILD */
-    function colorForPerm (pa) {
-      const idx = pa[ attributeMapping[1] ];         // 1-5
-
-      /* 1) ­— override manual, si existe */
-      if (manualOverride[idx]) {
-        return new THREE.Color( manualOverride[idx] );
-      }
-
-      /* 2) ­— modo legacy (patrón 0) */
-      if (activePatternId === 0) {
-        const rgb = paletteRGB[idx - 1] || [255, 255, 255];
-        return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
-      }
-
-      /* 3) ­— patrones 1-11 (idéntica lógica que BUILD) */
-      const sig  = computeSignature(pa);
-      const slot = lehmerRank(pa) % 12;
-
-      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-      sI = (sI * PHI_S) % 12;
-      vI = (vI * PHI_V) % 12;
-
-      const { h, s, v } = idxToHSV(hI, sI, vI);
-      const rgb = ensureContrastRGB( hsvToRgb(h, s, v) );
-
-      return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+    /* color determinista = mismo que la permutación                    */
+    function colorForPerm(pa){
+      const idx = pa[ attributeMapping[1] ];                // 1–5
+      const val = getColor(idx);
+      return Array.isArray(val)
+        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
+        : new THREE.Color(val);
     }
 
     /* ═════════════ ACTUALIZA LCHT (reglas “tubos que se escapan”) ═════════════
@@ -827,17 +807,12 @@ function initSkySphere() {
         const geo = new THREE.CylinderGeometry(0.4,0.4,len,8,1,true);
 
         const isBlack = info.color.equals(new THREE.Color(0x000000));
-        const mat = new THREE.MeshStandardMaterial({
-          color:            info.color,      // color base del tubo
-          emissive:         info.color,      // el mismo color como emisión
-          emissiveIntensity: 0,              // se anima en runtime
-          roughness:        0.20,
-          metalness:        0.00,
-          transparent:      true,
-          opacity:          isBlack ? 0.30 : 1.00,
-          depthWrite:       false,
-          blending:         THREE.NormalBlending, // evita el “wash-out” blanco
-          toneMapped:       false                 // mantiene la viveza HDR
+        const mat = new THREE.MeshBasicMaterial({
+          color: info.color,
+          transparent:true,
+          opacity: isBlack ? 0.30 : 0.85,
+          depthWrite:false,
+          blending: isBlack ? THREE.NormalBlending : THREE.AdditiveBlending
         });
 
         const tube = new THREE.Mesh(geo,mat);
@@ -2513,9 +2488,7 @@ function renderArchPanel(html){
                 const I = d.I0 * (1 - d.amp *
                         (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2)
                         * LCHT_INTENSITY_MULT;
-                if (o.material && o.material.emissiveIntensity !== undefined){
-                  o.material.emissiveIntensity = I;
-                }
+                o.material.emissiveIntensity = I;
                 if(o.userData.pointLight) o.userData.pointLight.intensity = I * 10;
               }
             });
