@@ -825,6 +825,107 @@ function initSkySphere() {
 
         // ya no hay luz puntual separada
       });
+
+      /* === 2-bis)  RELLENO DE “HUECOS” AL ESTILO LEWITT  ======================== */
+      (function addLewittFillers(){
+        const step = cubeSize / 5;
+        const edge = 0.35;              // radio de las nuevas aristas
+        const node = 0.60;              // tamaño del cubito-nodo
+
+        const exists = k => litInfo.has(k) || collisions.has(k);
+
+        // 1)  Añadir aristas faltantes para completar celda 1×1×1
+        for (let x=0; x<5; x++){
+          for (let y=0; y<5; y++){
+            for (let z=0; z<5; z++){
+              // tres direcciones posibles desde (x,y,z)
+              const kX = tubeKey(x,y,z, x+1,y,z);
+              const kY = tubeKey(x,y,z, x,y+1,z);
+              const kZ = tubeKey(x,y,z, x,y,z+1);
+
+              // Si existen dos aristas ortogonales, crea la tercera faltante
+              if (x<4 && y<4 && exists(kX) && exists(kY) && !exists(kZ)){
+                createAuxEdge(x,y,z, x,y,z+1, kZ);
+              }
+              if (x<4 && z<4 && exists(kX) && exists(kZ) && !exists(kY)){
+                createAuxEdge(x,y,z, x,y+1,z, kY);
+              }
+              if (y<4 && z<4 && exists(kY) && exists(kZ) && !exists(kX)){
+                createAuxEdge(x,y,z, x+1,y,z, kX);
+              }
+            }
+          }
+        }
+
+        // 2)  Añadir nodos cúbicos donde confluyen ≥3 aristas
+        const nodeCount = new Map();          // "x,y,z" → nº de aristas que llegan
+        litInfo.forEach((_,key)=>{
+          const [a,b] = key.split('|');
+          const p = a.split(',').map(Number);
+          const q = b.split(',').map(Number);
+          const add = (v)=>{
+            const s = v.join(',');
+            nodeCount.set(s, (nodeCount.get(s)||0)+1);
+          };
+          add(p); add(q);
+        });
+        nodeCount.forEach((n,str)=>{
+          if (n < 3) return;                  // mínimo 3 tubos que se crucen
+          const [x,y,z] = str.split(',').map(Number);
+          const box = new THREE.BoxGeometry(node,node,node);
+          const mat = new THREE.MeshPhongMaterial({
+            color: 0x000000,                  // se sobreescribe abajo
+            shininess: 0, dithering:true
+          });
+
+          // color promedio de las aristas que llegan
+          const col = averageColorAtPoint(x,y,z);
+          mat.color.copy(col);
+
+          const mesh = new THREE.Mesh(box, mat);
+          mesh.position.set((x-2)*step,(y-2)*step,(z-2)*step);
+          lichtGroup.add(mesh);
+        });
+
+        /* — helpers — */
+        function createAuxEdge(x1,y1,z1, x2,y2,z2, key){
+          // hereda color de la arista “original” más cercana
+          const col = nearestColor(x1,y1,z1, x2,y2,z2);
+          const dir = new THREE.Vector3(x2-x1, y2-y1, z2-z1);
+          const len = step * dir.length();
+          const geo = new THREE.CylinderGeometry(edge,edge,len,8,1,true);
+          const mat = new THREE.MeshPhongMaterial({ color: col, shininess:0, dithering:true});
+          const t   = new THREE.Mesh(geo, mat);
+          const p1  = new THREE.Vector3((x1-2)*step,(y1-2)*step,(z1-2)*step);
+          const p2  = new THREE.Vector3((x2-2)*step,(y2-2)*step,(z2-2)*step);
+          t.position.copy(p1.clone().add(p2).multiplyScalar(0.5));
+          t.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
+          lichtGroup.add(t);
+          litInfo.set(key, {color:col,lcht:{I0:0,amp:0,f:0,phi:0}});
+        }
+
+        function nearestColor(x1,y1,z1,x2,y2,z2){
+          const cand = [
+            tubeKey(x1,y1,z1, x1+(x2-x1),y1,z1+(z2-z1)),
+            tubeKey(x1,y1,z1, x1,y1+(y2-y1),z1)
+          ];
+          for(const k of cand){ if (litInfo.has(k)) return litInfo.get(k).color.clone(); }
+          return new THREE.Color(0xffffff);   // fallback blanco
+        }
+
+        function averageColorAtPoint(x,y,z){
+          let r=0,g=0,b=0,c=0;
+          const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+          dirs.forEach(([dx,dy,dz])=>{
+            const k = tubeKey(x,y,z, x+dx,y+dy,z+dz);
+            if (litInfo.has(k)){
+              const col = litInfo.get(k).color;
+              r+=col.r; g+=col.g; b+=col.b; c++;
+            }
+          });
+          return c ? new THREE.Color(r/c,g/c,b/c) : new THREE.Color(0xffffff);
+        }
+      })();
     }
     /* ═════════════════ FIN BLOQUE ACTUALIZADO ═════════════════ */
 
