@@ -186,6 +186,19 @@
   /* === LCHT toggle === */
   #lchtWrap  { position:fixed; left:10px; bottom:50px; z-index:260; }
   #lchtButton{ position:relative; }
+
+  /* Botón PLAY – genera nuevas permutaciones */
+  #playButton{
+    position:fixed;               /* mismo estilo general */
+    left:10px; bottom:170px;      /* 40 px por encima de BUILD (130 px) */
+    z-index:260;
+    border:none; border-radius:4px;
+    padding:8px 12px;
+    font-size:18px;               /* el símbolo se ve claro */
+    background:rgba(0,0,0,0.12);
+    cursor:none; transition:background .2s;
+  }
+  #playButton:hover{ background:rgba(0,0,0,0.20); }
   </style>
 </head>
 <body>
@@ -200,7 +213,11 @@
   <button id="saveImageButton"    onclick="saveImage()">Save Image (A2)</button>
   <button id="exportEmbedButton"  onclick="exportEmbed()">Save JSON</button>
   <button id="archDescButton"     onclick="showArchitecturalDescription()">Architectural Description</button>
-  <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">BUILD</button>
+  <!-- NUEVO: Play (genera nueva configuración) -->
+  <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
+
+  <!-- EXISTENTE: BUILD  ➜ sólo cambia de motor -->
+  <button id="randomConfigButton" onclick="switchToBuild()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 <div id="frbnWrap">
   <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
@@ -911,6 +928,13 @@ function buildLCHT() {
 
     /* reconstruye LCHT si hay cambios de escena */
     function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
+
+    /* Cambia al motor BUILD sin generar una nueva configuración */
+    function switchToBuild(){
+      if (isFRBN) toggleFRBN();   // apaga FRBN si estaba activo
+      if (isLCHT) toggleLCHT();   // apaga LCHT si estaba activo
+      /* Nada más: la escena existente permanece tal cual */
+    }
 
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
@@ -1885,7 +1909,7 @@ function makePalette(){
     function toggleTexts(){
       const ids = [
         'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','aiPlanningButton','saveImageButton',
+        'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','lchtWrap','infoButton','certButton'
         ];
       ids.forEach(id=>{
