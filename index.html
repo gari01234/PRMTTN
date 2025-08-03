@@ -1546,8 +1546,9 @@ function findCollisionFreeMapping(perms){
             // 5) Verificación final (por si acaso)
             const hasCol = checkCollisionsInGroup(permutationGroup);
             if (!hasCol) {
-              if (isFRBN) toggleFRBN();   // BUILD apaga FRBN
-              if (isLCHT) toggleLCHT();   // BUILD apaga LCHT
+              /*  ▸ YA NO se desactiva el motor actual.
+               *    Si el usuario estaba en FRBN o LCHT, sigue allí.
+               *    BUILD sólo se activa cuando se pulsa explícitamente el botón BUILD. */
               showPopup("¡Configuración sin colisiones encontrada!", 2000);
               return true;
             }
