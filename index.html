@@ -203,12 +203,12 @@
   <button id="randomConfigButton" onclick="generateRandomConfigurationNoCollision()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 <div id="frbnWrap">
-  <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
+  <button id="frbnButton" onclick="buildAndStayFRBN()">FRBN</button>
   <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
 </div>
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <div id="lchtWrap">
-    <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
+    <button id="lchtButton" onclick="buildAndStayLCHT()">LCHT</button>
   </div>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
@@ -909,6 +909,23 @@ function buildLCHT() {
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
 
+    /* ══════════════════════════════════════════════════════════════
+     *  FRBN / LCHT  →  nueva configuración SIN salir del motor
+     * ═════════════════════════════════════════════════════════════ */
+    async function buildAndStayFRBN(){
+      /* -- asegúrate de estar dentro de FRBN -- */
+      if(!isFRBN) toggleFRBN();           // esto apaga LCHT si estuviera activo
+      await generateRandomConfigurationNoCollision(5000,{preserveEngine:true});
+      if(isFRBN && skySphere) buildGanzfeld();   // paleta sincronizada
+    }
+
+    async function buildAndStayLCHT(){
+      /* -- asegúrate de estar dentro de LCHT -- */
+      if(!isLCHT) toggleLCHT();           // esto apaga FRBN si estuviera activo
+      await generateRandomConfigurationNoCollision(5000,{preserveEngine:true});
+      rebuildLCHTIfActive();              // re-construye tubos con la nueva escena
+    }
+
     /* reconstruye LCHT si hay cambios de escena */
     function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
 
@@ -1478,7 +1495,7 @@ function findCollisionFreeMapping(perms){
      *
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
-    async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
+    async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000, opts = {preserveEngine:false}){
       // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
       const randPattern = Math.floor(Math.random() * 11) + 1;
 
@@ -1522,8 +1539,10 @@ function findCollisionFreeMapping(perms){
             // 5) Verificación final (por si acaso)
             const hasCol = checkCollisionsInGroup(permutationGroup);
             if (!hasCol) {
-              if (isFRBN) toggleFRBN();   // BUILD apaga FRBN
-              if (isLCHT) toggleLCHT();   // BUILD apaga LCHT
+              if(!opts.preserveEngine){          // ← sólo BUILD apaga motores
+                if (isFRBN) toggleFRBN();
+                if (isLCHT) toggleLCHT();
+              }
               showPopup("¡Configuración sin colisiones encontrada!", 2000);
               return true;
             }
