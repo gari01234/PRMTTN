@@ -673,6 +673,25 @@ function initSkySphere() {
     /* ================================================================
      *  FRBN · clic de re-generación sin salir del motor
      * ================================================================ */
+    function deactivateFRBN () {
+      if (!isFRBN) return;                // ya estaba apagado
+      isFRBN = false;
+
+      /* oculta el shader FRBN y reactiva las capas base */
+      if (skySphere)          skySphere.visible = false;
+      cubeUniverse.visible     = true;
+      permutationGroup.visible = true;
+      if (lichtGroup)         lichtGroup.visible = isLCHT;
+
+      /* FRBN siempre deja el fondo en blanco (o el que hubiese antes) */
+      scene.background = lchtPrevBg ? lchtPrevBg.clone()
+                                    : new THREE.Color(0xffffff);
+
+      /* oculta el botón “i” de FRBN */
+      const ib = document.getElementById('frbnInfoButton');
+      if (ib) ib.style.display = 'none';
+    }
+
     function toggleFRBN(){
       /* — ya estamos en FRBN → solo genera otra escena y actualiza shader — */
       if (isFRBN){
@@ -688,10 +707,18 @@ function initSkySphere() {
       if (isLCHT) toggleLCHT();                    // exclusividad
 
       buildGanzfeld();
+      scene.background = new THREE.Color(0xffffff);   // FRBN siempre fondo blanco
       skySphere.visible        = true;
       cubeUniverse.visible     = false;
       permutationGroup.visible = false;
       if (lichtGroup) lichtGroup.visible = false;
+
+      if (isLCHT) {
+        isLCHT = false;
+        if (lichtGroup) lichtGroup.visible = false;
+        const b = document.getElementById('lchtButton');
+        if (b) b.textContent = 'LCHT';
+      }
 
       const ib = document.getElementById('frbnInfoButton');
       if (ib) ib.style.display = 'inline-block';
@@ -908,7 +935,7 @@ function buildLCHT() {
 
       if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
       scene.background = new THREE.Color(0xf4f4f4);
-      if (isFRBN) toggleFRBN();                    // exclusividad
+      if (isFRBN) deactivateFRBN();                // exclusividad real
 
       buildLCHT();
       lichtGroup.visible        = true;
