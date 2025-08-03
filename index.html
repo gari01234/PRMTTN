@@ -1829,19 +1829,25 @@ function makePalette(){
       });
     }
 
-    function refreshAll(opts={rebuild:false}){
-      if(!opts.keepManual){              // por defecto se limpia
+    function refreshAll(opts = {rebuild:false}){
+      if(!opts.keepManual){            // por defecto se limpian colores manuales
         manualOverride = {};
       }
       if(opts.rebuild) updateScene(false);
-      rebuildSceneColours();   // ← nuevo paso
+
+      rebuildSceneColours();
       makePalette();
       applyPalette();
-      /* contrast-fix eliminado – 19-Jul-2025 */
-      updateBackground(false);
-      updateCubeColor(false);
+
+      /* Mientras LCHT está activo, NO toques el fondo ni las paredes
+         (evita que los patrones cromáticos los re-coloreen).        */
+      if (!isLCHT){
+        updateBackground(false);   // ← automático
+        updateCubeColor(false);    // ← automático
+      }
+
       if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
-      rebuildLCHTIfActive();              // mantiene LCHT sincronizado
+      rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -1855,6 +1861,10 @@ function makePalette(){
       refreshAll({keepManual:false});   // reconstruye escena y pickers
     }
     function updateBackground(manual=true){
+      /* Si estamos en LCHT y la llamada NO es manual, salimos.
+         Esto conserva el fondo claro (#f4f4f4) fijado en toggleLCHT(). */
+      if (isLCHT && !manual) return;
+
       if (manual){
         bgOverride = document.getElementById("bgColor").value;
       }
