@@ -53,8 +53,7 @@
   #uploadConfigButton   { position:fixed; right:10px; bottom:130px;  }   /* Load JSON */
   #exportEmbedButton    { position:fixed; right:10px; bottom:170px;  }   /* Save JSON */
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
-  #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
-#randomConfigButton   { position:fixed; left:10px; bottom:130px;  }   /* BUILD  */
+  #randomConfigButton   { position:fixed; left:10px; bottom:130px;  }   /* BUILD  */
    #certButton           { position:fixed; right:10px; bottom:30px; }   /* Edition Certificate */
   /* === FRBN toggle === */
 #frbnWrap { position:fixed; left:10px; bottom:90px; z-index:260; }
@@ -186,6 +185,15 @@
   /* === LCHT toggle === */
   #lchtWrap  { position:fixed; left:10px; bottom:50px; z-index:260; }
   #lchtButton{ position:relative; }
+
+  /* RE-LOCATE main minimal buttons */
+  #patternButton      { position:fixed; left:10px;  top:10px;  }
+  #perm120Button      { position:fixed; right:10px; top:10px;  bottom:auto; }   /* antes estaba abajo */
+  #randomConfigButton { position:fixed; left:10px;  bottom:130px; } /* BUILD */
+  #frbnWrap           { position:fixed; left:10px;  bottom:90px;  }
+  #lchtWrap           { position:fixed; left:10px;  bottom:50px;  }
+  /* cursor-dot for minimal mode */
+  .minDot{font-size:16px;line-height:16px;padding:0 4px;}
   </style>
 </head>
 <body>
@@ -193,6 +201,9 @@
   <div id="topRightDisplay"></div>
 
   <input type="file" id="json-upload" accept=".json" style="display:none;" />
+  
+  <!-- TOP-LEFT – 11 Chromatic Patterns -->
+  <button id="patternButton" onclick="showPatternInfo()">11 Patterns</button>
 
   <button id="aiPlanningButton"   onclick="applyEvolutionAI()">AI Planning</button>
   <button id="toggleTextButton"   onclick="toggleTexts()">Minimal UI</button>
@@ -661,6 +672,9 @@ function initSkySphere() {
 
     /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
     function toggleFRBN () {
+      /* NUEVO → como “BUILD”: genera una escena distinta cada vez */
+      generateRandomConfigurationNoCollision();
+
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -872,6 +886,9 @@ function buildLCHT() {
 
 
     function toggleLCHT(){
+      /* NUEVO → como “BUILD”: genera una escena distinta cada vez */
+      generateRandomConfigurationNoCollision();
+
       isLCHT = !isLCHT;
 
         if (isLCHT){
@@ -1873,27 +1890,44 @@ function makePalette(){
     }
 
     function toggleTexts(){
-      const ids = [
+      /* elementos que SÍ se ocultan/mostrarán */
+      const hideIds=[
         'controls','topRightDisplay','ratingContainer',
-        'randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','lchtWrap','infoButton','certButton'
-        ];
-      ids.forEach(id=>{
+        'aiPlanningButton','saveImageButton','exportEmbedButton',
+        'archDescButton','uploadConfigButton','infoButton','certButton'
+      ];
+      hideIds.forEach(id=>{
         const e=document.getElementById(id);
         if(e) e.style.display = textsVisible ? 'none' : 'block';
       });
 
-      // Mantener SIEMPRE cerrado el panel de 120 perms
-      const p = document.getElementById('perm120Panel');
-      if (p) p.style.display = 'none';
+      /* botones que permanecen visibles – cambian texto ↔ ⚫ */
+      const dotIds=[
+        'patternButton','perm120Button',
+        'randomConfigButton','frbnButton','lchtButton','toggleTextButton'
+      ];
+      dotIds.forEach(id=>{
+        const b=document.getElementById(id);
+        if(!b) return;
+        if(textsVisible){                // pasamos a Minimal UI
+          b.dataset.label=b.textContent; // guarda el texto real
+          b.textContent='⚫';             // círculo negro
+          b.classList.add('minDot');
+        }else{                           // volvemos al UI completo
+          b.textContent=b.dataset.label||'';
+          b.classList.remove('minDot');
+        }
+      });
 
-      document.getElementById('toggleTextButton').textContent =
-        textsVisible ? 'Show UI' : 'Minimal UI';
-      textsVisible = !textsVisible;
+      /* cierra siempre el panel de 120 perms si estuviera abierto */
+      const p=document.getElementById('perm120Panel');
+      if(p) p.style.display='none';
 
-      // Asegura que el cursor personalizado vuelva a mostrarse
-      const cc = document.getElementById('customCursor');
-      if (cc) cc.style.display = 'block';
+      textsVisible=!textsVisible;
+
+      /* asegura que el cursor personalizado sigue visible */
+      const cc=document.getElementById('customCursor');
+      if(cc) cc.style.display='block';
     }
 
     function setMode(m){
@@ -2519,6 +2553,9 @@ function renderArchPanel(html){
       generateRandomConfigurationNoCollision().catch(console.error);
 
       animate();
+
+      /* NUEVO – oculta la interfaz textual al cargar */
+      if(textsVisible) toggleTexts();
     }
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
