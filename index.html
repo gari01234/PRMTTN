@@ -670,33 +670,31 @@ function initSkySphere() {
       mat.uniforms.u_rate.value = avg * 1;
     }
 
-    /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
-    function toggleFRBN () {
-      /* NUEVO → como “BUILD”: genera una escena distinta cada vez */
-      generateRandomConfigurationNoCollision();
-
-      if (!skySphere) initSkySphere();
-
-      isFRBN = !isFRBN;
-
-      if (isFRBN) {                       // ——— ENTRAR ———
-        if (isLCHT) toggleLCHT();         // asegura exclusividad
-        buildGanzfeld();                  // sincroniza paleta + u_rate
-        skySphere.visible        = true;
-        cubeUniverse.visible     = false;
-        permutationGroup.visible = false;
-        if (lichtGroup) lichtGroup.visible = false;
-
-      } else {                            // ——— SALIR ———
-        skySphere.visible        = false;
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (isLCHT && lichtGroup) lichtGroup.visible = true;
-        refreshAll({ keepManual: true }); // reconstruye escena normal
+    /* ================================================================
+     *  FRBN · clic de re-generación sin salir del motor
+     * ================================================================ */
+    function toggleFRBN(){
+      /* — ya estamos en FRBN → solo genera otra escena y actualiza shader — */
+      if (isFRBN){
+        generateRandomConfigurationNoCollision(5000, true)
+          .then(()=> buildGanzfeld());             // refresca la paleta del shader
+        return;
       }
-  // ← muestra el mini‑botón solo en FRBN
-  const ib = document.getElementById('frbnInfoButton');
-  if (ib) ib.style.display = isFRBN ? 'inline-block' : 'none';
+
+      /* — entramos en FRBN — */
+      generateRandomConfigurationNoCollision();    // escena base
+      if (!skySphere) initSkySphere();
+      isFRBN = true;
+      if (isLCHT) toggleLCHT();                    // exclusividad
+
+      buildGanzfeld();
+      skySphere.visible        = true;
+      cubeUniverse.visible     = false;
+      permutationGroup.visible = false;
+      if (lichtGroup) lichtGroup.visible = false;
+
+      const ib = document.getElementById('frbnInfoButton');
+      if (ib) ib.style.display = 'inline-block';
     }
 
     /* --------- inicializa esfera al arrancar (sin coste GPU extra) -------- */
@@ -886,44 +884,39 @@ function buildLCHT() {
 
 
     function toggleLCHT(){
-      /* NUEVO → como “BUILD”: genera una escena distinta cada vez */
-      generateRandomConfigurationNoCollision();
+      /* — ya estamos en LCHT → solo genera otra escena y reconstruye tubos — */
+      if (isLCHT){
+        generateRandomConfigurationNoCollision(5000, true);
+        buildLCHT();
+        return;
+      }
 
-      isLCHT = !isLCHT;
+      /* — entramos en LCHT — */
+      generateRandomConfigurationNoCollision();    // escena base
+      isLCHT = true;
 
-        if (isLCHT){
-          /* — cambia material del cubo a lambert para que capte luz — */
-          if(!cubeUniverse.userData.prevMat){
-            cubeUniverse.userData.prevMat = cubeUniverse.material;
-            cubeUniverse.material = new THREE.MeshLambertMaterial({
-              color: cubeUniverse.userData.prevMat.color,
-              transparent: true,
-              opacity: cubeUniverse.userData.prevMat.opacity,
-              side: cubeUniverse.userData.prevMat.side
-            });
-          }
-          if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-          scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-          if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
-          buildLCHT();
-          lichtGroup.visible        = true;
-          cubeUniverse.visible      = false;
-          permutationGroup.visible  = false;
-        } else {
-          /* — restaura material original — */
-          if(cubeUniverse.userData.prevMat){
-            cubeUniverse.material.dispose();
-            cubeUniverse.material = cubeUniverse.userData.prevMat;
-            delete cubeUniverse.userData.prevMat;
-          }
-          if (lichtGroup) lichtGroup.visible = false;
-          if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
-          lchtPrevBg = null;
-          cubeUniverse.visible      = true;
-          permutationGroup.visible  = true;
-        }
+      /* material del cubo ⇒ Lambert para captar luz */
+      if (!cubeUniverse.userData.prevMat){
+        cubeUniverse.userData.prevMat = cubeUniverse.material;
+        cubeUniverse.material = new THREE.MeshLambertMaterial({
+          color: cubeUniverse.userData.prevMat.color,
+          transparent: true,
+          opacity: cubeUniverse.userData.prevMat.opacity,
+          side: cubeUniverse.userData.prevMat.side
+        });
+      }
+
+      if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
+      scene.background = new THREE.Color(0xf4f4f4);
+      if (isFRBN) toggleFRBN();                    // exclusividad
+
+      buildLCHT();
+      lichtGroup.visible        = true;
+      cubeUniverse.visible      = false;
+      permutationGroup.visible  = false;
+
       const b = document.getElementById('lchtButton');
-      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
+      if (b) b.textContent = 'LCHT ON';
     }
 
     /* reconstruye LCHT si hay cambios de escena */
@@ -1495,7 +1488,10 @@ function findCollisionFreeMapping(perms){
      *
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
-    async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
+    async function generateRandomConfigurationNoCollision(
+        MAX_TRIES = 5000,
+        keepEngine = false                     /* ← NUEVO */
+    ){
       // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
       const randPattern = Math.floor(Math.random() * 11) + 1;
 
@@ -1518,9 +1514,8 @@ function findCollisionFreeMapping(perms){
             const sel = document.getElementById('permutationList');
             Array.from(sel.options).forEach(o => o.selected = false);
             perms.forEach(p=>{
-              const val = p.join(',');
-              const opt = sel.querySelector(`option[value="${val}"]`);
-              if(opt) opt.selected = true;
+              const opt = sel.querySelector(`option[value="${p.join(',')}"]`);
+              if (opt) opt.selected = true;
             });
 
             // 3) Aplica el mapping encontrado
@@ -1531,16 +1526,18 @@ function findCollisionFreeMapping(perms){
             colorAttrCycle++;
 
             document.getElementById('attrMapping').value =
-              `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
+              attributeMapping.slice(0,5).join(',');
 
             // 4) Reconstruye escena completa
             refreshAll({rebuild:true});
 
             // 5) Verificación final (por si acaso)
-            const hasCol = checkCollisionsInGroup(permutationGroup);
-            if (!hasCol) {
-              if (isFRBN) toggleFRBN();   // BUILD apaga FRBN
-              if (isLCHT) toggleLCHT();   // BUILD apaga LCHT
+            if (!checkCollisionsInGroup(permutationGroup)){
+              /* --- SOLO apagamos motores si así se pide ----------------------- */
+              if (!keepEngine){
+                if (isFRBN) toggleFRBN();
+                if (isLCHT) toggleLCHT();
+              }
               showPopup("¡Configuración sin colisiones encontrada!", 2000);
               return true;
             }
