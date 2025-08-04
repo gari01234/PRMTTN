@@ -218,17 +218,6 @@
     cursor:none; transition:background .2s;
   }
   #playButton:hover{ background:rgba(0,0,0,0.20); }
-
-  /* === OFFNNG – nuevo motor de “grietas” ====================== */
-  #offnngButton{
-    position:fixed; left:10px; bottom:210px;  /* bajo PLAY, sobre BUILD  */
-    z-index:260;
-    border:none; border-radius:4px;
-    padding:8px 12px; font-size:12px;
-    background:rgba(0,0,0,0.12);
-    cursor:none; transition:background .2s;
-  }
-  #offnngButton:hover{ background:rgba(0,0,0,0.20); }
   </style>
 </head>
 <body>
@@ -248,9 +237,6 @@
   <button id="archDescButton"     onclick="showArchitecturalDescription()">Architectural Description</button>
   <!-- NUEVO: Play (genera nueva configuración) -->
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
-
-  <!-- NUEVO: OFFNNG (motor de grietas) -->
-  <button id="offnngButton" onclick="toggleOFFNNG()">OFFNNG</button>
 
   <!-- EXISTENTE: BUILD  ➜ sólo cambia de motor -->
   <button id="randomConfigButton" onclick="switchToBuild()">BUILD</button>
@@ -746,10 +732,6 @@ function initSkySphere() {
      * ───────────────────────────── */
     let lichtGroup = null;
     let isLCHT     = false;
-    /* === OFFNNG ================================================= */
-    let isOFFNNG   = false;      // estado del motor
-    let offnngGroup = null;      // grupo con las grietas
-    const CRACK_THICKNESS = 0.40;   // grosor exacto (no se altera)
     let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
     /* color determinista = mismo que la permutación                    */
@@ -928,51 +910,6 @@ function buildLCHT() {
 /* ════════════════════════════════════════════════════════════ */
 
 
-/* Construye las grietas — 3 × 6 planos en los 6 lados del cubo */
-function buildOFFNNG(){
-  if(offnngGroup){
-    offnngGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
-    scene.remove(offnngGroup);
-  }
-  offnngGroup = new THREE.Group();
-  scene.add(offnngGroup);
-
-  const step = cubeSize / 5;          // 6 unidades
-  const half = cubeSize / 2;
-  const mat  = new THREE.MeshBasicMaterial({color:0x111111});   // gris muy oscuro
-
-  /* Grietas verticales y horizontales sobre las 6 caras */
-  const addBar = (w,h,rot,x,y,z)=>{
-    const geo = new THREE.BoxGeometry(w, h, CRACK_THICKNESS);
-    const m   = new THREE.Mesh(geo, mat);
-    m.position.set(x,y,z);
-    m.rotation.set(rot[0],rot[1],rot[2]);
-    offnngGroup.add(m);
-  };
-
-  for(let i=-2;i<=2;i++){
-    const p = i*step;
-
-    /* Cara +Z  (frontal) & −Z  (posterior) */
-    addBar(CRACK_THICKNESS, cubeSize, [0,0,0],  p, 0,  half+CRACK_THICKNESS/2);
-    addBar(CRACK_THICKNESS, cubeSize, [0,0,0],  p, 0, -half-CRACK_THICKNESS/2);
-    addBar(cubeSize, CRACK_THICKNESS,[0,0,0],  0,  p,  half+CRACK_THICKNESS/2);
-    addBar(cubeSize, CRACK_THICKNESS,[0,0,0],  0,  p, -half-CRACK_THICKNESS/2);
-
-    /* Cara +X  (derecha) & −X  (izquierda) */
-    addBar(CRACK_THICKNESS, cubeSize,[0,Math.PI/2,0], half+CRACK_THICKNESS/2, 0,  p);
-    addBar(CRACK_THICKNESS, cubeSize,[0,Math.PI/2,0],-half-CRACK_THICKNESS/2, 0,  p);
-    addBar(cubeSize, CRACK_THICKNESS,[0,Math.PI/2,0], half+CRACK_THICKNESS/2, p, 0);
-    addBar(cubeSize, CRACK_THICKNESS,[0,Math.PI/2,0],-half-CRACK_THICKNESS/2, p, 0);
-
-    /* Cara +Y  (superior) & −Y  (inferior) */
-    addBar(CRACK_THICKNESS, cubeSize,[Math.PI/2,0,0], p,  half+CRACK_THICKNESS/2, 0);
-    addBar(CRACK_THICKNESS, cubeSize,[Math.PI/2,0,0], p, -half-CRACK_THICKNESS/2, 0);
-    addBar(cubeSize, CRACK_THICKNESS,[Math.PI/2,0,0], 0,  half+CRACK_THICKNESS/2, p);
-    addBar(cubeSize, CRACK_THICKNESS,[Math.PI/2,0,0], 0, -half-CRACK_THICKNESS/2, p);
-  }
-}
-
     function toggleLCHT(){
       isLCHT = !isLCHT;
 
@@ -1011,29 +948,8 @@ function buildOFFNNG(){
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
 
-    function toggleOFFNNG(){
-      isOFFNNG = !isOFFNNG;
-
-      if(isOFFNNG){
-        /* exclusividad: apaga otros motores */
-        if(isFRBN) toggleFRBN();
-        if(isLCHT) toggleLCHT();
-
-        cubeUniverse.visible = false;   // desaparecen paredes, sólo grietas
-        buildOFFNNG();
-        offnngGroup.visible  = true;
-      }else{
-        if(offnngGroup) offnngGroup.visible = false;
-        cubeUniverse.visible = true;
-      }
-
-      const b = document.getElementById('offnngButton');
-      if(b) b.textContent = isOFFNNG ? 'OFFNNG ON' : 'OFFNNG';
-    }
-
     /* reconstruye LCHT si hay cambios de escena */
     function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
-    function rebuildOFFNNGIfActive(){ if(isOFFNNG) buildOFFNNG(); }
 
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
@@ -1707,10 +1623,8 @@ function updateScene(attemptResolve=true){
 
   if(attemptResolve) autoResolveColisionesGlobal();
   else updateTopRightDisplay();
-  if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
-  rebuildLCHTIfActive();
-  rebuildOFFNNGIfActive();
-}
+      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
+  }
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
@@ -1981,7 +1895,6 @@ function makePalette(){
 
       if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
-      rebuildOFFNNGIfActive();
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2056,17 +1969,14 @@ function makePalette(){
 
     /* 3.2 Motor visual siguiente  (FRBN → LCHT → BUILD → FRBN …) */
     function cycleEngine(){
-      /* FRBN → LCHT → BUILD → OFFNNG → FRBN… */
-      if(isFRBN){
-        toggleFRBN();        toggleLCHT();    return;
+      if(isFRBN){                 // FRBN → LCHT
+        toggleFRBN();
+        toggleLCHT();
+      }else if(isLCHT){           // LCHT → BUILD
+        switchToBuild();
+      }else{                      // BUILD → FRBN
+        toggleFRBN();
       }
-      if(isLCHT){
-        toggleLCHT();        switchToBuild(); return;
-      }
-      if(!isOFFNNG){
-        toggleOFFNNG();                      return;
-      }
-      toggleOFFNNG();        toggleFRBN();
     }
 
     function setMode(m){
