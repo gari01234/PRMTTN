@@ -46,6 +46,25 @@
     background:rgba(255,255,255,0.20);
   }
 
+  #patternNextButton,
+  #engineCycleButton,
+  #permNextButton{
+    position:fixed; z-index:260;                /* siempre encima */
+    border:none; border-radius:4px;
+    padding:8px 12px; font-size:12px;
+    background:rgba(255,255,255,0.12);
+    cursor:none; display:none;                  /* ocultos por defecto */
+    transition:background .2s;
+  }
+  #patternNextButton:hover,
+  #engineCycleButton:hover,
+  #permNextButton:hover{
+    background:rgba(255,255,255,0.20);
+  }
+  #patternNextButton{left:10px;  top:10px;}     /* 1 · patrón siguiente   */
+  #engineCycleButton {left:10px;  bottom:10px;} /* 2 · motor siguiente     */
+  #permNextButton   {right:10px; top:10px;}     /* 3 · NEXT (120 perms)    */
+
   /* === LAYOUT (orden y ESPACIADO nuevos) === */
   #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }   /* Minimal UI */
   #aiPlanningButton     { position:fixed; right:10px; bottom:50px;   }   /* AI Planning */
@@ -203,6 +222,9 @@
 </head>
 <body>
   <div id="customCursor"></div>
+  <button id="patternNextButton" onclick="cyclePattern()">11</button>
+  <button id="engineCycleButton"  onclick="cycleEngine()">3</button>
+  <button id="permNextButton"     onclick="nextPerm120()">120</button>
   <div id="topRightDisplay"></div>
 
   <input type="file" id="json-upload" accept=".json" style="display:none;" />
@@ -1918,6 +1940,12 @@ function makePalette(){
         if(e) e.style.display = textsVisible ? 'none' : 'block';
       });
 
+      const miniBtns = ['patternNextButton','engineCycleButton','permNextButton'];
+      miniBtns.forEach(id=>{
+        const e = document.getElementById(id);
+        if(e) e.style.display = textsVisible ? 'block' : 'none';
+      });
+
       // Mantener SIEMPRE cerrado el panel de 120 perms
       const p = document.getElementById('perm120Panel');
       if (p) p.style.display = 'none';
@@ -1929,6 +1957,26 @@ function makePalette(){
       // Asegura que el cursor personalizado vuelva a mostrarse
       const cc = document.getElementById('customCursor');
       if (cc) cc.style.display = 'block';
+    }
+
+    /* 3.1 Patrón cromático siguiente */
+    function cyclePattern(){
+      activePatternId = (activePatternId % 11) + 1;           // 1…11 en ciclo
+      const sel = document.getElementById('patternSelect');
+      if(sel) sel.value = String(activePatternId);            // actualiza el <select>
+      refreshAll({rebuild:false});
+    }
+
+    /* 3.2 Motor visual siguiente  (FRBN → LCHT → BUILD → FRBN …) */
+    function cycleEngine(){
+      if(isFRBN){                 // FRBN → LCHT
+        toggleFRBN();
+        toggleLCHT();
+      }else if(isLCHT){           // LCHT → BUILD
+        switchToBuild();
+      }else{                      // BUILD → FRBN
+        toggleFRBN();
+      }
     }
 
     function setMode(m){
@@ -2552,7 +2600,7 @@ function renderArchPanel(html){
 
       // ← NUEVO: como si hubieras presionado BUILD al cargar
       generateRandomConfigurationNoCollision().catch(console.error);
-
+      toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
       animate();
     }
     function onWindowResize(){
