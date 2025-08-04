@@ -206,17 +206,6 @@
   #lchtWrap  { position:fixed; left:10px; bottom:50px; z-index:260; }
   #lchtButton{ position:relative; }
 
-  /* OFFNNG */
-  #offnngButton{
-    position:fixed; left:10px; bottom:30px;   /* entre LCHT (50 px) e Information (10 px) */
-    z-index:260;
-    border:none; border-radius:4px;
-    padding:8px 12px; font-size:12px;
-    background:rgba(255,255,255,0.12);
-    cursor:none; transition:background .2s;
-  }
-  #offnngButton:hover{ background:rgba(255,255,255,0.20); }
-
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
     position:fixed;               /* mismo estilo general */
@@ -260,8 +249,6 @@
   <div id="lchtWrap">
     <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
-  <!-- NUEVO · motor OFFNNG -->
-  <button id="offnngButton" onclick="toggleOFFNNG()">OFFNNG</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -747,11 +734,6 @@ function initSkySphere() {
     let isLCHT     = false;
     let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
-    /* OFFNNG */
-    let isOFFNNG      = false;
-    let offnngGroup   = null;   // grietas
-    let offnngInterior= null;   // malla de los 20 736 colores
-
     /* color determinista = mismo que la permutación                    */
     function colorForPerm(pa){
       const idx = pa[ attributeMapping[1] ];                // 1–5
@@ -928,75 +910,6 @@ function buildLCHT() {
 /* ════════════════════════════════════════════════════════════ */
 
 
-/* ─────────────────────────────
- *   OFFNNG · “cubo fisurado”
- * ───────────────────────────── */
-function buildOFFNNG(){
-  /* ─── interior multicolor (instanced) ─── */
-  if(!offnngInterior){
-    const HX=144, HY=12, HZ=12, total=HX*HY*HZ;
-    const stepX=cubeSize/HX, stepY=cubeSize/HY, stepZ=cubeSize/HZ;   // Y = Value
-    const g   = new THREE.BoxGeometry(0.15,0.15,0.15);
-    const m   = new THREE.MeshBasicMaterial({
-      vertexColors:true,
-      transparent:true,
-      opacity:0                 // ← invisibilidad por defecto
-    });
-    offnngInterior = new THREE.InstancedMesh(g,m,total);
-    const dummy = new THREE.Object3D();
-    const col   = new THREE.Color();
-    let k=0;
-    for(let ix=0;ix<HX;ix++){
-      for(let iy=0;iy<HY;iy++){
-        for(let iz=0;iz<HZ;iz++){
-          dummy.position.set(
-            -halfCube + (ix+0.5)*stepX,
-            -halfCube + (iy+0.5)*stepY,
-            -halfCube + (iz+0.5)*stepZ
-          );
-          dummy.updateMatrix();
-          offnngInterior.setMatrixAt(k,dummy.matrix);
-
-          const {h,s,v}=idxToHSV(ix,iz,iy);            // H = ix, S = iz, V = iy (⟵ swap)
-          const rgb     = hsvToRgb(h,s,v);
-          col.setRGB(rgb[0]/255,rgb[1]/255,rgb[2]/255);
-          offnngInterior.setColorAt(k,col);
-
-          k++;
-        }
-      }
-    }
-    offnngInterior.instanceMatrix.needsUpdate = true;
-    offnngInterior.instanceColor.needsUpdate  = true;
-    scene.add(offnngInterior);
-  }
-
-  /* ─── grietas (una por permutación activa) ─── */
-  if(offnngGroup) scene.remove(offnngGroup);
-  offnngGroup = new THREE.Group(); scene.add(offnngGroup);
-
-  const opts = Array.from(document.getElementById('permutationList').selectedOptions);
-  opts.forEach(o=>{
-    const pa  = o.value.split(',').map(Number);
-    const fv  = pa[attributeMapping[0]];          // misma altura que BUILD
-    const h   = shapeMapping[fv].h;
-    const w   = shapeMapping[fv].w;               // ancho = profundidad (BUILD)
-    const geo = new THREE.BoxGeometry(w,h,w);
-    const pos = computeShiftRankXYZ(pa);
-    const mat = new THREE.MeshBasicMaterial({
-      color: colorFromVolume(new THREE.Vector3(...pos))
-    });
-    const crack = new THREE.Mesh(geo,mat);
-    crack.position.set(...pos);
-    offnngGroup.add(crack);
-  });
-}
-
-function clearOFFNNG(){
-  if(offnngGroup){ scene.remove(offnngGroup); offnngGroup=null; }
-  if(offnngInterior){ scene.remove(offnngInterior); offnngInterior=null; }
-}
-
     function toggleLCHT(){
       isLCHT = !isLCHT;
 
@@ -1033,30 +946,6 @@ function clearOFFNNG(){
         }
       const b = document.getElementById('lchtButton');
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
-    }
-
-    function toggleOFFNNG(){
-      isOFFNNG = !isOFFNNG;
-
-      if(isOFFNNG){              // ─── ENTRAR ───
-        if(isFRBN)  toggleFRBN();   // exclusividad
-        if(isLCHT)  toggleLCHT();
-
-        permutationGroup.visible = false;
-        cubeUniverse.visible     = true;
-        cubeUniverse.material.color.set(0xffffff);
-        cubeUniverse.material.opacity = 1;
-        scene.background = new THREE.Color(0xffffff);  // fondo fijo blanco
-
-        buildOFFNNG();
-      }else{                     // ─── SALIR ───
-        clearOFFNNG();
-        permutationGroup.visible = true;
-        cubeUniverse.material.opacity = 0.2;          // valor original
-      }
-
-      const b=document.getElementById('offnngButton');
-      if(b) b.textContent = isOFFNNG ? 'OFFNNG ON' : 'OFFNNG';
     }
 
     /* reconstruye LCHT si hay cambios de escena */
@@ -2006,7 +1895,6 @@ function makePalette(){
 
       if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
-      if(isOFFNNG) { clearOFFNNG(); buildOFFNNG(); }
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2045,7 +1933,7 @@ function makePalette(){
       const ids = [
         'controls','topRightDisplay','ratingContainer',
         'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','lchtWrap','offnngButton','infoButton','certButton'
+        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','lchtWrap','infoButton','certButton'
         ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -2081,10 +1969,14 @@ function makePalette(){
 
     /* 3.2 Motor visual siguiente  (FRBN → LCHT → BUILD → FRBN …) */
     function cycleEngine(){
-      if(isFRBN)        { toggleFRBN();  toggleLCHT();               }
-      else if(isLCHT)   { toggleLCHT();  toggleOFFNNG();             }
-      else if(isOFFNNG) { toggleOFFNNG(); /* → BUILD */              }
-      else              { toggleFRBN();                              }
+      if(isFRBN){                 // FRBN → LCHT
+        toggleFRBN();
+        toggleLCHT();
+      }else if(isLCHT){           // LCHT → BUILD
+        switchToBuild();
+      }else{                      // BUILD → FRBN
+        toggleFRBN();
+      }
     }
 
     function setMode(m){
