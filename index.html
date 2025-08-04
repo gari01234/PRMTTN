@@ -935,9 +935,13 @@ function buildOFFNNG(){
   /* ─── interior multicolor (instanced) ─── */
   if(!offnngInterior){
     const HX=144, HY=12, HZ=12, total=HX*HY*HZ;
-    const stepX=cubeSize/HX, stepY=cubeSize/HY, stepZ=cubeSize/HZ;
+    const stepX=cubeSize/HX, stepY=cubeSize/HY, stepZ=cubeSize/HZ;   // Y = Value
     const g   = new THREE.BoxGeometry(0.15,0.15,0.15);
-    const m   = new THREE.MeshBasicMaterial({vertexColors:true});
+    const m   = new THREE.MeshBasicMaterial({
+      vertexColors:true,
+      transparent:true,
+      opacity:0                 // ← invisibilidad por defecto
+    });
     offnngInterior = new THREE.InstancedMesh(g,m,total);
     const dummy = new THREE.Object3D();
     const col   = new THREE.Color();
@@ -953,7 +957,7 @@ function buildOFFNNG(){
           dummy.updateMatrix();
           offnngInterior.setMatrixAt(k,dummy.matrix);
 
-          const {h,s,v}=idxToHSV(ix,iy,iz);
+          const {h,s,v}=idxToHSV(ix,iz,iy);            // H = ix, S = iz, V = iy (⟵ swap)
           const rgb     = hsvToRgb(h,s,v);
           col.setRGB(rgb[0]/255,rgb[1]/255,rgb[2]/255);
           offnngInterior.setColorAt(k,col);
@@ -976,7 +980,7 @@ function buildOFFNNG(){
     const pa  = o.value.split(',').map(Number);
     const fv  = pa[attributeMapping[0]];          // misma altura que BUILD
     const h   = shapeMapping[fv].h;
-    const w   = 0.6;                              // Breite = Tiefe
+    const w   = shapeMapping[fv].w;               // ancho = profundidad (BUILD)
     const geo = new THREE.BoxGeometry(w,h,w);
     const pos = computeShiftRankXYZ(pa);
     const mat = new THREE.MeshBasicMaterial({
@@ -1042,6 +1046,7 @@ function clearOFFNNG(){
         cubeUniverse.visible     = true;
         cubeUniverse.material.color.set(0xffffff);
         cubeUniverse.material.opacity = 1;
+        scene.background = new THREE.Color(0xffffff);  // fondo fijo blanco
 
         buildOFFNNG();
       }else{                     // ─── SALIR ───
