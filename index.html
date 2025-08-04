@@ -2562,12 +2562,40 @@ function renderArchPanel(html){
       renderer.outputEncoding = THREE.sRGBEncoding; // salida en sRGB → menos banding
       document.body.appendChild(renderer.domElement);
     }
+    /* ════════════════════════════════════════════════
+     *  CENTRAL CLICK / TAP  →  PLAY  (solo Minimal UI)
+     *  – equivale a pulsar el botón ▮playButton
+     *  – funciona con ratón o con dedo (touch)
+     *  – solo se activa cuando textsVisible === false
+     *    (modo Minimal UI)
+     * ═══════════════════════════════════════════════ */
+    function centralPlayHandler(evt){
+      if (textsVisible) return;                     // UI visible → ignore
+
+      // coordenadas del evento (mouse o touch)
+      const p = evt.touches && evt.touches.length ? evt.touches[0] : evt;
+      const x = p.clientX, y = p.clientY;
+
+      // región “central”: ±25 % del ancho y alto de la ventana
+      const cx = window.innerWidth  * 0.5;
+      const cy = window.innerHeight * 0.5;
+      if (
+        Math.abs(x - cx) < window.innerWidth  * 0.25 &&
+        Math.abs(y - cy) < window.innerHeight * 0.25
+      ){
+        evt.preventDefault();       // evita drag/zoom de OrbitControls
+        evt.stopPropagation();
+        generateRandomConfigurationNoCollision();   // ▶️   PLAY
+      }
+    }
     function init(){
       scene=new THREE.Scene();
       scene.background=new THREE.Color(0xffffff);
       camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
       initRenderer();
+      renderer.domElement.addEventListener('click',      centralPlayHandler, false);
+      renderer.domElement.addEventListener('touchstart', centralPlayHandler, { passive:false });
       controls=new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
       document.getElementById('standardView').value = 'front';
