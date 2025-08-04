@@ -707,6 +707,7 @@ function initSkySphere() {
 
     /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
     function toggleFRBN () {
+      if (!isFRBN && isOFFNNG) toggleOFFNNG();  // ← NUEVO
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -918,6 +919,7 @@ function buildLCHT() {
 
 
     function toggleLCHT(){
+      if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
       isLCHT = !isLCHT;
 
         if (isLCHT){
@@ -960,6 +962,7 @@ function buildLCHT() {
 
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
+      if (isOFFNNG) toggleOFFNNG();   // ← NUEVO: asegura exclusividad
       if (isFRBN) toggleFRBN();   // apaga FRBN si estaba activo
       if (isLCHT) toggleLCHT();   // apaga LCHT si estaba activo
       /* Nada más: la escena existente permanece tal cual */
@@ -1915,6 +1918,7 @@ function makePalette(){
       refreshAll({keepManual:false});   // reconstruye escena y pickers
     }
     function updateBackground(manual=true){
+      if (isOFFNNG && !manual) return;          // ← NUEVO
       /* Si estamos en LCHT y la llamada NO es manual, salimos.
          Esto conserva el fondo claro (#f4f4f4) fijado en toggleLCHT(). */
       if (isLCHT && !manual) return;
@@ -2683,49 +2687,54 @@ function renderArchPanel(html){
     let isOFFNNG     = false;
     let offnngPrevBg = null;
 
-    function buildOFFNNG(){
-      if(offnngGroup){
-        offnngGroup.traverse(o=>{
-          if(o.isPoints){ o.geometry.dispose(); o.material.dispose(); }
+    function buildOFFNNG () {
+      if (offnngGroup) {
+        offnngGroup.traverse(o => {
+          if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
         });
         scene.remove(offnngGroup);
       }
       offnngGroup = new THREE.Group();
       scene.add(offnngGroup);
 
-      const HX = 144, HY = 12, HZ = 12;             // 144 × 12 × 12 = 20 736
-      const POS = new Float32Array(HX*HY*HZ*3);
-      const COL = new Float32Array(HX*HY*HZ*3);
+      const HX = 144, HY = 12, HZ = 12;               // 144×12×12 = 20 736 tonos
+      const total = HX * HY * HZ;
 
+      const stepX = cubeSize / HX;
+      const stepY = cubeSize / HY;
+      const stepZ = cubeSize / HZ;
+      const half  = cubeSize / 2;
+
+      const boxGeo = new THREE.BoxGeometry(stepX, stepY, stepZ);
+      const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+      const voxels = new THREE.InstancedMesh(boxGeo, boxMat, total);
+      voxels.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+      const c = new THREE.Color();
       let k = 0;
-      for(let ix=0; ix<HX; ix++){
-        const x = (ix/(HX-1))*cubeSize - halfCube;
-        for(let iy=0; iy<HY; iy++){
-          const y = (iy/(HY-1))*cubeSize - halfCube;
-          for(let iz=0; iz<HZ; iz++){
-            const z = (iz/(HZ-1))*cubeSize - halfCube;
+      for (let ix = 0; ix < HX; ix++) {
+        const x = ix * stepX - half + stepX / 2;
+        for (let iy = 0; iy < HY; iy++) {
+          const y = iy * stepY - half + stepY / 2;
+          for (let iz = 0; iz < HZ; iz++) {
+            const z = iz * stepZ - half + stepZ / 2;
 
-            POS[3*k  ] = x;
-            POS[3*k+1] = y;
-            POS[3*k+2] = z;
+            // posición
+            const m = new THREE.Matrix4().setPosition(x, y, z);
+            voxels.setMatrixAt(k, m);
 
-            const {h,s,v} = idxToHSV(ix, iy, iz);
-            const [R,G,B] = hsvToRgb(h, s, v);
-            COL[3*k  ] = R/255;
-            COL[3*k+1] = G/255;
-            COL[3*k+2] = B/255;
+            // color HSV→RGB
+            const { h, s, v } = idxToHSV(ix, iy, iz);
+            const [R, G, B]   = hsvToRgb(h, s, v);
+            c.setRGB(R / 255, G / 255, B / 255);
+            voxels.setColorAt(k, c);
 
             k++;
           }
         }
       }
-
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(POS, 3));
-      geo.setAttribute('color',    new THREE.BufferAttribute(COL, 3));
-
-      const mat = new THREE.PointsMaterial({ size:0.20, vertexColors:true });
-      offnngGroup.add(new THREE.Points(geo, mat));
+      voxels.instanceColor.needsUpdate = true;
+      offnngGroup.add(voxels);
     }
 
     function toggleOFFNNG(){
@@ -2747,7 +2756,7 @@ function renderArchPanel(html){
       }else{                             // SALIR
         if(offnngGroup){
           offnngGroup.traverse(o=>{
-            if(o.isPoints){ o.geometry.dispose(); o.material.dispose(); }
+            if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }
           });
           scene.remove(offnngGroup);
           offnngGroup = null;
