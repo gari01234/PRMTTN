@@ -2704,20 +2704,21 @@ function renderArchPanel(html){
         scene.remove(offnngGroup);
         offnngGroup = null; offnngMesh = null;
       }
-
+    
       const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-
+    
       const mat = new THREE.ShaderMaterial({
         uniforms: {
           uHalf      : { value: cubeSize * 0.5 },
           uInvModel  : { value: new THREE.Matrix4() },
-          // —— LOOK más claro por defecto ——
-          uDensity   : { value: 0.58 },   // antes 1.0 (menos densidad = menos oscurecimiento)
-          uSMin      : { value: 0.28 },   // piso de saturación
-          uVMin      : { value: 0.52 },   // antes 0.32  (eleva el valor mínimo → menos sombras)
-          uGammaV    : { value: 1.0 },    // antes 0.8   (curva más lineal)
-          uExposure  : { value: 1.32 },   // antes 1.18  (un poco más de exposición)
-          uSteps     : { value: 28 }      // Low por defecto (aplica también en applyOFFNNGQuality)
+    
+          // ====== VIVID (parámetros base) ======
+          uDensity   : { value: 0.95 },  // más “presencia” sin oscurecer
+          uSMin      : { value: 0.52 },  // piso de S alto
+          uVMin      : { value: 0.64 },  // piso de V alto → sin grises
+          uGammaV    : { value: 0.88 },  // levanta medios
+          uExposure  : { value: 1.22 },  // empuje final contenido
+          uSteps     : { value: 28 }     // Low fijo (rendimiento)
         },
         transparent : true,
         depthWrite  : false,
@@ -2725,114 +2726,125 @@ function renderArchPanel(html){
         side        : THREE.DoubleSide,
         dithering   : true,
         vertexShader: `
-      varying vec3 vPos;
-      void main() {
-        vPos = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
+          varying vec3 vPos;
+          void main() {
+            vPos = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
         fragmentShader: `
-      precision highp float;
-
-      uniform float uHalf;
-      uniform mat4  uInvModel;
-      uniform float uDensity;
-      uniform float uSMin;
-      uniform float uVMin;
-      uniform float uGammaV;
-      uniform float uExposure;
-      uniform int   uSteps;
-      varying vec3  vPos;
-
-      vec3 hsv2rgb(float H, float S, float V){
-        float h = H / 360.0;
-        vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
-        vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
-        vec3 rgb = V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
-        return rgb;
-      }
-
-      bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
-        vec3 bmin = vec3(-uHalf);
-        vec3 bmax = vec3( uHalf);
-        vec3 invD = 1.0 / rd;
-        vec3 tA = (bmin - ro) * invD;
-        vec3 tB = (bmax - ro) * invD;
-        vec3 tsm = min(tA, tB);
-        vec3 tbg = max(tA, tB);
-        t0 = max(max(tsm.x, tsm.y), tsm.z);
-        t1 = min(min(tbg.x, tbg.y), tbg.z);
-        return (t1 >= max(t0, 0.0));
-      }
-
-      void main(){
-        vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
-        vec3 rd = normalize(vPos - ro);
-
-        float tEnter, tExit;
-        if(!rayBox(ro, rd, tEnter, tExit)) discard;
-
-        float t0 = max(tEnter, 0.0);
-        float t1 = tExit;
-
-        float len = t1 - t0;
-        float dt  = len / float(max(uSteps, 1));
-        vec3  pos = ro + rd * (t0 + 0.5 * dt);
-
-        vec3  acc = vec3(0.0);
-        float a   = 0.0;
-        float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
-
-        const int MAX_STEPS = 64;
-
-        for (int i=0; i<MAX_STEPS; i++){
-          if (i >= uSteps) break;
-
-          // Normalizado a [0,1]^3
-          vec3 u = (pos / uHalf) * 0.5 + 0.5;
-
-          // —— Suavizado de bordes (quita "sombras" en caras) ——
-          // distancia mínima a cualquier cara del cubo en espacio normalizado
-          float edgeDist = min(min(u.x, 1.0 - u.x),
-                          min(min(u.y, 1.0 - u.y), min(u.z, 1.0 - u.z)));
-          // 0 cerca del borde, 1 en el centro
-          float edge = smoothstep(0.08, 0.32, edgeDist);
-
-          // Mapeo continuo + look
-          float H = u.x * 360.0;
-
-          float V = clamp(u.y, 0.0, 1.0);
-          V = pow(V, uGammaV);
-          V = max(V, uVMin);
-
-          float S = clamp(u.z, 0.0, 1.0);
-          S = max(S, uSMin);
-
-          vec3  rgb = hsv2rgb(H, S, V);
-
-          // Composición "under" con atenuación de borde
-          float w = (1.0 - a) * alphaStep * edge;
-          acc += rgb * w;
-          a   += w;
-
-          if (a > 0.995) break;
-          pos += rd * dt;
-        }
-
-        vec3 col = min(acc * uExposure, vec3(1.0));
-        gl_FragColor = vec4(col, a);
-      }
-    `
+          precision highp float;
+    
+          uniform float uHalf;
+          uniform mat4  uInvModel;
+          uniform float uDensity;
+          uniform float uSMin;
+          uniform float uVMin;
+          uniform float uGammaV;
+          uniform float uExposure;
+          uniform int   uSteps;
+          varying vec3  vPos;
+    
+          // === constantes VIVID ===
+          const float SAT_BOOST = 1.50;   // realce cromático perceptual
+    
+          vec3 hsv2rgb(float H, float S, float V){
+            float h = H / 360.0;
+            vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+            vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
+            vec3 rgb = V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
+            return rgb;
+          }
+    
+          bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
+            vec3 bmin = vec3(-uHalf);
+            vec3 bmax = vec3( uHalf);
+            vec3 invD = 1.0 / rd;
+            vec3 tA = (bmin - ro) * invD;
+            vec3 tB = (bmax - ro) * invD;
+            vec3 tsm = min(tA, tB);
+            vec3 tbg = max(tA, tB);
+            t0 = max(max(tsm.x, tsm.y), tsm.z);
+            t1 = min(min(tbg.x, tbg.y), tbg.z);
+            return (t1 >= max(t0, 0.0));
+          }
+    
+          void main(){
+            vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
+            vec3 rd = normalize(vPos - ro);
+    
+            float tEnter, tExit;
+            if(!rayBox(ro, rd, tEnter, tExit)) discard;
+    
+            float t0 = max(tEnter, 0.0);
+            float t1 = tExit;
+    
+            float len = t1 - t0;
+            float dt  = len / float(max(uSteps, 1));
+            vec3  pos = ro + rd * (t0 + 0.5 * dt);
+    
+            // acumuladores (premultiplicado)
+            vec3  acc = vec3(0.0);
+            float a   = 0.0;
+    
+            // base de opacidad por paso (Beer-Lambert)
+            float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
+    
+            const int MAX_STEPS = 64;
+    
+            for (int i=0; i<MAX_STEPS; i++){
+              if (i >= uSteps) break;
+    
+              // Normalizado a [0,1]^3
+              vec3 u = (pos / uHalf) * 0.5 + 0.5;
+    
+              // Fade de bordes (evita “caras” más oscuras)
+              float edgeDist = min(min(u.x, 1.0 - u.x),
+                                   min(min(u.y, 1.0 - u.y), min(u.z, 1.0 - u.z)));
+              float edge = smoothstep(0.08, 0.32, edgeDist);
+    
+              // Ejes → HSV (X→H, Y→V, Z→S) con pisos + curva
+              float H = u.x * 360.0;
+    
+              float V = clamp(u.y, 0.0, 1.0);
+              V = pow(V, uGammaV);
+              V = max(V, uVMin);
+    
+              float S = clamp(u.z, 0.0, 1.0);
+              S = max(S, uSMin);
+    
+              vec3 rgb = hsv2rgb(H, S, V);
+    
+              // Opacidad ponderada por S: las zonas saturadas dominan la mezcla
+              float w = (1.0 - a) * alphaStep * edge;
+              w *= mix(0.80, 1.18, S);   // selective absorption (S-weighted)
+    
+              acc += rgb * w;            // premultiplicado
+              a   += w;
+    
+              if (a > 0.995) break;
+              pos += rd * dt;
+            }
+    
+            // —— Chroma-preserving resolve (des-premultiplica → boost → re-premultiplica) ——
+            vec3 c = (a > 1e-5) ? (acc / a) : acc;
+            float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            c = mix(vec3(luma), c, SAT_BOOST);   // más croma sin quemar
+    
+            vec3 col = min(c * a * uExposure, vec3(1.0));
+            gl_FragColor = vec4(col, a);
+          }
+        `
       });
-
+    
       offnngMesh  = new THREE.Mesh(geo, mat);
       offnngMesh.updateMatrixWorld(true);
       mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
-
+    
       offnngGroup = new THREE.Group();
       offnngGroup.add(offnngMesh);
       scene.add(offnngGroup);
-
+    
       // aplica el cap de pixel ratio y uSteps de "Low" fijo
       applyOFFNNGQuality();
     }
