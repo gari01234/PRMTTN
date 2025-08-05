@@ -2714,36 +2714,43 @@ function renderArchPanel(html){
           uHalf        : { value: cubeSize * 0.5 },
           uInvModel    : { value: new THREE.Matrix4() },
 
-          // —— LOOK VIVID —— (pisos y ganancias de S/V + exposición)
-          uDensity     : { value: 0.85 },   // opacidad por paso (acumula más rápido)
-          uSMin        : { value: 0.50 },   // piso de saturación
-          uVMin        : { value: 0.65 },   // piso de valor
-          uSatGain     : { value: 1.15 },   // ganancia global de saturación
-          uValGain     : { value: 1.18 },   // ganancia global de valor
-          uGammaV      : { value: 0.72 },   // gamma sobre V (<1 ilumina sombras)
-          uExposure    : { value: 1.55 },   // exposición final
+          // —— LOOK STRONG ——
+          uDensity     : { value: 0.70 },   // menos densidad → más luz acumulada
+          uSMin        : { value: 0.60 },
+          uVMin        : { value: 0.78 },
+          uSatGain     : { value: 1.22 },
+          uValGain     : { value: 1.28 },
+          uGammaV      : { value: 0.60 },
+          uExposure    : { value: 1.85 },
 
           // ——— BORDE TINTADO ———
-          uEdgeStrength: { value: 1.0 },    // 0=sin suavizado, 1=suavizado fuerte
-          uEdgeBase    : { value: 0.55 },   // opacidad mínima cerca del borde (evita halo negro)
-          uEdgePow     : { value: 1.6 },    // potencia para edge^p
-          uEdgeTintV   : { value: 0.65 },   // V mínimo del “tinte de cara” en el borde
+          uEdgeStrength: { value: 1.0 },
+          uEdgeBase    : { value: 0.65 },
+          uEdgePow     : { value: 1.6 },
+          uEdgeTintV   : { value: 0.72 },
 
-          // Sesgo frontal (sin cambiar)
-          uFrontBias   : { value: 0.85 },   // 0=neutral, 1=domina cara frontal
+          // Sesgo frontal
+          uFrontBias   : { value: 0.85 },
 
-          // Pasos de ray-march
+          // Ray-march
           uSteps       : { value: 36 },
 
           // Movimiento determinista
           uTime        : { value: 0.0 },
-          uHueBias     : { value: 0.0 },    // grados
-          uHueRate     : { value: 0.0 },    // grados/seg
-          uVBreathAmp  : { value: 0.0 },    // amplitud (0–0.2 aprox)
-          uVBreathHz   : { value: 0.03 },   // Hz
+          uHueBias     : { value: 0.0 },    // ° (seed global)
+          uHueRate     : { value: 45.0 },   // °/s (perfil Strong)
+          uVBreathAmp  : { value: 0.14 },   // 0–0.2
+          uVBreathHz   : { value: 0.06 },   // Hz
           uVBreathPhase: { value: 0.0 },    // rad
 
-          // Alpha opaca para evitar lavado con el fondo (1 = opaco)
+          // A) offset espacial del eje H (X → H)
+          uPhaseX      : { value: 0.0 },    // [0,1)
+
+          // D) giro volumétrico del campo (no del mesh)
+          uRotAxis     : { value: new THREE.Vector3(0,1,0) }, // unitario
+          uRotRateDeg  : { value: 25.0 },     // °/s
+
+          // Alpha final
           uOpaque      : { value: 1 }
         },
         transparent : true,
@@ -2769,6 +2776,11 @@ function renderArchPanel(html){
       uniform int   uSteps;
 
       uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
+      uniform float uPhaseX;
+
+      uniform vec3  uRotAxis;
+      uniform float uRotRateDeg;
+
       uniform int   uOpaque;
 
       varying vec3  vPos;
@@ -2793,6 +2805,13 @@ function renderArchPanel(html){
         return (t1 >= max(t0, 0.0));
       }
 
+      // ——— D) rotación alrededor de un eje (Rodrigues) ———
+      vec3 rotateAxis(vec3 p, vec3 axis, float theta){
+        vec3 a = normalize(axis);
+        float c = cos(theta), s = sin(theta);
+        return p*c + cross(a, p)*s + a*dot(a, p)*(1.0 - c);
+      }
+
       void main(){
         vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
         vec3 rd = normalize(vPos - ro);
@@ -2811,25 +2830,33 @@ function renderArchPanel(html){
         float a   = 0.0;
         float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
 
+        // ángulo de giro (rad) ··· D
+        float theta = radians(uRotRateDeg) * uTime;
+
         const int MAX_STEPS = 64;
         for (int i=0; i<MAX_STEPS; i++){
           if (i >= uSteps) break;
 
-          vec3 u = (pos / uHalf) * 0.5 + 0.5;   // [0,1]^3
+          // espacio normalizado [-1,1] → rotación volumétrica
+          vec3 q = pos / uHalf;
+          q = rotateAxis(q, uRotAxis, theta);
+
+          // a [0,1]^3 y offset cromático (A)
+          vec3 u = q * 0.5 + 0.5;
+          u.x = fract(u.x + uPhaseX);
 
           // — distancia a caras → factor de borde [0..1]
           float dx = min(u.x, 1.0 - u.x);
           float dy = min(u.y, 1.0 - u.y);
           float dz = min(u.z, 1.0 - u.z);
           float edgeDist = min(min(dx, dy), dz);
-          float edge = smoothstep(0.06, 0.18, edgeDist);   // 0 en borde → 1 interior
+          float edge = smoothstep(0.06, 0.18, edgeDist);
           edge = pow(edge, max(0.2, uEdgePow));
 
-          // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing”
+          // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing” (B,C)
           float H = mod(u.x * 360.0 + uHueBias + uTime * uHueRate, 360.0);
 
           float V = clamp(u.y, 0.0, 1.0);
-          // respiración global en V (suave)
           V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
           V = clamp(V, 0.0, 1.0);
           V = pow(V, uGammaV);
@@ -2842,7 +2869,7 @@ function renderArchPanel(html){
 
           vec3 rgb = hsv2rgb(H, S, V);
 
-          // — color de “cara” para tinte de borde (tomamos la cara más cercana)
+          // — color de “cara” para tinte de borde
           vec3 uF = u;
           if (dx <= dy && dx <= dz) { uF.x = (u.x < 0.5 ? 0.0 : 1.0); }
           else if (dy <= dx && dy <= dz) { uF.y = (u.y < 0.5 ? 0.0 : 1.0); }
@@ -2852,11 +2879,9 @@ function renderArchPanel(html){
           float SF = max(uF.z, uSMin);
           vec3  rgbFace = hsv2rgb(HF, SF, VF);
 
-          // — mezcla hacia el color de cara cerca del borde
           rgb = mix(rgbFace, rgb, edge);
 
-          // — sesgo frontal + opacidad mínima en borde (evita halo negro)
-          float tau       = float(i) / float(max(uSteps-1, 1)); // 0 frente → 1 fondo
+          float tau       = float(i) / float(max(uSteps-1, 1));
           float front     = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
           float edgeAlpha = mix(uEdgeBase, 1.0, edge);
 
@@ -2959,10 +2984,10 @@ function renderArchPanel(html){
   function syncOFFNNGFromScene(){
     if (!offnngMesh || !offnngMesh.material || !offnngMesh.material.uniforms) return;
 
-    // 1) Rango medio de la escena (2..6) sobre las permutaciones actualmente seleccionadas
+    // Rango medio de la escena (2..6) → normalizado 0..1
     const sel = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
-    let avgR = 4.0; // valor neutro
+    let avgR = 4.0;
     if (sel.length){
       const ranges = sel.map(p => computeRange(computeSignature(p)));
       avgR = ranges.reduce((a,b)=>a+b,0) / ranges.length;
@@ -2972,25 +2997,43 @@ function renderArchPanel(html){
 
     const U = offnngMesh.material.uniforms;
 
-    // 2) Pisos y look (más vida para rangos altos)
-    U.uSMin.value   = 0.28 + 0.10 * nr;
-    U.uVMin.value   = 0.52 + 0.10 * nr;
-    U.uDensity.value= 0.58 - 0.10 * nr;
-    U.uExposure.value = 1.32 + 0.10 * nr;
-
-    // 3) Borde tintado
-    U.uEdgeBase.value  = 0.55;
-    U.uEdgeTintV.value = 0.65;
+    // —— LOOK STRONG (más brillo/contraste) ——
+    U.uSMin.value      = 0.60;                 // pisos altos y fijos (Strong)
+    U.uVMin.value      = 0.78;
+    U.uSatGain.value   = 1.22;
+    U.uValGain.value   = 1.28;
+    U.uGammaV.value    = 0.60;
+    U.uExposure.value  = 1.85;
+    U.uDensity.value   = 0.70 - 0.05 * nr;     // un poco menos de densidad si la escena es “fuerte”
+    U.uEdgeBase.value  = 0.65;
+    U.uEdgeTintV.value = 0.72;
     U.uEdgePow.value   = 1.6;
-    U.uEdgeStrength.value = 1.0;   // mantenemos suavizado activado
+    U.uEdgeStrength.value = 1.0;
 
-    // 4) Movimiento determinista
-    const phase0 = ((sceneSeed + S_global) % 144) / 144;        // [0,1)
-    U.uHueBias.value      = sceneSeed;                          // en grados
-    U.uHueRate.value      = 0.6 + 0.8 * nr;                     // °/s
-    U.uVBreathAmp.value   = 0.06 * nr;                          // amplitud
-    U.uVBreathHz.value    = 0.02 + 0.05 * nr;                   // Hz
-    U.uVBreathPhase.value = 6.2831853 * phase0;                 // rad
+    // —— Movimiento determinista (A–D) ——
+    // A) Punto de partida espacial del H (offset sobre X)
+    const phaseX = ((sceneSeed + 2 * S_global) % 360) / 360;     // [0,1)
+    U.uPhaseX.value = phaseX;
+
+    // B) Hue drift rápido (°/s) — perfil Strong
+    U.uHueBias.value = sceneSeed;                                // grados
+    U.uHueRate.value = 35.0 + 20.0 * nr;                         // 35–55 °/s
+
+    // C) Respiración de brillo (V)
+    U.uVBreathAmp.value   = 0.12 + 0.04 * nr;                    // 0.12–0.16
+    U.uVBreathHz.value    = 0.06;                                // 0.06 Hz ≈ 16.7 s
+    const phase0 = ((sceneSeed + S_global) % 144) / 144;         // fase determinista
+    U.uVBreathPhase.value = 2.0 * Math.PI * phase0;
+
+    // D) Giro volumétrico del campo
+    // Eje unitario derivado de (sceneSeed, S_global)
+    const toRad = Math.PI / 180;
+    const ax = Math.cos((sceneSeed*13 + S_global*7) * toRad);
+    const ay = Math.cos((sceneSeed*5  + S_global*11) * toRad);
+    const az = Math.cos((sceneSeed*17 - S_global*3) * toRad);
+    const norm = Math.max(1e-6, Math.hypot(ax, ay, az));
+    U.uRotAxis.value.set(ax/norm, ay/norm, az/norm);
+    U.uRotRateDeg.value = 22.0 + 8.0 * nr;                       // 22–30 °/s
   }
 
   function toggleOFFNNGQuality(){
