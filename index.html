@@ -255,7 +255,7 @@
   <div id="lchtWrap">
     <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
-  <button id="offnngButton" onclick="toggleOFFNNG()">OFFNNG</button>
+  <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -2682,59 +2682,76 @@ function renderArchPanel(html){
         renderer.render(scene,camera);
       }
     
-    /* OFFNNG · cubo 20 736 colores */
+    /* OFFNNG – volumen de 20 736 píxeles HSV (144 × 12 × 12) – sin barras, tubos ni líneas */
     let offnngGroup  = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
 
     function buildOFFNNG () {
+
+      /* limpia escena previa */
       if (offnngGroup) {
-        offnngGroup.traverse(o => {
-          if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
+        offnngGroup.traverse(o=>{
+          if (o.isMesh || o.isPoints) { o.geometry.dispose(); o.material.dispose(); }
         });
         scene.remove(offnngGroup);
       }
       offnngGroup = new THREE.Group();
       scene.add(offnngGroup);
 
-      const HX = 144, HY = 12, HZ = 12;               // 144×12×12 = 20 736 tonos
-      const total = HX * HY * HZ;
+      /* ===== rejilla 144×12×12 ===== */
+      const HX = 144, HY = 12, HZ = 12;
+      const TOTAL = HX * HY * HZ;
 
-      const stepX = cubeSize / HX;
-      const stepY = cubeSize / HY;
-      const stepZ = cubeSize / HZ;
-      const half  = cubeSize / 2;
+      /* – espaciado uniforme en los tres ejes –  
+         usamos el más fino (HX) para que el voxel sea cúbico            */
+      const STEP = cubeSize / HX;              // ≈ 0.208 u
 
-      const boxGeo = new THREE.BoxGeometry(stepX, stepY, stepZ);
-      const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true });
-      const voxels = new THREE.InstancedMesh(boxGeo, boxMat, total);
-      voxels.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      const posArr   = new Float32Array(TOTAL * 3);
+      const colorArr = new Float32Array(TOTAL * 3);
 
-      const c = new THREE.Color();
+      const half = cubeSize / 2;
+      const col  = new THREE.Color();
       let k = 0;
-      for (let ix = 0; ix < HX; ix++) {
-        const x = ix * stepX - half + stepX / 2;
-        for (let iy = 0; iy < HY; iy++) {
-          const y = iy * stepY - half + stepY / 2;
-          for (let iz = 0; iz < HZ; iz++) {
-            const z = iz * stepZ - half + stepZ / 2;
 
-            // posición
-            const m = new THREE.Matrix4().setPosition(x, y, z);
-            voxels.setMatrixAt(k, m);
+      for (let iy = 0; iy < HY; iy++) {
+        const y = iy * STEP - half + STEP / 2;
+        for (let iz = 0; iz < HZ; iz++) {
+          const z = iz * STEP - half + STEP / 2;
+          for (let ix = 0; ix < HX; ix++) {
+            const x = ix * STEP - half + STEP / 2;
 
-            // color HSV→RGB
-            const { h, s, v } = idxToHSV(ix, iy, iz);
-            const [R, G, B]   = hsvToRgb(h, s, v);
-            c.setRGB(R / 255, G / 255, B / 255);
-            voxels.setColorAt(k, c);
+            /* posición */
+            posArr[3*k  ] = x;
+            posArr[3*k+1] = y;
+            posArr[3*k+2] = z;
+
+            /* color HSV → RGB */
+            const {h,s,v} = idxToHSV(ix, iy, iz);
+            const [R,G,B] = hsvToRgb(h,s,v);
+            col.setRGB(R/255, G/255, B/255);
+            colorArr[3*k  ] = col.r;
+            colorArr[3*k+1] = col.g;
+            colorArr[3*k+2] = col.b;
 
             k++;
           }
         }
       }
-      voxels.instanceColor.needsUpdate = true;
-      offnngGroup.add(voxels);
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+      geo.setAttribute('color',    new THREE.BufferAttribute(colorArr, 3));
+
+      /* cada punto = 0 .40 u, sin atenuación por distancia */
+      const mat = new THREE.PointsMaterial({
+        vertexColors:true,
+        size:0.40,
+        sizeAttenuation:false
+      });
+
+      const pts = new THREE.Points(geo, mat);
+      offnngGroup.add(pts);
     }
 
     function toggleOFFNNG(){
@@ -2756,7 +2773,7 @@ function renderArchPanel(html){
       }else{                             // SALIR
         if(offnngGroup){
           offnngGroup.traverse(o=>{
-            if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }
+            if(o.isMesh || o.isPoints){ o.geometry.dispose(); o.material.dispose(); }
           });
           scene.remove(offnngGroup);
           offnngGroup = null;
@@ -2766,6 +2783,13 @@ function renderArchPanel(html){
         permutationGroup.visible = true;
         if(lichtGroup && isLCHT) lichtGroup.visible = true;
       }
+    }
+
+    /* helper global – solo una vez en todo el archivo */
+    function ensureOnlyOFFNNG(){
+      if (isFRBN)  toggleFRBN();
+      if (isLCHT)  toggleLCHT();
+      if (!isOFFNNG) toggleOFFNNG();
     }
 
     init();
