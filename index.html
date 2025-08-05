@@ -1906,6 +1906,7 @@ function makePalette(){
 
       if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
+      if (isOFFNNG) syncOFFNNGFromScene();
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2656,6 +2657,7 @@ function renderArchPanel(html){
         });
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
+        if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
         if (isLCHT && lichtGroup) {
           const t   = performance.now() * 0.001;
           const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
@@ -2714,19 +2716,32 @@ function renderArchPanel(html){
 
           // —— LOOK VIVID —— (pisos y ganancias de S/V + exposición)
           uDensity     : { value: 0.85 },   // opacidad por paso (acumula más rápido)
-          uSMin        : { value: 0.50 },   // piso de saturación (antes 0.28)
-          uVMin        : { value: 0.65 },   // piso de valor (antes 0.52)
+          uSMin        : { value: 0.50 },   // piso de saturación
+          uVMin        : { value: 0.65 },   // piso de valor
           uSatGain     : { value: 1.15 },   // ganancia global de saturación
           uValGain     : { value: 1.18 },   // ganancia global de valor
           uGammaV      : { value: 0.72 },   // gamma sobre V (<1 ilumina sombras)
           uExposure    : { value: 1.55 },   // exposición final
 
-          // Control de suavizado de borde y sesgo frontal
-          uEdgeStrength: { value: 0.0 },    // 0=sin suavizado, 1=suavizado fuerte
+          // ——— BORDE TINTADO ———
+          uEdgeStrength: { value: 1.0 },    // 0=sin suavizado, 1=suavizado fuerte
+          uEdgeBase    : { value: 0.55 },   // opacidad mínima cerca del borde (evita halo negro)
+          uEdgePow     : { value: 1.6 },    // potencia para edge^p
+          uEdgeTintV   : { value: 0.65 },   // V mínimo del “tinte de cara” en el borde
+
+          // Sesgo frontal (sin cambiar)
           uFrontBias   : { value: 0.85 },   // 0=neutral, 1=domina cara frontal
 
-          // Pasos de ray-march (se ajustan también en applyOFFNNGQuality)
+          // Pasos de ray-march
           uSteps       : { value: 36 },
+
+          // Movimiento determinista
+          uTime        : { value: 0.0 },
+          uHueBias     : { value: 0.0 },    // grados
+          uHueRate     : { value: 0.0 },    // grados/seg
+          uVBreathAmp  : { value: 0.0 },    // amplitud (0–0.2 aprox)
+          uVBreathHz   : { value: 0.03 },   // Hz
+          uVBreathPhase: { value: 0.0 },    // rad
 
           // Alpha opaca para evitar lavado con el fondo (1 = opaco)
           uOpaque      : { value: 1 }
@@ -2737,117 +2752,127 @@ function renderArchPanel(html){
         side        : THREE.DoubleSide,
         dithering   : true,
         vertexShader: `
-          varying vec3 vPos;
-          void main() {
-            vPos = position;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `,
+      varying vec3 vPos;
+      void main() {
+        vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
         fragmentShader: `
-          precision highp float;
+      precision highp float;
 
-          uniform float uHalf;
-          uniform mat4  uInvModel;
+      uniform float uHalf;
+      uniform mat4  uInvModel;
 
-          uniform float uDensity;
-          uniform float uSMin;
-          uniform float uVMin;
-          uniform float uSatGain;
-          uniform float uValGain;
-          uniform float uGammaV;
-          uniform float uExposure;
-          uniform float uEdgeStrength;
-          uniform float uFrontBias;
-          uniform int   uSteps;
-          uniform int   uOpaque;
+      uniform float uDensity, uSMin, uVMin, uSatGain, uValGain, uGammaV, uExposure;
+      uniform float uEdgeStrength, uEdgeBase, uEdgePow, uEdgeTintV, uFrontBias;
+      uniform int   uSteps;
 
-          varying vec3  vPos;
+      uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
+      uniform int   uOpaque;
 
-          vec3 hsv2rgb(float H, float S, float V){
-            float h = H / 360.0;
-            vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
-            vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
-            vec3 rgb = V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
-            return rgb;
-          }
+      varying vec3  vPos;
 
-          bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
-            vec3 bmin = vec3(-uHalf);
-            vec3 bmax = vec3( uHalf);
-            vec3 invD = 1.0 / rd;
-            vec3 tA = (bmin - ro) * invD;
-            vec3 tB = (bmax - ro) * invD;
-            vec3 tsm = min(tA, tB);
-            vec3 tbg = max(tA, tB);
-            t0 = max(max(tsm.x, tsm.y), tsm.z);
-            t1 = min(min(tbg.x, tbg.y), tbg.z);
-            return (t1 >= max(t0, 0.0));
-          }
+      vec3 hsv2rgb(float H, float S, float V){
+        float h = H / 360.0;
+        vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+        vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
+        return V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
+      }
 
-          void main(){
-            vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
-            vec3 rd = normalize(vPos - ro);
+      bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
+        vec3 bmin = vec3(-uHalf);
+        vec3 bmax = vec3( uHalf);
+        vec3 invD = 1.0 / rd;
+        vec3 tA = (bmin - ro) * invD;
+        vec3 tB = (bmax - ro) * invD;
+        vec3 tsm = min(tA, tB);
+        vec3 tbg = max(tA, tB);
+        t0 = max(max(tsm.x, tsm.y), tsm.z);
+        t1 = min(min(tbg.x, tbg.y), tbg.z);
+        return (t1 >= max(t0, 0.0));
+      }
 
-            float tEnter, tExit;
-            if(!rayBox(ro, rd, tEnter, tExit)) discard;
+      void main(){
+        vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
+        vec3 rd = normalize(vPos - ro);
 
-            float t0 = max(tEnter, 0.0);
-            float t1 = tExit;
+        float tEnter, tExit;
+        if(!rayBox(ro, rd, tEnter, tExit)) discard;
 
-            float len = t1 - t0;
-            float dt  = len / float(max(uSteps, 1));
-            vec3  pos = ro + rd * (t0 + 0.5 * dt);
+        float t0 = max(tEnter, 0.0);
+        float t1 = tExit;
 
-            vec3  acc = vec3(0.0);
-            float a   = 0.0;
-            float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
+        float len = t1 - t0;
+        float dt  = len / float(max(uSteps, 1));
+        vec3  pos = ro + rd * (t0 + 0.5 * dt);
 
-            const int MAX_STEPS = 64;
-            for (int i=0; i<MAX_STEPS; i++){
-              if (i >= uSteps) break;
+        vec3  acc = vec3(0.0);
+        float a   = 0.0;
+        float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
 
-              vec3 u = (pos / uHalf) * 0.5 + 0.5;   // [0,1]^3
+        const int MAX_STEPS = 64;
+        for (int i=0; i<MAX_STEPS; i++){
+          if (i >= uSteps) break;
 
-              // — suavizado de borde opcional
-              float edgeFactor = 1.0;
-              if (uEdgeStrength > 0.0) {
-                float edgeDist = min(min(u.x, 1.0 - u.x),
-                                 min(min(u.y, 1.0 - u.y), min(u.z, 1.0 - u.z)));
-                float e = smoothstep(0.06, 0.18, edgeDist);
-                edgeFactor = mix(1.0, e, clamp(uEdgeStrength, 0.0, 1.0));
-              }
+          vec3 u = (pos / uHalf) * 0.5 + 0.5;   // [0,1]^3
 
-              // — mapeo HSV base (X→H, Y→V, Z→S)
-              float H = u.x * 360.0;
+          // — distancia a caras → factor de borde [0..1]
+          float dx = min(u.x, 1.0 - u.x);
+          float dy = min(u.y, 1.0 - u.y);
+          float dz = min(u.z, 1.0 - u.z);
+          float edgeDist = min(min(dx, dy), dz);
+          float edge = smoothstep(0.06, 0.18, edgeDist);   // 0 en borde → 1 interior
+          edge = pow(edge, max(0.2, uEdgePow));
 
-              float V = clamp(u.y, 0.0, 1.0);
-              V = pow(V, uGammaV);
-              V = max(V, uVMin);
-              V = clamp(V * uValGain, 0.0, 1.0);
+          // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing”
+          float H = mod(u.x * 360.0 + uHueBias + uTime * uHueRate, 360.0);
 
-              float S = clamp(u.z, 0.0, 1.0);
-              S = max(S, uSMin);
-              S = clamp(S * uSatGain, 0.0, 1.0);
+          float V = clamp(u.y, 0.0, 1.0);
+          // respiración global en V (suave)
+          V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
+          V = clamp(V, 0.0, 1.0);
+          V = pow(V, uGammaV);
+          V = max(V, uVMin);
+          V = clamp(V * uValGain, 0.0, 1.0);
 
-              vec3 rgb = hsv2rgb(H, S, V);
+          float S = clamp(u.z, 0.0, 1.0);
+          S = max(S, uSMin);
+          S = clamp(S * uSatGain, 0.0, 1.0);
 
-              // — sesgo frontal: más peso a las muestras cercanas a la entrada
-              float tau   = float(i) / float(max(uSteps-1, 1)); // 0 (frente) → 1 (fondo)
-              float front = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
+          vec3 rgb = hsv2rgb(H, S, V);
 
-              float w = (1.0 - a) * alphaStep * front * edgeFactor;
-              acc += rgb * w;
-              a   += w;
+          // — color de “cara” para tinte de borde (tomamos la cara más cercana)
+          vec3 uF = u;
+          if (dx <= dy && dx <= dz) { uF.x = (u.x < 0.5 ? 0.0 : 1.0); }
+          else if (dy <= dx && dy <= dz) { uF.y = (u.y < 0.5 ? 0.0 : 1.0); }
+          else { uF.z = (u.z < 0.5 ? 0.0 : 1.0); }
+          float HF = mod(uF.x * 360.0 + uHueBias + uTime * uHueRate, 360.0);
+          float VF = max(uF.y, uEdgeTintV);
+          float SF = max(uF.z, uSMin);
+          vec3  rgbFace = hsv2rgb(HF, SF, VF);
 
-              if (a > 0.995) break;
-              pos += rd * dt;
-            }
+          // — mezcla hacia el color de cara cerca del borde
+          rgb = mix(rgbFace, rgb, edge);
 
-            vec3 col = min(acc * uExposure, vec3(1.0));
-            float outA = (uOpaque == 1) ? 1.0 : a;  // opaco para evitar lavado
-            gl_FragColor = vec4(col, outA);
-          }
-        `
+          // — sesgo frontal + opacidad mínima en borde (evita halo negro)
+          float tau       = float(i) / float(max(uSteps-1, 1)); // 0 frente → 1 fondo
+          float front     = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
+          float edgeAlpha = mix(uEdgeBase, 1.0, edge);
+
+          float w = (1.0 - a) * alphaStep * front * edgeAlpha;
+          acc += rgb * w;
+          a   += w;
+
+          if (a > 0.995) break;
+          pos += rd * dt;
+        }
+
+        vec3 col = min(acc * uExposure, vec3(1.0));
+        float outA = (uOpaque == 1) ? 1.0 : a;
+        gl_FragColor = vec4(col, outA);
+      }
+    `
       });
 
       offnngMesh  = new THREE.Mesh(geo, mat);
@@ -2859,31 +2884,34 @@ function renderArchPanel(html){
       scene.add(offnngGroup);
 
       applyOFFNNGQuality();   // aplica calidad y pixelRatio
+      syncOFFNNGFromScene();  // ← acopla parámetros deterministas
     }
 
     /* ───────────────────────── toggle OFFNNG ───────────────────── */
     function toggleOFFNNG () {
       isOFFNNG = !isOFFNNG;
 
-      if (isOFFNNG) {                    /* — ENTRAR — */
-        if (isFRBN) toggleFRBN();        // asegura exclusividad
-        if (isLCHT) toggleLCHT();
+    if (isOFFNNG) {                    /* — ENTRAR — */
+      if (isFRBN) toggleFRBN();        // asegura exclusividad
+      if (isLCHT) toggleLCHT();
 
-        buildOFFNNG();
+      buildOFFNNG();
 
-        // guardar PR previo y aplicar cap + calidad
-        if (prevPixelRatio_OFFNNG === null) prevPixelRatio_OFFNNG = renderer.getPixelRatio();
-        applyOFFNNGQuality();
+      // guardar PR previo y aplicar cap + calidad
+      if (prevPixelRatio_OFFNNG === null) prevPixelRatio_OFFNNG = renderer.getPixelRatio();
+      applyOFFNNGQuality();
 
-        offnngPrevBg   = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0xffffff);
+      offnngPrevBg   = scene.background ? scene.background.clone() : null;
+      scene.background = new THREE.Color(0x000000);   // ← fondo NEGRO por defecto en OFFNNG
 
-        cubeUniverse.visible     = false;
-        permutationGroup.visible = false;
-        if (lichtGroup) lichtGroup.visible = false;
-        if (offnngGroup) offnngGroup.visible = true;
+      cubeUniverse.visible     = false;
+      permutationGroup.visible = false;
+      if (lichtGroup) lichtGroup.visible = false;
+      if (offnngGroup) offnngGroup.visible = true;
 
-      } else {                           /* — SALIR — */
+      syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
+
+    } else {                           /* — SALIR — */
         if (offnngGroup) {
           offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
           scene.remove(offnngGroup);
@@ -2922,14 +2950,54 @@ function renderArchPanel(html){
       }
 
       const b = document.getElementById('offnngQualityButton');
-      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
-    }
+    if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+  }
 
-    function toggleOFFNNGQuality(){
-      offnngQualityLow = !offnngQualityLow;
-      if (isOFFNNG) applyOFFNNGQuality();
-      const b = document.getElementById('offnngQualityButton');
-      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+  /* ───────────────────────── OFFNNG · parámetros deterministas ─────────────────────────
+     Se llama al construir OFFNNG y cada vez que cambia la escena (refreshAll).
+     Liga el look y el movimiento a sceneSeed, S_global y al rango medio de la escena. */
+  function syncOFFNNGFromScene(){
+    if (!offnngMesh || !offnngMesh.material || !offnngMesh.material.uniforms) return;
+
+    // 1) Rango medio de la escena (2..6) sobre las permutaciones actualmente seleccionadas
+    const sel = Array.from(document.getElementById('permutationList').selectedOptions)
+                     .map(o => o.value.split(',').map(Number));
+    let avgR = 4.0; // valor neutro
+    if (sel.length){
+      const ranges = sel.map(p => computeRange(computeSignature(p)));
+      avgR = ranges.reduce((a,b)=>a+b,0) / ranges.length;
+    }
+    avgSceneRange = avgR;
+    const nr = Math.max(0, Math.min(1, (avgR - 2) / 4));  // 0..1
+
+    const U = offnngMesh.material.uniforms;
+
+    // 2) Pisos y look (más vida para rangos altos)
+    U.uSMin.value   = 0.28 + 0.10 * nr;
+    U.uVMin.value   = 0.52 + 0.10 * nr;
+    U.uDensity.value= 0.58 - 0.10 * nr;
+    U.uExposure.value = 1.32 + 0.10 * nr;
+
+    // 3) Borde tintado
+    U.uEdgeBase.value  = 0.55;
+    U.uEdgeTintV.value = 0.65;
+    U.uEdgePow.value   = 1.6;
+    U.uEdgeStrength.value = 1.0;   // mantenemos suavizado activado
+
+    // 4) Movimiento determinista
+    const phase0 = ((sceneSeed + S_global) % 144) / 144;        // [0,1)
+    U.uHueBias.value      = sceneSeed;                          // en grados
+    U.uHueRate.value      = 0.6 + 0.8 * nr;                     // °/s
+    U.uVBreathAmp.value   = 0.06 * nr;                          // amplitud
+    U.uVBreathHz.value    = 0.02 + 0.05 * nr;                   // Hz
+    U.uVBreathPhase.value = 6.2831853 * phase0;                 // rad
+  }
+
+  function toggleOFFNNGQuality(){
+    offnngQualityLow = !offnngQualityLow;
+    if (isOFFNNG) applyOFFNNGQuality();
+    const b = document.getElementById('offnngQualityButton');
+    if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
     }
 
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
