@@ -553,14 +553,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isFRBN    = false;
     const SKY_R = 250;
 
-    /* ═══════ OFFNNG · PARÁMETROS DE VOLUMEN ═══════ */
-    const OFFNNG_NX = 32;   // factor X
-    const OFFNNG_NY = 27;   // factor Y
-    const OFFNNG_NZ = 24;   // factor Z   32×27×24 = 20 736
-    /* paso (world-units) en cada eje */
-    const OFFNNG_STEP_X = cubeSize / OFFNNG_NX;
-    const OFFNNG_STEP_Y = cubeSize / OFFNNG_NY;
-    const OFFNNG_STEP_Z = cubeSize / OFFNNG_NZ;
 
 /* ──────────────────────────────────────────────────────────────
  *  initSkySphere — FRBN con micro-ruido “blue-noise” y highp
@@ -2691,128 +2683,131 @@ function renderArchPanel(html){
         renderer.render(scene,camera);
       }
     
-    /* OFFNNG – volumen de 20 736 píxeles HSV (144 × 12 × 12) – sin barras, tubos ni líneas */
+    /* ═══════ OFFNNG · VOLUMEN HSV DISCRETO (v3 – InstancedMesh) ═══════
+     * · 20 736 celdas = 32×27×24 → un único InstancedMesh con vertexColors
+     * · No toca BUILD, LCHT, FRBN ni el resto del sistema
+     * · Exclusividad: solo un motor activo a la vez
+     * ════════════════════════════════════════════════════════════════ */
+
+    const OFFNNG_NX = 32;           // divisiones eje X
+    const OFFNNG_NY = 27;           // divisiones eje Y
+    const OFFNNG_NZ = 24;           // divisiones eje Z   (32×27×24 = 20 736)
+
+    const OFFNNG_STEP_X = cubeSize / OFFNNG_NX;
+    const OFFNNG_STEP_Y = cubeSize / OFFNNG_NY;
+    const OFFNNG_STEP_Z = cubeSize / OFFNNG_NZ;
+
     let offnngGroup  = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
 
-    /* ═══════════════════════════════════════════════
-     *  OFFNNG  ·  Volumen HSV 32×27×24 (20 736 pts)
-     *  – un solo Points
-     *  – “pastel” compacto dentro del cubo 30×30×30
-     *  – mapeo determinista: índice lineal k → (x,y,z)
-     * ═══════════════════════════════════════════════ */
+    /* ────────────────────────────────────────────────────────────────
+     *  Construcción del volumen: cubos instanciados con color HSV
+     * ─────────────────────────────────────────────────────────────── */
     function buildOFFNNG () {
-
-      /* limpia escena previa */
+      /* limpia versión previa */
       if (offnngGroup) {
-        offnngGroup.traverse(o=>{
-          if (o.isPoints) { o.geometry.dispose(); o.material.dispose(); }
+        offnngGroup.traverse(o => {
+          if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
         });
         scene.remove(offnngGroup);
+        offnngGroup = null;
       }
-      offnngGroup = new THREE.Group();
-      scene.add(offnngGroup);
 
-      const TOTAL = OFFNNG_NX * OFFNNG_NY * OFFNNG_NZ;          // 20 736
-      const posArr   = new Float32Array(TOTAL * 3);
-      const colorArr = new Float32Array(TOTAL * 3);
+      const TOTAL  = OFFNNG_NX * OFFNNG_NY * OFFNNG_NZ;         // 20 736
+      const boxGeo = new THREE.BoxGeometry(
+        OFFNNG_STEP_X * 0.94,
+        OFFNNG_STEP_Y * 0.94,
+        OFFNNG_STEP_Z * 0.94
+      );
+      const boxMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
-      const half = cubeSize / 2;
+      const voxels = new THREE.InstancedMesh(boxGeo, boxMat, TOTAL);
+      voxels.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      voxels.instanceColor = new THREE.InstancedBufferAttribute(
+        new Float32Array(TOTAL * 3), 3
+      );
+
+      const m4   = new THREE.Matrix4();
       const col  = new THREE.Color();
-      let k = 0;
+      let idx    = 0;
 
-      /* === recorre la cuadrícula HSV 144×12×12 === */
+      /* recorre la cuadrícula HSV 144×12×12 = 20 736 */
       for (let v = 0; v < 12; v++) {
         for (let s = 0; s < 12; s++) {
           for (let h = 0; h < 144; h++) {
 
-            /* índice lineal 0…20 735 */
-            const idx = (v * 12 + s) * 144 + h;
+            /* índice lineal --> coordenadas en 32×27×24 */
+            const k  = (v * 12 + s) * 144 + h;
+            const ix =  k % OFFNNG_NX;
+            const iy =  Math.floor(k / OFFNNG_NX) % OFFNNG_NY;
+            const iz =  Math.floor(k / (OFFNNG_NX * OFFNNG_NY));
 
-            /* mapeo determinista  idx → (ix,iy,iz) en 32×27×24  */
-            const ix =  idx % OFFNNG_NX;
-            const iy =  Math.floor(idx / OFFNNG_NX) % OFFNNG_NY;
-            const iz =  Math.floor(idx / (OFFNNG_NX * OFFNNG_NY));
+            const px = ix * OFFNNG_STEP_X - cubeSize / 2 + OFFNNG_STEP_X / 2;
+            const py = iy * OFFNNG_STEP_Y - cubeSize / 2 + OFFNNG_STEP_Y / 2;
+            const pz = iz * OFFNNG_STEP_Z - cubeSize / 2 + OFFNNG_STEP_Z / 2;
 
-            /* posición centrada dentro del cubo */
-            const x = ix * OFFNNG_STEP_X - half + OFFNNG_STEP_X / 2;
-            const y = iy * OFFNNG_STEP_Y - half + OFFNNG_STEP_Y / 2;
-            const z = iz * OFFNNG_STEP_Z - half + OFFNNG_STEP_Z / 2;
+            m4.makeTranslation(px, py, pz);
+            voxels.setMatrixAt(idx, m4);
 
-            posArr[3*k  ] = x;
-            posArr[3*k+1] = y;
-            posArr[3*k+2] = z;
-
-            /* color HSV original → RGB */
-            const {h:hh, s:ss, v:vv} = idxToHSV(h, s, v);
-            const [R,G,B] = hsvToRgb(hh, ss, vv);
+            /* HSV discreto → RGB */
+            const { h:HH, s:SS, v:VV } = idxToHSV(h, s, v);
+            const [R,G,B] = hsvToRgb(HH, SS, VV);
             col.setRGB(R/255, G/255, B/255);
+            voxels.instanceColor.setXYZ(idx, col.r, col.g, col.b);
 
-            colorArr[3*k  ] = col.r;
-            colorArr[3*k+1] = col.g;
-            colorArr[3*k+2] = col.b;
-
-            k++;
+            idx++;
           }
         }
       }
+      voxels.instanceColor.needsUpdate = true;
 
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
-      geo.setAttribute('color',    new THREE.BufferAttribute(colorArr, 3));
-
-      /* tamaño ≈ 90 % del vóxel menor para que se “toquen” sin dejar huecos */
-      const pointSize = Math.min(OFFNNG_STEP_X, OFFNNG_STEP_Y, OFFNNG_STEP_Z) * 0.9;
-
-      const mat = new THREE.PointsMaterial({
-        vertexColors   : true,
-        size           : pointSize,
-        sizeAttenuation: true   // tamaño en unidades de mundo
-      });
-
-      const pts = new THREE.Points(geo, mat);
-      pts.frustumCulled = false;     // nunca se recorta
-      offnngGroup.add(pts);
+      offnngGroup = new THREE.Group();
+      offnngGroup.add(voxels);
+      scene.add(offnngGroup);
     }
 
-    function toggleOFFNNG(){
+    /* ───────────────────────── toggle OFFNNG ─────────────────────── */
+    function toggleOFFNNG () {
       isOFFNNG = !isOFFNNG;
 
-      if(isOFFNNG){                      // ENTRAR
-        if(isFRBN) toggleFRBN();         // exclusividad
-        if(isLCHT) toggleLCHT();
+      if (isOFFNNG) {                    /* — ENTRAR — */
+        if (isFRBN) toggleFRBN();        // asegura exclusividad
+        if (isLCHT) toggleLCHT();
 
         buildOFFNNG();
-        offnngPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0xffffff);   // fondo blanco
+        offnngPrevBg   = scene.background ? scene.background.clone() : null;
+        scene.background = new THREE.Color(0xffffff);
 
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
-        if(lichtGroup) lichtGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
         offnngGroup.visible      = true;
 
-      }else{                             // SALIR
-        if(offnngGroup){
-          offnngGroup.traverse(o=>{
-            if(o.isMesh || o.isPoints){ o.geometry.dispose(); o.material.dispose(); }
+      } else {                           /* — SALIR — */
+        if (offnngGroup) {
+          offnngGroup.traverse(o => {
+            if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
           });
           scene.remove(offnngGroup);
           offnngGroup = null;
         }
-        if(offnngPrevBg) scene.background = offnngPrevBg;
+        if (offnngPrevBg) scene.background = offnngPrevBg;
+
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
-        if(lichtGroup && isLCHT) lichtGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
       }
     }
 
-    /* helper global – solo una vez en todo el archivo */
-    function ensureOnlyOFFNNG(){
-      if (isFRBN)  toggleFRBN();
-      if (isLCHT)  toggleLCHT();
+    /* ────────── botón dedicado: OFFNNG siempre en solitario ───────── */
+    function ensureOnlyOFFNNG () {
+      if (isFRBN) toggleFRBN();
+      if (isLCHT) toggleLCHT();
       if (!isOFFNNG) toggleOFFNNG();
     }
+
+    /* ═════════════════════ FIN BLOQUE OFFNNG v3 ═════════════════════ */
 
     init();
 
