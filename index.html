@@ -2704,21 +2704,32 @@ function renderArchPanel(html){
         scene.remove(offnngGroup);
         offnngGroup = null; offnngMesh = null;
       }
-    
+
       const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-    
+
       const mat = new THREE.ShaderMaterial({
         uniforms: {
-          uHalf      : { value: cubeSize * 0.5 },
-          uInvModel  : { value: new THREE.Matrix4() },
-    
-          // ====== VIVID (parámetros base) ======
-          uDensity   : { value: 0.95 },  // más “presencia” sin oscurecer
-          uSMin      : { value: 0.52 },  // piso de S alto
-          uVMin      : { value: 0.64 },  // piso de V alto → sin grises
-          uGammaV    : { value: 0.88 },  // levanta medios
-          uExposure  : { value: 1.22 },  // empuje final contenido
-          uSteps     : { value: 28 }     // Low fijo (rendimiento)
+          uHalf        : { value: cubeSize * 0.5 },
+          uInvModel    : { value: new THREE.Matrix4() },
+
+          // —— LOOK VIVID —— (pisos y ganancias de S/V + exposición)
+          uDensity     : { value: 0.85 },   // opacidad por paso (acumula más rápido)
+          uSMin        : { value: 0.50 },   // piso de saturación (antes 0.28)
+          uVMin        : { value: 0.65 },   // piso de valor (antes 0.52)
+          uSatGain     : { value: 1.15 },   // ganancia global de saturación
+          uValGain     : { value: 1.18 },   // ganancia global de valor
+          uGammaV      : { value: 0.72 },   // gamma sobre V (<1 ilumina sombras)
+          uExposure    : { value: 1.55 },   // exposición final
+
+          // Control de suavizado de borde y sesgo frontal
+          uEdgeStrength: { value: 0.0 },    // 0=sin suavizado, 1=suavizado fuerte
+          uFrontBias   : { value: 0.85 },   // 0=neutral, 1=domina cara frontal
+
+          // Pasos de ray-march (se ajustan también en applyOFFNNGQuality)
+          uSteps       : { value: 36 },
+
+          // Alpha opaca para evitar lavado con el fondo (1 = opaco)
+          uOpaque      : { value: 1 }
         },
         transparent : true,
         depthWrite  : false,
@@ -2734,20 +2745,24 @@ function renderArchPanel(html){
         `,
         fragmentShader: `
           precision highp float;
-    
+
           uniform float uHalf;
           uniform mat4  uInvModel;
+
           uniform float uDensity;
           uniform float uSMin;
           uniform float uVMin;
+          uniform float uSatGain;
+          uniform float uValGain;
           uniform float uGammaV;
           uniform float uExposure;
+          uniform float uEdgeStrength;
+          uniform float uFrontBias;
           uniform int   uSteps;
+          uniform int   uOpaque;
+
           varying vec3  vPos;
-    
-          // === constantes VIVID ===
-          const float SAT_BOOST = 1.50;   // realce cromático perceptual
-    
+
           vec3 hsv2rgb(float H, float S, float V){
             float h = H / 360.0;
             vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
@@ -2755,7 +2770,7 @@ function renderArchPanel(html){
             vec3 rgb = V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
             return rgb;
           }
-    
+
           bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
             vec3 bmin = vec3(-uHalf);
             vec3 bmax = vec3( uHalf);
@@ -2768,85 +2783,82 @@ function renderArchPanel(html){
             t1 = min(min(tbg.x, tbg.y), tbg.z);
             return (t1 >= max(t0, 0.0));
           }
-    
+
           void main(){
             vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
             vec3 rd = normalize(vPos - ro);
-    
+
             float tEnter, tExit;
             if(!rayBox(ro, rd, tEnter, tExit)) discard;
-    
+
             float t0 = max(tEnter, 0.0);
             float t1 = tExit;
-    
+
             float len = t1 - t0;
             float dt  = len / float(max(uSteps, 1));
             vec3  pos = ro + rd * (t0 + 0.5 * dt);
-    
-            // acumuladores (premultiplicado)
+
             vec3  acc = vec3(0.0);
             float a   = 0.0;
-    
-            // base de opacidad por paso (Beer-Lambert)
             float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
-    
+
             const int MAX_STEPS = 64;
-    
             for (int i=0; i<MAX_STEPS; i++){
               if (i >= uSteps) break;
-    
-              // Normalizado a [0,1]^3
-              vec3 u = (pos / uHalf) * 0.5 + 0.5;
-    
-              // Fade de bordes (evita “caras” más oscuras)
-              float edgeDist = min(min(u.x, 1.0 - u.x),
-                                   min(min(u.y, 1.0 - u.y), min(u.z, 1.0 - u.z)));
-              float edge = smoothstep(0.08, 0.32, edgeDist);
-    
-              // Ejes → HSV (X→H, Y→V, Z→S) con pisos + curva
+
+              vec3 u = (pos / uHalf) * 0.5 + 0.5;   // [0,1]^3
+
+              // — suavizado de borde opcional
+              float edgeFactor = 1.0;
+              if (uEdgeStrength > 0.0) {
+                float edgeDist = min(min(u.x, 1.0 - u.x),
+                                 min(min(u.y, 1.0 - u.y), min(u.z, 1.0 - u.z)));
+                float e = smoothstep(0.06, 0.18, edgeDist);
+                edgeFactor = mix(1.0, e, clamp(uEdgeStrength, 0.0, 1.0));
+              }
+
+              // — mapeo HSV base (X→H, Y→V, Z→S)
               float H = u.x * 360.0;
-    
+
               float V = clamp(u.y, 0.0, 1.0);
               V = pow(V, uGammaV);
               V = max(V, uVMin);
-    
+              V = clamp(V * uValGain, 0.0, 1.0);
+
               float S = clamp(u.z, 0.0, 1.0);
               S = max(S, uSMin);
-    
+              S = clamp(S * uSatGain, 0.0, 1.0);
+
               vec3 rgb = hsv2rgb(H, S, V);
-    
-              // Opacidad ponderada por S: las zonas saturadas dominan la mezcla
-              float w = (1.0 - a) * alphaStep * edge;
-              w *= mix(0.80, 1.18, S);   // selective absorption (S-weighted)
-    
-              acc += rgb * w;            // premultiplicado
+
+              // — sesgo frontal: más peso a las muestras cercanas a la entrada
+              float tau   = float(i) / float(max(uSteps-1, 1)); // 0 (frente) → 1 (fondo)
+              float front = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
+
+              float w = (1.0 - a) * alphaStep * front * edgeFactor;
+              acc += rgb * w;
               a   += w;
-    
+
               if (a > 0.995) break;
               pos += rd * dt;
             }
-    
-            // —— Chroma-preserving resolve (des-premultiplica → boost → re-premultiplica) ——
-            vec3 c = (a > 1e-5) ? (acc / a) : acc;
-            float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-            c = mix(vec3(luma), c, SAT_BOOST);   // más croma sin quemar
-    
-            vec3 col = min(c * a * uExposure, vec3(1.0));
-            gl_FragColor = vec4(col, a);
+
+            vec3 col = min(acc * uExposure, vec3(1.0));
+            float outA = (uOpaque == 1) ? 1.0 : a;  // opaco para evitar lavado
+            gl_FragColor = vec4(col, outA);
           }
         `
       });
-    
+
       offnngMesh  = new THREE.Mesh(geo, mat);
       offnngMesh.updateMatrixWorld(true);
       mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
-    
+
       offnngGroup = new THREE.Group();
       offnngGroup.add(offnngMesh);
       scene.add(offnngGroup);
-    
-      // aplica el cap de pixel ratio y uSteps de "Low" fijo
-      applyOFFNNGQuality();
+
+      applyOFFNNGQuality();   // aplica calidad y pixelRatio
     }
 
     /* ───────────────────────── toggle OFFNNG ───────────────────── */
@@ -2900,18 +2912,15 @@ function renderArchPanel(html){
       if (!isOFFNNG) toggleOFFNNG();
     }
 
+    /* Calidad: ya NO reducimos el pixelRatio (evita blur); solo variamos uSteps */
     function applyOFFNNGQuality(){
-      // Cap de pixel ratio a 1.25 cuando OFFNNG está activo
-      const basePR = Math.min(window.devicePixelRatio || 1, 1.25);
-      const targetPR = offnngQualityLow ? Math.max(0.5, basePR * 0.5) : basePR; // half-res en Low
-      renderer.setPixelRatio(targetPR);
+      const basePR = Math.min(window.devicePixelRatio || 1, 1.5);
+      renderer.setPixelRatio(basePR);               // sin “half-res” en Low
 
-      // uSteps según calidad
-      if (offnngMesh && offnngMesh.material && offnngMesh.material.uniforms && offnngMesh.material.uniforms.uSteps){
-        offnngMesh.material.uniforms.uSteps.value = offnngQualityLow ? 28 : 40;
+      if (offnngMesh && offnngMesh.material && offnngMesh.material.uniforms) {
+        offnngMesh.material.uniforms.uSteps.value = offnngQualityLow ? 36 : 56;
       }
 
-      // Etiqueta del botón
       const b = document.getElementById('offnngQualityButton');
       if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
     }
