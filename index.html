@@ -553,6 +553,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isFRBN    = false;
     const SKY_R = 250;
 
+    /* ═══════ OFFNNG · PARÁMETROS DE VOLUMEN ═══════ */
+    const OFFNNG_NX = 32;   // factor X
+    const OFFNNG_NY = 27;   // factor Y
+    const OFFNNG_NZ = 24;   // factor Z   32×27×24 = 20 736
+    /* paso (world-units) en cada eje */
+    const OFFNNG_STEP_X = cubeSize / OFFNNG_NX;
+    const OFFNNG_STEP_Y = cubeSize / OFFNNG_NY;
+    const OFFNNG_STEP_Z = cubeSize / OFFNNG_NZ;
+
 /* ──────────────────────────────────────────────────────────────
  *  initSkySphere — FRBN con micro-ruido “blue-noise” y highp
  *  (solo afecta al fondo shader del modo FRBN)
@@ -2687,26 +2696,25 @@ function renderArchPanel(html){
     let isOFFNNG     = false;
     let offnngPrevBg = null;
 
+    /* ═══════════════════════════════════════════════
+     *  OFFNNG  ·  Volumen HSV 32×27×24 (20 736 pts)
+     *  – un solo Points
+     *  – “pastel” compacto dentro del cubo 30×30×30
+     *  – mapeo determinista: índice lineal k → (x,y,z)
+     * ═══════════════════════════════════════════════ */
     function buildOFFNNG () {
 
       /* limpia escena previa */
       if (offnngGroup) {
         offnngGroup.traverse(o=>{
-          if (o.isMesh || o.isPoints) { o.geometry.dispose(); o.material.dispose(); }
+          if (o.isPoints) { o.geometry.dispose(); o.material.dispose(); }
         });
         scene.remove(offnngGroup);
       }
       offnngGroup = new THREE.Group();
       scene.add(offnngGroup);
 
-      /* ===== rejilla 144×12×12 ===== */
-      const HX = 144, HY = 12, HZ = 12;
-      const TOTAL = HX * HY * HZ;
-
-      /* – espaciado uniforme en los tres ejes –  
-         usamos el más fino (HX) para que el voxel sea cúbico            */
-      const STEP = cubeSize / HX;              // ≈ 0.208 u
-
+      const TOTAL = OFFNNG_NX * OFFNNG_NY * OFFNNG_NZ;          // 20 736
       const posArr   = new Float32Array(TOTAL * 3);
       const colorArr = new Float32Array(TOTAL * 3);
 
@@ -2714,22 +2722,33 @@ function renderArchPanel(html){
       const col  = new THREE.Color();
       let k = 0;
 
-      for (let iy = 0; iy < HY; iy++) {
-        const y = iy * STEP - half + STEP / 2;
-        for (let iz = 0; iz < HZ; iz++) {
-          const z = iz * STEP - half + STEP / 2;
-          for (let ix = 0; ix < HX; ix++) {
-            const x = ix * STEP - half + STEP / 2;
+      /* === recorre la cuadrícula HSV 144×12×12 === */
+      for (let v = 0; v < 12; v++) {
+        for (let s = 0; s < 12; s++) {
+          for (let h = 0; h < 144; h++) {
 
-            /* posición */
+            /* índice lineal 0…20 735 */
+            const idx = (v * 12 + s) * 144 + h;
+
+            /* mapeo determinista  idx → (ix,iy,iz) en 32×27×24  */
+            const ix =  idx % OFFNNG_NX;
+            const iy =  Math.floor(idx / OFFNNG_NX) % OFFNNG_NY;
+            const iz =  Math.floor(idx / (OFFNNG_NX * OFFNNG_NY));
+
+            /* posición centrada dentro del cubo */
+            const x = ix * OFFNNG_STEP_X - half + OFFNNG_STEP_X / 2;
+            const y = iy * OFFNNG_STEP_Y - half + OFFNNG_STEP_Y / 2;
+            const z = iz * OFFNNG_STEP_Z - half + OFFNNG_STEP_Z / 2;
+
             posArr[3*k  ] = x;
             posArr[3*k+1] = y;
             posArr[3*k+2] = z;
 
-            /* color HSV → RGB */
-            const {h,s,v} = idxToHSV(ix, iy, iz);
-            const [R,G,B] = hsvToRgb(h,s,v);
+            /* color HSV original → RGB */
+            const {h:hh, s:ss, v:vv} = idxToHSV(h, s, v);
+            const [R,G,B] = hsvToRgb(hh, ss, vv);
             col.setRGB(R/255, G/255, B/255);
+
             colorArr[3*k  ] = col.r;
             colorArr[3*k+1] = col.g;
             colorArr[3*k+2] = col.b;
@@ -2743,14 +2762,17 @@ function renderArchPanel(html){
       geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
       geo.setAttribute('color',    new THREE.BufferAttribute(colorArr, 3));
 
-      /* cada punto = 0 .40 u, sin atenuación por distancia */
+      /* tamaño ≈ 90 % del vóxel menor para que se “toquen” sin dejar huecos */
+      const pointSize = Math.min(OFFNNG_STEP_X, OFFNNG_STEP_Y, OFFNNG_STEP_Z) * 0.9;
+
       const mat = new THREE.PointsMaterial({
-        vertexColors:true,
-        size:0.40,
-        sizeAttenuation:false
+        vertexColors   : true,
+        size           : pointSize,
+        sizeAttenuation: true   // tamaño en unidades de mundo
       });
 
       const pts = new THREE.Points(geo, mat);
+      pts.frustumCulled = false;     // nunca se recorta
       offnngGroup.add(pts);
     }
 
