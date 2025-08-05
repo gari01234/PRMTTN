@@ -212,6 +212,12 @@
     z-index:260;
   }
 
+  /* === OFFNNG Quality toggle === */
+  #offnngQualityButton{
+    position:fixed; left:10px; bottom:330px;   /* 40 px por encima de OFFNNG */
+    z-index:260;
+  }
+
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
     position:fixed;               /* mismo estilo general */
@@ -256,6 +262,7 @@
     <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
   <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
+  <button id="offnngQualityButton" onclick="toggleOFFNNGQuality()">Quality: High</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -2694,6 +2701,8 @@ function renderArchPanel(html){
     let offnngMesh   = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
+    let offnngQualityLow = false;               // Quality: High=false / Low=true
+    let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
 
     function buildOFFNNG () {
       // limpia versión previa
@@ -2711,7 +2720,12 @@ function renderArchPanel(html){
         uniforms: {
           uHalf      : { value: cubeSize * 0.5 },        // half extent en espacio-objeto
           uInvModel  : { value: new THREE.Matrix4() },   // inverse(modelMatrix) p/ pasar cam a espacio-objeto
-          uDensity   : { value: 1.8 },                   // densidad óptica (ajusta opacidad global)
+          uDensity   : { value: 1.0 },                   // densidad óptica (look)
+          uSMin      : { value: 0.35 },                  // S mínimo (look)
+          uVMin      : { value: 0.32 },                  // V mínimo (look)
+          uGammaV    : { value: 0.8 },                   // gamma sobre V (look)
+          uExposure  : { value: 1.18 },                  // exposición final (look)
+          uSteps     : { value: 40 }                     // pasos por defecto (rendimiento)
         },
         transparent : true,
         depthWrite  : false,
@@ -2731,9 +2745,13 @@ function renderArchPanel(html){
       uniform float uHalf;
       uniform mat4  uInvModel;
       uniform float uDensity;
+      uniform float uSMin;
+      uniform float uVMin;
+      uniform float uGammaV;
+      uniform float uExposure;
+      uniform int   uSteps;
       varying vec3  vPos;
 
-      // hsv2rgb: H en grados [0..360), S,V en [0..1]; devuelve RGB en [0..1] (lineal)
       vec3 hsv2rgb(float H, float S, float V){
         float h = H / 360.0;
         vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
@@ -2742,7 +2760,6 @@ function renderArchPanel(html){
         return rgb;
       }
 
-      // intersección rayo-caja axis-aligned en [-uHalf, uHalf]^3
       bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
         vec3 bmin = vec3(-uHalf);
         vec3 bmax = vec3( uHalf);
@@ -2767,28 +2784,35 @@ function renderArchPanel(html){
         float t0 = max(tEnter, 0.0);
         float t1 = tExit;
 
-        // march frontal → trasero
-        const int   STEPS = 56;
+        // longitud y paso en función de uSteps
         float len = t1 - t0;
-        float dt  = len / float(STEPS);
+        float dt  = len / float(max(uSteps, 1));
         vec3  pos = ro + rd * (t0 + 0.5 * dt);
 
         vec3  acc = vec3(0.0);
         float a   = 0.0;                 // alpha acumulada (under operation)
         float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf)); // normaliza por grosor
 
-        for (int i=0; i<STEPS; i++){
+        const int MAX_STEPS = 64;        // cota superior del bucle
+        for (int i=0; i<MAX_STEPS; i++){
+          if (i >= uSteps) break;
+
           // normaliza a [0,1]^3 dentro del cubo
           vec3 u = (pos / uHalf) * 0.5 + 0.5;
 
-          // mapeo continuo: X→Hue, Y→Value, Z→Saturation
+          // mapeo continuo + look
           float H = u.x * 360.0;
+
           float V = clamp(u.y, 0.0, 1.0);
+          V = pow(V, uGammaV);           // curva
+          V = max(V, uVMin);             // piso
+
           float S = clamp(u.z, 0.0, 1.0);
+          S = max(S, uSMin);             // piso
 
           vec3  rgb = hsv2rgb(H, S, V);
 
-          // composición "under" (pre-multiplied like)
+          // composición "under"
           float w = (1.0 - a) * alphaStep;
           acc += rgb * w;
           a   += w;
@@ -2797,7 +2821,9 @@ function renderArchPanel(html){
           pos += rd * dt;
         }
 
-        gl_FragColor = vec4(acc, a);
+        // exposición (clamp) – alpha intacto
+        vec3 col = min(acc * uExposure, vec3(1.0));
+        gl_FragColor = vec4(col, a);
       }
     `
       });
@@ -2811,6 +2837,7 @@ function renderArchPanel(html){
       offnngGroup = new THREE.Group();
       offnngGroup.add(offnngMesh);
       scene.add(offnngGroup);
+      if (isOFFNNG) applyOFFNNGQuality();
     }
 
     /* ───────────────────────── toggle OFFNNG ───────────────────── */
@@ -2822,6 +2849,11 @@ function renderArchPanel(html){
         if (isLCHT) toggleLCHT();
 
         buildOFFNNG();
+
+        // guardar PR previo y aplicar cap + calidad
+        if (prevPixelRatio_OFFNNG === null) prevPixelRatio_OFFNNG = renderer.getPixelRatio();
+        applyOFFNNGQuality();
+
         offnngPrevBg   = scene.background ? scene.background.clone() : null;
         scene.background = new THREE.Color(0xffffff);
 
@@ -2838,6 +2870,14 @@ function renderArchPanel(html){
         }
         if (offnngPrevBg) scene.background = offnngPrevBg;
 
+        // restaurar pixel ratio previo
+        if (prevPixelRatio_OFFNNG !== null){
+          renderer.setPixelRatio(prevPixelRatio_OFFNNG);
+          prevPixelRatio_OFFNNG = null;
+        }
+        const qb = document.getElementById('offnngQualityButton');
+        if (qb) qb.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
         if (lichtGroup && isLCHT) lichtGroup.visible = true;
@@ -2849,6 +2889,29 @@ function renderArchPanel(html){
       if (isFRBN) toggleFRBN();
       if (isLCHT) toggleLCHT();
       if (!isOFFNNG) toggleOFFNNG();
+    }
+
+    function applyOFFNNGQuality(){
+      // Cap de pixel ratio a 1.25 cuando OFFNNG está activo
+      const basePR = Math.min(window.devicePixelRatio || 1, 1.25);
+      const targetPR = offnngQualityLow ? Math.max(0.5, basePR * 0.5) : basePR; // half-res en Low
+      renderer.setPixelRatio(targetPR);
+
+      // uSteps según calidad
+      if (offnngMesh && offnngMesh.material && offnngMesh.material.uniforms && offnngMesh.material.uniforms.uSteps){
+        offnngMesh.material.uniforms.uSteps.value = offnngQualityLow ? 28 : 40;
+      }
+
+      // Etiqueta del botón
+      const b = document.getElementById('offnngQualityButton');
+      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+    }
+
+    function toggleOFFNNGQuality(){
+      offnngQualityLow = !offnngQualityLow;
+      if (isOFFNNG) applyOFFNNGQuality();
+      const b = document.getElementById('offnngQualityButton');
+      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
     }
 
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
