@@ -9,7 +9,6 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
   <style>
   body {
     margin: 0;
@@ -970,34 +969,6 @@ function buildLCHT() {
     /* reconstruye LCHT si hay cambios de escena */
     function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
 
-    // ────────────────────────────────────────────────────────────
-    //   ONE-VOLUME MODE  – funde todos los Mesh en un solo cuerpo
-    // ────────────────────────────────────────────────────────────
-    function combinePermutationsIntoSingleVolume() {
-      if (!permutationGroup || permutationGroup.children.length < 2) return;
-
-      const geos = [];
-      permutationGroup.children.forEach(mesh => {
-        if (!mesh.isMesh) return;
-        mesh.updateMatrix();                               // congela la transf.
-        const g = mesh.geometry.clone();
-        g.applyMatrix4(mesh.matrix);
-        geos.push(g);
-      });
-      if (!geos.length) return;
-
-      const mergedGeo = THREE.BufferGeometryUtils.mergeBufferGeometries(geos);
-      const mergedMat = permutationGroup.children[0].material.clone();
-
-      // limpia el grupo (libera memoria)
-      while (permutationGroup.children.length) {
-        const c = permutationGroup.children.pop();
-        if (c.isMesh) { c.geometry.dispose(); c.material.dispose(); }
-      }
-
-      permutationGroup.add(new THREE.Mesh(mergedGeo, mergedMat));
-    }
-
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
       if (isOFFNNG) toggleOFFNNG();   // ← NUEVO: asegura exclusividad
@@ -1942,7 +1913,6 @@ function makePalette(){
       }
 
       if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
-      combinePermutationsIntoSingleVolume();   // ← NUEVO
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
     }
     function onColourPick(idx,hex){
