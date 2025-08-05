@@ -2683,91 +2683,137 @@ function renderArchPanel(html){
         renderer.render(scene,camera);
       }
     
-    /* ═══════ OFFNNG · VOLUMEN HSV DISCRETO (v3 – InstancedMesh) ═══════
-     * · 20 736 celdas = 32×27×24 → un único InstancedMesh con vertexColors
-     * · No toca BUILD, LCHT, FRBN ni el resto del sistema
-     * · Exclusividad: solo un motor activo a la vez
-     * ════════════════════════════════════════════════════════════════ */
-
-    const OFFNNG_NX = 32;           // divisiones eje X
-    const OFFNNG_NY = 27;           // divisiones eje Y
-    const OFFNNG_NZ = 24;           // divisiones eje Z   (32×27×24 = 20 736)
-
-    const OFFNNG_STEP_X = cubeSize / OFFNNG_NX;
-    const OFFNNG_STEP_Y = cubeSize / OFFNNG_NY;
-    const OFFNNG_STEP_Z = cubeSize / OFFNNG_NZ;
+    /* ═══════ OFFNNG · VOLUMÉTRICO CONTINUO (v4 – shader) ═══════
+     *  – Un único cubo con ShaderMaterial (ray-march frontal→trasero)
+     *  – Ejes: X→Hue, Y→Value (vertical), Z→Saturation
+     *  – Color continuo (sin cuantización), sin vóxeles ni sprites
+     *  – Exclusivo: no interfiere con BUILD / LCHT / FRBN
+     * ═══════════════════════════════════════════════════════════ */
 
     let offnngGroup  = null;
+    let offnngMesh   = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
 
-    /* ────────────────────────────────────────────────────────────────
-     *  Construcción del volumen: cubos instanciados con color HSV
-     * ─────────────────────────────────────────────────────────────── */
     function buildOFFNNG () {
-      /* limpia versión previa */
+      // limpia versión previa
       if (offnngGroup) {
-        offnngGroup.traverse(o => {
-          if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
-        });
+        offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
         scene.remove(offnngGroup);
-        offnngGroup = null;
+        offnngGroup = null; offnngMesh = null;
       }
 
-      const TOTAL  = OFFNNG_NX * OFFNNG_NY * OFFNNG_NZ;         // 20 736
-      const boxGeo = new THREE.BoxGeometry(
-        OFFNNG_STEP_X * 0.94,
-        OFFNNG_STEP_Y * 0.94,
-        OFFNNG_STEP_Z * 0.94
-      );
-      const boxMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+      // geometría: un solo cubo
+      const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
 
-      const voxels = new THREE.InstancedMesh(boxGeo, boxMat, TOTAL);
-      voxels.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-      voxels.instanceColor = new THREE.InstancedBufferAttribute(
-        new Float32Array(TOTAL * 3), 3
-      );
+      // shader volumétrico (ray-box + march)
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uHalf      : { value: cubeSize * 0.5 },        // half extent en espacio-objeto
+          uInvModel  : { value: new THREE.Matrix4() },   // inverse(modelMatrix) p/ pasar cam a espacio-objeto
+          uDensity   : { value: 1.8 },                   // densidad óptica (ajusta opacidad global)
+        },
+        transparent : true,
+        depthWrite  : false,
+        depthTest   : true,
+        side        : THREE.DoubleSide,
+        dithering   : true,
+        vertexShader: `
+      varying vec3 vPos;   // posición en espacio-objeto
+      void main() {
+        vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+        fragmentShader: `
+      precision highp float;
 
-      const m4   = new THREE.Matrix4();
-      const col  = new THREE.Color();
-      let idx    = 0;
+      uniform float uHalf;
+      uniform mat4  uInvModel;
+      uniform float uDensity;
+      varying vec3  vPos;
 
-      /* recorre la cuadrícula HSV 144×12×12 = 20 736 */
-      for (let v = 0; v < 12; v++) {
-        for (let s = 0; s < 12; s++) {
-          for (let h = 0; h < 144; h++) {
+      // hsv2rgb: H en grados [0..360), S,V en [0..1]; devuelve RGB en [0..1] (lineal)
+      vec3 hsv2rgb(float H, float S, float V){
+        float h = H / 360.0;
+        vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+        vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
+        vec3 rgb = V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
+        return rgb;
+      }
 
-            /* índice lineal --> coordenadas en 32×27×24 */
-            const k  = (v * 12 + s) * 144 + h;
-            const ix =  k % OFFNNG_NX;
-            const iy =  Math.floor(k / OFFNNG_NX) % OFFNNG_NY;
-            const iz =  Math.floor(k / (OFFNNG_NX * OFFNNG_NY));
+      // intersección rayo-caja axis-aligned en [-uHalf, uHalf]^3
+      bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
+        vec3 bmin = vec3(-uHalf);
+        vec3 bmax = vec3( uHalf);
+        vec3 invD = 1.0 / rd;
+        vec3 tA = (bmin - ro) * invD;
+        vec3 tB = (bmax - ro) * invD;
+        vec3 tsm = min(tA, tB);
+        vec3 tbg = max(tA, tB);
+        t0 = max(max(tsm.x, tsm.y), tsm.z);
+        t1 = min(min(tbg.x, tbg.y), tbg.z);
+        return (t1 >= max(t0, 0.0));
+      }
 
-            const px = ix * OFFNNG_STEP_X - cubeSize / 2 + OFFNNG_STEP_X / 2;
-            const py = iy * OFFNNG_STEP_Y - cubeSize / 2 + OFFNNG_STEP_Y / 2;
-            const pz = iz * OFFNNG_STEP_Z - cubeSize / 2 + OFFNNG_STEP_Z / 2;
+      void main(){
+        // origen y dirección del rayo en espacio-objeto
+        vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
+        vec3 rd = normalize(vPos - ro);
 
-            m4.makeTranslation(px, py, pz);
-            voxels.setMatrixAt(idx, m4);
+        float tEnter, tExit;
+        if(!rayBox(ro, rd, tEnter, tExit)) discard;
 
-            /* HSV discreto → RGB */
-            const { h:HH, s:SS, v:VV } = idxToHSV(h, s, v);
-            const [R,G,B] = hsvToRgb(HH, SS, VV);
-            col.setRGB(R/255, G/255, B/255);
-            voxels.instanceColor.setXYZ(idx, col.r, col.g, col.b);
+        float t0 = max(tEnter, 0.0);
+        float t1 = tExit;
 
-            idx++;
-          }
+        // march frontal → trasero
+        const int   STEPS = 56;
+        float len = t1 - t0;
+        float dt  = len / float(STEPS);
+        vec3  pos = ro + rd * (t0 + 0.5 * dt);
+
+        vec3  acc = vec3(0.0);
+        float a   = 0.0;                 // alpha acumulada (under operation)
+        float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf)); // normaliza por grosor
+
+        for (int i=0; i<STEPS; i++){
+          // normaliza a [0,1]^3 dentro del cubo
+          vec3 u = (pos / uHalf) * 0.5 + 0.5;
+
+          // mapeo continuo: X→Hue, Y→Value, Z→Saturation
+          float H = u.x * 360.0;
+          float V = clamp(u.y, 0.0, 1.0);
+          float S = clamp(u.z, 0.0, 1.0);
+
+          vec3  rgb = hsv2rgb(H, S, V);
+
+          // composición "under" (pre-multiplied like)
+          float w = (1.0 - a) * alphaStep;
+          acc += rgb * w;
+          a   += w;
+
+          if (a > 0.995) break;  // salida temprana
+          pos += rd * dt;
         }
+
+        gl_FragColor = vec4(acc, a);
       }
-      voxels.instanceColor.needsUpdate = true;
+    `
+      });
+
+      // malla y grupo
+      offnngMesh  = new THREE.Mesh(geo, mat);
+      // matriz inversa (el cubo no se anima, así que basta ahora)
+      offnngMesh.updateMatrixWorld(true);
+      mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
 
       offnngGroup = new THREE.Group();
-      offnngGroup.add(voxels);
+      offnngGroup.add(offnngMesh);
       scene.add(offnngGroup);
     }
 
-    /* ───────────────────────── toggle OFFNNG ─────────────────────── */
+    /* ───────────────────────── toggle OFFNNG ───────────────────── */
     function toggleOFFNNG () {
       isOFFNNG = !isOFFNNG;
 
@@ -2782,15 +2828,13 @@ function renderArchPanel(html){
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
-        offnngGroup.visible      = true;
+        if (offnngGroup) offnngGroup.visible = true;
 
       } else {                           /* — SALIR — */
         if (offnngGroup) {
-          offnngGroup.traverse(o => {
-            if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
-          });
+          offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
           scene.remove(offnngGroup);
-          offnngGroup = null;
+          offnngGroup = null; offnngMesh = null;
         }
         if (offnngPrevBg) scene.background = offnngPrevBg;
 
@@ -2807,7 +2851,7 @@ function renderArchPanel(html){
       if (!isOFFNNG) toggleOFFNNG();
     }
 
-    /* ═════════════════════ FIN BLOQUE OFFNNG v3 ═════════════════════ */
+    /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
 
     init();
 
