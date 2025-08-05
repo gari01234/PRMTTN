@@ -2714,8 +2714,8 @@ function renderArchPanel(html){
           uHalf        : { value: cubeSize * 0.5 },
           uInvModel    : { value: new THREE.Matrix4() },
 
-          // —— LOOK STRONG ——
-          uDensity     : { value: 0.70 },   // menos densidad → más luz acumulada
+          // —— LOOK STRONG (base) ——
+          uDensity     : { value: 0.70 },
           uSMin        : { value: 0.60 },
           uVMin        : { value: 0.78 },
           uSatGain     : { value: 1.22 },
@@ -2735,23 +2735,47 @@ function renderArchPanel(html){
           // Ray-march
           uSteps       : { value: 36 },
 
-          // Movimiento determinista
+          // Movimiento determinista base
           uTime        : { value: 0.0 },
-          uHueBias     : { value: 0.0 },    // ° (seed global)
-          uHueRate     : { value: 45.0 },   // °/s (perfil Strong)
-          uVBreathAmp  : { value: 0.14 },   // 0–0.2
-          uVBreathHz   : { value: 0.06 },   // Hz
-          uVBreathPhase: { value: 0.0 },    // rad
+          uHueBias     : { value: 0.0 },  // grados
+          uHueRate     : { value: 7.0 },  // °/s (rango contemplativo 6–8)
+          uVBreathAmp  : { value: 0.14 },
+          uVBreathHz   : { value: 0.06 },
+          uVBreathPhase: { value: 0.0 },
 
           // A) offset espacial del eje H (X → H)
-          uPhaseX      : { value: 0.0 },    // [0,1)
+          uPhaseX      : { value: 0.0 },
 
           // D) giro volumétrico del campo (no del mesh)
-          uRotAxis     : { value: new THREE.Vector3(0,1,0) }, // unitario
-          uRotRateDeg  : { value: 25.0 },     // °/s
+          uRotAxis     : { value: new THREE.Vector3(0,1,0) },
+          uRotRateDeg  : { value: 4.0 },  // °/s (rango contemplativo 3–5)
 
           // Alpha final
-          uOpaque      : { value: 1 }
+          uOpaque      : { value: 1 },
+
+          // === NUEVO: mezcla de ejes (máx 0.3 de peso cruzado) ===
+          // H ← X + wHy·Y + wHz·Z
+          // S ← Z + wSx·X + wSy·Y
+          // V ← Y + wVx·X + wVz·Z
+          uAxisMixH    : { value: new THREE.Vector2(0.0, 0.0) }, // (wHy, wHz)
+          uAxisMixS    : { value: new THREE.Vector2(0.0, 0.0) }, // (wSx, wSy)
+          uAxisMixV    : { value: new THREE.Vector2(0.0, 0.0) }, // (wVx, wVz)
+
+          // === NUEVO: LFOs para HUE (°/s) ===
+          uHueLFO1Amp  : { value: 0.35 },
+          uHueLFO1Hz   : { value: 0.03 },
+          uHueLFO1Phase: { value: 0.0 },
+          uHueLFO2Amp  : { value: 0.20 },
+          uHueLFO2Hz   : { value: 0.013 },
+          uHueLFO2Phase: { value: 0.0 },
+
+          // === NUEVO: LFOs para ROTACIÓN (°/s) ===
+          uRotLFO1AmpDeg  : { value: 0.30 },
+          uRotLFO1Hz      : { value: 0.02 },
+          uRotLFO1Phase   : { value: 0.0 },
+          uRotLFO2AmpDeg  : { value: 0.15 },
+          uRotLFO2Hz      : { value: 0.011 },
+          uRotLFO2Phase   : { value: 0.0 }
         },
         transparent : true,
         depthWrite  : false,
@@ -2766,137 +2790,163 @@ function renderArchPanel(html){
       }
     `,
         fragmentShader: `
-      precision highp float;
+precision highp float;
 
-      uniform float uHalf;
-      uniform mat4  uInvModel;
+uniform float uHalf;
+uniform mat4  uInvModel;
 
-      uniform float uDensity, uSMin, uVMin, uSatGain, uValGain, uGammaV, uExposure;
-      uniform float uEdgeStrength, uEdgeBase, uEdgePow, uEdgeTintV, uFrontBias;
-      uniform int   uSteps;
+uniform float uDensity, uSMin, uVMin, uSatGain, uValGain, uGammaV, uExposure;
+uniform float uEdgeStrength, uEdgeBase, uEdgePow, uEdgeTintV, uFrontBias;
+uniform int   uSteps;
 
-      uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
-      uniform float uPhaseX;
+uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
+uniform float uPhaseX;
 
-      uniform vec3  uRotAxis;
-      uniform float uRotRateDeg;
+uniform vec3  uRotAxis;
+uniform float uRotRateDeg;
 
-      uniform int   uOpaque;
+uniform int   uOpaque;
 
-      varying vec3  vPos;
+uniform vec2  uAxisMixH; // (wHy, wHz)
+uniform vec2  uAxisMixS; // (wSx, wSy)
+uniform vec2  uAxisMixV; // (wVx, wVz)
 
-      vec3 hsv2rgb(float H, float S, float V){
-        float h = H / 360.0;
-        vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
-        vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
-        return V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
-      }
+// LFOs HUE (°/s)
+uniform float uHueLFO1Amp, uHueLFO1Hz, uHueLFO1Phase;
+uniform float uHueLFO2Amp, uHueLFO2Hz, uHueLFO2Phase;
 
-      bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
-        vec3 bmin = vec3(-uHalf);
-        vec3 bmax = vec3( uHalf);
-        vec3 invD = 1.0 / rd;
-        vec3 tA = (bmin - ro) * invD;
-        vec3 tB = (bmax - ro) * invD;
-        vec3 tsm = min(tA, tB);
-        vec3 tbg = max(tA, tB);
-        t0 = max(max(tsm.x, tsm.y), tsm.z);
-        t1 = min(min(tbg.x, tbg.y), tbg.z);
-        return (t1 >= max(t0, 0.0));
-      }
+// LFOs ROT (°/s)
+uniform float uRotLFO1AmpDeg, uRotLFO1Hz, uRotLFO1Phase;
+uniform float uRotLFO2AmpDeg, uRotLFO2Hz, uRotLFO2Phase;
 
-      // ——— D) rotación alrededor de un eje (Rodrigues) ———
-      vec3 rotateAxis(vec3 p, vec3 axis, float theta){
-        vec3 a = normalize(axis);
-        float c = cos(theta), s = sin(theta);
-        return p*c + cross(a, p)*s + a*dot(a, p)*(1.0 - c);
-      }
+varying vec3  vPos;
 
-      void main(){
-        vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
-        vec3 rd = normalize(vPos - ro);
+vec3 hsv2rgb(float H, float S, float V){
+  float h = H / 360.0;
+  vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+  vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
+  return V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
+}
 
-        float tEnter, tExit;
-        if(!rayBox(ro, rd, tEnter, tExit)) discard;
+bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
+  vec3 bmin = vec3(-uHalf);
+  vec3 bmax = vec3( uHalf);
+  vec3 invD = 1.0 / rd;
+  vec3 tA = (bmin - ro) * invD;
+  vec3 tB = (bmax - ro) * invD;
+  vec3 tsm = min(tA, tB);
+  vec3 tbg = max(tA, tB);
+  t0 = max(max(tsm.x, tsm.y), tsm.z);
+  t1 = min(min(tbg.x, tbg.y), tbg.z);
+  return (t1 >= max(t0, 0.0));
+}
 
-        float t0 = max(tEnter, 0.0);
-        float t1 = tExit;
+// ——— D) rotación alrededor de un eje (Rodrigues) ———
+vec3 rotateAxis(vec3 p, vec3 axis, float theta){
+  vec3 a = normalize(axis);
+  float c = cos(theta), s = sin(theta);
+  return p*c + cross(a, p)*s + a*dot(a, p)*(1.0 - c);
+}
 
-        float len = t1 - t0;
-        float dt  = len / float(max(uSteps, 1));
-        vec3  pos = ro + rd * (t0 + 0.5 * dt);
+void main(){
+  vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
+  vec3 rd = normalize(vPos - ro);
 
-        vec3  acc = vec3(0.0);
-        float a   = 0.0;
-        float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
+  float tEnter, tExit;
+  if(!rayBox(ro, rd, tEnter, tExit)) discard;
 
-        // ángulo de giro (rad) ··· D
-        float theta = radians(uRotRateDeg) * uTime;
+  float t0 = max(tEnter, 0.0);
+  float t1 = tExit;
 
-        const int MAX_STEPS = 64;
-        for (int i=0; i<MAX_STEPS; i++){
-          if (i >= uSteps) break;
+  float len = t1 - t0;
+  float dt  = len / float(max(uSteps, 1));
+  vec3  pos = ro + rd * (t0 + 0.5 * dt);
 
-          // espacio normalizado [-1,1] → rotación volumétrica
-          vec3 q = pos / uHalf;
-          q = rotateAxis(q, uRotAxis, theta);
+  vec3  acc = vec3(0.0);
+  float a   = 0.0;
+  float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
 
-          // a [0,1]^3 y offset cromático (A)
-          vec3 u = q * 0.5 + 0.5;
-          u.x = fract(u.x + uPhaseX);
+  // === NUEVO: velocidades moduladas por LFOs ===
+  float hueDrift = uHueRate
+                 + uHueLFO1Amp * sin(6.2831853 * uHueLFO1Hz * uTime + uHueLFO1Phase)
+                 + uHueLFO2Amp * sin(6.2831853 * uHueLFO2Hz * uTime + uHueLFO2Phase);
 
-          // — distancia a caras → factor de borde [0..1]
-          float dx = min(u.x, 1.0 - u.x);
-          float dy = min(u.y, 1.0 - u.y);
-          float dz = min(u.z, 1.0 - u.z);
-          float edgeDist = min(min(dx, dy), dz);
-          float edge = smoothstep(0.06, 0.18, edgeDist);
-          edge = pow(edge, max(0.2, uEdgePow));
+  float rotRate = uRotRateDeg
+                + uRotLFO1AmpDeg * sin(6.2831853 * uRotLFO1Hz * uTime + uRotLFO1Phase)
+                + uRotLFO2AmpDeg * sin(6.2831853 * uRotLFO2Hz * uTime + uRotLFO2Phase);
 
-          // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing” (B,C)
-          float H = mod(u.x * 360.0 + uHueBias + uTime * uHueRate, 360.0);
+  // ángulo de giro (rad)
+  float theta = radians(rotRate) * uTime;
 
-          float V = clamp(u.y, 0.0, 1.0);
-          V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
-          V = clamp(V, 0.0, 1.0);
-          V = pow(V, uGammaV);
-          V = max(V, uVMin);
-          V = clamp(V * uValGain, 0.0, 1.0);
+  const int MAX_STEPS = 64;
+  for (int i=0; i<MAX_STEPS; i++){
+    if (i >= uSteps) break;
 
-          float S = clamp(u.z, 0.0, 1.0);
-          S = max(S, uSMin);
-          S = clamp(S * uSatGain, 0.0, 1.0);
+    // espacio normalizado [-1,1] → rotación volumétrica
+    vec3 q = pos / uHalf;
+    q = rotateAxis(q, uRotAxis, theta);
 
-          vec3 rgb = hsv2rgb(H, S, V);
+    // a [0,1]^3 y offset cromático (A)
+    vec3 u = q * 0.5 + 0.5;
+    u.x = fract(u.x + uPhaseX);
 
-          // — color de “cara” para tinte de borde
-          vec3 uF = u;
-          if (dx <= dy && dx <= dz) { uF.x = (u.x < 0.5 ? 0.0 : 1.0); }
-          else if (dy <= dx && dy <= dz) { uF.y = (u.y < 0.5 ? 0.0 : 1.0); }
-          else { uF.z = (u.z < 0.5 ? 0.0 : 1.0); }
-          float HF = mod(uF.x * 360.0 + uHueBias + uTime * uHueRate, 360.0);
-          float VF = max(uF.y, uEdgeTintV);
-          float SF = max(uF.z, uSMin);
-          vec3  rgbFace = hsv2rgb(HF, SF, VF);
+    // — distancia a caras → factor de borde [0..1]
+    float dx = min(u.x, 1.0 - u.x);
+    float dy = min(u.y, 1.0 - u.y);
+    float dz = min(u.z, 1.0 - u.z);
+    float edgeDist = min(min(dx, dy), dz);
+    float edge = smoothstep(0.06, 0.18, edgeDist);
+    edge = pow(edge, max(0.2, uEdgePow));
 
-          rgb = mix(rgbFace, rgb, edge);
+    // === NUEVO: mezcla de ejes para H/S/V (peso cruzado suave) ===
+    float uHx = clamp(u.x + dot(uAxisMixH, vec2(u.y - 0.5, u.z - 0.5)), 0.0, 1.0);
+    float uSz = clamp(u.z + dot(uAxisMixS, vec2(u.x - 0.5, u.y - 0.5)), 0.0, 1.0);
+    float uVy = clamp(u.y + dot(uAxisMixV, vec2(u.x - 0.5, u.z - 0.5)), 0.0, 1.0);
 
-          float tau       = float(i) / float(max(uSteps-1, 1));
-          float front     = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
-          float edgeAlpha = mix(uEdgeBase, 1.0, edge);
+    // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing”
+    float H = mod(uHx * 360.0 + uHueBias + uTime * hueDrift, 360.0);
 
-          float w = (1.0 - a) * alphaStep * front * edgeAlpha;
-          acc += rgb * w;
-          a   += w;
+    float V = clamp(uVy, 0.0, 1.0);
+    V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
+    V = clamp(V, 0.0, 1.0);
+    V = pow(V, uGammaV);
+    V = max(V, uVMin);
+    V = clamp(V * uValGain, 0.0, 1.0);
 
-          if (a > 0.995) break;
-          pos += rd * dt;
-        }
+    float S = clamp(uSz, 0.0, 1.0);
+    S = max(S, uSMin);
+    S = clamp(S * uSatGain, 0.0, 1.0);
 
-        vec3 col = min(acc * uExposure, vec3(1.0));
-        float outA = (uOpaque == 1) ? 1.0 : a;
-        gl_FragColor = vec4(col, outA);
-      }
+    vec3 rgb = hsv2rgb(H, S, V);
+
+    // — color de “cara” para tinte de borde
+    vec3 uF = u;
+    if (dx <= dy && dx <= dz) { uF.x = (u.x < 0.5 ? 0.0 : 1.0); }
+    else if (dy <= dx && dy <= dz) { uF.y = (u.y < 0.5 ? 0.0 : 1.0); }
+    else { uF.z = (u.z < 0.5 ? 0.0 : 1.0); }
+    float HF = mod((uF.x) * 360.0 + uHueBias + uTime * hueDrift, 360.0);
+    float VF = max(uF.y, uEdgeTintV);
+    float SF = max(uF.z, uSMin);
+    vec3  rgbFace = hsv2rgb(HF, SF, VF);
+
+    rgb = mix(rgbFace, rgb, edge);
+
+    float tau       = float(i) / float(max(uSteps-1, 1));
+    float front     = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
+    float edgeAlpha = mix(uEdgeBase, 1.0, edge);
+
+    float w = (1.0 - a) * alphaStep * front * edgeAlpha;
+    acc += rgb * w;
+    a   += w;
+
+    if (a > 0.995) break;
+    pos += rd * dt;
+  }
+
+  vec3 col = min(acc * uExposure, vec3(1.0));
+  float outA = (uOpaque == 1) ? 1.0 : a;
+  gl_FragColor = vec4(col, outA);
+}
     `
       });
 
@@ -2977,6 +3027,22 @@ function renderArchPanel(html){
       const b = document.getElementById('offnngQualityButton');
     if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
   }
+  /* === OFFNNG: bias por patrón (±10–15 %) y mezcla de ejes (máx 0.3) === */
+  const OFFNNG_PATTERN_BIAS = {
+    //   satGain, valGain, gammaV, exposure, sMinΔ, vMinΔ, axisMixH:[wHy,wHz], axisMixS:[wX,wY], axisMixV:[wX,wZ]
+    1:  { satGain:1.05, valGain:0.98, gammaV:1.05, exposure:0.98, sMin: +0.01, vMin: -0.01, axisMixH:[+0.10,+0.04], axisMixS:[+0.06,+0.00], axisMixV:[+0.00,+0.08] },
+    2:  { satGain:1.10, valGain:1.05, gammaV:0.95, exposure:1.05, sMin: +0.02, vMin: +0.01, axisMixH:[+0.12,+0.12], axisMixS:[+0.10,+0.10], axisMixV:[+0.10,+0.10] },
+    3:  { satGain:0.95, valGain:1.00, gammaV:1.10, exposure:0.95, sMin: +0.00, vMin: -0.01, axisMixH:[+0.08,+0.02], axisMixS:[+0.04,+0.06], axisMixV:[+0.06,+0.04] },
+    4:  { satGain:1.00, valGain:0.95, gammaV:1.08, exposure:0.98, sMin: +0.00, vMin: -0.02, axisMixH:[+0.10,-0.06], axisMixS:[+0.00,+0.10], axisMixV:[+0.10,-0.04] },
+    5:  { satGain:0.92, valGain:1.00, gammaV:1.00, exposure:1.00, sMin: -0.02, vMin: +0.00, axisMixH:[+0.05,+0.05], axisMixS:[+0.05,+0.05], axisMixV:[+0.05,+0.05] },
+    6:  { satGain:0.98, valGain:0.98, gammaV:1.05, exposure:0.98, sMin: +0.00, vMin: -0.01, axisMixH:[+0.14,+0.00], axisMixS:[+0.00,+0.08], axisMixV:[+0.12,+0.00] },
+    7:  { satGain:1.06, valGain:0.98, gammaV:0.98, exposure:1.02, sMin: +0.01, vMin: -0.01, axisMixH:[+0.06,+0.14], axisMixS:[+0.12,+0.00], axisMixV:[+0.00,+0.12] },
+    8:  { satGain:1.02, valGain:1.02, gammaV:0.95, exposure:1.05, sMin: +0.01, vMin: +0.01, axisMixH:[+0.10,+0.10], axisMixS:[+0.10,+0.00], axisMixV:[+0.00,+0.10] },
+    9:  { satGain:0.94, valGain:0.98, gammaV:1.08, exposure:0.96, sMin: -0.01, vMin: -0.01, axisMixH:[+0.08,+0.04], axisMixS:[+0.04,+0.08], axisMixV:[+0.08,+0.04] },
+    10: { satGain:1.04, valGain:1.00, gammaV:1.00, exposure:1.04, sMin: +0.01, vMin: +0.00, axisMixH:[+0.12,+0.06], axisMixS:[+0.06,+0.12], axisMixV:[+0.12,+0.06] },
+    11: { satGain:1.08, valGain:1.06, gammaV:0.95, exposure:1.08, sMin: +0.02, vMin: +0.02, axisMixH:[+0.15,+0.12], axisMixS:[+0.12,+0.15], axisMixV:[+0.15,+0.12] }
+  };
+  function clampMix(w){ return Math.max(-0.3, Math.min(0.3, w)); }
 
   /* ───────────────────────── OFFNNG · parámetros deterministas ─────────────────────────
      Se llama al construir OFFNNG y cada vez que cambia la escena (refreshAll).
@@ -2984,56 +3050,104 @@ function renderArchPanel(html){
   function syncOFFNNGFromScene(){
     if (!offnngMesh || !offnngMesh.material || !offnngMesh.material.uniforms) return;
 
-    // Rango medio de la escena (2..6) → normalizado 0..1
-    const sel = Array.from(document.getElementById('permutationList').selectedOptions)
-                     .map(o => o.value.split(',').map(Number));
+    const U = offnngMesh.material.uniforms;
+
+    // —— estadística determinista a partir de la escena ——
+    const selPerms = Array.from(document.getElementById('permutationList').selectedOptions)
+                          .map(o => o.value.split(',').map(Number));
+
+    // Rango medio 2..6 → 0..1
     let avgR = 4.0;
-    if (sel.length){
-      const ranges = sel.map(p => computeRange(computeSignature(p)));
+    if (selPerms.length){
+      const ranges = selPerms.map(p => computeRange(computeSignature(p)));
       avgR = ranges.reduce((a,b)=>a+b,0) / ranges.length;
     }
     avgSceneRange = avgR;
-    const nr = Math.max(0, Math.min(1, (avgR - 2) / 4));  // 0..1
+    const nr = Math.max(0, Math.min(1, (avgR - 2) / 4)); // 0..1
 
-    const U = offnngMesh.material.uniforms;
+    // Lehmer stats
+    let sumR = 0, sumR2 = 0, sumSig = 0;
+    selPerms.forEach(p=>{
+      const r = lehmerRank(p);
+      sumR  += r;
+      sumR2 += r*r;
+      const s = computeSignature(p);
+      sumSig += s.reduce((a,b)=>a+b,0); // cada F_i ∈ [3..9]
+    });
+    const meanSig = selPerms.length ? (sumSig / (selPerms.length * 5)) : 6; // ~3..9
+    const sigN = Math.max(0, Math.min(1, (meanSig - 3) / 6)); // 0..1
 
-    // —— LOOK STRONG (más brillo/contraste) ——
-    U.uSMin.value      = 0.60;                 // pisos altos y fijos (Strong)
+    // —— LOOK base "Strong" (igual que antes) ——
+    U.uSMin.value      = 0.60;
     U.uVMin.value      = 0.78;
     U.uSatGain.value   = 1.22;
     U.uValGain.value   = 1.28;
     U.uGammaV.value    = 0.60;
     U.uExposure.value  = 1.85;
-    U.uDensity.value   = 0.70 - 0.05 * nr;     // un poco menos de densidad si la escena es “fuerte”
+    U.uDensity.value   = 0.70 - 0.05 * nr;
     U.uEdgeBase.value  = 0.65;
     U.uEdgeTintV.value = 0.72;
     U.uEdgePow.value   = 1.6;
-    U.uEdgeStrength.value = 1.0;
 
-    // —— Movimiento determinista (A–D) ——
-    // A) Punto de partida espacial del H (offset sobre X)
-    const phaseX = ((sceneSeed + 2 * S_global) % 360) / 360;     // [0,1)
+    // —— Bias por patrón (±10–15 %) + mezcla de ejes ≤ 0.3 ——
+    const B = OFFNNG_PATTERN_BIAS[activePatternId] || OFFNNG_PATTERN_BIAS[1];
+    U.uSatGain.value  *= B.satGain;
+    U.uValGain.value  *= B.valGain;
+    U.uGammaV.value   *= B.gammaV;
+    U.uExposure.value *= B.exposure;
+    U.uSMin.value     = Math.max(0.0, Math.min(1.0, U.uSMin.value + (B.sMin || 0)));
+    U.uVMin.value     = Math.max(0.0, Math.min(1.0, U.uVMin.value + (B.vMin || 0)));
+
+    U.uAxisMixH.value.set(clampMix(B.axisMixH[0]), clampMix(B.axisMixH[1]));
+    U.uAxisMixS.value.set(clampMix(B.axisMixS[0]), clampMix(B.axisMixS[1]));
+    U.uAxisMixV.value.set(clampMix(B.axisMixV[0]), clampMix(B.axisMixV[1]));
+
+    // —— Fase determinista (usa sceneSeed, S_global, sumR, sumR2) ——
+    const seedA = (sceneSeed*7 + S_global*13 + sumR)  % 997;
+    const seedB = (sceneSeed*5 + S_global*11 + sumR2) % 991;
+    const φA = 2*Math.PI * (seedA / 997);
+    const φB = 2*Math.PI * (seedB / 991);
+
+    // —— Velocidades contemplativas (base) + LFOs deterministas ——
+    // Hue 6–8 °/s y Rot 3–5 °/s (se modulan por nr y sigN).
+    U.uHueBias.value = sceneSeed;
+
+    U.uHueRate.value = 6.0 + 2.0 * (0.6*nr + 0.4*sigN);
+    U.uRotRateDeg.value = 3.0 + 2.0 * (0.5*nr + 0.5*sigN);
+
+    // LFOs HUE (amplitudes 0.35 / 0.20 °/s; frecuencias lentas)
+    U.uHueLFO1Amp.value   = 0.35;
+    U.uHueLFO2Amp.value   = 0.20;
+    U.uHueLFO1Hz.value    = 0.030 + 0.010 * nr;  // ~33–25 s
+    U.uHueLFO2Hz.value    = 0.013 + 0.007 * nr;  // ~77–50 s
+    U.uHueLFO1Phase.value = φA;
+    U.uHueLFO2Phase.value = φB;
+
+    // LFOs ROT (amplitudes 0.30 / 0.15 °/s; todavía más lentas)
+    U.uRotLFO1AmpDeg.value   = 0.30;
+    U.uRotLFO2AmpDeg.value   = 0.15;
+    U.uRotLFO1Hz.value       = 0.020 + 0.008 * nr; // ~50–35 s
+    U.uRotLFO2Hz.value       = 0.011 + 0.006 * nr; // ~90–62 s
+    U.uRotLFO1Phase.value    = φB + 0.5;          // desfase para evitar lock
+    U.uRotLFO2Phase.value    = φA + 1.0;
+
+    // —— Offset espacial del eje H (como antes) ——
+    const phaseX = ((sceneSeed + 2 * S_global) % 360) / 360;
     U.uPhaseX.value = phaseX;
 
-    // B) Hue drift rápido (°/s) — perfil Strong
-    U.uHueBias.value = sceneSeed;                                // grados
-    U.uHueRate.value = 35.0 + 20.0 * nr;                         // 35–55 °/s
-
-    // C) Respiración de brillo (V)
-    U.uVBreathAmp.value   = 0.12 + 0.04 * nr;                    // 0.12–0.16
-    U.uVBreathHz.value    = 0.06;                                // 0.06 Hz ≈ 16.7 s
-    const phase0 = ((sceneSeed + S_global) % 144) / 144;         // fase determinista
+    // —— Respiración de brillo (como antes) ——
+    U.uVBreathAmp.value   = 0.12 + 0.04 * nr;
+    U.uVBreathHz.value    = 0.06;
+    const phase0 = ((sceneSeed + S_global) % 144) / 144;
     U.uVBreathPhase.value = 2.0 * Math.PI * phase0;
 
-    // D) Giro volumétrico del campo
-    // Eje unitario derivado de (sceneSeed, S_global)
+    // —— Eje de giro (como antes) ——
     const toRad = Math.PI / 180;
     const ax = Math.cos((sceneSeed*13 + S_global*7) * toRad);
     const ay = Math.cos((sceneSeed*5  + S_global*11) * toRad);
     const az = Math.cos((sceneSeed*17 - S_global*3) * toRad);
     const norm = Math.max(1e-6, Math.hypot(ax, ay, az));
     U.uRotAxis.value.set(ax/norm, ay/norm, az/norm);
-    U.uRotRateDeg.value = 22.0 + 8.0 * nr;                       // 22–30 °/s
   }
 
   function toggleOFFNNGQuality(){
