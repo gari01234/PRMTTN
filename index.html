@@ -212,12 +212,6 @@
     z-index:260;
   }
 
-  /* === OFFNNG Quality toggle === */
-  #offnngQualityButton{
-    position:fixed; left:10px; bottom:330px;   /* 40 px por encima de OFFNNG */
-    z-index:260;
-  }
-
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
     position:fixed;               /* mismo estilo general */
@@ -262,7 +256,6 @@
     <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
   <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
-  <button id="offnngQualityButton" onclick="toggleOFFNNGQuality()">Quality: High</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -2701,7 +2694,7 @@ function renderArchPanel(html){
     let offnngMesh   = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
-    let offnngQualityLow = false;               // Quality: High=false / Low=true
+    let offnngQualityLow = true;                // Low fijo
     let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
 
     function buildOFFNNG () {
@@ -2712,20 +2705,19 @@ function renderArchPanel(html){
         offnngGroup = null; offnngMesh = null;
       }
 
-      // geometría: un solo cubo
       const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
 
-      // shader volumétrico (ray-box + march)
       const mat = new THREE.ShaderMaterial({
         uniforms: {
-          uHalf      : { value: cubeSize * 0.5 },        // half extent en espacio-objeto
-          uInvModel  : { value: new THREE.Matrix4() },   // inverse(modelMatrix) p/ pasar cam a espacio-objeto
-          uDensity   : { value: 1.0 },                   // densidad óptica (look)
-          uSMin      : { value: 0.35 },                  // S mínimo (look)
-          uVMin      : { value: 0.32 },                  // V mínimo (look)
-          uGammaV    : { value: 0.8 },                   // gamma sobre V (look)
-          uExposure  : { value: 1.18 },                  // exposición final (look)
-          uSteps     : { value: 40 }                     // pasos por defecto (rendimiento)
+          uHalf      : { value: cubeSize * 0.5 },
+          uInvModel  : { value: new THREE.Matrix4() },
+          // —— LOOK más claro por defecto ——
+          uDensity   : { value: 0.58 },   // antes 1.0 (menos densidad = menos oscurecimiento)
+          uSMin      : { value: 0.28 },   // piso de saturación
+          uVMin      : { value: 0.52 },   // antes 0.32  (eleva el valor mínimo → menos sombras)
+          uGammaV    : { value: 1.0 },    // antes 0.8   (curva más lineal)
+          uExposure  : { value: 1.32 },   // antes 1.18  (un poco más de exposición)
+          uSteps     : { value: 28 }      // Low por defecto (aplica también en applyOFFNNGQuality)
         },
         transparent : true,
         depthWrite  : false,
@@ -2733,7 +2725,7 @@ function renderArchPanel(html){
         side        : THREE.DoubleSide,
         dithering   : true,
         vertexShader: `
-      varying vec3 vPos;   // posición en espacio-objeto
+      varying vec3 vPos;
       void main() {
         vPos = position;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -2774,7 +2766,6 @@ function renderArchPanel(html){
       }
 
       void main(){
-        // origen y dirección del rayo en espacio-objeto
         vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
         vec3 rd = normalize(vPos - ro);
 
@@ -2784,60 +2775,66 @@ function renderArchPanel(html){
         float t0 = max(tEnter, 0.0);
         float t1 = tExit;
 
-        // longitud y paso en función de uSteps
         float len = t1 - t0;
         float dt  = len / float(max(uSteps, 1));
         vec3  pos = ro + rd * (t0 + 0.5 * dt);
 
         vec3  acc = vec3(0.0);
-        float a   = 0.0;                 // alpha acumulada (under operation)
-        float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf)); // normaliza por grosor
+        float a   = 0.0;
+        float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
 
-        const int MAX_STEPS = 64;        // cota superior del bucle
+        const int MAX_STEPS = 64;
+
         for (int i=0; i<MAX_STEPS; i++){
           if (i >= uSteps) break;
 
-          // normaliza a [0,1]^3 dentro del cubo
+          // Normalizado a [0,1]^3
           vec3 u = (pos / uHalf) * 0.5 + 0.5;
 
-          // mapeo continuo + look
+          // —— Suavizado de bordes (quita "sombras" en caras) ——
+          // distancia mínima a cualquier cara del cubo en espacio normalizado
+          float edgeDist = min(min(u.x, 1.0 - u.x),
+                          min(min(u.y, 1.0 - u.y), min(u.z, 1.0 - u.z)));
+          // 0 cerca del borde, 1 en el centro
+          float edge = smoothstep(0.08, 0.32, edgeDist);
+
+          // Mapeo continuo + look
           float H = u.x * 360.0;
 
           float V = clamp(u.y, 0.0, 1.0);
-          V = pow(V, uGammaV);           // curva
-          V = max(V, uVMin);             // piso
+          V = pow(V, uGammaV);
+          V = max(V, uVMin);
 
           float S = clamp(u.z, 0.0, 1.0);
-          S = max(S, uSMin);             // piso
+          S = max(S, uSMin);
 
           vec3  rgb = hsv2rgb(H, S, V);
 
-          // composición "under"
-          float w = (1.0 - a) * alphaStep;
+          // Composición "under" con atenuación de borde
+          float w = (1.0 - a) * alphaStep * edge;
           acc += rgb * w;
           a   += w;
 
-          if (a > 0.995) break;  // salida temprana
+          if (a > 0.995) break;
           pos += rd * dt;
         }
 
-        // exposición (clamp) – alpha intacto
         vec3 col = min(acc * uExposure, vec3(1.0));
         gl_FragColor = vec4(col, a);
       }
     `
       });
 
-      // malla y grupo
       offnngMesh  = new THREE.Mesh(geo, mat);
-      // matriz inversa (el cubo no se anima, así que basta ahora)
       offnngMesh.updateMatrixWorld(true);
       mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
 
       offnngGroup = new THREE.Group();
       offnngGroup.add(offnngMesh);
       scene.add(offnngGroup);
-      if (isOFFNNG) applyOFFNNGQuality();
+
+      // aplica el cap de pixel ratio y uSteps de "Low" fijo
+      applyOFFNNGQuality();
     }
 
     /* ───────────────────────── toggle OFFNNG ───────────────────── */
