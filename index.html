@@ -3113,17 +3113,19 @@ void main(){
     const meanSig = selPerms.length ? (sumSig / (selPerms.length * 5)) : 6; // ~3..9
     const sigN = Math.max(0, Math.min(1, (meanSig - 3) / 6)); // 0..1
 
-    // —— LOOK base "Strong" (igual que antes) ——
+    // —— LOOK base "Strong" (anti-rim OFFNNG) ——
     U.uSMin.value      = 0.60;
-    U.uVMin.value      = 0.78;
+    U.uVMin.value      = 0.84;
     U.uSatGain.value   = 1.22;
-    U.uValGain.value   = 1.28;
-    U.uGammaV.value    = 0.60;
-    U.uExposure.value  = 1.85;
+    U.uValGain.value   = 1.30;
+    U.uGammaV.value    = 0.58;
+    U.uExposure.value  = 1.90;
     U.uDensity.value   = 0.70 - 0.05 * nr;
-    U.uEdgeBase.value  = 0.65;
-    U.uEdgeTintV.value = 0.72;
-    U.uEdgePow.value   = 1.6;
+
+    // Borde: no atenuar y con tinte claro mínimo
+    U.uEdgeBase.value  = 1.00;   // ← clave: elimina el “marco” oscuro
+    U.uEdgeTintV.value = 0.84;   // cara cercana nunca cae de V≈0.84
+    U.uEdgePow.value   = 1.2;    // transición más plana (sin hundir perímetro)
 
     // —— Bias por patrón (±10–15 %) + mezcla de ejes ≤ 0.3 ——
     const B = OFFNNG_PATTERN_BIAS[activePatternId] || OFFNNG_PATTERN_BIAS[1];
