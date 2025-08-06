@@ -229,7 +229,7 @@
 <body>
   <div id="customCursor"></div>
   <button id="patternNextButton" onclick="cyclePattern()">11</button>
-  <button id="engineCycleButton"  onclick="cycleEngine()">3</button>
+  <button id="engineCycleButton"  onclick="cycleEngine()">4</button>
   <button id="permNextButton"     onclick="nextPerm120()">120</button>
   <div id="topRightDisplay"></div>
 
@@ -1981,16 +1981,23 @@ function makePalette(){
       refreshAll({rebuild:false});
     }
 
-    /* 3.2 Motor visual siguiente  (FRBN → LCHT → BUILD → FRBN …) */
+    /* 3.2 Motor visual siguiente  (FRBN → LCHT → OFFNNG → BUILD → FRBN …) */
     function cycleEngine(){
-      if(isFRBN){                 // FRBN → LCHT
+      if (isFRBN){                 // FRBN → LCHT
         toggleFRBN();
         toggleLCHT();
-      }else if(isLCHT){           // LCHT → BUILD
-        switchToBuild();
-      }else{                      // BUILD → FRBN
-        toggleFRBN();
+        return;
       }
+      if (isLCHT){                 // LCHT → OFFNNG
+        ensureOnlyOFFNNG();
+        return;
+      }
+      if (isOFFNNG){               // OFFNNG → BUILD
+        switchToBuild();
+        return;
+      }
+      // BUILD → FRBN
+      toggleFRBN();
     }
 
     function setMode(m){
