@@ -1946,18 +1946,20 @@ function makePalette(){
       cubeOverride   = null;
       refreshAll({keepManual:false});   // reconstruye escena y pickers
     }
-    function updateBackground(manual=true){
-      if (isOFFNNG && !manual) return;          // ← NUEVO
-      /* Si estamos en LCHT y la llamada NO es manual, salimos.
-         Esto conserva el fondo claro (#f4f4f4) fijado en toggleLCHT(). */
+    function updateBackground(manual = true){
+      // Si LCHT está activo y NO es una acción manual, no tocamos el fondo
       if (isLCHT && !manual) return;
 
       if (manual){
         bgOverride = document.getElementById("bgColor").value;
       }
-      const hex = manual ? bgOverride : hsvToHex(bgHSV);
+
+      // En llamadas no manuales usamos el color estructural calculado (bgHSV)
+      const hex = (manual && bgOverride) ? bgOverride : hsvToHex(bgHSV);
+
       scene.background = new THREE.Color(hex);
-      document.getElementById("bgColor").value = hex;
+      const input = document.getElementById("bgColor");
+      if (input) input.value = hex;
     }
 
     function updateCubeColor(manual=true){
@@ -3013,7 +3015,7 @@ void main(){
       applyOFFNNGQuality();
 
       offnngPrevBg   = scene.background ? scene.background.clone() : null;
-      scene.background = new THREE.Color(0x000000);   // ← fondo NEGRO por defecto en OFFNNG
+      updateBackground(false); // usa el fondo acoplado a BUILD / patrón / perms
 
       cubeUniverse.visible     = false;
       permutationGroup.visible = false;
