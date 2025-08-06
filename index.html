@@ -898,14 +898,22 @@ function buildLCHT() {
 
       const col = colorFromVolume(mid);   // sin pruebas de I0
 
-      const geo = new THREE.CylinderGeometry(0.4, 0.4, hSeg, 8, 1, true);
+      // — Perfil cuadrado (lado = 0.8 ⇒ igual diámetro que el cilindro de r=0.4)
+      // — JOIN añade un pelín de solape para que las esquinas no “abran”
+      const SIDE = 0.8;
+      const JOIN = 0.02;
+
+      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
       const mat = new THREE.MeshPhongMaterial({
         color: col,
         shininess: 0,
-        dithering: true
+        dithering: true,
+        flatShading: true
       });
+
       const tube = new THREE.Mesh(geo, mat);
       tube.position.copy(mid);
+      // La Box está orientada a lo largo del eje Y; mantenemos el mismo alineamiento
       tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
 
       /* --- HSV original para animar color --- */
