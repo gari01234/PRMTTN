@@ -900,7 +900,7 @@ function buildLCHT() {
 
       // — Perfil cuadrado (lado = 0.8 ⇒ igual diámetro que el cilindro de r=0.4)
       // — JOIN añade un pelín de solape para que las esquinas no “abran”
-      const SIDE = 0.8;
+      const SIDE = 0.2;
       const JOIN = 0.02;
 
       const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
@@ -2636,7 +2636,7 @@ function renderArchPanel(html){
       const p = evt.touches && evt.touches.length ? evt.touches[0] : evt;
       const x = p.clientX, y = p.clientY;
 
-      // región “central”: ±25 % del ancho y alto de la ventana
+      // región “central”: ±10 % del ancho y alto de la ventana
       const cx = window.innerWidth  * 0.5;
       const cy = window.innerHeight * 0.5;
       if (
