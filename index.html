@@ -1160,11 +1160,25 @@ function ensureContrastRGB(rgb){
   return rgb;
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
-/* ——— calcula HSV para fondo (slot 5) y paredes (slot 6) ——— */
+/* ——— calcula HSV para fondo y paredes de forma acoplada al set activo ——— */
 function rebuildSceneColours(){
-  const dummySig = [0,0,0,0,0];            // sólo necesitamos el patrón
-  bgHSV   = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 5) );
-  wallHSV = idxToHSV( ...PATTERNS[activePatternId](dummySig, sceneSeed, 6) );
+  // Permutaciones activas (en el mismo orden visual)
+  const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                     .map(o => o.value.split(',').map(Number));
+
+  // Firmas para fondo/cubo (si no hay, usa dummy neutra)
+  const firstSig = perms[0] ? computeSignature(perms[0]) : [0,0,0,0,0];
+  const lastSig  = perms.length > 1 ? computeSignature(perms[perms.length-1]) : firstSig;
+
+  // Slots acoplados al tamaño del set (idéntico a BUILD + spreads coprimos)
+  let [h1,s1,v1] = PATTERNS[activePatternId](firstSig, sceneSeed, perms.length);
+  let [h2,s2,v2] = PATTERNS[activePatternId](lastSig,  sceneSeed, perms.length + 1);
+
+  s1 = (s1 * PHI_S) % 12;  v1 = (v1 * PHI_V) % 12;
+  s2 = (s2 * PHI_S) % 12;  v2 = (v2 * PHI_V) % 12;
+
+  bgHSV   = idxToHSV(h1, s1, v1);   // ← Fondo = “slot #n” con firma del primero
+  wallHSV = idxToHSV(h2, s2, v2);   // ← Paredes = “slot #n+1” con firma del último
 }
 
 /* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
@@ -1326,38 +1340,51 @@ function evalProp(prop, args = [], fallback = 0){
     function createPermutationObjectWithMapping(pa,map){
       const fv=pa[map[0]], cv=pa[map[1]],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
-      /* --- CÁLCULO de color (cuadrícula) -------------------------------- */
-      let rgb;
-        if(activePatternId === 0){                       // modo legacy
-          rgb = paletteRGB[cv-1] || [255,255,255];
-        }else{
-          const sig  = computeSignature(pa);
-          /* slot bien distribuido: rank(perm) mod 12 */
-          const slot = lehmerRank(pa) % 12;      // 0-11
-          let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-          /* dispersión coprima en S y V */
-          sI = (sI * PHI_S) % 12;
-          vI = (vI * PHI_V) % 12;
-          const {h,s,v} = idxToHSV(hI,sI,vI);
-          rgb = hsvToRgb(h,s,v);
-        }
 
-        /* —— AJUSTE AUTOMÁTICO DE CONTRASTE CON EL FONDO —— */
-        rgb = ensureContrastRGB(rgb);
-      /* --------------------------------------------------------------- */
+      // --- COLOR determinista (cuadrícula HSV) ---
+      let rgb;
+      if(activePatternId === 0){
+        rgb = paletteRGB[cv-1] || [255,255,255];
+      }else{
+        const sig  = computeSignature(pa);
+        const slot = lehmerRank(pa) % 12;      // 0-11
+        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        sI = (sI * PHI_S) % 12;
+        vI = (vI * PHI_V) % 12;
+        const {h,s,v} = idxToHSV(hI,sI,vI);
+        rgb = hsvToRgb(h,s,v);
+      }
+      // Contraste mínimo contra el fondo actual
+      rgb = ensureContrastRGB(rgb);
+
+      // --- POSICIÓN (antes de material para calcular frontalidad) ---
+      const [X,Y,Z]=computeShiftRankXYZ(pa);
+
+      // --- BOOST frontal (0..1) en función de Z dentro del cubo ---
+      const zNorm = (Z + halfCube) / cubeSize;               // -15→0  ·  +15→1
+      let [hh,ss,vv] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+      // un poco más de luz y croma hacia delante, sin clip
+      vv = Math.min(1, vv * (1.05 + 0.25*zNorm) + 0.06*zNorm);
+      ss = Math.min(1, ss * (1.02 + 0.18*zNorm));
+      const rgbBoost = hsvToRgb(hh, ss, vv);
+
       const mat=new THREE.MeshPhongMaterial({
-        color:new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255),
-        shininess:50,
+        color:new THREE.Color(rgbBoost[0]/255,rgbBoost[1]/255,rgbBoost[2]/255),
+        shininess:60,
         dithering:true
       });
+      // brillo intrínseco suave (más al frente)
+      mat.emissive = new THREE.Color(rgbBoost[0]/255,rgbBoost[1]/255,rgbBoost[2]/255);
+      mat.emissiveIntensity = 0.18 + 0.55 * zNorm;
+
       const geo=new THREE.BoxGeometry(w,h,t);
       const mesh=new THREE.Mesh(geo,mat);
-      const [X,Y,Z]=computeShiftRankXYZ(pa);
       mesh.position.set(
         clamp(X,-halfCube+w/2,halfCube-w/2),
         clamp(Y,-halfCube+h/2,halfCube-h/2),
         clamp(Z,-halfCube+t/2,halfCube-t/2)
       );
+
       const sig=computeSignature(pa), rg=computeRange(sig);
       mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
       return mesh;
@@ -2578,9 +2605,11 @@ function renderArchPanel(html){
     }
     function initRenderer(){
       renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
-      renderer.setPixelRatio(window.devicePixelRatio);
+      // CAP global: mejora FPS en todas las escenas
+      const PR = Math.min(window.devicePixelRatio || 1, 1.25);
+      renderer.setPixelRatio(PR);
       renderer.setSize(window.innerWidth,window.innerHeight);
-      renderer.outputEncoding = THREE.sRGBEncoding; // salida en sRGB → menos banding
+      renderer.outputEncoding = THREE.sRGBEncoding; // sRGB → menos banding
       document.body.appendChild(renderer.domElement);
     }
     /* ════════════════════════════════════════════════
@@ -3024,16 +3053,14 @@ void main(){
 
     /* Calidad: ya NO reducimos el pixelRatio (evita blur); solo variamos uSteps */
     function applyOFFNNGQuality(){
-      const basePR = Math.min(window.devicePixelRatio || 1, 1.5);
-      renderer.setPixelRatio(basePR);               // sin “half-res” en Low
-
+      const basePR = Math.min(window.devicePixelRatio || 1, 1.25); // antes 1.5
+      renderer.setPixelRatio(basePR);                               // Low/High no tocan PR
       if (offnngMesh && offnngMesh.material && offnngMesh.material.uniforms) {
         offnngMesh.material.uniforms.uSteps.value = offnngQualityLow ? 36 : 56;
       }
-
       const b = document.getElementById('offnngQualityButton');
-    if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
-  }
+      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+    }
   /* === OFFNNG: bias por patrón (±10–15 %) y mezcla de ejes (máx 0.3) === */
   const OFFNNG_PATTERN_BIAS = {
     //   satGain, valGain, gammaV, exposure, sMinΔ, vMinΔ, axisMixH:[wHy,wHz], axisMixS:[wX,wY], axisMixV:[wX,wZ]
