@@ -233,11 +233,8 @@
     background:rgba(0,0,0,0.12);
     cursor:none; transition:background .2s;
   }
-    #playButton:hover{ background:rgba(0,0,0,0.20); }
-
-    html,body{width:100%;height:100%;margin:0;overflow:hidden;}
-    canvas{display:block;width:100vw;height:100vh;}
-    </style>
+  #playButton:hover{ background:rgba(0,0,0,0.20); }
+  </style>
 </head>
 <body>
   <div id="customCursor"></div>
@@ -2614,17 +2611,11 @@ function renderArchPanel(html){
     }
     function initRenderer(){
       renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
-      renderer.domElement.style.width  = "100%";
-      renderer.domElement.style.height = "100%";
+      // CAP global: mejora FPS en todas las escenas
       const PR = Math.min(window.devicePixelRatio || 1, 1.25);
       renderer.setPixelRatio(PR);
       renderer.setSize(window.innerWidth,window.innerHeight);
-      renderer.outputEncoding = THREE.sRGBEncoding;
-
-      // ← NUEVO: sombras suaves para que el relieve se lea
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
+      renderer.outputEncoding = THREE.sRGBEncoding; // sRGB → menos banding
       document.body.appendChild(renderer.domElement);
     }
     /* ════════════════════════════════════════════════
@@ -2697,12 +2688,7 @@ function renderArchPanel(html){
       animate();
     }
     function onWindowResize(){
-      if(isTMSL && tmslCamera){
-        setupTMSLCamera(tmslWallSize);
-      }else{
-        camera.aspect=window.innerWidth/window.innerHeight;
-        camera.updateProjectionMatrix();
-      }
+      camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
     }
     function animate(){
@@ -2738,7 +2724,7 @@ function renderArchPanel(html){
           });
         }
         controls.update();
-        renderer.render(scene, (isTMSL && tmslCamera) ? tmslCamera : camera);
+        renderer.render(scene,camera);
       }
     
     /* ═══════ OFFNNG · VOLUMÉTRICO CONTINUO (v4 – shader) ═══════
@@ -3222,170 +3208,22 @@ void main(){
     let tmslPrevBg = null;
     let tmslPrevControls = true;
 
-    // NUEVO: cámara/luz propias de TMSL + tamaño del muro
-    let tmslCamera = null;
-    let tmslLightGroup = null;
-    let tmslWallSize = cubeSize * 3; // se recalcula en buildTMSL por si cambias cubeSize
-
-    function setupTMSLCamera(wallSize){
-      tmslWallSize = wallSize;
-      const margin = wallSize * 0.06;               // 6% de aire como en la foto
-      const halfH  = wallSize * 0.5 + margin;       // “alto” en unidades
-      const aspect = window.innerWidth / window.innerHeight;
-      const halfW  = halfH * aspect;
-
-      if(!tmslCamera){
-        tmslCamera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 2000);
-      }else{
-        tmslCamera.left = -halfW;
-        tmslCamera.right =  halfW;
-        tmslCamera.top =   halfH;
-        tmslCamera.bottom = -halfH;
-        tmslCamera.updateProjectionMatrix();
-      }
-      tmslCamera.position.set(0,0,200);   // totalmente frontal (sin perspectiva)
-      tmslCamera.lookAt(0,0,0);
-    }
-
-    function makeEdgeShaderMaterial(hex){
-      const c = new THREE.Color(hex);
-      return new THREE.ShaderMaterial({
-        uniforms:{
-          uTint:      { value: new THREE.Color(c.r, c.g, c.b) },
-          uFeather:   { value: 0.18 },  // ancho del borde (0..0.5)
-          uStrength:  { value: 0.65 }   // intensidad del tinte
-        },
-        vertexShader: `
-      varying vec2 vUv;
-      void main(){
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-      }
-    `,
-        fragmentShader: `
-      precision highp float;
-      varying vec2 vUv;
-      uniform vec3  uTint;
-      uniform float uFeather;
-      uniform float uStrength;
-      void main(){
-        // distancia al borde más cercano en UV
-        float d = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-        // g=1 en el borde, 0 hacia el centro
-        float g = smoothstep(uFeather, 0.0, d);
-        vec3 col = mix(vec3(1.0), uTint, g * uStrength);
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `,
-        depthTest:true, depthWrite:true, side:THREE.FrontSide, transparent:false
-      });
-    }
-
-    function buildTMSL () {
-      // limpia versión previa
-      if (tmslGroup) {
-        tmslGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    function buildTMSL(){
+      /* limpia versión previa */
+      if (tmslGroup){
+        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
         scene.remove(tmslGroup);
       }
-      if (tmslLightGroup){
-        tmslLightGroup.traverse(o => { if (o.isLight) { /* nada */ } });
-        scene.remove(tmslLightGroup);
-        tmslLightGroup = null;
-      }
-
       tmslGroup = new THREE.Group();
+
+      /* pared blanca con 2 u de “tiefe” */
+      const DEPTH = 2;
+      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
+      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      const wall = new THREE.Mesh(wallGeo, wallMat);
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+      tmslGroup.add(wall);
       scene.add(tmslGroup);
-
-      // constantes “Tomaselli”
-      const DEPTH = 10;                 // profundidad del hueco
-      const GRID  = 5;                  // 5 × 5
-      const BAR   = 1;                  // grosor de vigas frontales
-      const WALL  = cubeSize * 3;       // tamaño total de la pared (≈90 si cubeSize=30)
-      const CELL  = (WALL - BAR * (GRID + 1)) / GRID;
-
-      // actualizar cámara ortográfica para que llene pantalla
-      setupTMSLCamera(WALL);
-
-      // MATERIALES: blanco que recibe y proyecta sombra (para leer el relieve)
-      const whiteStd = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
-
-      // Plano trasero (visible por el hueco)
-      const backGeo = new THREE.PlaneGeometry(WALL, WALL);
-      const back = new THREE.Mesh(backGeo, whiteStd.clone());
-      back.material.side = THREE.BackSide;
-      back.position.set(0, 0, halfCube - DEPTH);
-      back.receiveShadow = true;
-      tmslGroup.add(back);
-
-      // Vigas frontales (marco)
-      const vMat = whiteStd.clone();
-      const vGeo = new THREE.BoxGeometry(BAR, WALL, DEPTH);
-      for (let i = 0; i <= GRID; i++) {
-        const x = -WALL / 2 + BAR / 2 + i * (CELL + BAR);
-        const v = new THREE.Mesh(vGeo, vMat.clone());
-        v.position.set(x, 0, halfCube - DEPTH / 2);
-        v.castShadow = true; v.receiveShadow = true;
-        tmslGroup.add(v);
-      }
-      const hGeo = new THREE.BoxGeometry(WALL, BAR, DEPTH);
-      for (let j = 0; j <= GRID; j++) {
-        const y =  WALL / 2 - BAR / 2 - j * (CELL + BAR);
-        const h = new THREE.Mesh(hGeo, vMat.clone());
-        h.position.set(0, y, halfCube - DEPTH / 2);
-        h.castShadow = true; h.receiveShadow = true;
-        tmslGroup.add(h);
-      }
-
-      // Bisel cromático: alterna verde/rosa en patrón tablero
-      const TINT_A = "#bcd8c6";   // verde suave
-      const TINT_B = "#f4b6b1";   // rosa suave
-
-      // Huecos (caja hundida) + “marco cromático” como plano delgado al frente
-      const recessGeo = new THREE.BoxGeometry(CELL, CELL, DEPTH - 0.2);
-      for (let i = 0; i < GRID; i++) {
-        for (let j = 0; j < GRID; j++) {
-          const x = -WALL / 2 + BAR + CELL / 2 + i * (CELL + BAR);
-          const y =  WALL / 2 - BAR - CELL / 2 - j * (CELL + BAR);
-          const z = halfCube - DEPTH + (DEPTH - 0.2) / 2;
-
-          // caja hundida (blanca, con sombra)
-          const recess = new THREE.Mesh(recessGeo, whiteStd.clone());
-          recess.position.set(x, y, z);
-          recess.castShadow = true; recess.receiveShadow = true;
-          tmslGroup.add(recess);
-
-          // plano “bisel tintado” pegado al borde interior del hueco
-          const edgeGeo = new THREE.PlaneGeometry(CELL, CELL);
-          const tint = ((i + j) % 2 === 0) ? TINT_A : TINT_B;
-          const edge = new THREE.Mesh(edgeGeo, makeEdgeShaderMaterial(tint));
-          // apenas por delante del inicio del hueco para que no parpadee (z-fighting)
-          edge.position.set(x, y, halfCube - DEPTH + 0.02);
-          edge.renderOrder = 2; // que dibuje encima del fondo del hueco
-          tmslGroup.add(edge);
-        }
-      }
-
-      // LUCES propias de TMSL (sombras suaves, dirección desde arriba/izquierda)
-      tmslLightGroup = new THREE.Group();
-
-      const amb = new THREE.AmbientLight(0xffffff, 0.35);
-      tmslLightGroup.add(amb);
-
-      const key = new THREE.DirectionalLight(0xffffff, 0.95);
-      key.position.set(80, 120, 200);
-      key.castShadow = true;
-      key.shadow.mapSize.set(2048, 2048);
-      key.shadow.camera.near = 10;
-      key.shadow.camera.far  = 600;
-      key.shadow.normalBias  = 0.02;
-      tmslLightGroup.add(key);
-
-      const fill = new THREE.DirectionalLight(0xffffff, 0.35);
-      fill.position.set(-120, -80, 120);
-      fill.castShadow = false;
-      tmslLightGroup.add(fill);
-
-      scene.add(tmslLightGroup);
     }
 
     function toggleTMSL(){           /* se usa sólo internamente */
@@ -3401,9 +3239,10 @@ void main(){
         if (lichtGroup) lichtGroup.visible = false;
 
         tmslPrevBg        = scene.background ? scene.background.clone() : null;
-        scene.background  = new THREE.Color(0xffffff);   // pared blanca realista
+        scene.background  = new THREE.Color(0x000000);   // neutro absoluto
         tmslPrevControls  = controls.enabled;
-        controls.enabled  = false;                       // cámara fija ortográfica
+        controls.enabled  = false;                       // cámara fija
+        applyStandardView();                             // vista “front”
         isTMSL = true;
 
       } else {                      /* — SALIR — (lo hace BUILD) */
@@ -3411,10 +3250,6 @@ void main(){
           tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
           scene.remove(tmslGroup);
           tmslGroup = null;
-        }
-        if (tmslLightGroup){
-          scene.remove(tmslLightGroup);
-          tmslLightGroup = null;
         }
         if (tmslPrevBg) scene.background = tmslPrevBg;
         controls.enabled = tmslPrevControls;
