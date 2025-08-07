@@ -3208,22 +3208,77 @@ void main(){
     let tmslPrevBg = null;
     let tmslPrevControls = true;
 
-    function buildTMSL(){
-      /* limpia versión previa */
-      if (tmslGroup){
-        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+    /*───────────────────────────────────────────────────────────────
+      SÓLO cambia la función buildTMSL() por ésta.
+      - Añade una pared blanca con 25 relieves “hacia adentro”
+        (5×5) sin color, únicamente profundidad.
+      - No toca el resto del motor TMSL ni otros engines.
+    ───────────────────────────────────────────────────────────────*/
+    function buildTMSL () {
+
+      /* — limpia versión previa — */
+      if (tmslGroup) {
+        tmslGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
         scene.remove(tmslGroup);
       }
       tmslGroup = new THREE.Group();
-
-      /* pared blanca con 2 u de “tiefe” */
-      const DEPTH = 2;
-      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
-      const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
-      tmslGroup.add(wall);
       scene.add(tmslGroup);
+
+      /* constantes básicas */
+      const DEPTH = 2;                  // grosor total de la pared
+      const GRID  = 5;                  // 5 × 5 relieves
+      const BAR   = 1;                  // grosor de las vigas frontales
+      const WALL  = cubeSize * 3;       // lado total (90 u si cubeSize = 30)
+      const CELL  = (WALL - BAR * (GRID + 1)) / GRID;   // lado de cada hueco
+
+      /* plano trasero del relieve (base) */
+      const backGeo = new THREE.PlaneGeometry(WALL, WALL);
+      const backMat = new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        side : THREE.BackSide            // cara visible por el hueco
+      });
+      const back = new THREE.Mesh(backGeo, backMat);
+      back.position.set(0, 0, halfCube - DEPTH);        // 2 u detrás del frontal
+      tmslGroup.add(back);
+
+      /* vigas frontales blancas ─ enmarcan la cuadrícula */
+      const vMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+      /* ─ verticales ─ */
+      const vGeo = new THREE.BoxGeometry(BAR, WALL, DEPTH);
+      for (let i = 0; i <= GRID; i++) {
+        const x = -WALL / 2 + BAR / 2 + i * (CELL + BAR);
+        const v = new THREE.Mesh(vGeo, vMat);
+        v.position.set(x, 0, halfCube - DEPTH / 2);
+        tmslGroup.add(v);
+      }
+
+      /* ─ horizontales ─ */
+      const hGeo = new THREE.BoxGeometry(WALL, BAR, DEPTH);
+      for (let j = 0; j <= GRID; j++) {
+        const y =  WALL / 2 - BAR / 2 - j * (CELL + BAR);
+        const h = new THREE.Mesh(hGeo, vMat);
+        h.position.set(0, y, halfCube - DEPTH / 2);
+        tmslGroup.add(h);
+      }
+
+      /* 25 cajetines hundidos (relieves) */
+      const recessGeo = new THREE.BoxGeometry(CELL, CELL, DEPTH - 0.2);
+      const recessMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      for (let i = 0; i < GRID; i++) {
+        for (let j = 0; j < GRID; j++) {
+
+          /* centro de cada hueco */
+          const x = -WALL / 2 + BAR + CELL / 2 + i * (CELL + BAR);
+          const y =  WALL / 2 - BAR - CELL / 2 - j * (CELL + BAR);
+          /* la cara frontal queda ~0.1 u por detrás de las vigas */
+          const z = halfCube - DEPTH + (DEPTH - 0.2) / 2;
+
+          const recess = new THREE.Mesh(recessGeo, recessMat);
+          recess.position.set(x, y, z);
+          tmslGroup.add(recess);
+        }
+      }
     }
 
     function toggleTMSL(){           /* se usa sólo internamente */
