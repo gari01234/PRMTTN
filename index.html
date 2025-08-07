@@ -256,6 +256,9 @@
     <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
   <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
+  <!--  TMSL  -->
+  <button id="tmslButton" style="position:fixed;left:10px;bottom:330px;z-index:260;"
+          onclick="ensureOnlyTMSL()">TMSL</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -3204,6 +3207,110 @@ void main(){
     }
 
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
+
+    /* ────────────────────────────────  TMSL  ·  hollow-grid Tomasello  ──────────────────────────────── */
+    let tmslGroup = null;
+    let isTMSL    = false;
+
+    /*  ⚙️  construye o rehace el motor  */
+    function buildTMSL(){
+      /* limpia versión anterior */
+      if (tmslGroup){
+        tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
+        scene.remove(tmslGroup);
+      }
+      tmslGroup = new THREE.Group();
+
+      /* 1. Obtiene permutaciones activas y fija N = 3 + P₁ (4…8) */
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                         .map(o=>o.value.split(',').map(Number));
+      const P1 = perms[0] ? perms[0][ attributeMapping[0] ] : 1;
+      const N  = 3 + P1;                                 //  grid 4 … 8
+
+      /* 2. Parámetros de celda */
+      const CELL = 6, GAP = 2, STEP = CELL + GAP;
+      const offset = (N-1)*STEP*0.5;                     // centra la retícula
+
+      /* 3. Genera huecos coloreados (máximo N×N, sobrantes se ignoran) */
+      perms.forEach((pa,i)=>{
+        if (i >= N*N) return;                            // sólo lo que quepa
+        const r = Math.floor(i / N);
+        const c = i % N;
+
+        /* color interno = slot P₂ de la paleta ya calculada */
+        const idx = pa[ attributeMapping[1] ];           // 1-5
+        const src = getColor(idx);
+        const col = Array.isArray(src) ?
+                    new THREE.Color(src[0]/255, src[1]/255, src[2]/255) :
+                    new THREE.Color(src);
+
+        const innerMat = new THREE.MeshLambertMaterial({ color: col, side: THREE.BackSide });
+        const geo      = new THREE.BoxGeometry(CELL, CELL, CELL);
+        const cube     = new THREE.Mesh(geo, innerMat);
+
+        cube.position.set(c*STEP - offset, offset - r*STEP, 0);
+        tmslGroup.add(cube);
+      });
+
+      scene.add(tmslGroup);
+    }
+
+    /*  🔀 ON / OFF — asegura exclusividad con los otros motores  */
+    function toggleTMSL(){
+      isTMSL = !isTMSL;
+
+      if (isTMSL){                       /* — ENTRAR — */
+        if (isFRBN)  toggleFRBN();
+        if (isLCHT)  toggleLCHT();
+        if (isOFFNNG) toggleOFFNNG();
+
+        buildTMSL();
+
+        tmslGroup.visible     = true;
+        cubeUniverse.visible  = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
+
+      } else {                           /* — SALIR — */
+        if (tmslGroup){
+          tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
+          scene.remove(tmslGroup);
+          tmslGroup = null;
+        }
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
+      }
+      const b = document.getElementById('tmslButton');
+      if (b) b.textContent = isTMSL ? 'TMSL ON' : 'TMSL';
+    }
+
+    /* usado por el botón dedicado */
+    function ensureOnlyTMSL(){
+      if (!isTMSL) toggleTMSL();
+    }
+
+    /* reconstruye si el usuario cambia permutaciones o paleta */
+    function rebuildTMSLIfActive(){ if (isTMSL) buildTMSL(); }
+
+    /* ───── Integra en el ciclo de motores ───────────────────────── */
+    const oldCycleEngine = cycleEngine;
+    cycleEngine = function(){
+      if (isFRBN){ toggleFRBN();        toggleLCHT(); return; }
+      if (isLCHT){ ensureOnlyOFFNNG();  return; }
+      if (isOFFNNG){ toggleOFFNNG();    toggleTMSL(); return; }
+      if (isTMSL){  toggleTMSL();       switchToBuild(); return; }
+      /* BUILD → FRBN (sin cambios) */
+      toggleFRBN();
+    };
+
+    /* ───── llama al rebuild dentro de refreshAll ────────────────── */
+    const oldRefreshAll = refreshAll;
+    refreshAll = function(opts={rebuild:false}){
+      oldRefreshAll(opts);
+      rebuildTMSLIfActive();
+    };
+    /* ─────────────────────────────────────────────────────────────── */
 
     init();
 
