@@ -212,6 +212,16 @@
     z-index:260;
   }
 
+  #tmslButton{
+    position:fixed; left:10px; bottom:330px;   /* mismo look & feel */
+    z-index:260;
+    border:none; border-radius:4px;
+    padding:8px 12px; font-size:12px;
+    background:rgba(255,255,255,0.12);
+    cursor:none; transition:background .2s;
+  }
+  #tmslButton:hover{ background:rgba(255,255,255,0.20); }
+
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
     position:fixed;               /* mismo estilo general */
@@ -256,6 +266,7 @@
     <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
   <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
+  <button id="tmslButton" onclick="ensureOnlyTMSL()">TMSL</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -709,6 +720,7 @@ function initSkySphere() {
     /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
     function toggleFRBN () {
       if (!isFRBN && isOFFNNG) toggleOFFNNG();  // ← NUEVO
+      if (!isFRBN && isTMSL)  toggleTMSL();
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -929,6 +941,7 @@ function buildLCHT() {
 
     function toggleLCHT(){
       if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
+      if (!isLCHT && isTMSL)  toggleTMSL();
       isLCHT = !isLCHT;
 
         if (isLCHT){
@@ -972,8 +985,9 @@ function buildLCHT() {
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
       if (isOFFNNG) toggleOFFNNG();   // ← NUEVO: asegura exclusividad
-      if (isFRBN) toggleFRBN();   // apaga FRBN si estaba activo
-      if (isLCHT) toggleLCHT();   // apaga LCHT si estaba activo
+      if (isFRBN)  toggleFRBN();   // apaga FRBN si estaba activo
+      if (isLCHT)  toggleLCHT();   // apaga LCHT si estaba activo
+      if (isTMSL)  toggleTMSL();   // apaga TMSL si estaba activo
       /* Nada más: la escena existente permanece tal cual */
     }
 
@@ -1983,8 +1997,9 @@ function makePalette(){
       const ids = [
         'controls','topRightDisplay','ratingContainer',
         'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button','frbnWrap','lchtWrap','infoButton','certButton',
-        'offnngButton'        // ← NUEVO
+        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
+        'frbnWrap','lchtWrap','infoButton','certButton','offnngButton',
+        'tmslButton'            // ← NUEVO
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -2016,25 +2031,6 @@ function makePalette(){
       const sel = document.getElementById('patternSelect');
       if(sel) sel.value = String(activePatternId);            // actualiza el <select>
       refreshAll({rebuild:false});
-    }
-
-    /* 3.2 Motor visual siguiente  (FRBN → LCHT → OFFNNG → BUILD → FRBN …) */
-    function cycleEngine(){
-      if (isFRBN){                 // FRBN → LCHT
-        toggleFRBN();
-        toggleLCHT();
-        return;
-      }
-      if (isLCHT){                 // LCHT → OFFNNG
-        ensureOnlyOFFNNG();
-        return;
-      }
-      if (isOFFNNG){               // OFFNNG → BUILD
-        switchToBuild();
-        return;
-      }
-      // BUILD → FRBN
-      toggleFRBN();
     }
 
     function setMode(m){
@@ -3015,6 +3011,7 @@ void main(){
     if (isOFFNNG) {                    /* — ENTRAR — */
       if (isFRBN) toggleFRBN();        // asegura exclusividad
       if (isLCHT) toggleLCHT();
+      if (isTMSL) toggleTMSL();
 
       buildOFFNNG();
 
@@ -3204,6 +3201,80 @@ void main(){
     }
 
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
+
+    /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
+    let isTMSL = false;
+    let tmslGroup = null;
+    let tmslPrevBg = null;
+    let tmslPrevControls = true;
+
+    function buildTMSL(){
+      /* limpia versión previa */
+      if (tmslGroup){
+        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+        scene.remove(tmslGroup);
+      }
+      tmslGroup = new THREE.Group();
+
+      /* pared blanca con 2 u de “tiefe” */
+      const DEPTH = 2;
+      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
+      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      const wall = new THREE.Mesh(wallGeo, wallMat);
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+      tmslGroup.add(wall);
+      scene.add(tmslGroup);
+    }
+
+    function toggleTMSL(){           /* se usa sólo internamente */
+      if (!isTMSL){                  /* — ENTRAR — */
+        if (isFRBN)  toggleFRBN();
+        if (isLCHT)  toggleLCHT();
+        if (isOFFNNG)toggleOFFNNG();
+
+        buildTMSL();
+
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
+
+        tmslPrevBg        = scene.background ? scene.background.clone() : null;
+        scene.background  = new THREE.Color(0x000000);   // neutro absoluto
+        tmslPrevControls  = controls.enabled;
+        controls.enabled  = false;                       // cámara fija
+        applyStandardView();                             // vista “front”
+        isTMSL = true;
+
+      } else {                      /* — SALIR — (lo hace BUILD) */
+        if (tmslGroup){
+          tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+          scene.remove(tmslGroup);
+          tmslGroup = null;
+        }
+        if (tmslPrevBg) scene.background = tmslPrevBg;
+        controls.enabled = tmslPrevControls;
+
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
+
+        isTMSL = false;
+      }
+    }
+
+    /* botón selector – sólo enciende, nunca apaga */
+    function ensureOnlyTMSL(){
+      if (!isTMSL) toggleTMSL();
+    }
+
+    /* incluye TMSL en la rueda de motores del botón “4” */
+    function cycleEngine(){
+      if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
+      if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
+      if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
+      if (isTMSL){ switchToBuild(); return; }              // TMSL  → BUILD
+      toggleFRBN();                                        // BUILD → FRBN
+    }
 
     init();
 
