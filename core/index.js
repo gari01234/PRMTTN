@@ -1,21 +1,17 @@
-// core/index.js — puente de compatibilidad: expone en window
-import * as Col from './colors.js';
-import * as Perm from './permutations.js';
-import * as Scn from './scene.js';
-import { PATTERNS, PHI_S, PHI_V, PHI_H } from './patterns.js';
+// core/index.js
+import * as permutations from './permutations.js';
+import * as signature    from './signature.js';
+import * as scene        from './scene.js';
+import * as color        from './color.js';
 
-const core = { ...Col, ...Perm, ...Scn, PATTERNS, PHI_S, PHI_V, PHI_H };
-window.core = core;
+export * from './permutations.js';
+export * from './signature.js';
+export * from './scene.js';
+export * from './color.js';
 
-// Compatibilidad “suave”: también colgamos algunos nombres comunes en window
-// (no obliga a tocar tu index.html todavía)
-[
-  'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE','idxToHSV','ensureContrastRGB',
-  'getPermutations','getAttributeMappings','lehmerRank','mappingRank','computeSignature','computeRange',
-  'computeSceneSeedFrom','computeGlobalS',
-].forEach(k => { if (!window[k]) window[k] = core[k]; });
+const core = { ...permutations, ...signature, ...scene, ...color };
 
-if (!window.PATTERNS) window.PATTERNS = PATTERNS;
-if (!window.PHI_S) window.PHI_S = PHI_S;
-if (!window.PHI_V) window.PHI_V = PHI_V;
-if (!window.PHI_H) window.PHI_H = PHI_H;
+// Exponer también como ventana global defensiva (sin romper módulos).
+if (typeof window !== 'undefined') {
+  window.core = core;
+}

@@ -9,22 +9,46 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <!-- Capa pura (no rompe nada): expone utilidades core en window -->
-  <script type="module" src="./core/index.js"></script>
-  <script>
-  // Fuerza que los helpers globales usen las implementaciones puras de /core/
-  // (no rompemos nada: tus funciones pueden seguir existiendo; las “oficiales” serán estas)
-  (function(){
-    if (!window.core) return; // seguridad
-    [
-      'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
-      'idxToHSV','ensureContrastRGB',
-      'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
-      'computeSignature','computeRange',
-      'computeSceneSeedFrom','computeGlobalS'
-    ].forEach(k => { window[k] = window.core[k]; });
-  })();
-  </script>
+    <!-- CORE determinista (módulos puros, sin Three.js) -->
+    <script type="module" src="./core/index.js"></script>
+
+    <!-- Glue: expone funciones de core en el espacio global actual (sin romper nada) -->
+    <script>
+    (function(){
+      if (!window.core) return;
+
+      // Mapeo directo 1:1 (métodos con misma firma que el código actual)
+      [
+        'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
+        'idxToHSV',
+        'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
+        'computeSignature','computeRange',
+        'computeSceneSeedFrom','computeGlobalS'
+      ].forEach(k => { try { window[k] = window.core[k]; } catch(e){} });
+
+      // Envolver ensureContrastRGB para conservar la interfaz antigua (1 parámetro).
+      // El código existente llama ensureContrastRGB(rgb) y lee el fondo de variables globales.
+      window.ensureContrastRGB = function(rgb){
+        try{
+          // Fondo actual efectivo: bgOverride (hex) o bgHSV (estructura)
+          var bgRgb;
+          if (typeof bgOverride === 'string' && bgOverride) {
+            bgRgb = window.core.hexToRgb(bgOverride);
+          } else if (typeof bgHSV === 'object' && bgHSV){
+            var hex = window.core.hsvToHex(bgHSV);
+            bgRgb = window.core.hexToRgb(hex);
+          } else {
+            // Fallback blanco
+            bgRgb = [255,255,255];
+          }
+          return window.core.ensureContrastRGB(rgb, bgRgb, window.core.DELTA_E_BG_MIN || 22);
+        }catch(e){
+          // En caso de fallo, devuelve el RGB original sin tocar
+          return rgb;
+        }
+      };
+    })();
+    </script>
   <style>
   body {
     margin: 0;
