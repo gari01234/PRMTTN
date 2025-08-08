@@ -239,7 +239,7 @@
 <body>
   <div id="customCursor"></div>
   <button id="patternNextButton" onclick="cyclePattern()">11</button>
-  <button id="engineCycleButton"  onclick="cycleEngine()">4</button>
+  <button id="engineCycleButton"  onclick="ENGINE.cycle()">4</button>
   <button id="permNextButton"     onclick="nextPerm120()">120</button>
   <div id="topRightDisplay"></div>
 
@@ -255,18 +255,18 @@
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
 
   <!-- EXISTENTE: BUILD  ➜ sólo cambia de motor -->
-  <button id="randomConfigButton" onclick="switchToBuild()">BUILD</button>
+  <button id="randomConfigButton" onclick="ENGINE.enter('BUILD')">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 <div id="frbnWrap">
-  <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
+  <button id="frbnButton" onclick="ENGINE.enter('FRBN')">FRBN</button>
   <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
 </div>
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <div id="lchtWrap">
-    <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
+    <button id="lchtButton" onclick="ENGINE.enter('LCHT')">LCHT</button>
   </div>
-  <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
-  <button id="tmslButton" onclick="ensureOnlyTMSL()">TMSL</button>
+  <button id="offnngButton" onclick="ENGINE.enter('OFFNNG')">OFFNNG</button>
+  <button id="tmslButton" onclick="ENGINE.enter('TMSL')">TMSL</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -3794,6 +3794,131 @@ openssl dgst -sha256 prmttn_config.json</pre>
     }
 
   </script>
+<script>
+// ============ PRMTTN · Core state + EngineManager (fase 1) ============
+
+// Estado serializable (fuente de verdad para los motores)
+function getState(){
+  const selPerms = Array
+    .from(document.getElementById('permutationList').selectedOptions)
+    .map(o => o.value.split(',').map(Number));
+
+  return {
+    perms: selPerms,                                   // [[…], …]
+    mapping: {                                         // shape,color,x,y,z
+      shape: attributeMapping[0],
+      color: attributeMapping[1],
+      x:     attributeMapping[2],
+      y:     attributeMapping[3],
+      z:     attributeMapping[4]
+    },
+    pattern: activePatternId,
+    sceneSeed,
+    S_global,
+    overrides: {
+      bg:   bgOverride,
+      cube: cubeOverride,
+      colors: {...manualOverride}                      // 1..5 -> "#rrggbb"
+    },
+    flags: {
+      FRBN:  !!isFRBN,
+      LCHT:  !!isLCHT,
+      OFFNNG:!!isOFFNNG,
+      TMSL:  !!isTMSL
+    },
+    view: document.getElementById('standardView')?.value || 'front'
+  };
+}
+
+// Manager con contrato enter/leave/sync/cycle (sin reescribir motores)
+class EngineManager{
+  constructor(){
+    this.order = ['FRBN','LCHT','OFFNNG','TMSL','BUILD'];
+    this.active = 'BUILD';
+    // si al cargar hay alguno activo, respétalo:
+    if (isFRBN)  this.active = 'FRBN';
+    if (isLCHT)  this.active = 'LCHT';
+    if (isOFFNNG)this.active = 'OFFNNG';
+    if (typeof isTMSL !== 'undefined' && isTMSL) this.active = 'TMSL';
+  }
+
+  // Mantiene exclusividad (reutiliza tus toggles)
+  enter(name){
+    switch(name){
+      case 'BUILD':
+        if (isFRBN)  toggleFRBN();
+        if (isLCHT)  toggleLCHT();
+        if (isOFFNNG)toggleOFFNNG();
+        if (typeof isTMSL !== 'undefined' && isTMSL) toggleTMSL();
+        this.active = 'BUILD';
+        break;
+
+      case 'FRBN':
+        if (!isFRBN) toggleFRBN();
+        this.active = 'FRBN';
+        break;
+
+      case 'LCHT':
+        if (!isLCHT) toggleLCHT();
+        this.active = 'LCHT';
+        break;
+
+      case 'OFFNNG':
+        // tu función exclusiva ya apaga lo demás
+        ensureOnlyOFFNNG();
+        this.active = 'OFFNNG';
+        break;
+
+      case 'TMSL':
+        ensureOnlyTMSL();
+        this.active = 'TMSL';
+        break;
+    }
+    this.sync(getState());
+  }
+
+  leave(name){
+    // opcional por ahora – no lo usamos en fase 1
+  }
+
+  // Notifica a motores cambios relevantes de estado (escena → motores)
+  sync(state){
+    // Motores que necesitan “seguir” el estado ya tienen hooks:
+    //  - FRBN   → buildGanzfeld() se llama desde refreshAll()
+    //  - LCHT   → rebuildLCHTIfActive()
+    //  - OFFNNG → syncOFFNNGFromScene()
+    //  - BUILD  → refreshAll() ya reconstruye
+    // Aquí sólo podríamos añadir lógica adicional si hiciese falta.
+    // Lo dejamos como punto único de sincronización.
+    return state;
+  }
+
+  cycle(){
+    const i = this.order.indexOf(this.active);
+    const next = this.order[(i+1) % this.order.length];
+    this.enter(next);
+  }
+}
+
+// Instancia global (simple y explícita)
+window.ENGINE = new EngineManager();
+
+// ---- Monkey-patch suave: envolvemos refreshAll para avisar al manager ----
+(function(){
+  const _refreshAll = window.refreshAll;
+  window.refreshAll = function(opts){
+    const r = _refreshAll.call(this, opts);
+    if (window.ENGINE) window.ENGINE.sync(getState());
+    return r;
+  };
+})();
+</script>
+<script>
+  // Compatibilidad: si alguien llama a cycleEngine(), usa el manager
+  window.cycleEngine = function(){ ENGINE.cycle(); };
+  // Y si alguien llama a switchToBuild() explícitamente:
+  window.switchToBuild = function(){ ENGINE.enter('BUILD'); };
+</script>
   <!-- DROPZONE SCRIPT FINAL -->
   <script>
   document.addEventListener("DOMContentLoaded", function() {
