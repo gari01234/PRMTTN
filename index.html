@@ -9,6 +9,8 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Capa pura (no rompe nada): expone utilidades core en window -->
+  <script type="module" src="./core/index.js"></script>
   <style>
   body {
     margin: 0;
@@ -457,6 +459,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
         cubeOverride = config.cube;
       }
 
+      // === Estado único (persistimos lo que ya aplicaste a la UI) ===
+      import('./state/store.js').then(({ setPerms, setMapping, setPattern, setOverrides, state })=>{
+        setPerms(Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value));
+        setMapping({ forma: attributeMapping[0], color: attributeMapping[1], x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] });
+        setPattern(activePatternId);
+        const cols = {}; for(let i=1;i<=5;i++){ cols[i] = document.getElementById('color'+i).value; }
+        setOverrides({ colors: cols, bg: document.getElementById('bgColor').value, cube: document.getElementById('cubeColor').value });
+        state.sceneSeed = sceneSeed; state.S_global = S_global;
+      });
       // Scene invariants (optional)
       if (typeof config.sceneSeed === 'number') {
         sceneSeed = config.sceneSeed;
@@ -2308,8 +2319,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       if(p.get('hide')==='1') toggleTexts();
     }
 
-    function exportEmbed(){
-      const config = exportCurrentConfiguration();     // ← usa la misma fuente de verdad
+    async function exportEmbed(){
+      const config = await exportCurrentConfiguration();     // ← usa la misma fuente de verdad
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -3305,7 +3316,7 @@ void main(){
           tokenId: hash,
           tokenURI,
           owner: await signer.getAddress(),
-          config: exportCurrentConfiguration()
+          config: await exportCurrentConfiguration()
         };
         localStorage.setItem("mintedNFT_" + hash, JSON.stringify(nft));
         console.log("NFT guardado localmente:", nft);
@@ -3672,21 +3683,41 @@ function showFRBNInfo(){
       return blob;
     }
 
-    /* Configuración actual (mismo formato que exportEmbed) */
-    function exportCurrentConfiguration(){
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
-      const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
-                        x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
-      const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
-      const bg   = document.getElementById('bgColor').value;
-      const cube = document.getElementById('cubeColor').value;
-      const view = "front";
-      return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global, frbnK: FRBN_K };
-    }
+
+
+// ===== Reemplazo exportCurrentConfiguration: fuente única (state) =====
+/* eslint-disable no-undef */
+async function exportCurrentConfiguration(){
+  // import dinámico ligero para no convertir todo el archivo en módulo
+  const { state, serialize, setPerms, setMapping, setPattern, setOverrides } =
+    await import('./state/store.js');
+
+  // 1) Leer UI actual (como antes)
+  const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+  const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
+                    x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
+  const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
+  const bg   = document.getElementById('bgColor').value;
+  const cube = document.getElementById('cubeColor').value;
+
+  // 2) Volcar a state (adopción gradual)
+  setPerms(perms);
+  setMapping(mapping);
+  setPattern(activePatternId);
+  setOverrides({ colors, bg, cube });
+
+  // 3) Copiar invariantes ya calculados
+  state.sceneSeed = sceneSeed;
+  state.S_global  = S_global;
+
+  // 4) Serializar con el formato estable
+  return serialize();
+}
+
 
     /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
     async function computeConfigHash(){
-      const cfg = exportCurrentConfiguration();
+      const cfg = await exportCurrentConfiguration();
       const canonical = stableStringify(cfg);
       return sha256Hex(canonical);
     }
@@ -3697,7 +3728,7 @@ function showFRBNInfo(){
         showPopup("Generando certificado…",2000);
 
         // 1) JSON canónico + hash
-        const cfg = exportCurrentConfiguration();
+        const cfg = await exportCurrentConfiguration();
         const canonicalJSON = stableStringify(cfg);            // ← archivo exacto para hash
         const hashHex = await sha256Hex(canonicalJSON);
 
