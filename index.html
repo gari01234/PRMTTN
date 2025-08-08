@@ -11,6 +11,20 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- Capa pura (no rompe nada): expone utilidades core en window -->
   <script type="module" src="./core/index.js"></script>
+  <script>
+  // Fuerza que los helpers globales usen las implementaciones puras de /core/
+  // (no rompemos nada: tus funciones pueden seguir existiendo; las “oficiales” serán estas)
+  (function(){
+    if (!window.core) return; // seguridad
+    [
+      'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
+      'idxToHSV','ensureContrastRGB',
+      'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
+      'computeSignature','computeRange',
+      'computeSceneSeedFrom','computeGlobalS'
+    ].forEach(k => { window[k] = window.core[k]; });
+  })();
+  </script>
   <style>
   body {
     margin: 0;
@@ -4244,6 +4258,49 @@ linear blend, satisfying perceptual transparency conditions (Metelli 1974).</p
 
 <p style="font-size:12px;"><i>Refs.</i>\u00a0Metelli 1974; de\u202fWeert\u202f&\u202fMausfeld 2003.</p>
 `;
+</script>
+<script>
+// Sincroniza el store desde la UI actual (se puede llamar en cualquier momento)
+async function __syncFromUIToStore(){
+  try{
+    const mod = await import('./state/store.js');
+    const { setPerms, setMapping, setPattern, setOverrides, state } = mod;
+
+    // 1) Permutaciones seleccionadas en el <select> existente
+    const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+    setPerms(perms);
+
+    // 2) Mapping actual (lee tu array/vars globales tal como están)
+    const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
+                      x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
+    setMapping(mapping);
+
+    // 3) Patrón activo y overrides de color
+    setPattern(typeof activePatternId !== 'undefined' ? activePatternId : 1);
+    const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
+    setOverrides({
+      colors,
+      bg: document.getElementById('bgColor')?.value ?? null,
+      cube: document.getElementById('cubeColor')?.value ?? null
+    });
+
+    // 4) Invariantes ya calculados por tu runtime
+    if (typeof sceneSeed !== 'undefined') state.sceneSeed = sceneSeed;
+    if (typeof S_global  !== 'undefined') state.S_global  = S_global;
+  }catch(e){
+    console.warn('[store sync] ignorado:', e);
+  }
+}
+
+// Añadimos un listener adicional al input JSON existente SIN tocar tu handler:
+// dejamos que tu handler procese primero y luego (tick siguiente) reflejamos en el store.
+(function(){
+  const up = document.getElementById('json-upload');
+  if (!up) return;
+  up.addEventListener('change', function(){
+    setTimeout(__syncFromUIToStore, 0);
+  });
+})();
 </script>
 </body>
 </html>
