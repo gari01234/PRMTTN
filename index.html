@@ -721,6 +721,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
             permutationGroup.visible = !isFRBN;
           }
 
+          const b = document.getElementById('frbnButton');
+          if (b) b.textContent = isFRBN ? 'FRBN ON' : 'FRBN';
+          window.isFRBN = isFRBN;
+
           return isFRBN;
         }catch(e){
           console.error('FRBN: error al alternar', e);
@@ -974,6 +978,8 @@ function buildLCHT() {
         }
       const b = document.getElementById('lchtButton');
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
+      window.isLCHT = isLCHT;
+      window.toggleLCHT = toggleLCHT;
     }
 
     /* reconstruye LCHT si hay cambios de escena */
@@ -2666,6 +2672,15 @@ function renderArchPanel(html){
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
 
+      /* === EXPONE OBJETOS/FUNCIONES QUE FRBN ESPERA EN window === */
+      Object.assign(window, {
+        scene, camera, renderer, controls,
+        cubeUniverse, permutationGroup,
+        refreshAll, toggleLCHT, toggleOFFNNG, switchToBuild
+      });
+      window.isLCHT = isLCHT;
+      window.isOFFNNG = isOFFNNG;
+
       raycaster=new THREE.Raycaster();
       mouse=new THREE.Vector2();
       window.addEventListener('mousemove',onMouseMove,false);
@@ -2682,6 +2697,8 @@ function renderArchPanel(html){
       // ← NUEVO: como si hubieras presionado BUILD al cargar
       generateRandomConfigurationNoCollision().catch(console.error);
       toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
+      const ib = document.getElementById('frbnInfoButton');
+      if (ib) ib.style.display = 'none';
       animate();
     }
     function onWindowResize(){
@@ -3048,6 +3065,8 @@ void main(){
         permutationGroup.visible = true;
         if (lichtGroup && isLCHT) lichtGroup.visible = true;
       }
+      window.isOFFNNG = isOFFNNG;
+      window.toggleOFFNNG = toggleOFFNNG;
     }
 
     /* ────────── botón dedicado: OFFNNG siempre en solitario ───────── */
@@ -3276,158 +3295,59 @@ void main(){
       if (bOF) bOF.textContent = isOFFNNG ? 'OFFNNG ON' : 'OFFNNG';
       if (bTM) bTM.textContent = isTMSL   ? 'TMSL ON'   : 'TMSL';
     }
+    updateEngineButtonsUI();
+    init();
 
-    /* Gestor de motores determinista (BUILD ⇄ FRBN ⇄ LCHT ⇄ OFFNNG ⇄ TMSL) */
-    const ENGINE_ORDER = ['FRBN','LCHT','OFFNNG','TMSL','BUILD'];  // flujo solicitado
+    /* === ENGINE FACADE — cycle() y enter() con exclusividad entre motores === */
+    (function(){
+      const ORDER = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
+      const isFn = f => typeof f === 'function';
 
-    async function _ensureOffAllExcept(target){
-      if (target !== 'FRBN'   && isFRBN)   await toggleFRBN();
-      if (target !== 'LCHT'   && isLCHT)          toggleLCHT();
-      if (target !== 'OFFNNG' && isOFFNNG)        toggleOFFNNG();
-      if (target !== 'TMSL'   && isTMSL)          toggleTMSL();
-    }
+      function offAll(){
+        if (window.isFRBN && window.FRBN && isFn(window.FRBN.exit)) {
+          window.FRBN.exit();
+          window.isFRBN = false;
+        }
+        if (window.isLCHT)   { try{ toggleLCHT(); }catch(e){} }
+        if (window.isOFFNNG) { try{ toggleOFFNNG(); }catch(e){} }
+        if (window.isTMSL && isFn(window.toggleTMSL)) {
+          try{ window.toggleTMSL(); }catch(e){}
+        }
+      }
 
-    window.ENGINE = {
-      current: 'BUILD',
+      async function enter(mode){
+        if (mode === 'BUILD'){ offAll(); switchToBuild(); return; }
 
-      async cycle(){
-        const i = Math.max(0, ENGINE_ORDER.indexOf(this.current));
-        const next = ENGINE_ORDER[(i + 1) % ENGINE_ORDER.length];
-        await this.enter(next);
-      },
-
-      async enter(target){
-        // normaliza destino
-        if (!ENGINE_ORDER.includes(target)) target = 'BUILD';
-        if (this.current === target) {
-          // idempotente: si ya estamos en FRBN pero inactivo (p.ej. fallo previo), re-enciende
-          if (target === 'FRBN' && !isFRBN) await toggleFRBN();
-          updateEngineButtonsUI();
+        if (mode === 'FRBN'){
+          offAll();
+          const ok = await ensureFRBNLoaded();
+          if (ok && !window.isFRBN) { await toggleFRBN(); }
           return;
         }
 
-        // Exclusividad
-        await _ensureOffAllExcept(target);
+        if (mode === 'LCHT'){ offAll(); if (!window.isLCHT)   toggleLCHT();   return; }
+        if (mode === 'OFFNNG'){ offAll(); if (!window.isOFFNNG) toggleOFFNNG(); return; }
 
-        // Entrar
-        switch (target){
-          case 'FRBN': {
-            const ok = await toggleFRBN();
-            if (!ok) { this.current = 'BUILD'; updateEngineButtonsUI(); return; }
-            break;
-          }
-          case 'LCHT': {
-            if (!isLCHT) toggleLCHT();
-            break;
-          }
-          case 'OFFNNG': {
-            if (!isOFFNNG) toggleOFFNNG();
-            break;
-          }
-          case 'TMSL': {
-            if (!isTMSL) toggleTMSL();
-            break;
-          }
-          case 'BUILD':
-          default: {
-            switchToBuild();   // deja escena base visible, no genera config nueva
-            break;
-          }
+        if (mode === 'TMSL' && isFn(window.toggleTMSL)){
+          offAll();
+          if (!window.isTMSL) window.toggleTMSL();
+          return;
         }
-
-        this.current = target;
-        updateEngineButtonsUI();
-
-        // Sincronizaciones cruzadas
-        if (target !== 'FRBN' && window.FRBN && typeof window.FRBN.onExit === 'function'){
-          try { window.FRBN.onExit(); } catch(e){}
-        }
-        if (target === 'FRBN' && window.FRBN && typeof window.FRBN.syncFromScene === 'function'){
-          try { window.FRBN.syncFromScene(); } catch(e){}
-        }
-      }
-    };
-
-    // Al iniciar, reflejamos estado de botones
-    updateEngineButtonsUI();
-
-    init();
-
-    /* ============================================================
-     *  ENGINE · adaptador mínimo (no invasivo)
-     *  — Respeta el orden del ciclo y delega en los toggles existentes.
-     *  — No implementa todavía el “registry” de [06]–[13].
-     * ============================================================ */
-    (function(){
-      if (window.ENGINE) return; // no pisar si ya existe
-
-      const ORDER = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
-
-      function active(){
-        if (window.isFRBN)   return 'FRBN';
-        if (window.isLCHT)   return 'LCHT';
-        if (window.isOFFNNG) return 'OFFNNG';
-        if (window.isTMSL)   return 'TMSL';
-        return 'BUILD';
-      }
-
-      async function enter(name){
-        const cur = active();
-        if (name === cur) return cur;
-
-        switch (name) {
-          case 'BUILD': {
-            // Apaga lo exclusivo y vuelve a la escena BUILD tal cual
-            if (typeof switchToBuild === 'function') switchToBuild();
-            return 'BUILD';
-          }
-
-          case 'FRBN': {
-            // Exclusividad
-            if (window.isLCHT)   toggleLCHT();
-            if (window.isOFFNNG) toggleOFFNNG();
-            if (window.isTMSL)   toggleTMSL();
-            // Carga/activa FRBN
-            if (!window.isFRBN) await toggleFRBN();  // toggleFRBN ya llama ensureFRBNLoaded()
-            return 'FRBN';
-          }
-
-          case 'LCHT': {
-            if (window.isFRBN)   await toggleFRBN();
-            if (window.isOFFNNG) toggleOFFNNG();
-            if (window.isTMSL)   toggleTMSL();
-            if (!window.isLCHT)  toggleLCHT();
-            return 'LCHT';
-          }
-
-          case 'OFFNNG': {
-            if (window.isFRBN)   await toggleFRBN();
-            if (window.isLCHT)   toggleLCHT();
-            if (window.isTMSL)   toggleTMSL();
-            if (!window.isOFFNNG) toggleOFFNNG();
-            return 'OFFNNG';
-          }
-
-          case 'TMSL': {
-            if (window.isFRBN)   await toggleFRBN();
-            if (window.isLCHT)   toggleLCHT();
-            if (window.isOFFNNG) toggleOFFNNG();
-            if (!window.isTMSL)  toggleTMSL();
-            return 'TMSL';
-          }
-        }
-        console.warn('[ENGINE.enter] motor desconocido:', name);
-        return cur;
       }
 
       async function cycle(){
-        const cur = active();
-        const i = ORDER.indexOf(cur);
-        const next = ORDER[(i + 1) % ORDER.length];
-        return enter(next);
+        const current =
+          window.isFRBN   ? 'FRBN'   :
+          window.isLCHT   ? 'LCHT'   :
+          window.isOFFNNG ? 'OFFNNG' :
+          (window.isTMSL  ? 'TMSL'   : 'BUILD');
+
+        let idx = (ORDER.indexOf(current) + 1) % ORDER.length;
+        if (ORDER[idx] === 'TMSL' && !isFn(window.toggleTMSL)) idx = 0; // si no existe TMSL, sáltalo
+        await enter(ORDER[idx]);
       }
 
-      window.ENGINE = { enter, cycle, active };
+      window.ENGINE = { enter, cycle };
     })();
 
     // Web3 + NFT Mint (tu código original)
