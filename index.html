@@ -608,22 +608,41 @@ document.getElementById('json-upload').addEventListener('change', function(event
       let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
 
       /* ─────────────────────────────
-       *   FRBN  ·  moved to engines/frbn.js
+       *   FRBN  ·  shim con carga perezosa (engines/frbn.js)
        * ───────────────────────────── */
-    let isFRBN = false; // espejo usado en otras partes del código
+      let isFRBN = false; // espejo usado en otras partes del código
 
-    function toggleFRBN(){
-      if (window.FRBN) {
-        window.FRBN.toggle();
-        isFRBN = window.FRBN.isFRBN;
+      async function ensureFRBNLoaded(){
+        // Si ya está cargado, listo.
+        if (window.FRBN && typeof window.FRBN.toggle === 'function') return true;
+
+        // Intenta cargar el módulo dinámicamente (por si el <script type="module"> no se resolvió).
+        try {
+          await import('./engines/frbn.js');
+          return !!(window.FRBN && typeof window.FRBN.toggle === 'function');
+        } catch (e) {
+          console.error('No se pudo cargar engines/frbn.js', e);
+          return false;
+        }
       }
-    }
 
-    function buildGanzfeld(){
-      if (window.FRBN) window.FRBN.buildGanzfeld();
-    }
+      async function toggleFRBN(){
+        const ok = await ensureFRBNLoaded();
+        if (!ok) {
+          console.error('FRBN no disponible (engines/frbn.js no cargado)');
+          return;
+        }
+        window.FRBN.toggle();
+        isFRBN = window.FRBN.isFRBN; // mantener espejo local
+      }
 
-    window.addEventListener('load', () => { /* FRBN init → lazy en engines/frbn.js */ });
+      function buildGanzfeld(){
+        if (window.FRBN && typeof window.FRBN.buildGanzfeld === 'function') {
+          window.FRBN.buildGanzfeld();
+        }
+      }
+
+      window.addEventListener('load', () => { /* FRBN: init perezosa en engines/frbn.js */ });
 
     /* ────────────────────────────
      *   LCHT · deterministic Light Tubes
@@ -1558,10 +1577,10 @@ function updateScene(attemptResolve=true){
     permutationGroup.add(obj);
   });
 
-  if(attemptResolve) autoResolveColisionesGlobal();
-  else updateTopRightDisplay();
-  if (isFRBN && window.FRBN) window.FRBN.syncFromScene();
-  }
+    if (attemptResolve) autoResolveColisionesGlobal();
+    else updateTopRightDisplay();
+    if (isFRBN && window.FRBN) window.FRBN.syncFromScene();
+    }
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
