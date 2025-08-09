@@ -3303,33 +3303,46 @@ void main(){
       const ORDER = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
       const isFn = f => typeof f === 'function';
 
-      function offAll(){
-        if (window.isFRBN && window.FRBN && isFn(window.FRBN.exit)) {
-          window.FRBN.exit();
-          window.isFRBN = false;
-        }
-        if (window.isLCHT)   { try{ toggleLCHT(); }catch(e){} }
-        if (window.isOFFNNG) { try{ toggleOFFNNG(); }catch(e){} }
-        if (window.isTMSL && isFn(window.toggleTMSL)) {
-          try{ window.toggleTMSL(); }catch(e){}
-        }
+      // Apaga cualquier motor activo. Si FRBN no tiene exit(), usa toggleFRBN().
+      async function offAll(){
+        // FRBN
+        try{
+          if (window.isFRBN){
+            if (window.FRBN && typeof window.FRBN.exit === 'function'){
+              await window.FRBN.exit();
+              window.isFRBN = false;
+            } else {
+              // Fallback robusto: alterna FRBN para apagarlo
+              await toggleFRBN();
+            }
+          }
+        }catch(e){ console.warn('offAll() FRBN:', e); }
+
+        // LCHT / OFFNNG / TMSL
+        try{ if (window.isLCHT)   toggleLCHT();   }catch(e){}
+        try{ if (window.isOFFNNG) toggleOFFNNG(); }catch(e){}
+        try{
+          if (window.isTMSL && isFn(window.toggleTMSL)) window.toggleTMSL();
+        }catch(e){}
+
+        updateEngineButtonsUI?.();
       }
 
       async function enter(mode){
-        if (mode === 'BUILD'){ offAll(); switchToBuild(); return; }
+        if (mode === 'BUILD'){ await offAll(); switchToBuild(); return; }
 
         if (mode === 'FRBN'){
-          offAll();
+          await offAll();
           const ok = await ensureFRBNLoaded();
           if (ok && !window.isFRBN) { await toggleFRBN(); }
           return;
         }
 
-        if (mode === 'LCHT'){ offAll(); if (!window.isLCHT)   toggleLCHT();   return; }
-        if (mode === 'OFFNNG'){ offAll(); if (!window.isOFFNNG) toggleOFFNNG(); return; }
+        if (mode === 'LCHT'){    await offAll(); if (!window.isLCHT)    toggleLCHT();   return; }
+        if (mode === 'OFFNNG'){  await offAll(); if (!window.isOFFNNG)  toggleOFFNNG(); return; }
 
         if (mode === 'TMSL' && isFn(window.toggleTMSL)){
-          offAll();
+          await offAll();
           if (!window.isTMSL) window.toggleTMSL();
           return;
         }
