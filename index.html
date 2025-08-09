@@ -3353,6 +3353,83 @@ void main(){
 
     init();
 
+    /* ============================================================
+     *  ENGINE · adaptador mínimo (no invasivo)
+     *  — Respeta el orden del ciclo y delega en los toggles existentes.
+     *  — No implementa todavía el “registry” de [06]–[13].
+     * ============================================================ */
+    (function(){
+      if (window.ENGINE) return; // no pisar si ya existe
+
+      const ORDER = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
+
+      function active(){
+        if (window.isFRBN)   return 'FRBN';
+        if (window.isLCHT)   return 'LCHT';
+        if (window.isOFFNNG) return 'OFFNNG';
+        if (window.isTMSL)   return 'TMSL';
+        return 'BUILD';
+      }
+
+      async function enter(name){
+        const cur = active();
+        if (name === cur) return cur;
+
+        switch (name) {
+          case 'BUILD': {
+            // Apaga lo exclusivo y vuelve a la escena BUILD tal cual
+            if (typeof switchToBuild === 'function') switchToBuild();
+            return 'BUILD';
+          }
+
+          case 'FRBN': {
+            // Exclusividad
+            if (window.isLCHT)   toggleLCHT();
+            if (window.isOFFNNG) toggleOFFNNG();
+            if (window.isTMSL)   toggleTMSL();
+            // Carga/activa FRBN
+            if (!window.isFRBN) await toggleFRBN();  // toggleFRBN ya llama ensureFRBNLoaded()
+            return 'FRBN';
+          }
+
+          case 'LCHT': {
+            if (window.isFRBN)   await toggleFRBN();
+            if (window.isOFFNNG) toggleOFFNNG();
+            if (window.isTMSL)   toggleTMSL();
+            if (!window.isLCHT)  toggleLCHT();
+            return 'LCHT';
+          }
+
+          case 'OFFNNG': {
+            if (window.isFRBN)   await toggleFRBN();
+            if (window.isLCHT)   toggleLCHT();
+            if (window.isTMSL)   toggleTMSL();
+            if (!window.isOFFNNG) toggleOFFNNG();
+            return 'OFFNNG';
+          }
+
+          case 'TMSL': {
+            if (window.isFRBN)   await toggleFRBN();
+            if (window.isLCHT)   toggleLCHT();
+            if (window.isOFFNNG) toggleOFFNNG();
+            if (!window.isTMSL)  toggleTMSL();
+            return 'TMSL';
+          }
+        }
+        console.warn('[ENGINE.enter] motor desconocido:', name);
+        return cur;
+      }
+
+      async function cycle(){
+        const cur = active();
+        const i = ORDER.indexOf(cur);
+        const next = ORDER[(i + 1) % ORDER.length];
+        return enter(next);
+      }
+
+      window.ENGINE = { enter, cycle, active };
+    })();
+
     // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
     const contractABI = [/* ABI JSON here */];
