@@ -49,6 +49,7 @@
       };
     })();
     </script>
+    <script type="module" src="./engines/frbn.js"></script>
   <style>
   body {
     margin: 0;
@@ -607,197 +608,24 @@ document.getElementById('json-upload').addEventListener('change', function(event
       let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
 
       /* ─────────────────────────────
-       *   FRBN  ·  deterministic Ganzfeld
+       *   FRBN  ·  moved to engines/frbn.js
        * ───────────────────────────── */
-    let skySphere = null;
-    let isFRBN    = false;
-    const SKY_R = 250;
+    let isFRBN = false; // espejo usado en otras partes del código
 
-
-/* ──────────────────────────────────────────────────────────────
- *  initSkySphere — FRBN con micro-ruido “blue-noise” y highp
- *  (solo afecta al fondo shader del modo FRBN)
- * ──────────────────────────────────────────────────────────── */
-function initSkySphere() {
-  const geo = new THREE.PlaneGeometry(2, 2);
-
-  const mat = new THREE.ShaderMaterial({
-    uniforms : {
-      u_count     : { value: 0 },
-      u_colors    : { value: Array(12).fill(new THREE.Color(0x000000)) },
-      time        : { value: 0 },
-      u_rate      : { value: 0.04 },
-      // amplitud del dither (ajústala si quieres): ~1/1024
-      u_ditherAmp : { value: 0.00095 }
-    },
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    depthTest : false,
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }`,
-    fragmentShader: `
-      #ifdef GL_ES
-      precision highp float;
-      #endif
-
-      uniform int   u_count;
-      uniform vec3  u_colors[12];
-      uniform float time;
-      uniform float u_rate;
-      uniform float u_ditherAmp;
-      varying vec2  vUv;
-
-      // Interleaved Gradient Noise (Jimenez 2014) – base para blue-noise temporal
-      float ign(vec2 p, float t){
-        const vec3 a = vec3(0.06711056, 0.00583715, 52.9829189);
-        return fract(a.z * fract(dot(p, a.xy) + t * a.y));
+    function toggleFRBN(){
+      if (window.FRBN) {
+        window.FRBN.toggle();
+        isFRBN = window.FRBN.isFRBN;
       }
-
-      // Tres canales ligeramente des-correlacionados
-      vec3 blueNoise(vec2 pix, float t){
-        float n1 = ign(pix,           t);
-        float n2 = ign(pix + vec2(113.1,  1.7), t + 17.0);
-        float n3 = ign(pix + vec2( 27.0, 61.7), t + 31.0);
-        // centrar en 0 y estrechar (distribución casi triangular)
-        n1 = (n1 + ign(pix*1.07+3.1, t*1.3)) * 0.5;
-        return vec3(n1, n2, n3) - 0.5;
-      }
-
-      void main() {
-        // mezcla cromática ligada al tiempo/escena
-        float t = time * u_rate;
-        float idx = fract(t) * float(u_count);
-        int   i   = int(floor(idx)) % u_count;
-        int   j   = (i + 1) % u_count;
-        float f   = fract(idx);
-
-        vec3 col = mix(u_colors[i], u_colors[j], f);
-
-        // respiración suave radial (ligeramente más blanda)
-        vec2 cUv = vUv - 0.5;
-        float d  = length(cUv) * 2.0;
-        float fog = pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
-        col += 0.10 * fog;
-
-        // micro-dither spatio-temporal para romper banding (en espacio lineal)
-        // usa coordenada de pixel (gl_FragCoord.xy) y el tiempo para “blue-shift”
-        vec3 dither = blueNoise(gl_FragCoord.xy, time * 60.0);
-        col += u_ditherAmp * dither;
-
-        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
-      }`
-  });
-
-  const plane = new THREE.Mesh(geo, mat);
-  plane.frustumCulled = false;
-  plane.visible = false;
-  skySphere = plane;
-  scene.add(skySphere);
-}
-    /* ---------- extrae TODOS los colores deterministas del sistema ---------- */
-    function collectSceneColors(){
-      // 1) Todos los RGB deterministas
-      const raw = [];
-      permutationGroup.traverse(o=>{
-        if(o.isMesh) raw.push(o.material.color.clone());
-      });
-
-      // 2) Normaliza a S≥0.60  V≥0.80  (más extremos)
-      const boosted = raw.map(c=>{
-        let [h,s,v] = rgbToHsv(c.r*255,c.g*255,c.b*255);
-        s = Math.max(s, 0.60);
-        v = Math.max(v, 0.80);
-        const [R,G,B] = hsvToRgb(h,s,v);
-        return new THREE.Color(R/255,G/255,B/255);
-      });
-
-      // 3) Agrupa por ΔH≥18°  (dejamos tonos bien separados)
-      const uniq = [];
-      boosted.forEach(c=>{
-        const [h] = rgbToHsv(c.r*255,c.g*255,c.b*255);
-        if(!uniq.some(u=>{
-          const [hu] = rgbToHsv(u.r*255,u.g*255,u.b*255);
-          return Math.abs(hu-h) < 18;
-        })){
-          uniq.push(c);
-        }
-      });
-
-      // 4) Si siguen faltando, completa con rueda de color base
-      const fallback = [
-        0,60,120,180,240,300
-      ].map(h=>{
-        const [R,G,B] = hsvToRgb(h,0.75,0.85);
-        return new THREE.Color(R/255,G/255,B/255);
-      });
-      while(uniq.length < 6) uniq.push( fallback[uniq.length] );
-
-      // → devolvemos máx. 8 primeros
-      return uniq.slice(0,8);
     }
 
-
-    /* ---------- actualiza uniforms del shader con la paleta elegida ---------- */
     function buildGanzfeld(){
-      if(!skySphere) initSkySphere();
-
-      /* ---------- 1) paleta determinista ---------- */
-      const cols = collectSceneColors();
-      const n    = cols.length;
-      const mat  = skySphere.material;
-      mat.uniforms.u_count.value = n;
-      for(let i=0;i<12;i++){
-        mat.uniforms.u_colors.value[i] = cols[i % n];
-      }
-
-      /* ---------- 2) velocidad ligada al movimiento ---------- */
-      let sum=0, cnt=0;
-      permutationGroup.traverse(o=>{
-        if(o.isMesh && o.userData.rotationSpeed){
-          sum += o.userData.rotationSpeed;
-          cnt ++;
-        }
-      });
-      const avg = cnt ? sum/cnt : 0.002;
-      mat.uniforms.u_rate.value = avg * 1;
+      if (window.FRBN) window.FRBN.buildGanzfeld();
     }
 
-    /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
-    function toggleFRBN () {
-      if (!isFRBN && isOFFNNG) toggleOFFNNG();  // ← NUEVO
-      if (!isFRBN && isTMSL)  toggleTMSL();
-      if (!skySphere) initSkySphere();
+    window.addEventListener('load', () => { /* FRBN init → lazy en engines/frbn.js */ });
 
-      isFRBN = !isFRBN;
-
-      if (isFRBN) {                       // ——— ENTRAR ———
-        if (isLCHT) toggleLCHT();         // asegura exclusividad
-        buildGanzfeld();                  // sincroniza paleta + u_rate
-        skySphere.visible        = true;
-        cubeUniverse.visible     = false;
-        permutationGroup.visible = false;
-        if (lichtGroup) lichtGroup.visible = false;
-
-      } else {                            // ——— SALIR ———
-        skySphere.visible        = false;
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (isLCHT && lichtGroup) lichtGroup.visible = true;
-        refreshAll({ keepManual: true }); // reconstruye escena normal
-      }
-  // ← muestra el mini‑botón solo en FRBN
-  const ib = document.getElementById('frbnInfoButton');
-  if (ib) ib.style.display = isFRBN ? 'inline-block' : 'none';
-    }
-
-    /* --------- inicializa esfera al arrancar (sin coste GPU extra) -------- */
-    window.addEventListener('load', () => { if(!skySphere) initSkySphere(); });
-
-    /* ─────────────────────────────
+    /* ────────────────────────────
      *   LCHT · deterministic Light Tubes
      * ───────────────────────────── */
     let lichtGroup = null;
@@ -1732,7 +1560,7 @@ function updateScene(attemptResolve=true){
 
   if(attemptResolve) autoResolveColisionesGlobal();
   else updateTopRightDisplay();
-      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
+  if (isFRBN && window.FRBN) window.FRBN.syncFromScene();
   }
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
@@ -2002,7 +1830,7 @@ function makePalette(){
         updateCubeColor(false);    // ← automático
       }
 
-      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
+      if (isFRBN && window.FRBN) window.FRBN.syncFromScene();   // mantiene FRBN sincronizado
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
       if (isOFFNNG) syncOFFNNGFromScene();
     }
@@ -2747,7 +2575,9 @@ function renderArchPanel(html){
           if(o.userData.rotationSpeed) o.rotation.y+=o.userData.rotationSpeed;
         });
       }
-        if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
+        if (window.FRBN && window.FRBN.skySphere) {
+          window.FRBN.skySphere.material.uniforms.time.value = performance.now() * 0.001;
+        }
         if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
         if (isLCHT && lichtGroup) {
           const t   = performance.now() * 0.001;
