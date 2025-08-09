@@ -644,6 +644,15 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       window.addEventListener('load', () => { /* FRBN: init perezosa en engines/frbn.js */ });
 
+      /* Información FRBN (no rompe si el módulo aún no expone showInfo) */
+      function showFRBNInfo(){
+        if (window.FRBN && typeof window.FRBN.showInfo === 'function') {
+          window.FRBN.showInfo();
+        } else {
+          alert('FRBN: information not available.');
+        }
+      }
+
     /* ────────────────────────────
      *   LCHT · deterministic Light Tubes
      * ───────────────────────────── */
@@ -3174,6 +3183,55 @@ void main(){
       toggleFRBN();                                        // BUILD → FRBN
     }
 
+    /* ───────────────────────────
+     * ENGINE facade (BUILD/FRBN/LCHT/OFFNNG/TMSL)
+     * ─────────────────────────── */
+    window.ENGINE = {
+      current: 'BUILD',
+
+      cycle: function () {      // usa tu rueda existente
+        cycleEngine();
+      },
+
+      enter: async function (name) {
+        switch (name) {
+          case 'BUILD':
+            switchToBuild();
+            this.current = 'BUILD';
+            break;
+
+          case 'FRBN': {
+            const ok = await ensureFRBNLoaded();
+            if (!ok) { showPopup('FRBN no disponible (engines/frbn.js)', 3000); return; }
+            if (isLCHT)  toggleLCHT();
+            if (isOFFNNG) toggleOFFNNG();
+            if (isTMSL)  toggleTMSL();
+            if (!isFRBN) toggleFRBN();
+            this.current = 'FRBN';
+            break;
+          }
+
+          case 'LCHT':
+            if (isFRBN)  toggleFRBN();
+            if (isOFFNNG) toggleOFFNNG();
+            if (isTMSL)  toggleTMSL();
+            if (!isLCHT) toggleLCHT();
+            this.current = 'LCHT';
+            break;
+
+          case 'OFFNNG':
+            ensureOnlyOFFNNG();          // ya gestiona exclusividad
+            this.current = 'OFFNNG';
+            break;
+
+          case 'TMSL':
+            ensureOnlyTMSL();            // ya gestiona exclusividad
+            this.current = 'TMSL';
+            break;
+        }
+      }
+    };
+
     init();
 
     // Web3 + NFT Mint (tu código original)
@@ -3404,32 +3462,6 @@ V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
       <blockquote>That a visual organization without semantics may generate favorable conditions for thought without words.</blockquote>
       <p><i>work in progress.</i><br><i>MARTINEZ</i></p>
       `;
-  renderInfoPanel(html);
-}
-function showFRBNInfo(){
-  const html = `
-    <h2>FRBN — Deterministic Ganzfeld</h2>
-    <p><b>What you see cannot be otherwise</b> given the current scene. FRBN does not invent a palette:
-       it extracts it deterministically from the active permutations and the chromatic engine.</p>
-    <ul>
-      <li><b>Source palette.</b> Colors are collected from the glyphs currently on stage
-          (their materials are computed by the same deterministic HSV lattice used in BUILD).
-          If needed, hues are normalised to ensure separation.</li>
-      <li><b>Pattern coupling.</b> The chromatic pattern (1–11) and the global seed
-          (<code>sceneSeed</code>) bias hue selection in BUILD; FRBN reads the result,
-          not a new random set.</li>
-      <li><b>Temporal blend.</b> The shader interpolates the collected colors over time.
-          The rate is tied to the average rotation speed of the permutations, so color
-          breathing <i>follows</i> the scene dynamics.</li>
-      <li><b>No alternatives.</b> For the same set of permutations, mapping and pattern,
-          the FRBN field is reproducible. Change the scene → the field changes; keep the
-          scene → the field must be identical.</li>
-      <li><b>Banding control.</b> A high‑precision dither (blue‑noise) is applied in linear
-          space to avoid contour banding without altering the palette.</li>
-    </ul>
-    <p>FRBN is therefore a <b>deterministic projection</b> of the current combinatorial state,
-       not a decorative background.</p>
-  `;
   renderInfoPanel(html);
 }
     /* Minimal renderer for the panel (include once; remove if you already have it) */
@@ -3713,7 +3745,7 @@ openssl dgst -sha256 prmttn_config.json</pre>
 
   </script>
 <script>
-// ============ PRMTTN · Core state + EngineManager (fase 1) ============
+// ============ PRMTTN · Core state ============
 
 // Estado serializable (fuente de verdad para los motores)
 function getState(){
@@ -3748,97 +3780,9 @@ function getState(){
   };
 }
 
-// Manager con contrato enter/leave/sync/cycle (sin reescribir motores)
-class EngineManager{
-  constructor(){
-    this.order = ['FRBN','LCHT','OFFNNG','TMSL','BUILD'];
-    this.active = 'BUILD';
-    // si al cargar hay alguno activo, respétalo:
-    if (isFRBN)  this.active = 'FRBN';
-    if (isLCHT)  this.active = 'LCHT';
-    if (isOFFNNG)this.active = 'OFFNNG';
-    if (typeof isTMSL !== 'undefined' && isTMSL) this.active = 'TMSL';
-  }
-
-  // Mantiene exclusividad (reutiliza tus toggles)
-  enter(name){
-    switch(name){
-      case 'BUILD':
-        if (isFRBN)  toggleFRBN();
-        if (isLCHT)  toggleLCHT();
-        if (isOFFNNG)toggleOFFNNG();
-        if (typeof isTMSL !== 'undefined' && isTMSL) toggleTMSL();
-        this.active = 'BUILD';
-        break;
-
-      case 'FRBN':
-        if (!isFRBN) toggleFRBN();
-        this.active = 'FRBN';
-        break;
-
-      case 'LCHT':
-        if (!isLCHT) toggleLCHT();
-        this.active = 'LCHT';
-        break;
-
-      case 'OFFNNG':
-        // tu función exclusiva ya apaga lo demás
-        ensureOnlyOFFNNG();
-        this.active = 'OFFNNG';
-        break;
-
-      case 'TMSL':
-        ensureOnlyTMSL();
-        this.active = 'TMSL';
-        break;
-    }
-    this.sync(getState());
-  }
-
-  leave(name){
-    // opcional por ahora – no lo usamos en fase 1
-  }
-
-  // Notifica a motores cambios relevantes de estado (escena → motores)
-  sync(state){
-    // Motores que necesitan “seguir” el estado ya tienen hooks:
-    //  - FRBN   → buildGanzfeld() se llama desde refreshAll()
-    //  - LCHT   → rebuildLCHTIfActive()
-    //  - OFFNNG → syncOFFNNGFromScene()
-    //  - BUILD  → refreshAll() ya reconstruye
-    // Aquí sólo podríamos añadir lógica adicional si hiciese falta.
-    // Lo dejamos como punto único de sincronización.
-    return state;
-  }
-
-  cycle(){
-    const i = this.order.indexOf(this.active);
-    const next = this.order[(i+1) % this.order.length];
-    this.enter(next);
-  }
-}
-
-// Instancia global (simple y explícita)
-window.ENGINE = new EngineManager();
-
-// ---- Monkey-patch suave: envolvemos refreshAll para avisar al manager ----
-(function(){
-  const _refreshAll = window.refreshAll;
-  window.refreshAll = function(opts){
-    const r = _refreshAll.call(this, opts);
-    if (window.ENGINE) window.ENGINE.sync(getState());
-    return r;
-  };
-})();
 </script>
+<!-- DROPZONE SCRIPT FINAL -->
 <script>
-  // Compatibilidad: si alguien llama a cycleEngine(), usa el manager
-  window.cycleEngine = function(){ ENGINE.cycle(); };
-  // Y si alguien llama a switchToBuild() explícitamente:
-  window.switchToBuild = function(){ ENGINE.enter('BUILD'); };
-</script>
-  <!-- DROPZONE SCRIPT FINAL -->
-  <script>
   document.addEventListener("DOMContentLoaded", function() {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
