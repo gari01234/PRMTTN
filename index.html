@@ -613,27 +613,37 @@ document.getElementById('json-upload').addEventListener('change', function(event
       let isFRBN = false; // espejo usado en otras partes del código
 
       async function ensureFRBNLoaded(){
-        // Si ya está cargado, listo.
+        // ¿ya está expuesto por el <script type="module" src="./engines/frbn.js"> ?
         if (window.FRBN && typeof window.FRBN.toggle === 'function') return true;
 
-        // Intenta cargar el módulo dinámicamente (por si el <script type="module"> no se resolvió).
-        try {
-          await import('./engines/frbn.js');
-          return !!(window.FRBN && typeof window.FRBN.toggle === 'function');
-        } catch (e) {
-          console.error('No se pudo cargar engines/frbn.js', e);
-          return false;
+        // Intenta import dinámico (por si el tag no corrió aún)
+        try { await import('./engines/frbn.js'); } catch(e){ /* no pasa nada */ }
+
+        // Espera corta a que el módulo se auto-registre en window.FRBN
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1500){ // hasta 1.5 s
+          if (window.FRBN && typeof window.FRBN.toggle === 'function') return true;
+          await new Promise(r => setTimeout(r, 50));
         }
+        console.error('FRBN no disponible: engines/frbn.js no expone window.FRBN');
+        return false;
       }
 
       async function toggleFRBN(){
         const ok = await ensureFRBNLoaded();
-        if (!ok) {
-          console.error('FRBN no disponible (engines/frbn.js no cargado)');
-          return;
+        if (!ok) { showPopup('FRBN no disponible (engines/frbn.js)', 3000); return false; }
+        try{
+          window.FRBN.toggle();
+          isFRBN = !!window.FRBN.isFRBN;              // espejo local consistente
+          if (isFRBN && typeof window.FRBN.syncFromScene === 'function') {
+            window.FRBN.syncFromScene();              // acopla inmediatamente
+          }
+          return isFRBN;
+        }catch(e){
+          console.error('FRBN: error al alternar', e);
+          showPopup('FRBN: error al alternar', 3000);
+          return false;
         }
-        window.FRBN.toggle();
-        isFRBN = window.FRBN.isFRBN; // mantener espejo local
       }
 
       function buildGanzfeld(){
@@ -3174,60 +3184,59 @@ void main(){
       if (!isTMSL) toggleTMSL();
     }
 
-    /* incluye TMSL en la rueda de motores del botón “4” */
-    function cycleEngine(){
-      if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
-      if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
-      if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
-      if (isTMSL){ switchToBuild(); return; }              // TMSL  → BUILD
-      toggleFRBN();                                        // BUILD → FRBN
+    /* Gestor de motores determinista (BUILD ⇄ FRBN ⇄ LCHT ⇄ OFFNNG ⇄ TMSL) */
+    const ENGINE_ORDER = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
+
+    async function _ensureOffAllExcept(target){
+      if (target !== 'FRBN'  && isFRBN)  await toggleFRBN();
+      if (target !== 'LCHT'  && isLCHT)  toggleLCHT();
+      if (target !== 'OFFNNG'&& isOFFNNG)toggleOFFNNG();
+      if (target !== 'TMSL'  && isTMSL)  toggleTMSL();
     }
 
-    /* ───────────────────────────
-     * ENGINE facade (BUILD/FRBN/LCHT/OFFNNG/TMSL)
-     * ─────────────────────────── */
     window.ENGINE = {
       current: 'BUILD',
 
-      cycle: function () {      // usa tu rueda existente
-        cycleEngine();
+      cycle: async function () {
+        const i = Math.max(0, ENGINE_ORDER.indexOf(this.current));
+        const next = ENGINE_ORDER[(i + 1) % ENGINE_ORDER.length];
+        await this.enter(next);
       },
 
       enter: async function (name) {
         switch (name) {
-          case 'BUILD':
-            switchToBuild();
+          case 'BUILD': {
+            await _ensureOffAllExcept('BUILD');
+            switchToBuild();               // conserva la escena actual
             this.current = 'BUILD';
-            break;
-
-          case 'FRBN': {
-            const ok = await ensureFRBNLoaded();
-            if (!ok) { showPopup('FRBN no disponible (engines/frbn.js)', 3000); return; }
-            if (isLCHT)  toggleLCHT();
-            if (isOFFNNG) toggleOFFNNG();
-            if (isTMSL)  toggleTMSL();
-            if (!isFRBN) toggleFRBN();
-            this.current = 'FRBN';
-            break;
+            return;
           }
-
-          case 'LCHT':
-            if (isFRBN)  toggleFRBN();
-            if (isOFFNNG) toggleOFFNNG();
-            if (isTMSL)  toggleTMSL();
+          case 'FRBN': {
+            await _ensureOffAllExcept('FRBN');
+            if (!isFRBN) await toggleFRBN();
+            if (isFRBN) this.current = 'FRBN';
+            return;
+          }
+          case 'LCHT': {
+            await _ensureOffAllExcept('LCHT');
             if (!isLCHT) toggleLCHT();
-            this.current = 'LCHT';
-            break;
-
-          case 'OFFNNG':
-            ensureOnlyOFFNNG();          // ya gestiona exclusividad
-            this.current = 'OFFNNG';
-            break;
-
-          case 'TMSL':
-            ensureOnlyTMSL();            // ya gestiona exclusividad
-            this.current = 'TMSL';
-            break;
+            if (isLCHT) this.current = 'LCHT';
+            return;
+          }
+          case 'OFFNNG': {
+            await _ensureOffAllExcept('OFFNNG');
+            if (!isOFFNNG) toggleOFFNNG();
+            if (isOFFNNG) this.current = 'OFFNNG';
+            return;
+          }
+          case 'TMSL': {
+            await _ensureOffAllExcept('TMSL');
+            if (!isTMSL) toggleTMSL();
+            if (isTMSL) this.current = 'TMSL';
+            return;
+          }
+          default:
+            console.warn('ENGINE.enter: modo desconocido', name);
         }
       }
     };
