@@ -187,6 +187,9 @@
 
       const ib = document.getElementById('frbnInfoButton');
       if (ib) ib.style.display = 'none';
+
+      // Mantén espejos de estado y etiqueta del botón coherentes si se llamó exit() directo
+      window.isFRBN = this.isFRBN; const b = document.getElementById('frbnButton'); if (b) b.textContent = 'FRBN';
     }
 
     toggle(){
