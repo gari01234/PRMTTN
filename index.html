@@ -11,6 +11,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <!-- CORE determinista (módulos puros, sin Three.js) -->
     <script type="module" src="./core/index.js"></script>
+    <script type="module" src="./engines/registry.js"></script>
 
     <!-- Glue: expone funciones de core en el espacio global actual (sin romper nada) -->
     <script>
@@ -763,7 +764,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       const idx = pa[ attributeMapping[1] ];                // 1–5
       const val = getColor(idx);
       return Array.isArray(val)
-        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
+        ? toThreeColor(val)
         : new THREE.Color(val);
     }
 
@@ -1095,7 +1096,7 @@ const PATTERNS = {
                    return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[1]+seed+i*2)%12];}
 };
 
-/* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
+/* ---------- BLOQUE DE UTILIDADES COLOR (unificado con core) ---------- */
 const ANG7 = [
   [0,0,0,0,0,0,0],                         // monocromo (idx 0)
   [0,30,60,90,120,150,180],                // análoga
@@ -1105,86 +1106,21 @@ const ANG7 = [
   [0,90,180,270,45,135,225],               // cuadrado
   [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
 ];
-function rgbToHsv(r,g,b){
-  r/=255; g/=255; b/=255;
-  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
-  let h=0;
-  if(d){
-    if(max===r) h=((g-b)/d)%6;
-    else if(max===g) h=(b-r)/d+2;
-    else h=(r-g)/d+4;
-    h*=60; if(h<0) h+=360;
-  }
-  const s=max?d/max:0, v=max;
-  return [h,s,v];
-}
-function hsvToRgb(h,s,v){
-  h = h % 360;
-  const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
-  let [r,g,b]=[0,0,0];
-  if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;}
-  else if(h<180){g=c;b=x;} else if(h<240){g=x;b=c;}
-  else if(h<300){r=x;b=c;} else {r=c;b=x;}
-  return [(r+m)*255,(g+m)*255,(b+m)*255].map(v=>Math.round(v));
-}
-function hsvToHex({h,s,v}){
-  const [r,g,b] = hsvToRgb(h,s,v);
-  return '#'+new THREE.Color(r/255,g/255,b/255).getHexString();
-}
-/* contraste CIE76 */
-function deltaE(lab1,lab2){
-  return Math.sqrt(
-    (lab1[0]-lab2[0])**2+
-    (lab1[1]-lab2[1])**2+
-    (lab1[2]-lab2[2])**2
-  );
-}
-function rgbToLab(r,g,b){                      // aproximación rápida
-  const xyz=[r/255,g/255,b/255].map(v=>{
-    v=v>0.04045?((v+0.055)/1.055)**2.4:v/12.92;
-    return v*100;
-  });
-  const x=xyz[0]*0.4124+xyz[1]*0.3576+xyz[2]*0.1805;
-  const y=xyz[0]*0.2126+xyz[1]*0.7152+xyz[2]*0.0722;
-  const z=xyz[0]*0.0193+xyz[1]*0.1192+xyz[2]*0.9505;
-  const xyzN=[95.047,100.0,108.883];
-  const f= t=> t>0.008856 ? t**(1/3) : (7.787*t)+16/116;
-  const [fx,fy,fz]=[x,y,z].map((v,i)=>f(v/xyzN[i]));
-  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
-}
 
-/* ======  NUEVO  — utilidades de contraste con el FONDO  ====== */
-const ΔE_BG_MIN = 22;          // contraste mínimo CIE76
+// Enlazamos directamente a las funciones de core ya expuestas por el "glue"
+const { rgbToHsv, hsvToRgb, hsvToHex, hexToRgb, rgbToLab, deltaE } = window.core;
 
-function hexToRgb(hex){
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  const n = parseInt(m[1],16);
-  return [(n>>16)&255, (n>>8)&255, n&255];
+// Usamos el wrapper de glue (lee el fondo actual y aplica ΔE_BG_MIN=22 por defecto)
+const ensureContrastRGB = window.ensureContrastRGB;
+
+// Helpers finales de conversión (cerramos el círculo pedido)
+function hexFromRgb(rgb){
+  const [r,g,b] = rgb;
+  return '#'+ new THREE.Color(r/255, g/255, b/255).getHexString();
 }
-
-/**
- * Sube o baja la luminosidad (v) del color RGB recibido hasta que
- * alcance ΔE_BG_MIN puntos de contraste contra el fondo actual.
- * Devuelve el RGB corregido.
- */
-function ensureContrastRGB(rgb){
-  /* color de fondo efectivo */
-  const bgRgb = bgOverride
-      ? hexToRgb(bgOverride)
-      : hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
-
-  let [h,s,v] = rgbToHsv(...rgb);          // pasamos a HSV
-  let tries = 0;
-  while (deltaE(rgbToLab(...rgb),
-                rgbToLab(...bgRgb)) < ΔE_BG_MIN && tries < 24){
-    /* estrategia: alterna aclarar / oscurecer en pasos de 0.04 */
-    v = (tries % 2)
-        ? Math.max(0, v - 0.04)
-        : Math.min(1, v + 0.04);
-    rgb = hsvToRgb(h, s, v);
-    tries++;
-  }
-  return rgb;
+function toThreeColor(rgb){
+  const [r,g,b] = rgb;
+  return new THREE.Color(r/255, g/255, b/255);
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
 /* ——— calcula HSV para fondo y paredes de forma acoplada al set activo ——— */
@@ -1304,35 +1240,11 @@ function evalProp(prop, args = [], fallback = 0){
       return r;
     }
 
-    /* ========= NUEVO: sceneSeed orden‑invariante + dependiente del mapping ========= */
-
-    /** Rank del mapping [m0..m4] usando Lehmer rank sobre [m_i+1] (1..5) */
-    function mappingRank(m){
-      const arr = [m[0]+1, m[1]+1, m[2]+1, m[3]+1, m[4]+1];
-      return lehmerRank(arr);
-    }
-
-    /** sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360  (orden‑invariante) */
-    function computeSceneSeedFrom(perms, m){
-      let sumR = 0, sumR2 = 0;
-      perms.forEach(pa=>{
-        const r = lehmerRank(pa);
-        sumR  += r;
-        sumR2 += r*r;
-      });
-      const mRank = mappingRank(m);
-      return (37*sumR + 101*sumR2 + 53*mRank) % 360;
-    }
-
-    /** S = ( Σ (P_{mx}+P_{my}+P_{mz}) ) mod 125  — usa los índices x,y,z del mapping */
-    function computeGlobalS(perms, m){
-      const mx = m[2], my = m[3], mz = m[4];
-      let S = 0;
-      perms.forEach(p=>{
-        S += p[mx] + p[my] + p[mz];
-      });
-      return S % 125;
-    }
+    /* ========= sceneSeed / S_global desde core ========= */
+    // Conservamos los mismos nombres globales (el resto del código no cambia)
+    const mappingRank            = window.core.mappingRank;
+    const computeSceneSeedFrom   = window.core.computeSceneSeedFrom;
+    const computeGlobalS         = window.core.computeGlobalS;
     function computeShiftRankXYZ(p){
       const r = lehmerRank(p);
       const I = (r + sceneSeed + S_global) % 125;   // <<< NUEVO: acoplado a S_global
@@ -1892,8 +1804,7 @@ function makePalette(){
     function applyPalette(){
       for(let i=1;i<=5;i++){
         const autoRGB = paletteRGB[i-1] || [255,255,255];
-        const autoHEX = '#'+new THREE.Color(
-            autoRGB[0]/255,autoRGB[1]/255,autoRGB[2]/255).getHexString();
+        const autoHEX = hexFromRgb(autoRGB);
         const hex     = manualOverride[i] || autoHEX;
         const input   = document.getElementById('color'+i);
         if(input) input.value = hex;
@@ -1903,21 +1814,19 @@ function makePalette(){
         const pa   = o.userData.permStr.split(',').map(Number);
         const idx  = pa[attributeMapping[1]];          // 1-5
         let hex;
-        if(manualOverride[idx]){
+        if (manualOverride[idx]){
           hex = manualOverride[idx];
-        }else if(activePatternId===0){
-          hex = '#'+new THREE.Color(
-                    ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
-        }else{
+        } else if (activePatternId === 0){
+          hex = hexFromRgb(paletteRGB[idx-1]);
+        } else {
           const sig  = computeSignature(pa);
           const slot = lehmerRank(pa) % 12;
           let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
-          /* dispersión coprima en S y V */
           sIdx = (sIdx * PHI_S) % 12;
           vIdx = (vIdx * PHI_V) % 12;
           const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
           const rgb = hsvToRgb(h,s,v);
-          hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
+          hex = hexFromRgb(rgb);
         }
         o.material.color.setStyle(hex);
       });
@@ -3299,65 +3208,6 @@ void main(){
     }
     updateEngineButtonsUI();
     init();
-
-    /* === ENGINE FACADE — cycle() y enter() con exclusividad entre motores === */
-    (function(){
-      const ORDER = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
-      const isFn = f => typeof f === 'function';
-
-      // Apaga cualquier motor activo. Si FRBN no tiene exit(), usa toggleFRBN().
-      async function offAll(){
-        // FRBN
-        try{
-          if (window.FRBN?.isFRBN) {
-            await toggleFRBN();              // ← en vez de FRBN.exit()
-          }
-        }catch(e){ console.warn('offAll() FRBN:', e); }
-
-        // LCHT / OFFNNG / TMSL
-        try{ if (window.isLCHT)   toggleLCHT();   }catch(e){}
-        try{ if (window.isOFFNNG) toggleOFFNNG(); }catch(e){}
-        try{
-          if (window.isTMSL && isFn(window.toggleTMSL)) window.toggleTMSL();
-        }catch(e){}
-
-        updateEngineButtonsUI?.();
-      }
-
-      async function enter(mode){
-        if (mode === 'BUILD'){ await offAll(); switchToBuild(); return; }
-
-        if (mode === 'FRBN'){
-          await offAll();
-          const ok = await ensureFRBNLoaded();
-          if (ok && !window.isFRBN) { await toggleFRBN(); }
-          return;
-        }
-
-        if (mode === 'LCHT'){    await offAll(); if (!window.isLCHT)    toggleLCHT();   return; }
-        if (mode === 'OFFNNG'){  await offAll(); if (!window.isOFFNNG)  toggleOFFNNG(); return; }
-
-        if (mode === 'TMSL' && isFn(window.toggleTMSL)){
-          await offAll();
-          if (!window.isTMSL) window.toggleTMSL();
-          return;
-        }
-      }
-
-      async function cycle(){
-        const current =
-          window.isFRBN   ? 'FRBN'   :
-          window.isLCHT   ? 'LCHT'   :
-          window.isOFFNNG ? 'OFFNNG' :
-          (window.isTMSL  ? 'TMSL'   : 'BUILD');
-
-        let idx = (ORDER.indexOf(current) + 1) % ORDER.length;
-        if (ORDER[idx] === 'TMSL' && !isFn(window.toggleTMSL)) idx = 0; // si no existe TMSL, sáltalo
-        await enter(ORDER[idx]);
-      }
-
-      window.ENGINE = { enter, cycle };
-    })();
 
     // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
