@@ -478,14 +478,16 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
 
       // === Estado único (persistimos lo que ya aplicaste a la UI) ===
-      import('./state/store.js').then(({ setPerms, setMapping, setPattern, setOverrides, state })=>{
-        setPerms(Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value));
-        setMapping({ forma: attributeMapping[0], color: attributeMapping[1], x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] });
-        setPattern(activePatternId);
-        const cols = {}; for(let i=1;i<=5;i++){ cols[i] = document.getElementById('color'+i).value; }
-        setOverrides({ colors: cols, bg: document.getElementById('bgColor').value, cube: document.getElementById('cubeColor').value });
-        state.sceneSeed = sceneSeed; state.S_global = S_global;
-      });
+      import('./state/store.js')
+        .then(({ setPerms, setMapping, setPattern, setOverrides, state })=>{
+          setPerms(Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value));
+          setMapping({ forma: attributeMapping[0], color: attributeMapping[1], x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] });
+          setPattern(activePatternId);
+          const cols = {}; for(let i=1;i<=5;i++){ cols[i] = document.getElementById('color'+i).value; }
+          setOverrides({ colors: cols, bg: document.getElementById('bgColor').value, cube: document.getElementById('cubeColor').value });
+          state.sceneSeed = sceneSeed; state.S_global = S_global;
+        })
+        .catch(()=>{ /* sin store: no pasa nada */ });
       // View
       const view = config.view || "front";
       document.getElementById('standardView').value = view;
@@ -1504,6 +1506,20 @@ function findCollisionFreeMapping(perms){
       }, dur);
     }
 
+(function(){
+  function report(msg){
+    try { showPopup(msg, 5000); } catch(_){ alert(msg); }
+  }
+  window.addEventListener('error', e => {
+    console.error('[Runtime error]', e.error || e.message);
+    report('Runtime error: ' + (e.message || 'see console'));
+  });
+  window.addEventListener('unhandledrejection', e => {
+    console.error('[Unhandled]', e.reason);
+    report('Unhandled promise error (see console)');
+  });
+})();
+
 
 function updateScene(attemptResolve=true){
   // Limpia grupo
@@ -1590,7 +1606,28 @@ function saveImage(){
   camera.aspect = screenAspect;
   camera.updateProjectionMatrix();
 
-  const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
+  let rt;
+  try {
+    rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
+  } catch (e) {
+    // fallback medio para móviles con poca VRAM
+    const scale = 0.5;
+    renderW = Math.max(1, Math.floor(renderW * scale));
+    renderH = Math.max(1, Math.floor(renderH * scale));
+    renderer.setSize(renderW, renderH, false);
+    try {
+      rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
+    } catch (e2) {
+      showPopup('Save A2: memoria insuficiente', 4000);
+      renderer.setPixelRatio(prevPixelRatio);
+      renderer.setSize(prevSize.x, prevSize.y);
+      camera.aspect = prevAspect;
+      camera.updateProjectionMatrix();
+      if (prevBg) scene.background = prevBg;
+      controls.update();
+      return;
+    }
+  }
 
   const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
   renderer.setClearColor(clearHex, 1);
@@ -2028,10 +2065,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON. `;
         }
         if(instr.colors){
           Object.entries(instr.colors).forEach(([i,c])=>{
-            i=Number(i);
-            if(manualOverride[i]!==undefined){
-              manualOverride[i]=c;
-            }
+            manualOverride[Number(i)] = c;  // <- sin condición
           });
           refreshAll({rebuild:true, keepManual:true});
         }
@@ -2429,6 +2463,14 @@ function renderArchPanel(html){
         c.style.left=e.clientX+"px"; c.style.top=e.clientY+"px";
       });
     }
+    function isTouch(){ return ('ontouchstart' in window) || (navigator.maxTouchPoints>0); }
+    function adaptForTouch(){
+      if (!isTouch()) return;
+      const cc = document.getElementById('customCursor');
+      if (cc) cc.style.display = 'none';
+      document.body.style.cursor = 'auto';
+      document.querySelectorAll('button,select,input').forEach(el => el.style.cursor='auto');
+    }
     function initRenderer(){
       renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
       // CAP global: mejora FPS en todas las escenas
@@ -2523,6 +2565,7 @@ function renderArchPanel(html){
       toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
       const ib = document.getElementById('frbnInfoButton');
       if (ib) ib.style.display = 'none';
+      adaptForTouch();
       animate();
     }
     function onWindowResize(){
@@ -3495,32 +3538,48 @@ V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
 
 
 // ===== Reemplazo exportCurrentConfiguration: fuente única (state) =====
-/* eslint-disable no-undef */
 async function exportCurrentConfiguration(){
-  // import dinámico ligero para no convertir todo el archivo en módulo
-  const { state, serialize, setPerms, setMapping, setPattern, setOverrides } =
-    await import('./state/store.js');
+  // Intentamos usar el store; si no existe, caemos a un JSON local
+  let serialize, setPerms, setMapping, setPattern, setOverrides, state;
+  try {
+    ({ state, serialize, setPerms, setMapping, setPattern, setOverrides } =
+      await import('./state/store.js'));
+  } catch (e) {
+    // sin store.js → seguimos con fallback silencioso
+  }
 
-  // 1) Leer UI actual (como antes)
-  const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
-  const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
-                    x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
+  // 1) Leer UI actual
+  const perms = Array
+    .from(document.getElementById('permutationList').selectedOptions)
+    .map(o => o.value);
+  const mapping = {
+    forma: attributeMapping[0], color: attributeMapping[1],
+    x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4]
+  };
   const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
   const bg   = document.getElementById('bgColor').value;
   const cube = document.getElementById('cubeColor').value;
 
-  // 2) Volcar a state (adopción gradual)
-  setPerms(perms);
-  setMapping(mapping);
-  setPattern(activePatternId);
-  setOverrides({ colors, bg, cube });
+  // 2) Si el store existe, lo usamos (fuente de verdad)
+  if (setPerms && setMapping && setPattern && setOverrides && serialize) {
+    setPerms(perms);
+    setMapping(mapping);
+    setPattern(activePatternId);
+    setOverrides({ colors, bg, cube });
+    if (state){ state.sceneSeed = sceneSeed; state.S_global = S_global; }
+    return serialize();
+  }
 
-  // 3) Copiar invariantes ya calculados
-  state.sceneSeed = sceneSeed;
-  state.S_global  = S_global;
-
-  // 4) Serializar con el formato estable
-  return serialize();
+  // 3) Fallback estable (sin store)
+  return {
+    perms,
+    mapping,
+    pattern: activePatternId,
+    sceneSeed,
+    S_global,
+    overrides: { colors, bg, cube },
+    view: document.getElementById('standardView')?.value || 'front'
+  };
 }
 
 
