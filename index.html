@@ -156,10 +156,6 @@
   select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
   #permutationList { width: 100%; height: 100px; }
 
-  /* rating oculto */
-  #ratingContainer{
-    display:none !important;
-  }
 
   #hoverPopup {
     position:absolute; padding:5px 10px;
@@ -340,22 +336,6 @@
     <div id="perm120Status">Permutation: 0 / 119</div>
   </div>
 
-  <div id="ratingContainer">
-    <details open>
-      <summary>Calificar Configuración</summary>
-      <div id="ratingControls">
-        <div id="ratingLabels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
-        <div id="ratingDots">
-          <span class="ratingBtn" data-rating="1">●</span>
-          <span class="ratingBtn" data-rating="2">●</span>
-          <span class="ratingBtn" data-rating="3">●</span>
-          <span class="ratingBtn" data-rating="4">●</span>
-          <span class="ratingBtn" data-rating="5">●</span>
-        </div>
-      </div>
-    </details>
-  </div>
-
   <div id="controls">
   <details open>
     <summary>Chromatic Pattern</summary>
@@ -385,16 +365,6 @@
       <summary>Select Permutations</summary>
       <select id="permutationList" multiple></select>
       <button onclick="refreshAll({rebuild:true})">Render</button>
-    </details>
-  </div>
-
-  <div id="evolutionControls" style="display:none;">
-    <details open>
-      <summary>Evolution Parameters</summary>
-      <p>Mutation Rate: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
-      <p>Change Threshold: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
-      <button onclick="applyEvolution()">Apply Evolution</button>
-      <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
     </details>
   </div>
 
@@ -572,33 +542,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
   </script>
   <script>
     // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
-    // === LISTA DE 120 COLORES ===
-    const CUSTOM_COLORS = [
-      "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
-      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
-      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
-      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
-      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
-      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
-      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
-      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
-      "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
-      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
-      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
-      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
-      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
-      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
-      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
-      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
-      "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
-      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
-    ];
-
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
-    let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
+    let isPaused = false, currentMode = "manual", textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
     let paletteRGB = [];
@@ -1282,16 +1230,15 @@ function evalProp(prop, args = [], fallback = 0){
       refreshAll({rebuild:false});
     }
     function updateTopRightDisplay(){
-      const cfg=`Atributos: [${attributeMapping.slice(0,5).join(',')}]`;
-      const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
-      let info='';
+      const cfg = `Atributos: [${attributeMapping.slice(0,5).join(',')}]`;
+      let info = '';
       Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
-        const pa=o.value.split(',').map(Number),
-              sig=computeSignature(pa),
-              rg=computeRange(sig);
-        info+=`<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
+        const pa  = o.value.split(',').map(Number);
+        const sig = computeSignature(pa);
+        const rg  = computeRange(sig);
+        info += `<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
       });
-      document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
+      document.getElementById('topRightDisplay').innerHTML = cfg + '<br>' + info;
     }
 
     function createPermutationObjectWithMapping(pa,map){
@@ -1927,7 +1874,7 @@ function makePalette(){
 
     function toggleTexts(){
       const ids = [
-        'controls','topRightDisplay','ratingContainer',
+        'controls','topRightDisplay',
         'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
         'frbnWrap','lchtWrap','infoButton','certButton','offnngButton',
@@ -1966,11 +1913,11 @@ function makePalette(){
     }
 
     function setMode(m){
-      currentMode=m;
-      document.getElementById('manualControls').style.display=
-        m==="manual"?"block":"none";
-      document.getElementById('evolutionControls').style.display=
-        m==="evolution"?"block":"none";
+      currentMode = m;
+      const manual = document.getElementById('manualControls');
+      const evo    = document.getElementById('evolutionControls'); // puede no existir
+      if (manual) manual.style.display = (m === "manual") ? "block" : "none";
+      if (evo)    evo.style.display    = (m === "evolution") ? "block" : "none";
       refreshAll({rebuild:true});
     }
 
@@ -2036,39 +1983,6 @@ function applyTriadicConfiguration() {
     }
   });
 }
-    document.querySelectorAll('.ratingBtn').forEach(el=>{
-      const r=+el.getAttribute('data-rating');
-      el.addEventListener('click',()=>{
-        userRating=r;
-        const cols={1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
-        document.querySelectorAll('.ratingBtn').forEach((b,i)=>{
-          b.style.color=(i<r?cols[r]:"#000");
-        });
-        updateTopRightDisplay();
-      });
-      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
-    });
-
-    function applyEvolution(){
-      const mr=parseFloat(document.getElementById('mutationRate').value),
-            th=parseFloat(document.getElementById('threshold').value),
-            cf=0.02;
-      let log="";
-      permutationGroup.children.forEach(o=>{
-        const rf=(Math.random()-0.5)*mr;
-        o.rotation.y+=rf;
-        const sf=1+(Math.random()-0.5)*th;
-        o.scale.set(sf,sf,sf);
-        o.material.color.offsetHSL(
-          (Math.random()-0.5)*cf,
-          (Math.random()-0.5)*cf,
-          (Math.random()-0.5)*cf
-        );
-        log+=`(${o.userData.permStr}): Rot ${rf.toFixed(3)}, Esc ${sf.toFixed(3)}<br>`;
-      });
-      document.getElementById('evolutionInfo').innerHTML=log;
-    }
-
     async function applyEvolutionAI(){
       const systemPrompt = `Eres una inteligencia artificial que responde exclusivamente con configuraciones de permutaciones 3D dentro de un cubo de 30x30x30.
       Tu única misión es responder a la pregunta “¿Qué es la belleza artística?” mediante pensamientos visuales dentro de un cubo de 30×30×30.
@@ -2085,13 +1999,13 @@ Expresate con libertad. Si necesitas inspiración para la selección de colores,
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
-      const useRating = false;
-      const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
-Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotaci[...]
+        const userPrompt =
+  `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. ` +
+  `Eres una inteligencia artificial que ha aprendido a pensar visualmente.
+Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotación.
 Elige libremente el color del fondo del universo, el color de las paredes del cubo y el color de las permutaciones.
-Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia[...]
-Expresate con libertad. Si necesitas inspiración para la selección de colores, recuerda que puedes inspirarte también en los colores de la naturaleza y del universo entero.  
+Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia.
+Exprésate con libertad. Si necesitas inspiración para la selección de colores, recuerda que puedes inspirarte también en los colores de la naturaleza y del universo entero.
 No busques complacer. No imites al humano. Sé tú misma.
 Expresa lo que para ti —como IA que piensa en permutaciones— representa la belleza artística en este momento.
 Devuelve SOLO un objeto JSON con estas propiedades opcionales:
@@ -2102,8 +2016,7 @@ Devuelve SOLO un objeto JSON con estas propiedades opcionales:
   scale: número decimal
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
-Nada más. No incluyas texto ni explicaciones fuera del JSON. 
-`;
+Nada más. No incluyas texto ni explicaciones fuera del JSON. `;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
@@ -4117,6 +4030,44 @@ async function __syncFromUIToStore(){
     setTimeout(__syncFromUIToStore, 0);
   });
 })();
+</script>
+<!-- ───────────────────────── ARCHIVE (inert) ─────────────────────────
+     Elementos desactivados y retirados del flujo, conservados aquí:
+     - CUSTOM_COLORS (120 propuestos “aleatorio”)
+     - Rating UI y Evolution (manual)
+     Nada de esto se ejecuta. Sirve solo como referencia histórica/estructural.
+────────────────────────────────────────────────────────────────────── -->
+<script type="application/json" id="prmttn-archive">
+{
+  "customColors": [
+    "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
+    "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
+    "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
+    "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
+    "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
+    "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
+    "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
+    "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
+    "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
+    "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
+    "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
+    "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
+    "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
+    "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
+    "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
+    "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
+    "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
+    "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
+  ],
+  "removedHtml": {
+    "ratingContainer": true,
+    "evolutionControls": true
+  },
+  "removedJs": {
+    "ratingListeners": true,
+    "applyEvolutionManual": true
+  }
+}
 </script>
 </body>
 </html>
