@@ -13,41 +13,47 @@
     <script type="module" src="./core/index.js"></script>
     <script type="module" src="./engines/registry.js"></script>
 
-    <!-- Glue: expone funciones de core en el espacio global actual (sin romper nada) -->
+    <!-- Glue: expone funciones de core en el espacio global de forma segura -->
     <script>
-    (function(){
-      if (!window.core) return;
-
-      // Mapeo directo 1:1 (métodos con misma firma que el código actual)
-      [
-        'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
-        'idxToHSV',
-        'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
-        'computeSignature','computeRange',
-        'computeSceneSeedFrom','computeGlobalS'
-      ].forEach(k => { try { window[k] = window.core[k]; } catch(e){} });
-
-      // Envolver ensureContrastRGB para conservar la interfaz antigua (1 parámetro).
-      // El código existente llama ensureContrastRGB(rgb) y lee el fondo de variables globales.
-      window.ensureContrastRGB = function(rgb){
-        try{
-          // Fondo actual efectivo: bgOverride (hex) o bgHSV (estructura)
-          var bgRgb;
-          if (typeof bgOverride === 'string' && bgOverride) {
-            bgRgb = window.core.hexToRgb(bgOverride);
-          } else if (typeof bgHSV === 'object' && bgHSV){
-            var hex = window.core.hsvToHex(bgHSV);
-            bgRgb = window.core.hexToRgb(hex);
-          } else {
-            // Fallback blanco
-            bgRgb = [255,255,255];
+    (function () {
+      (async () => {
+        try {
+          // Asegura que window.core exista (carga perezosa del módulo)
+          if (!window.core) {
+            const mod = await import('./core/index.js');
+            window.core = mod;
           }
-          return window.core.ensureContrastRGB(rgb, bgRgb, window.core.DELTA_E_BG_MIN || 22);
-        }catch(e){
-          // En caso de fallo, devuelve el RGB original sin tocar
-          return rgb;
+
+          // Mapeo 1:1 para compatibilidad con el código existente
+          [
+            'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
+            'idxToHSV',
+            'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
+            'computeSignature','computeRange',
+            'computeSceneSeedFrom','computeGlobalS'
+          ].forEach(k => { if (window.core?.[k]) window[k] = window.core[k]; });
+
+          // Envoltorio de ensureContrastRGB (interfaz antigua: 1 parámetro)
+          window.ensureContrastRGB = function (rgb) {
+            try {
+              let bgRgb;
+              if (typeof bgOverride === 'string' && bgOverride) {
+                bgRgb = window.core.hexToRgb(bgOverride);
+              } else if (bgHSV && typeof bgHSV === 'object') {
+                const hex = window.core.hsvToHex(bgHSV);
+                bgRgb = window.core.hexToRgb(hex);
+              } else {
+                bgRgb = [255, 255, 255];
+              }
+              return window.core.ensureContrastRGB(rgb, bgRgb, window.core.DELTA_E_BG_MIN || 22);
+            } catch (_) {
+              return rgb;
+            }
+          };
+        } catch (e) {
+          console.error('[core glue] fallo al cargar core:', e);
         }
-      };
+      })();
     })();
     </script>
     <script type="module" src="./engines/frbn.js"></script>
@@ -1107,11 +1113,17 @@ const ANG7 = [
   [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
 ];
 
-// Enlazamos directamente a las funciones de core ya expuestas por el "glue"
-const { rgbToHsv, hsvToRgb, hsvToHex, hexToRgb, rgbToLab, deltaE } = window.core;
+// Accesores seguros: llaman a window.core cuando ya está listo
+const rgbToHsv = (...a) => window.core?.rgbToHsv?.(...a);
+const hsvToRgb = (...a) => window.core?.hsvToRgb?.(...a);
+const hsvToHex = (...a) => window.core?.hsvToHex?.(...a);
+const hexToRgb = (...a) => window.core?.hexToRgb?.(...a);
+const rgbToLab = (...a) => window.core?.rgbToLab?.(...a);
+const deltaE   = (...a) => window.core?.deltaE?.(...a);
 
-// Usamos el wrapper de glue (lee el fondo actual y aplica ΔE_BG_MIN=22 por defecto)
-const ensureContrastRGB = window.ensureContrastRGB;
+// Wrapper de contraste (si aún no existe, devuelve el color tal cual)
+const ensureContrastRGB = (rgb, ...rest) =>
+  (window.ensureContrastRGB ? window.ensureContrastRGB(rgb, ...rest) : rgb);
 
 // Helpers finales de conversión (cerramos el círculo pedido)
 function hexFromRgb(rgb){
@@ -1241,10 +1253,14 @@ function evalProp(prop, args = [], fallback = 0){
     }
 
     /* ========= sceneSeed / S_global desde core ========= */
-    // Conservamos los mismos nombres globales (el resto del código no cambia)
-    const mappingRank            = window.core.mappingRank;
-    const computeSceneSeedFrom   = window.core.computeSceneSeedFrom;
-    const computeGlobalS         = window.core.computeGlobalS;
+    let mappingRank, computeSceneSeedFrom, computeGlobalS;
+    window.addEventListener('load', () => {
+      if (window.core) {
+        mappingRank          = window.core.mappingRank;
+        computeSceneSeedFrom = window.core.computeSceneSeedFrom;
+        computeGlobalS       = window.core.computeGlobalS;
+      }
+    });
     function computeShiftRankXYZ(p){
       const r = lehmerRank(p);
       const I = (r + sceneSeed + S_global) % 125;   // <<< NUEVO: acoplado a S_global
@@ -3206,8 +3222,14 @@ void main(){
       if (bOF) bOF.textContent = isOFFNNG ? 'OFFNNG ON' : 'OFFNNG';
       if (bTM) bTM.textContent = isTMSL   ? 'TMSL ON'   : 'TMSL';
     }
-    updateEngineButtonsUI();
-    init();
+    window.addEventListener('load', () => {
+      try {
+        updateEngineButtonsUI();
+        init();
+      } catch (e) {
+        console.error('Init error:', e);
+      }
+    });
 
     // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
