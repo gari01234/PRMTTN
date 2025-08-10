@@ -486,14 +486,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         setOverrides({ colors: cols, bg: document.getElementById('bgColor').value, cube: document.getElementById('cubeColor').value });
         state.sceneSeed = sceneSeed; state.S_global = S_global;
       });
-      // Scene invariants (optional)
-      if (typeof config.sceneSeed === 'number') {
-        sceneSeed = config.sceneSeed;
-      }
-      if (typeof config.S_global === 'number') {
-        S_global = config.S_global;
-      }
-
       // View
       const view = config.view || "front";
       document.getElementById('standardView').value = view;
@@ -1052,33 +1044,20 @@ const PATTERNS = {
                    return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[1]+seed+i*2)%12];}
 };
 
-/* ---------- BLOQUE DE UTILIDADES COLOR (unificado con core) ---------- */
-const ANG7 = [
-  [0,0,0,0,0,0,0],                         // monocromo (idx 0)
-  [0,30,60,90,120,150,180],                // análoga
-  [0,180,0,180,0,180,0],                   // complementaria
-  [0,150,210,0,150,210,0],                 // comp. dividida
-  [0,120,240,60,180,300,30],               // tríada
-  [0,90,180,270,45,135,225],               // cuadrado
-  [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
-];
+/* ---------- BLOQUE DE UTILIDADES COLOR (cerrado con core) ---------- */
+/* Usamos exclusivamente las funciones de color expuestas por core mediante el glue:
+   - rgbToHsv, hsvToRgb, hsvToHex, hexToRgb, rgbToLab, deltaE
+   (quedan en window.* vía el script de glue, sin re-declararlas aquí)
+   Añadimos solo helpers que NO existen en core.                            */
 
-// Accesores seguros: llaman a window.core cuando ya está listo
-const rgbToHsv = (...a) => window.core?.rgbToHsv?.(...a);
-const hsvToRgb = (...a) => window.core?.hsvToRgb?.(...a);
-const hsvToHex = (...a) => window.core?.hsvToHex?.(...a);
-const hexToRgb = (...a) => window.core?.hexToRgb?.(...a);
-const rgbToLab = (...a) => window.core?.rgbToLab?.(...a);
-const deltaE   = (...a) => window.core?.deltaE?.(...a);
+/* Alias seguro: la define el glue (usa ΔE mínimo del core o 22). */
+const ensureContrastRGB = (...args) =>
+  (window.ensureContrastRGB ? window.ensureContrastRGB(...args) : args[0]);
 
-// Wrapper de contraste (si aún no existe, devuelve el color tal cual)
-const ensureContrastRGB = (rgb, ...rest) =>
-  (window.ensureContrastRGB ? window.ensureContrastRGB(rgb, ...rest) : rgb);
-
-// Helpers finales de conversión (cerramos el círculo pedido)
+/* Helpers finales de conversión (sí quedan aquí, no existen en core): */
 function hexFromRgb(rgb){
   const [r,g,b] = rgb;
-  return '#'+ new THREE.Color(r/255, g/255, b/255).getHexString();
+  return '#' + new THREE.Color(r/255, g/255, b/255).getHexString();
 }
 function toThreeColor(rgb){
   const [r,g,b] = rgb;
@@ -1696,9 +1675,18 @@ function saveImage(){
 function thirtyFive(){return 35;}
 
 function makeClassicPalette(){
-      /* --- 1. Semilla RGBglobal --- */
-      let Rg=0,Gg=0,Bg=0;
-      permutationGroup.children.forEach(mesh=>{
+       const ANG7 = [
+         [0,0,0,0,0,0,0],                         // monocromo (idx 0)
+         [0,30,60,90,120,150,180],                // análoga
+         [0,180,0,180,0,180,0],                   // complementaria
+         [0,150,210,0,150,210,0],                 // comp. dividida
+         [0,120,240,60,180,300,30],               // tríada
+         [0,90,180,270,45,135,225],               // cuadrado
+         [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
+       ];
+        /* --- 1. Semilla RGBglobal --- */
+        let Rg=0,Gg=0,Bg=0;
+        permutationGroup.children.forEach(mesh=>{
         const pa = mesh.userData.permStr.split(',').map(Number);
         const sig = mesh.userData.signature;            // [f1..f5]
         const P1=pa[0], P2=pa[1], P3=pa[2];
