@@ -1,105 +1,114 @@
 // engines/registry.js
-// Contrato: Engine { id, enter(host), exit(), syncFromScene?, dispose?, controlsVisibility? }
+// Contrato 1.0: ENGINE.enter(name), ENGINE.leave(), ENGINE.cycle(), ENGINE.syncFromScene()
+// Exclusividad gestionada aquí. Registro provisional de BUILD, FRBN, LCHT, OFFNNG y TMSL.
 
-const _engines = new Map();
-const _order   = [];
-let _activeId  = null;
-let _host      = null;
+const REGISTRY = (() => {
+  const engines = new Map();
+  const order = [];
+  let active = null;
 
-function createStandardHost(){
-  const w = window;
-  const getSelectedPerms = () =>
-    Array.from(document.getElementById('permutationList').selectedOptions)
-      .map(o => o.value.split(',').map(Number));
-
-  _host = {
-    THREE: w.THREE,
-    get scene(){ return w.scene; },
-    get camera(){ return w.camera; },
-    get renderer(){ return w.renderer; },
-    get controls(){ return w.controls; },
-    get cubeUniverse(){ return w.cubeUniverse; },
-    get permutationGroup(){ return w.permutationGroup; },
-    getSelectedPerms,
-    invariants: {
-      get sceneSeed(){ return w.sceneSeed; },
-      get S_global(){ return w.S_global; },
-      get attributeMapping(){ return (w.attributeMapping||[]).slice(0,5); },
-      get activePatternId(){ return w.activePatternId; }
-    },
-    utils: {
-      computeSignature: w.computeSignature,
-      computeRange:     w.computeRange,
-      lehmerRank:       w.lehmerRank,
-      idxToHSV:         w.idxToHSV,
-      hsvToRgb:         w.hsvToRgb,
-      rgbToHsv:         w.rgbToHsv,
-      hsvToHex:         w.hsvToHex,
-      hexToRgb:         w.hexToRgb,
-      ensureContrastRGB:w.ensureContrastRGB,
-      deltaE:           w.deltaE,
-      rgbToLab:         w.rgbToLab,
-      toThreeColor:     w.toThreeColor,
-      hexFromRgb:       w.hexFromRgb
-    }
-  };
-  return _host;
-}
-
-const ENGINE = {
-  register(engine){
-    if (!engine || !engine.id || typeof engine.enter!=='function' || typeof engine.exit!=='function'){
-      console.error('[ENGINE] Engine inválido (id/enter/exit requeridos)'); return;
-    }
-    if (_engines.has(engine.id)){ console.warn('[ENGINE] Duplicado:', engine.id); return; }
-    _engines.set(engine.id, engine);
-    _order.push(engine.id);
-  },
-  enter(id){
-    if (!_engines.has(id)){ console.error('[ENGINE] Desconocido:', id); return; }
-    if (!_host) createStandardHost();
-
-    if (_activeId && _activeId !== id){
-      try { _engines.get(_activeId).exit(); } catch(e){ console.error('[ENGINE] exit error', e); }
-    }
-    _activeId = id;
-    try { _engines.get(id).enter(_host); } catch(e){ console.error('[ENGINE] enter error', e); }
-    window.updateEngineButtonsUI?.();
-  },
-  exit(){
-    if (!_activeId) return;
-    try { _engines.get(_activeId).exit(); } catch(e){ console.error('[ENGINE] exit error', e); }
-    _activeId = null;
-    window.updateEngineButtonsUI?.();
-  },
-  cycle(){
-    if (!_order.length) return;
-    const i = _activeId ? _order.indexOf(_activeId) : -1;
-    const next = _order[(i+1)%_order.length];
-    this.enter(next);
-  },
-  getActive(){ return _activeId ? _engines.get(_activeId) : null; },
-  getActiveId(){ return _activeId; },
-  syncFromScene(){
-    const e = this.getActive();
-    if (e && typeof e.syncFromScene === 'function'){
-      try { e.syncFromScene(); } catch(err){ console.error('[ENGINE] syncFromScene error', err); }
-    }
+  function register(name, impl) {
+    engines.set(name, impl);
+    if (!order.includes(name)) order.push(name);
   }
-};
 
-// Registro mínimo de BUILD (fase 1: sólo visibilidad, sin tocar lógica)
-ENGINE.register({
-  id: 'BUILD',
-  enter(host){
-    if (!host) return;
-    if (host.cubeUniverse)      host.cubeUniverse.visible = true;
-    if (host.permutationGroup)  host.permutationGroup.visible = true;
-  },
-  exit(){},
-  syncFromScene(){}
+  async function leave() {
+    if (!active) return;
+    const impl = engines.get(active);
+    try { if (impl?.leave) await impl.leave(); }
+    catch (e) { console.error(`[ENGINE] leave(${active}) error:`, e); }
+    active = null;
+  }
+
+  async function enter(name) {
+    if (active === name) {
+      try { await engines.get(name)?.syncFromScene?.(); } catch (_) {}
+      return name;
+    }
+    if (!engines.has(name)) {
+      console.warn(`[ENGINE] '${name}' no registrado`);
+      return null;
+    }
+    await leave();
+    try { await engines.get(name)?.enter?.(); }
+    catch (e) { console.error(`[ENGINE] enter(${name}) error:`, e); }
+    active = name;
+    if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
+    return name;
+  }
+
+  async function cycle() {
+    if (!order.length) return null;
+    const i = active ? order.indexOf(active) : -1;
+    const next = order[(i + 1) % order.length];
+    return enter(next);
+  }
+
+  async function syncFromScene() {
+    try { await engines.get(active)?.syncFromScene?.(); }
+    catch (e) { console.error('[ENGINE] syncFromScene error:', e); }
+  }
+
+  return {
+    register, enter, leave, cycle, syncFromScene,
+    getActive: () => active,
+    list: () => order.slice()
+  };
+})();
+
+window.ENGINE = REGISTRY;
+
+/* =================== REGISTROS PROVISIONALES =================== */
+/* BUILD: delega en switchToBuild() (ya asegura exclusividad) */
+REGISTRY.register('BUILD', {
+  enter: async () => { if (typeof window.switchToBuild === 'function') window.switchToBuild(); },
+  leave: async () => {},
+  syncFromScene: async () => {}
 });
 
-window.ENGINE = ENGINE;
-export default ENGINE;
+/* FRBN: usa ensureFRBNLoaded()/toggleFRBN()/frbnOn() definidos en el HTML */
+REGISTRY.register('FRBN', {
+  enter: async () => {
+    if (typeof window.ensureFRBNLoaded === 'function') {
+      const ok = await window.ensureFRBNLoaded();
+      if (!ok) return;
+    }
+    if (typeof window.frbnOn === 'function' && !window.frbnOn()) {
+      if (typeof window.toggleFRBN === 'function') await window.toggleFRBN();
+    } else if (window.FRBN && typeof window.FRBN.syncFromScene === 'function') {
+      window.FRBN.syncFromScene();
+    }
+  },
+  leave: async () => {
+    if (typeof window.frbnOn === 'function' && window.frbnOn()) {
+      if (typeof window.toggleFRBN === 'function') await window.toggleFRBN();
+    }
+  },
+  syncFromScene: async () => {
+    if (window.FRBN && typeof window.FRBN.syncFromScene === 'function') window.FRBN.syncFromScene();
+  }
+});
+
+/* LCHT: passthrough provisional a tus toggles actuales */
+REGISTRY.register('LCHT', {
+  enter: async () => { if (!window.isLCHT && typeof window.toggleLCHT === 'function') window.toggleLCHT(); },
+  leave: async () => { if (window.isLCHT && typeof window.toggleLCHT === 'function') window.toggleLCHT(); },
+  syncFromScene: async () => { if (typeof window.rebuildLCHTIfActive === 'function') window.rebuildLCHTIfActive(); }
+});
+
+/* OFFNNG: passthrough provisional (usa ensureOnlyOFFNNG / toggleOFFNNG) */
+REGISTRY.register('OFFNNG', {
+  enter: async () => { if (typeof window.ensureOnlyOFFNNG === 'function') window.ensureOnlyOFFNNG(); },
+  leave: async () => { if (window.isOFFNNG && typeof window.toggleOFFNNG === 'function') window.toggleOFFNNG(); },
+  syncFromScene: async () => { if (typeof window.syncOFFNNGFromScene === 'function') window.syncOFFNNGFromScene(); }
+});
+
+/* TMSL: passthrough provisional */
+REGISTRY.register('TMSL', {
+  enter: async () => { if (typeof window.ensureOnlyTMSL === 'function') window.ensureOnlyTMSL(); },
+  leave: async () => { if (window.isTMSL && typeof window.toggleTMSL === 'function') window.toggleTMSL(); },
+  syncFromScene: async () => {}
+});
+
+export default REGISTRY;
 

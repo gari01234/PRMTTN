@@ -3164,7 +3164,7 @@ void main(){
     }
     window.addEventListener('load', () => {
       updateEngineButtonsUI();
-      init().catch(console.error);
+      init().then(() => { window.ENGINE?.enter('BUILD'); }).catch(console.error);
     });
 
     // Web3 + NFT Mint (tu código original)
