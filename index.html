@@ -30,7 +30,9 @@
             'idxToHSV',
             'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
             'computeSignature','computeRange',
-            'computeSceneSeedFrom','computeGlobalS'
+            'computeSceneSeedFrom','computeGlobalS',
+            // === NUEVO: utilidades usadas por Save JSON / Certificate / Mint ===
+            'exportCurrentConfiguration','computeConfigHash','exportEditionCertificate'
           ].forEach(k => { if (window.core?.[k]) window[k] = window.core[k]; });
 
           // Envoltorio de ensureContrastRGB (interfaz antigua: 1 parámetro)
