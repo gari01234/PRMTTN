@@ -1820,7 +1820,9 @@ function makePalette(){
         updateCubeColor(false);    // ← automático
       }
 
-      if (window.FRBN?.isFRBN) window.FRBN.syncFromScene();   // mantiene FRBN sincronizado
+      if (window.ENGINE && typeof window.ENGINE.syncFromScene === 'function') {
+        window.ENGINE.syncFromScene();   // sincroniza el motor activo (FRBN u otro)
+      }
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
       if (isOFFNNG) syncOFFNNGFromScene();
     }
