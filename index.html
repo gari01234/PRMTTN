@@ -16,26 +16,26 @@
     <!-- Glue: expone funciones de core en el espacio global de forma segura -->
     <script>
     (function () {
-      (async () => {
+      // Promesa global para esperar a core
+      window.coreReadyPromise = (async () => {
         try {
-          // Asegura que window.core exista (carga perezosa del módulo)
           if (!window.core) {
             const mod = await import('./core/index.js');
             window.core = mod;
           }
 
-          // Mapeo 1:1 para compatibilidad con el código existente
+          // Mapeo 1:1 a window (compatibilidad)
           [
             'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
             'idxToHSV',
             'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
             'computeSignature','computeRange',
             'computeSceneSeedFrom','computeGlobalS',
-            // === NUEVO: utilidades usadas por Save JSON / Certificate / Mint ===
+            // utilidades usadas por Save JSON / Certificate / Mint
             'exportCurrentConfiguration','computeConfigHash','exportEditionCertificate'
           ].forEach(k => { if (window.core?.[k]) window[k] = window.core[k]; });
 
-          // Envoltorio de ensureContrastRGB (interfaz antigua: 1 parámetro)
+          // Envoltorio de ensureContrastRGB (API antigua: 1 parámetro)
           window.ensureContrastRGB = function (rgb) {
             try {
               let bgRgb;
@@ -1124,11 +1124,23 @@ function evalProp(prop, args = [], fallback = 0){
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
     function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
-    // --- Use core helpers mapped by the glue (window.getPermutations / window.getAttributeMappings)
-    const allPermutations  = getPermutations([1,2,3,4,5]);
-    const permutationStrings = allPermutations.map(p=>p.join(','));
+    // Defer core-dependent data until core is ready
+    let permutationStrings = [];
+    async function ensureCoreReady(){
+      if (window.core?.getPermutations && window.core?.getAttributeMappings) return;
+      if (window.coreReadyPromise) { await window.coreReadyPromise; return; }
+      const t0 = performance.now();
+      while (!(window.core?.getPermutations) && performance.now() - t0 < 2000){
+        await new Promise(r => setTimeout(r, 25));
+      }
+    }
 
-    function populatePermutationList(){
+    async function populatePermutationList(){
+      await ensureCoreReady();
+      const perms = (window.getPermutations ? window.getPermutations([1,2,3,4,5])
+                                        : window.core.getPermutations([1,2,3,4,5]));
+      permutationStrings = perms.map(p => p.join(','));
+
       const sel = document.getElementById('permutationList');
       sel.innerHTML = '';
       permutationStrings.forEach((ps,i)=>{
@@ -1138,10 +1150,13 @@ function evalProp(prop, args = [], fallback = 0){
         sel.appendChild(o);
       });
     }
-    function populateAttributeMappingSelect(){
+    async function populateAttributeMappingSelect(){
+      await ensureCoreReady();
+      const mappings = (window.getAttributeMappings ? window.getAttributeMappings([0,1,2,3,4])
+                                                : window.core.getAttributeMappings([0,1,2,3,4]));
       const sel = document.getElementById('attrMapping');
       sel.innerHTML = '';
-      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
+      mappings.forEach(m=>{
         const s=m.join(','), o=document.createElement('option');
         o.value=s; o.text=`Opción: [${s}]`;
         if(s==='0,1,2,3,4') o.selected=true;
@@ -1281,7 +1296,7 @@ function evalProp(prop, args = [], fallback = 0){
 /* ==============================
  * 120 Architectural Permutations
  * ============================== */
-let perm120List = getAttributeMappings([0,1,2,3,4]); // 120
+let perm120List = []; // se carga en init()
 let perm120Index = 0;
 let perm120Timer = null;
 
@@ -1356,7 +1371,6 @@ Each of the 120 reorganizations is validated by its internal structural coherenc
      */
 
     /** Construye un grupo temporal con un mapping dado, sin tocar la escena real */
-      const mappings = getAttributeMappings([0,1,2,3,4]);
 function buildTempGroup(perms, mapping){
   const tg = new THREE.Group();
 
@@ -2450,7 +2464,7 @@ function renderArchPanel(html){
         generateRandomConfigurationNoCollision();   // ▶️   PLAY
       }
     }
-    function init(){
+    async function init(){
       scene=new THREE.Scene();
       scene.background=new THREE.Color(0xffffff);
       camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
@@ -2490,8 +2504,15 @@ function renderArchPanel(html){
       window.addEventListener('resize',onWindowResize,false);
 
       initCustomCursor();
-      populatePermutationList();
-      populateAttributeMappingSelect();
+      await populatePermutationList();
+      await populateAttributeMappingSelect();
+
+      // precarga la lista de 120 reorganizaciones para el panel
+      await ensureCoreReady();
+      perm120List = (window.getAttributeMappings ? window.getAttributeMappings([0,1,2,3,4])
+                                             : window.core.getAttributeMappings([0,1,2,3,4]));
+      updatePerm120Status();
+
       applyEmbedParams();
       makePalette();
       setMode("manual");
@@ -3099,12 +3120,8 @@ void main(){
       if (bTM) bTM.textContent = isTMSL   ? 'TMSL ON'   : 'TMSL';
     }
     window.addEventListener('load', () => {
-      try {
-        updateEngineButtonsUI();
-        init();
-      } catch (e) {
-        console.error('Init error:', e);
-      }
+      updateEngineButtonsUI();
+      init().catch(console.error);
     });
 
     // Web3 + NFT Mint (tu código original)
