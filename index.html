@@ -4059,5 +4059,56 @@ async function __syncFromUIToStore(){
   }
 }
 </script>
+<script>
+// REGISTRO DE MOTORES LEGACY → ENGINE
+// Permite que ENGINE.enter('LCHT'|'OFFNNG'|'TMSL') use tus toggles actuales.
+
+window.addEventListener('load', () => {
+  if (!window.ENGINE) return;
+
+  // LCHT
+  ENGINE.register({
+    id: 'LCHT',
+    enter(){
+      if (!window.isLCHT) window.toggleLCHT();
+    },
+    exit(){
+      if (window.isLCHT) window.toggleLCHT();
+    },
+    syncFromScene(){
+      // reconstruye cuando cambie la escena
+      if (window.isLCHT && typeof window.buildLCHT === 'function') window.buildLCHT();
+    }
+  });
+
+  // OFFNNG
+  ENGINE.register({
+    id: 'OFFNNG',
+    enter(){
+      if (!window.isOFFNNG) window.toggleOFFNNG();
+    },
+    exit(){
+      if (window.isOFFNNG) window.toggleOFFNNG();
+    },
+    syncFromScene(){
+      if (window.isOFFNNG && typeof window.syncOFFNNGFromScene === 'function') {
+        window.syncOFFNNGFromScene();
+      }
+    }
+  });
+
+  // TMSL
+  ENGINE.register({
+    id: 'TMSL',
+    enter(){
+      if (!window.isTMSL) window.toggleTMSL();
+    },
+    exit(){
+      if (window.isTMSL) window.toggleTMSL();
+    }
+  });
+});
+</script>
+
 </body>
 </html>
