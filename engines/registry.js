@@ -1,186 +1,173 @@
 // ./engines/registry.js
-// Simple engine registry with enter/leave/sync and optional contract config
+// PRMTTN – Engine Registry (v2)
+// Objetivo: entradas fiables para LCHT/OFFNNG/TMSL y retorno estable a BUILD.
 
-export const ENGINE = (() => {
-  const engines = {};
-  const order = ['BUILD'];
-  let activeName = 'BUILD';
+const NAME_ALIAS = { OFFNG: 'OFFNNG', Offnng: 'OFFNNG', offng: 'OFFNNG' };
+const ORDER = ['BUILD', 'FRBN', 'LCHT', 'OFFNNG', 'TMSL'];
 
-  async function leaveCurrent(){
-    const cur = engines[activeName];
-    if (cur && typeof cur.leave === 'function'){
-      try{ await cur.leave(); }catch(e){ console.error(e); }
-    }
-  }
+const _engines = new Map();   // name -> api
+let _active = null;
+let _activeName = 'BUILD';
 
+// ————— helpers —————
+const norm = (n) => NAME_ALIAS[n] || String(n || '').toUpperCase();
+
+function ctx() {
   return {
-    register(name, engine){
-      if (!engines[name]){
-        engines[name] = engine;
-        order.push(name);
-      }
-    },
-    get activeName(){ return activeName; },
-    async enter(name){
-      if (!name) name = 'BUILD';
-      if (activeName === name) return;
-      await leaveCurrent();
-      activeName = name;
-      if (name === 'BUILD'){
-        if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
-        return;
-      }
-      const eng = engines[name];
-      if (eng && typeof eng.enter === 'function'){
-        try{ await eng.enter(); }catch(e){ console.error(e); }
-      }
-      if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
-    },
-    async cycle(){
-      const idx = order.indexOf(activeName);
-      const next = order[(idx + 1) % order.length];
-      await this.enter(next);
-    },
-    syncFromScene(){
-      const eng = engines[activeName];
-      if (eng && typeof eng.syncFromScene === 'function'){
-        try{ eng.syncFromScene(); }catch(e){ console.error(e); }
-      }
-    }
+    THREE:   window.THREE,
+    scene:   window.scene,
+    renderer:window.renderer,
+    camera:  window.camera,
+    controls:window.controls,
+    cubeUniverse:      window.cubeUniverse,
+    permutationGroup:  window.permutationGroup,
+    getState: () => (typeof window.getState === 'function' ? window.getState() : null),
+    refreshAll: window.refreshAll
   };
-})();
-
-window.ENGINE = ENGINE;
-
-// ---- Contrato (infra) ----
-// Devuelve null si no hay config (no placeholders). Cuando haya dirección/ABI reales,
-// se añadirá aquí en un PR posterior sin tocar el HTML.
-export function getContractConfig() {
-  // Sin placeholders: por ahora no hay contrato configurado.
-  // Retorna null y el front ocultará el bloque NFT de forma segura.
-  return null;
-
-  // Ejemplo futuro (NO incluir ahora):
-  // return {
-  //   chainId: 137, // Polygon mainnet
-  //   address: "0x....",
-  //   abi: [ ...ABI... ]
-  // };
 }
 
-// === FRBN · registro nativo en ENGINE (enter/leave/sync) ===================
-(() => {
-  if (!window.ENGINE || window.ENGINE.__frbnRegistered) return;
+function callOne(obj, names, ...args){
+  for (const key of names){
+    const fn = obj && obj[key];
+    if (typeof fn === 'function') {
+      try { return fn.apply(obj, args); } catch(e){ console.warn(`[registry] ${key}() lanzó error:`, e); }
+    }
+  }
+  return undefined;
+}
 
-  async function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
+function restoreBaseLoop(){
+  const { renderer, scene, cubeUniverse, permutationGroup } = ctx();
+  try { renderer?.setAnimationLoop?.(null); } catch(_){}
+  if (renderer) renderer.autoClear = true;
+  if (scene)    scene.autoUpdate  = true;
 
-  function buildFRBNHost(){
-    const getSelectedPerms = () =>
-      Array.from(document.getElementById('permutationList').selectedOptions)
-        .map(o => o.value.split(',').map(Number));
+  // Reanclar grupos por si el motor activo los retiró
+  if (scene && cubeUniverse && !scene.children.includes(cubeUniverse)) scene.add(cubeUniverse);
+  if (scene && permutationGroup && !scene.children.includes(permutationGroup)) scene.add(permutationGroup);
+}
 
-    return {
-      THREE      : window.THREE,
-      scene      : window.scene,
-      camera     : window.camera,
-      renderer   : window.renderer,
-      controls   : window.controls,
-      cubeUniverse,
-      permutationGroup,
-      getSelectedPerms,
-      invariants : {
-        get sceneSeed(){ return window.sceneSeed; },
-        get S_global(){ return window.S_global; },
-        get activePatternId(){ return window.activePatternId; }
-      },
-      utils : {
-        computeSignature : window.computeSignature,
-        computeRange     : window.computeRange,
-        lehmerRank       : window.lehmerRank,
-        idxToHSV         : window.idxToHSV,
-        hsvToRgb         : window.hsvToRgb,
-        rgbToHsv         : window.rgbToHsv,
-        hsvToHex         : window.hsvToHex,
-        ensureContrastRGB: window.ensureContrastRGB,
-        deltaE           : window.deltaE,
-        rgbToLab         : window.rgbToLab
-      }
-    };
+function autodetect(name){
+  const N = norm(name);
+  if (N === 'OFFNNG') return window.OFFNNG || window.OFFNG || null;
+  return window[N] || null; // FRBN, LCHT, TMSL…
+}
+
+function ensureRegistered(name){
+  const N = norm(name);
+  if (_engines.has(N)) return _engines.get(N);
+  const obj = autodetect(N);
+  if (obj) {
+    // si exportó default, preferimos el objeto completo, no la función
+    const api = obj && obj.default ? obj.default : obj;
+    _engines.set(N, api);
+    return api;
+  }
+  return null;
+}
+
+// ————— API pública —————
+function register(name, api){
+  const N = norm(name);
+  if (!api) return;
+  _engines.set(N, api);
+}
+
+function enter(name){
+  const target = norm(name);
+  // alias transparente
+  const finalName = NAME_ALIAS[target] || target;
+
+  if (finalName === _activeName) return true;
+
+  // 1) salir del motor anterior (si lo hay)
+  if (_active){
+    callOne(_active, ['leave','stop','unmount','destroy'], ctx());
+  }
+  // 2) saneo del renderer/escena por si el motor tocó el loop
+  restoreBaseLoop();
+
+  // 3) BUILD es la base: no necesita montar nada especial
+  if (finalName === 'BUILD'){
+    _active = null;
+    _activeName = 'BUILD';
+    // reconstrucción segura de escena base
+    try { ctx().refreshAll?.({rebuild:true}); } catch(_){ }
+    return true;
   }
 
-  async function ensureFRBNReady(){
-    // 1) ya está cargado
-    if (window.FRBN && (typeof window.FRBN.toggle === 'function')) {
-      if (!window.FRBN.__wired){
-        const host = buildFRBNHost();
-        try {
-          if (typeof window.FRBN.wire === 'function') await window.FRBN.wire(host);
-          else if (typeof window.FRBN.init === 'function') await window.FRBN.init(host);
-          else if (typeof window.FRBN.setup === 'function') await window.FRBN.setup(host);
-          else if (typeof window.FRBN.acceptHost === 'function') await window.FRBN.acceptHost(host);
-          else window.FRBN.host = host;
-          window.FRBN.__wired = true;
-        } catch(e){
-          console.error('FRBN wire failed:', e);
-        }
-      }
-      return true;
-    }
-
-    // 2) import dinámico defensivo (por si el <script> aún no terminó)
-    try {
-      const mod = await import('./frbn.js');
-      if (!window.FRBN) window.FRBN = mod.default || mod.FRBN || mod;
-    } catch(_) { /* continúa al polling */ }
-
-    // 3) espera corta
-    const t0 = performance.now();
-    while (performance.now() - t0 < 1500){
-      if (window.FRBN && typeof window.FRBN.toggle === 'function'){
-        if (!window.FRBN.__wired){
-          const host = buildFRBNHost();
-          try {
-            if (typeof window.FRBN.wire === 'function') await window.FRBN.wire(host);
-            else if (typeof window.FRBN.init === 'function') await window.FRBN.init(host);
-            else if (typeof window.FRBN.setup === 'function') await window.FRBN.setup(host);
-            else if (typeof window.FRBN.acceptHost === 'function') await window.FRBN.acceptHost(host);
-            else window.FRBN.host = host;
-            window.FRBN.__wired = true;
-          } catch(e){
-            console.error('FRBN wire failed:', e);
-          }
-        }
-        return true;
-      }
-      await wait(50);
-    }
-    console.error('FRBN no disponible (engines/frbn.js)');
+  // 4) localizar/registrar el motor
+  const engine = ensureRegistered(finalName);
+  if (!engine){
+    console.warn(`[registry] Motor no disponible: ${finalName}`);
+    _active = null; _activeName = 'BUILD';
+    try { ctx().refreshAll?.({rebuild:true}); } catch(_){ }
     return false;
   }
 
-  const FRBN_ENGINE = {
-    name: 'FRBN',
-    async enter(){
-      const ok = await ensureFRBNReady();
-      if (!ok) return;
-      if (!window.FRBN.isFRBN) await window.FRBN.toggle();
-      // UI
-      if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
-    },
-    async leave(){
-      if (window.FRBN?.isFRBN) { try { await window.FRBN.toggle(); } catch(_){} }
-      if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
-    },
-    syncFromScene(){
-      try { window.FRBN?.syncFromScene?.(); } catch(_){}
-    }
-  };
+  // 5) inyectar contexto (si la API lo acepta)
+  callOne(engine, ['setContext','context','ctx'], ctx());
 
-  // Registrar
-  if (typeof window.ENGINE.register === 'function') {
-    window.ENGINE.register('FRBN', FRBN_ENGINE);
-    window.ENGINE.__frbnRegistered = true;
-  }
-})();
+  // 6) montar/entrar
+  callOne(engine, ['enter','start','mount','run','init'], ctx());
 
+  // 7) marcar activo y sincronizar estado desde BUILD → motor
+  _active = engine;
+  _activeName = finalName;
+
+  try {
+    // Primer sync inmediato
+    const st = ctx().getState?.();
+    if (st) callOne(engine, ['syncFromScene','sync'], st, ctx());
+    // y un “late sync” en el siguiente frame, útil cuando el motor crea nodos asíncronos
+    requestAnimationFrame(()=>{
+      const st2 = ctx().getState?.();
+      if (st2) callOne(engine, ['syncFromScene','sync'], st2, ctx());
+    });
+  } catch(_){ }
+
+  return true;
+}
+
+function cycle(){
+  const idx = Math.max(0, ORDER.indexOf(_activeName));
+  const next = ORDER[(idx + 1) % ORDER.length];
+  return enter(next);
+}
+
+function syncFromScene(){
+  if (!_active) return false;
+  const st = ctx().getState?.();
+  if (!st) return false;
+  callOne(_active, ['syncFromScene','sync'], st, ctx());
+  return true;
+}
+
+// Compat: algunos sitios miran ENGINE.state.active
+const ENGINE = {
+  register,
+  enter,
+  cycle,
+  syncFromScene,
+  get activeName(){ return _activeName; },
+  state: { get active(){ return _activeName; } }
+};
+
+// ——— Autodescubrimiento “perezoso”: intenta registrar si los motores ya viven en window
+function tryAutodiscover(){
+  ['FRBN','LCHT','OFFNNG','OFFNG','TMSL'].forEach(n => ensureRegistered(n));
+}
+if (typeof window !== 'undefined'){
+  // disponible muy pronto para que otros módulos puedan usarlo
+  window.ENGINE = ENGINE;
+  // detectar motores cuando el DOM está listo
+  window.addEventListener('load', tryAutodiscover, { once:true });
+}
+
+// Mint: mantenemos la UI de Mint oculta devolviendo null (stub seguro)
+export function getContractConfig(){ return null; }
+
+// Exports
+export { register, enter, cycle, syncFromScene };
 export default ENGINE;
+
