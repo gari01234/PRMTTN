@@ -1,12 +1,13 @@
 // engines/frbn.js
-// FRBN como Engine: exclusivo, sin leer globals; con shim de compatibilidad para animate()
+// FRBN como Engine: exclusivo, pero con fallbacks a window.* y loop de tiempo propio.
 
 let hostRef = null;
 const FRBNEngine = (() => {
   let skySphere = null;
+  let rafId = null;
   let prev = { bg: null, cube: true, perms: true };
 
-  // tabla simple por patrón → curva de saturación/valor + amplitud de "breath" y rate
+  // tabla simple por patrón → curva de saturación/valor + amplitud y rate
   const PAT = {
     1:  { sat0:0.55, sat1:0.70, val0:0.88, val1:0.96, amp0:0.06, amp1:0.10, rate0:0.80, rate1:1.00 },
     2:  { sat0:0.70, sat1:0.90, val0:0.80, val1:0.90, amp0:0.10, amp1:0.16, rate0:1.05, rate1:1.35 },
@@ -21,10 +22,45 @@ const FRBNEngine = (() => {
     11: { sat0:0.68, sat1:0.88, val0:0.90, val1:0.98, amp0:0.10, amp1:0.16, rate0:1.10, rate1:1.35 }
   };
 
-  function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+
+  // —— Fallbacks a window.* si el registry no aportó host completo
+  function safeHost(h) {
+    const H = h || {};
+    const w = (typeof window !== 'undefined') ? window : {};
+    const core = w.core || {};
+    const THREE = H.THREE || w.THREE;
+    const scene = H.scene || w.scene;
+    const cubeUniverse = H.cubeUniverse || w.cubeUniverse;
+    const permutationGroup = H.permutationGroup || w.permutationGroup;
+
+    // invariants
+    const invariants = H.invariants || {
+      sceneSeed: (typeof w.sceneSeed === 'number' ? w.sceneSeed : 0),
+      activePatternId: (typeof w.activePatternId === 'number' ? w.activePatternId : 1)
+    };
+
+    // seleccion actual desde el <select> si no hay getter
+    const getSelectedPerms =
+      H.getSelectedPerms ||
+      (() => {
+        const sel = w.document && w.document.getElementById('permutationList');
+        if (!sel) return [];
+        return Array.from(sel.selectedOptions).map(o => o.value.split(',').map(Number));
+      });
+
+    // utils (core)
+    const utils = H.utils || {
+      computeSignature: H.utils?.computeSignature || w.computeSignature || core.computeSignature,
+      computeRange:     H.utils?.computeRange     || w.computeRange     || core.computeRange
+    };
+
+    return { THREE, scene, cubeUniverse, permutationGroup, invariants, getSelectedPerms, utils };
+  }
 
   function buildSkySphere(host){
-    const THREE = host.THREE;
+    const { THREE } = safeHost(host);
+    if (!THREE) { console.error('[FRBN] THREE no disponible'); return null; }
     const geo = new THREE.SphereGeometry(500, 64, 64);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
@@ -66,7 +102,6 @@ const FRBNEngine = (() => {
           float u = (atan(vPos.z, vPos.x) + 3.14159265) / (2.0*3.14159265);
           float v = vPos.y * 0.5 + 0.5;
 
-          // tiempo escalado por 'rate' (responde a rango medio / patrón)
           float t = time * rate;
 
           float h = mod(hueBias + 360.0*u + 20.0*sin(t*0.20) + 10.0*sin(t*0.07 + u*6.2831), 360.0);
@@ -81,29 +116,52 @@ const FRBNEngine = (() => {
     return mesh;
   }
 
+  // —— loop interno (al margen de animate()) para alimentar el uniforme time
+  function startTick(){
+    stopTick();
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const loop = (nowMs) => {
+      if (!skySphere || !skySphere.material || !skySphere.material.uniforms) return;
+      const now = nowMs || (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      skySphere.material.uniforms.time.value = (now - t0) / 1000;
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+  }
+  function stopTick(){
+    if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+  }
+
   function sync(){
     if (!hostRef || !skySphere) return;
-    const u = skySphere.material.uniforms;
+    const H = safeHost(hostRef);
+    const u = skySphere.material?.uniforms;
+    if (!u) return;
 
     // 1) Semilla cromática principal
-    const seed = hostRef.invariants?.sceneSeed ?? 0;
+    const seed = (H.invariants && typeof H.invariants.sceneSeed === 'number')
+      ? H.invariants.sceneSeed
+      : (typeof window !== 'undefined' && typeof window.sceneSeed === 'number' ? window.sceneSeed : 0);
     u.hueBias.value = seed % 360;
 
-    // 2) Estadística de la escena: rango medio  (2..6 → 0..1)
+    // 2) Estadística de la escena: rango medio (2..6 → 0..1)
     let nr = 0.5;
-    const perms = hostRef.getSelectedPerms ? hostRef.getSelectedPerms() : [];
-    if (perms.length && hostRef.utils) {
-      const { computeSignature, computeRange } = hostRef.utils;
-      const rgs = perms.map(p => computeRange(computeSignature(p)));
-      const avg = rgs.reduce((a,b)=>a+b,0) / rgs.length;
-      nr = clamp01((avg - 2) / 4);
-    }
+    try {
+      const perms = H.getSelectedPerms ? H.getSelectedPerms() : [];
+      if (perms.length && H.utils?.computeSignature && H.utils?.computeRange) {
+        const rgs = perms.map(p => H.utils.computeRange(H.utils.computeSignature(p)));
+        const avg = rgs.reduce((a,b)=>a+b,0) / rgs.length;
+        nr = clamp01((avg - 2) / 4);
+      }
+    } catch { /* fallback 0.5 */ }
 
     // 3) Patrón activo
-    const pid = hostRef.invariants?.activePatternId ?? 1;
+    const pid = (H.invariants && typeof H.invariants.activePatternId === 'number')
+      ? H.invariants.activePatternId
+      : (typeof window !== 'undefined' && typeof window.activePatternId === 'number' ? window.activePatternId : 1);
     const spec = PAT[pid] || PAT[1];
 
-    // 4) Interpolación suave por rango → S, V, amplitud y rate de animación
+    // 4) Interpolación suave → S, V, amplitud y rate de animación
     u.sat.value    = spec.sat0 + (spec.sat1 - spec.sat0) * nr;
     u.val.value    = spec.val0 + (spec.val1 - spec.val0) * nr;
     u.valAmp.value = spec.amp0 + (spec.amp1 - spec.amp0) * nr;
@@ -113,37 +171,40 @@ const FRBNEngine = (() => {
   return {
     id: 'FRBN',
     enter(host){
-      hostRef = host;
+      hostRef = host || hostRef || {};
+      const H = safeHost(hostRef);
 
-      if (host.scene) prev.bg = host.scene.background ? host.scene.background.clone() : null;
-      if (host.cubeUniverse){ prev.cube = host.cubeUniverse.visible; host.cubeUniverse.visible = false; }
-      if (host.permutationGroup){ prev.perms = host.permutationGroup.visible; host.permutationGroup.visible = false; }
+      if (H.scene) prev.bg = H.scene.background ? H.scene.background.clone() : null;
+      if (H.cubeUniverse){ prev.cube = H.cubeUniverse.visible; H.cubeUniverse.visible = false; }
+      if (H.permutationGroup){ prev.perms = H.permutationGroup.visible; H.permutationGroup.visible = false; }
 
-      if (!skySphere) skySphere = buildSkySphere(host);
-      if (host.scene && skySphere.parent !== host.scene) host.scene.add(skySphere);
+      if (!skySphere) skySphere = buildSkySphere(H);
+      if (H.scene && skySphere && skySphere.parent !== H.scene) H.scene.add(skySphere);
 
-      // shim de compatibilidad para tu animate() + UI
+      // shim/namespace público
       try {
         window.FRBN = Object.assign(window.FRBN || {}, {
           isFRBN: true,
           skySphere,
           syncFromScene: sync,
           controlsVisibility: ({cube, perms})=>{
-            if (hostRef?.cubeUniverse) hostRef.cubeUniverse.visible = !!cube;
-            if (hostRef?.permutationGroup) hostRef.permutationGroup.visible = !!perms;
+            if (H.cubeUniverse) H.cubeUniverse.visible = !!cube;
+            if (H.permutationGroup) H.permutationGroup.visible = !!perms;
           },
-          __host: host   // recordamos el host para toggles directos
+          __host: hostRef
         });
-      } catch (_) {}
+      } catch(_) {}
 
       sync();
+      startTick();
     },
     exit(){
-      if (!hostRef) return;
-      if (skySphere && hostRef.scene) hostRef.scene.remove(skySphere);
-      if (hostRef.cubeUniverse)      hostRef.cubeUniverse.visible     = prev.cube;
-      if (hostRef.permutationGroup)  hostRef.permutationGroup.visible = prev.perms;
-      if (prev.bg && hostRef.scene)  hostRef.scene.background         = prev.bg;
+      const H = safeHost(hostRef);
+      stopTick();
+      if (skySphere && H.scene) H.scene.remove(skySphere);
+      if (H.cubeUniverse)      H.cubeUniverse.visible     = prev.cube;
+      if (H.permutationGroup)  H.permutationGroup.visible = prev.perms;
+      if (H.scene)             H.scene.background         = prev.bg || H.scene.background;
       try { if (window.FRBN) window.FRBN.isFRBN = false; } catch(_) {}
     },
     syncFromScene: sync
@@ -158,36 +219,19 @@ if (window.ENGINE && typeof window.ENGINE.register === 'function') {
 export default FRBNEngine;
 export const FRBN = FRBNEngine;
 
-// ——— Controlador público para el HTML (ensureFRBNLoaded/tryWireFRBN/toggleFRBN) ———
+// ——— Controlador público (wire/toggle) con fallbacks ———
 (function(){
   try{
-    // mantenemos (o creamos) el namespace sin perder lo ya puesto
     const CTRL = window.FRBN = Object.assign(window.FRBN || {}, {});
-
-    // El HTML puede llamarnos con un host para «cablear» el engine
     CTRL.wire = function(host){
       try { CTRL.__host = host; } catch(_){ }
-      // también actualizamos el host interno del engine
-      try { /* FRBNEngine cierra sobre hostRef */ FRBNEngine && FRBNEngine.enter && (hostRef = host); } catch(_){ }
+      try { FRBNEngine && FRBNEngine.enter && (hostRef = host); } catch(_){ }
     };
-
-    // Toggle utilizado por toggleFRBN() en el HTML
     CTRL.toggle = async function(){
-      // si aún no tenemos host, intentamos usar el recordado
-      const host = CTRL.__host;
-      if (!host) {
-        console.warn('[FRBN] host no cableado aún (wire/tryWireFRBN)');
-        return;
-      }
-      // idempotente: si está OFF → enter(host); si está ON → exit()
-      if (!CTRL.isFRBN) {
-        FRBNEngine.enter(host);
-      } else {
-        FRBNEngine.exit();
-      }
+      const host = CTRL.__host || null;
+      if (!CTRL.isFRBN) FRBNEngine.enter(host);
+      else FRBNEngine.exit();
     };
-
-    // Proxy opcional (ya lo exponemos también al entrar)
     if (typeof CTRL.syncFromScene !== 'function') {
       CTRL.syncFromScene = () => { try { FRBNEngine.syncFromScene(); } catch(_){ } };
     }
