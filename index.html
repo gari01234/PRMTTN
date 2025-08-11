@@ -305,7 +305,7 @@
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
 
   <!-- EXISTENTE: BUILD  ➜ sólo cambia de motor -->
-  <button id="randomConfigButton" onclick="ENGINE.enter('BUILD')">BUILD</button>
+  <button id="randomConfigButton" onclick="safeEnter('BUILD')">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 <div id="frbnWrap">
   <button id="frbnButton" onclick="ENGINE.enter('FRBN')">FRBN</button>
@@ -313,10 +313,10 @@
 </div>
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <div id="lchtWrap">
-    <button id="lchtButton" onclick="ENGINE.enter('LCHT')">LCHT</button>
+    <button id="lchtButton" onclick="safeEnter('LCHT')">LCHT</button>
   </div>
-  <button id="offnngButton" onclick="ENGINE.enter('OFFNNG')">OFFNNG</button>
-  <button id="tmslButton" onclick="ENGINE.enter('TMSL')">TMSL</button>
+  <button id="offnngButton" onclick="safeEnter('OFFNNG')">OFFNNG</button>
+  <button id="tmslButton" onclick="safeEnter('TMSL')">TMSL</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -2230,7 +2230,7 @@ function renderArchPanel(html){
       return true;
     }
 
-    // Wrapper: alias OFFNG/OFFNNG + sync + UI + rebuild BUILD
+    // Wrapper: alias OFFNG/OFFNNG + sync + UI + reset de bucle al volver a BUILD
     function wrapEngineEnter(){
       if (!window.ENGINE || window.ENGINE.__wrapped) return;
       const origEnter = window.ENGINE.enter.bind(window.ENGINE);
@@ -2248,9 +2248,23 @@ function renderArchPanel(html){
         }
         requestAnimationFrame(() => {
           const act = window.ENGINE.activeName || target;
+
           if (act === 'BUILD') {
+            // ← Motores como TMSL suelen instalar su propio setAnimationLoop
+            if (renderer?.setAnimationLoop) renderer.setAnimationLoop(null);
+            renderer.autoClear = true;
+            scene.autoUpdate   = true;
+
+            // Re-ancla grupos por si algún motor los movió
+            if (cubeUniverse && !scene.children.includes(cubeUniverse)) scene.add(cubeUniverse);
+            if (!permutationGroup || !scene.children.includes(permutationGroup)){
+              if (!permutationGroup) { permutationGroup = new THREE.Group(); window.permutationGroup = permutationGroup; }
+              scene.add(permutationGroup);
+            }
+
             try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){ }
           } else {
+            // Sincroniza estado actual hacia el motor activo
             try { if (typeof window.ENGINE.syncFromScene === 'function') window.ENGINE.syncFromScene(); } catch(_){ }
           }
           try { updateEngineButtonsUI(); } catch(_){ }
@@ -2260,19 +2274,59 @@ function renderArchPanel(html){
       window.ENGINE.__wrapped = true;
     }
 
-    // Boot robusto: espera core + ENGINE, luego init() y entra a BUILD una sola vez
+    function safeEnter(name){
+      const alias = { OFFNNG:'OFFNG', OFFNG:'OFFNNG' };
+      let target = name;
+
+      if (!window.ENGINE?.enter) {
+        // Si aún no hay registry y pedimos BUILD, rearmamos la escena base
+        if (name === 'BUILD') {
+          if (renderer?.setAnimationLoop) renderer.setAnimationLoop(null);
+          renderer.autoClear = true;
+          scene.autoUpdate   = true;
+          if (cubeUniverse && !scene.children.includes(cubeUniverse)) scene.add(cubeUniverse);
+          if (!permutationGroup || !scene.children.includes(permutationGroup)){
+            if (!permutationGroup) { permutationGroup = new THREE.Group(); window.permutationGroup = permutationGroup; }
+            scene.add(permutationGroup);
+          }
+          try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){ }
+          updateEngineButtonsUI();
+        }
+        return;
+      }
+
+      try { window.ENGINE.enter(target); }
+      catch(e){
+        const alt = alias[target];
+        if (alt) { try { window.ENGINE.enter(alt); } catch(_){} }
+      }
+    }
+
+    // --- BOOT: inicializa SIEMPRE la base antes de tocar ENGINE (evita pantalla negra) ---
     window.addEventListener('load', async () => {
       try{
         await (window.coreReadyPromise || Promise.resolve());
-        await waitFor(() => !!window.ENGINE && typeof window.ENGINE.enter === 'function', 6000);
-        wrapEngineEnter();
-        updateEngineButtonsUI();
+
+        // 1) Monta escena base y empieza a dibujar YA
         await init();
-        window.ENGINE.enter('BUILD');
-      } catch (e) {
-        console.error('[boot] fallback init:', e);
-        await init();
+
+        // 2) Si aparece ENGINE, lo integramos; si no, seguimos en BUILD-base
+        const gotEngine = await waitFor(
+          () => !!window.ENGINE && typeof window.ENGINE.enter === 'function',
+          4000
+        );
+        if (gotEngine) {
+          wrapEngineEnter();
+          updateEngineButtonsUI();
+          try { window.ENGINE.enter('BUILD'); } catch(_) {}
+        }
+
+        // 3) Asegura un primer render de contenido determinista
         refreshAll({rebuild:true});
+        applyStandardView();
+      } catch (e) {
+        console.error('[boot] init error:', e);
+        try { await init(); refreshAll({rebuild:true}); } catch(_){ }
       }
     });
     /* ============================================================
@@ -3274,9 +3328,16 @@ async function __syncFromUIToStore(){
     }
   }
 
+  // window.addEventListener('load', () => {
+  //   // La selección de motor la gestiona el boot principal
+  //   initWeb3AndContract();
+  // });
+</script>
+<script>
+  // Mint: OFF intencionalmente
   window.addEventListener('load', () => {
-    // La selección de motor la gestiona el boot principal
-    initWeb3AndContract();
+    const nftDetails = document.getElementById('nftBlock');
+    if (nftDetails) nftDetails.style.display = 'none';
   });
 </script>
 <!-- ───────────────────────── ARCHIVE (inert) ─────────────────────────
