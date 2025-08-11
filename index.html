@@ -583,8 +583,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
         }
       }
 
-    /* ────────────────────────────
-
+    /* ──────────────────────────── */
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
       if (window.ENGINE?.enter) ENGINE.enter('BUILD');
@@ -2218,51 +2217,46 @@ function renderArchPanel(html){
     // Wrapper: alias OFFNG/OFFNNG + sync + UI + reset de bucle al volver a BUILD
     function wrapEngineEnter(){
       if (!window.ENGINE || window.ENGINE.__wrapped) return;
+
       const origEnter = window.ENGINE.enter.bind(window.ENGINE);
-      const alias = { OFFNNG:'OFFNG', OFFNG:'OFFNNG' };
+      // Acepta ambas grafías
+      const alias = { OFFNG:'OFFNNG', OFFNNG:'OFFNNG' };
 
       window.ENGINE.enter = function(name){
-        let target = name;
+        let target = String(name || '').toUpperCase();
         try {
           origEnter(target);
         } catch (e){
           const alt = alias[target];
-          if (alt){
-            try { origEnter(alt); target = alt; } catch(_) {}
-          }
+          if (alt){ try { origEnter(alt); target = alt; } catch(_){} }
         }
+
+        // Ajustes de bucle/render y UI después del cambio de motor
         requestAnimationFrame(() => {
           const act = window.ENGINE.activeName || target;
 
           if (act === 'BUILD') {
-            // ← Motores como TMSL suelen instalar su propio setAnimationLoop
             if (renderer?.setAnimationLoop) renderer.setAnimationLoop(null);
             renderer.autoClear = true;
             scene.autoUpdate   = true;
 
-            // Re-ancla grupos por si algún motor los movió
             if (cubeUniverse && !scene.children.includes(cubeUniverse)) scene.add(cubeUniverse);
             if (!permutationGroup || !scene.children.includes(permutationGroup)){
               if (!permutationGroup) { permutationGroup = new THREE.Group(); window.permutationGroup = permutationGroup; }
               scene.add(permutationGroup);
             }
 
-            try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){ }
+            try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){}
           } else {
-            // Sincroniza estado actual hacia el motor activo
-            try { if (typeof window.ENGINE.syncFromScene === 'function') window.ENGINE.syncFromScene(); } catch(_){ }
+            try { window.ENGINE.syncFromScene?.(); } catch(_){}
           }
-          try { updateEngineButtonsUI(); } catch(_){ }
+          try { updateEngineButtonsUI(); } catch(_){}
         });
+
         return true;
       };
+
       window.ENGINE.__wrapped = true;
-    }
-      try { window.ENGINE.enter(target); }
-      catch(e){
-        const alt = alias[target];
-        if (alt) { try { window.ENGINE.enter(alt); } catch(_){} }
-      }
     }
 
     // --- BOOT: inicializa SIEMPRE la base antes de tocar ENGINE (evita pantalla negra) ---
