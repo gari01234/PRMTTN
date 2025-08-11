@@ -220,27 +220,39 @@ const FRBNEngine = (() => {
 })();
 
 // Autorregistro robusto para FRBN (sin bucles falsos)
-(function registerWhenReady(){
-  const tryRegister = () => {
-    if (window.ENGINE && typeof window.ENGINE.register === 'function') {
-      // IMPORTANTE: que register devuelva true
-      const ok = window.ENGINE.register('FRBN', FRBNEngine);
-      return !!ok;
+// ——— FRBN: autorregistro robusto (se detiene al registrarse o si ya existe)
+(function registerFRBNOnce(){
+  const now = () => (performance?.now?.() ?? Date.now());
+  const t0  = now();
+
+  function getEngine(){
+    // Acepta distintas convenciones de nombre
+    try {
+      if (window.FRBNEngine) return window.FRBNEngine;
+      if (window.FRBN) return window.FRBN;
+      if (typeof FRBNEngine !== 'undefined') return FRBNEngine;
+      if (typeof FRBN !== 'undefined') return FRBN;
+    } catch(_) {}
+    return null;
+  }
+
+  function tryRegister(){
+    const eng = getEngine();
+    if (!eng) return false;
+    if (window.ENGINE && typeof window.ENGINE.register === 'function'){
+      const added = window.ENGINE.register('FRBN', eng);
+      // éxito si se añadió o si ya estaba
+      return !!(added || window.ENGINE.get?.('FRBN'));
     }
     return false;
-  };
-
-  if (!tryRegister()){
-    const t0 = (performance?.now?.() ?? Date.now());
-    const again = () => {
-      if (!tryRegister()){
-        if ( ((performance?.now?.() ?? Date.now()) - t0) < 4000 ) {
-          setTimeout(again, 50);
-        }
-      }
-    };
-    setTimeout(again, 50);
   }
+
+  if (tryRegister()) return;
+
+  (function again(){
+    if (tryRegister()) return;
+    if ((now() - t0) < 4000) setTimeout(again, 50);
+  })();
 })();
 
 export default FRBNEngine;

@@ -1,183 +1,172 @@
-// engines/registry.js
-// Engine Registry — runtime alineado con el .d.ts
-// - API pública: register(name, engine), enter(id): Promise<boolean>, ids(), get(), active()
-// - Extras compatibles: cycle(), syncFromScene(state?), context(obj), activeName, state.active
-// - enter() es async y espera leave() del saliente y enter() del entrante.
+// engines/registry.js — Runtime registry aligned with types/engine.d.ts
+// Drop-in. It exposes window.ENGINE with a stable async API and context injection.
 
-const REG = new Map();
-let _active = null;          // objeto del motor activo
-let _activeName = 'BUILD';   // string ('BUILD' cuando no hay motor)
-let _ctx = null;             // contexto compartido para todos los motores
+(function(){
+  const g = (typeof window !== 'undefined') ? window : globalThis;
 
-function norm(name) {
-  return String(name || '').trim().toUpperCase();
-}
-
-// Llama al primer método existente de la lista y retorna su resultado
-function callOne(target, candidates, ...args) {
-  for (const k of candidates) {
-    const fn = target && target[k];
-    if (typeof fn === 'function') return fn.apply(target, args);
+  if (g.ENGINE && g.ENGINE.__isEngineRegistry) {
+    // Already installed, keep the existing one.
+    return;
   }
-  return undefined;
-}
 
-// Contexto que reciben los motores
-function ctx() {
-  // Construimos perezosamente con helpers del host, si existen
-  const base = _ctx || {};
-  return {
-    // core puro (inyectado desde la página host)
-    core: (typeof window !== 'undefined' && window.core) || base.core || null,
-    // estado y utilidades del host (si existen)
-    getState: (typeof window !== 'undefined' && window.getState) || base.getState || null,
-    refreshAll: (typeof window !== 'undefined' && window.refreshAll) || base.refreshAll || null,
-    three: (typeof window !== 'undefined' && window.THREE) || base.three || null,
-    scene: (typeof window !== 'undefined' && window.scene) || base.scene || null,
-    camera: (typeof window !== 'undefined' && window.camera) || base.camera || null,
-    renderer: (typeof window !== 'undefined' && window.renderer) || base.renderer || null,
-    controls: (typeof window !== 'undefined' && window.controls) || base.controls || null,
-    permutationGroup:
-      (typeof window !== 'undefined' && window.permutationGroup) || base.permutationGroup || null,
-  };
-}
+  const _map = new Map();           // id -> engine
+  let   _active = null;             // engine object
+  let   _activeName = 'BUILD';      // 'BUILD' | id
+  let   _ctx = null;                // injected context object
 
-const ENGINE = {
-  // Registra un motor. Devuelve true si se registra/actualiza correctamente.
-  register(name, engine) {
-    const id = norm(name);
-    if (!id) { console.warn('[ENGINE.register] id vacío'); return false; }
+  const aliases = Object.freeze({
+    OFFNNG: 'OFFNNG', OFFNG: 'OFFNNG', // alias both ways
+    FRBN: 'FRBN', LCHT: 'LCHT', TMSL: 'TMSL', BUILD: 'BUILD'
+  });
 
-    // Soporta default export y factories
-    let api = engine && (engine.default || engine);
-    if (typeof api === 'function') {
-      try { api = api(ctx()); } catch (e) { console.warn('[ENGINE.register] factory falló:', e); }
-    }
-    if (!api || typeof api !== 'object') {
-      console.warn('[ENGINE.register] api inválida para', id);
-      return false;
-    }
-    REG.set(id, api);
-    return true;
-  },
+  function norm(name){
+    if (!name) return null;
+    const s = String(name).trim().toUpperCase();
+    return aliases[s] || s;
+  }
 
-  // Entra en un motor; espera a leave/exit del saliente y enter/start del entrante.
-  async enter(name) {
-    const target = norm(name);
-    if (!target) return false;
+  function ctx(){
+    if (_ctx) return _ctx;
+    // Safe defaults pulled from globals (do not hard-crash without DOM)
+    return {
+      getState:     g.getState || (() => null),
+      refreshAll:   g.refreshAll || (() => {}),
+      scene:        g.scene,
+      camera:       g.camera,
+      renderer:     g.renderer,
+      controls:     g.controls,
+      THREE:        g.THREE,
+      core:         g.core || {},
+    };
+  }
 
-    if (target === _activeName) return true;
-
-    // Salida del motor previo
-    if (_active) {
-      try {
-        await Promise.resolve(
-          callOne(_active, ['leave', 'exit', 'stop', 'unmount', 'destroy'], ctx())
-        );
-      } catch (e) {
-        console.warn('[ENGINE.enter] leave del motor saliente falló:', e);
+  function callOne(obj, names, ...args){
+    for (const n of names){
+      const fn = obj && obj[n];
+      if (typeof fn === 'function'){
+        return fn.apply(obj, args);
       }
     }
+    return undefined;
+  }
 
-    // BUILD = escena base (sin motor)
-    if (target === 'BUILD') {
-      _active = null;
-      _activeName = 'BUILD';
-      // Devolvemos control al host para reconstruir
-      try { await Promise.resolve(ctx().refreshAll?.({ rebuild: true })); } catch (_) {}
-      ENGINE.state.active = _activeName;
-      return true;
-    }
-
-    // Buscar motor y entrar
-    const engine = REG.get(target);
-    if (!engine) {
-      console.warn('[ENGINE.enter] motor no registrado:', target);
-      _active = null;
-      _activeName = 'BUILD';
-      try { await Promise.resolve(ctx().refreshAll?.({ rebuild: true })); } catch (_) {}
-      ENGINE.state.active = _activeName;
-      return false;
-    }
-
-    // Inyectar contexto (si el motor lo acepta)
+  function restoreBaseLoop(){
     try {
-      await Promise.resolve(callOne(engine, ['setContext', 'context', 'ctx'], ctx()));
-    } catch (e) {
-      console.warn('[ENGINE.enter] setContext/context/ctx falló en', target, e);
-    }
+      const r = g.renderer;
+      if (r && typeof r.setAnimationLoop === 'function') r.setAnimationLoop(null);
+      if (r) r.autoClear = true;
+      if (g.scene) g.scene.autoUpdate = true;
 
-    // Enter real
-    try {
-      await Promise.resolve(callOne(engine, ['enter', 'start', 'mount', 'run', 'init'], ctx()));
-    } catch (e) {
-      console.warn('[ENGINE.enter] enter/start falló en', target, e);
-      return false;
-    }
-
-    _active = engine;
-    _activeName = target;
-    ENGINE.state.active = _activeName;
-
-    // Primer sync (si hay estado del host)
-    try {
-      const st = ctx().getState?.();
-      if (st) await Promise.resolve(callOne(engine, ['syncFromScene', 'sync'], st, ctx()));
-      // Un segundo sync en el siguiente frame (post-layout)
-      if (typeof requestAnimationFrame !== 'undefined') {
-        requestAnimationFrame(() => {
-          try {
-            const st2 = ctx().getState?.();
-            if (st2) callOne(engine, ['syncFromScene', 'sync'], st2, ctx());
-          } catch (_) {}
-        });
+      // Re-anchor groups if engines moved them
+      if (g.scene && g.cubeUniverse && !g.scene.children.includes(g.cubeUniverse)){
+        g.scene.add(g.cubeUniverse);
+      }
+      if (g.scene && g.permutationGroup && !g.scene.children.includes(g.permutationGroup)){
+        g.scene.add(g.permutationGroup);
       }
     } catch (_) {}
+  }
 
+  async function enterBUILD(){
+    _active = null;
+    _activeName = 'BUILD';
+    restoreBaseLoop();
+    await Promise.resolve(ctx().refreshAll?.({rebuild:true}));
+    try { g.applyStandardView?.(); } catch(_) {}
+    try { g.updateEngineButtonsUI?.(); } catch(_) {}
     return true;
-  },
+  }
 
-  // Cicla entre motores registrados + BUILD (siempre incluye BUILD)
-  cycle() {
-    const all = ['BUILD', ...Array.from(REG.keys())];
-    const i = Math.max(0, all.indexOf(_activeName));
-    const next = all[(i + 1) % all.length];
-    return ENGINE.enter(next);
-  },
+  async function leaveActive(){
+    if (!_active) return true;
+    await Promise.resolve(callOne(_active, ['leave','exit','stop','unmount','destroy'], ctx()));
+    _active = null;
+    return true;
+  }
 
-  // Reenvía el estado actual al motor activo
-  syncFromScene(state) {
-    if (!_active) return;
-    try {
-      const st = state || ctx().getState?.();
-      if (st) return callOne(_active, ['syncFromScene', 'sync'], st, ctx());
-    } catch (e) {
-      console.warn('[ENGINE.syncFromScene] falló:', e);
+  const API = {
+    __isEngineRegistry: true,
+
+    // Register either as (id, engine) or (engineWithId)
+    register(a, b){
+      let id, eng;
+      if (typeof a === 'string'){ id = norm(a); eng = b; }
+      else if (a && typeof a === 'object'){ id = norm(a.id || a.name); eng = a; }
+      else { return false; }
+
+      if (!id || !eng) return false;
+      const existed = _map.has(id);
+      _map.set(id, eng);
+      return !existed;
+    },
+
+    // Type-friendly helpers
+    ids(){ return Array.from(_map.keys()); },
+    get(id){ return _map.get(norm(id)); },
+    active(){ return _activeName; },
+
+    // Context injection (optional but recommended)
+    context(next){
+      if (typeof next !== 'undefined') _ctx = next;
+      return _ctx || ctx();
+    },
+
+    // Core action: async enter (awaits engine leaves/enters).
+    async enter(name){
+      const target = norm(name) || 'BUILD';
+      if (target === _activeName) return true;
+
+      // Leave current
+      await leaveActive();
+      restoreBaseLoop();
+
+      if (target === 'BUILD') {
+        return enterBUILD();
+      }
+
+      // Pick engine (allow late registration)
+      let eng = _map.get(target);
+      if (!eng){
+        // If an engine self-registers later, bounce back to BUILD
+        console.warn('[ENGINE] enter(): engine not registered:', target);
+        return enterBUILD();
+      }
+
+      // Inject context (compatible with various method names)
+      await Promise.resolve(callOne(eng, ['setContext','context','ctx'], ctx()));
+
+      // Enter/start/mount
+      await Promise.resolve(callOne(eng, ['enter','start','mount','run','init'], ctx()));
+
+      _active = eng;
+      _activeName = target;
+
+      try {
+        const st = ctx().getState?.();
+        if (st) await Promise.resolve(callOne(eng, ['syncFromScene','sync'], st, ctx()));
+      } catch(_) {}
+
+      try { g.updateEngineButtonsUI?.(); } catch(_) {}
+      return true;
+    },
+
+    // Cycle through known engines in a fixed order.
+    async cycle(){
+      const order = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
+      const cur = norm(_activeName) || 'BUILD';
+      const i = order.indexOf(cur);
+      const next = order[(i + 1) % order.length];
+      return this.enter(next);
+    },
+
+    // Forward sync to active engine (no-op in BUILD).
+    async syncFromScene(){
+      if (!_active) return;
+      const st = ctx().getState?.();
+      if (!st) return;
+      await Promise.resolve(callOne(_active, ['syncFromScene','sync'], st, ctx()));
     }
-  },
+  };
 
-  // Exponer/actualizar contexto (opcional)
-  context(obj) {
-    _ctx = Object.assign({}, _ctx || {}, obj || {});
-  },
-
-  // === API pedida por el .d.ts ===
-  ids() { return Array.from(REG.keys()); },
-  get(id) { return REG.get(norm(id)); },
-  active() { return _active; },
-
-  // Campos de compat
-  get activeName() { return _activeName; },
-  state: { active: _activeName },
-};
-
-// Exponer global y exportar módulo
-if (typeof window !== 'undefined') window.ENGINE = ENGINE;
-export default ENGINE;
-
-// (Opcional) Config de contrato para el mint (el host la consulta si existe)
-export function getContractConfig() {
-  // Devuelve null por defecto; si tienes datos reales, expórtalos aquí.
-  return null;
-}
-
+  g.ENGINE = API;
+})();
