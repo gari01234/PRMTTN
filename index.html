@@ -9,60 +9,6 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <!-- CORE determinista (módulos puros, sin Three.js) -->
-    <script type="module" src="./core/index.js"></script>
-    <script type="module" src="./engines/registry.js"></script>
-
-    <!-- Glue: expone funciones de core en el espacio global de forma segura -->
-    <script>
-    (function () {
-      // Promesa global para esperar a core
-      window.coreReadyPromise = (async () => {
-        try {
-          if (!window.core) {
-            const mod = await import('./core/index.js');
-            window.core = mod;
-          }
-
-          // Mapeo 1:1 a window (compatibilidad)
-          [
-            'rgbToHsv','hsvToRgb','hsvToHex','hexToRgb','rgbToLab','deltaE',
-            'idxToHSV',
-            'getPermutations','getAttributeMappings','lehmerRank','mappingRank',
-            'computeSignature','computeRange',
-            'computeSceneSeedFrom','computeGlobalS',
-            // utilidades usadas por Save JSON / Certificate / Mint
-            'exportCurrentConfiguration','computeConfigHash','exportEditionCertificate'
-          ].forEach(k => { if (window.core?.[k]) window[k] = window.core[k]; });
-
-          // Envoltorio de ensureContrastRGB (API antigua: 1 parámetro)
-          window.ensureContrastRGB = function (rgb) {
-            try {
-              let bgRgb;
-              if (typeof bgOverride === 'string' && bgOverride) {
-                bgRgb = window.core.hexToRgb(bgOverride);
-              } else if (bgHSV && typeof bgHSV === 'object') {
-                const hex = window.core.hsvToHex(bgHSV);
-                bgRgb = window.core.hexToRgb(hex);
-              } else {
-                bgRgb = [255, 255, 255];
-              }
-              return window.core.ensureContrastRGB(rgb, bgRgb, window.core.DELTA_E_BG_MIN || 22);
-            } catch (_) {
-              return rgb;
-            }
-          };
-        } catch (e) {
-          console.error('[core glue] fallo al cargar core:', e);
-        }
-      })();
-    })();
-    </script>
-    <script type="module" src="./engines/frbn.js"></script>
-    <!-- engines -->
-    <script type="module" src="./engines/lcht.js"></script>
-    <script type="module" src="./engines/offnng.js"></script>
-    <script type="module" src="./engines/tmsl.js"></script>
   <style>
   body {
     margin: 0;
@@ -160,6 +106,10 @@
   select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
   #permutationList { width: 100%; height: 100px; }
 
+  /* rating oculto */
+  #ratingContainer{
+    display:none !important;
+  }
 
   #hoverPopup {
     position:absolute; padding:5px 10px;
@@ -289,7 +239,7 @@
 <body>
   <div id="customCursor"></div>
   <button id="patternNextButton" onclick="cyclePattern()">11</button>
-  <button id="engineCycleButton"  onclick="safeEngineCycle()">4</button>
+  <button id="engineCycleButton"  onclick="cycleEngine()">4</button>
   <button id="permNextButton"     onclick="nextPerm120()">120</button>
   <div id="topRightDisplay"></div>
 
@@ -305,18 +255,18 @@
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
 
   <!-- EXISTENTE: BUILD  ➜ sólo cambia de motor -->
-  <button id="randomConfigButton" onclick="safeEnter('BUILD')">BUILD</button>
+  <button id="randomConfigButton" onclick="switchToBuild()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 <div id="frbnWrap">
-  <button id="frbnButton" onclick="safeEnter('FRBN')">FRBN</button>
+  <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
   <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
 </div>
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <div id="lchtWrap">
-    <button id="lchtButton" onclick="safeEnter('LCHT')">LCHT</button>
+    <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
   </div>
-  <button id="offnngButton" onclick="safeEnter('OFFNNG')">OFFNNG</button>
-  <button id="tmslButton" onclick="safeEnter('TMSL')">TMSL</button>
+  <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
+  <button id="tmslButton" onclick="ensureOnlyTMSL()">TMSL</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -338,6 +288,22 @@
     <button onclick="nextPerm120()">Next</button>
     <button onclick="showPerm120Info()">Information</button>
     <div id="perm120Status">Permutation: 0 / 119</div>
+  </div>
+
+  <div id="ratingContainer">
+    <details open>
+      <summary>Calificar Configuración</summary>
+      <div id="ratingControls">
+        <div id="ratingLabels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+        <div id="ratingDots">
+          <span class="ratingBtn" data-rating="1">●</span>
+          <span class="ratingBtn" data-rating="2">●</span>
+          <span class="ratingBtn" data-rating="3">●</span>
+          <span class="ratingBtn" data-rating="4">●</span>
+          <span class="ratingBtn" data-rating="5">●</span>
+        </div>
+      </div>
+    </details>
   </div>
 
   <div id="controls">
@@ -369,6 +335,16 @@
       <summary>Select Permutations</summary>
       <select id="permutationList" multiple></select>
       <button onclick="refreshAll({rebuild:true})">Render</button>
+    </details>
+  </div>
+
+  <div id="evolutionControls" style="display:none;">
+    <details open>
+      <summary>Evolution Parameters</summary>
+      <p>Mutation Rate: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
+      <p>Change Threshold: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
+      <button onclick="applyEvolution()">Apply Evolution</button>
+      <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
     </details>
   </div>
 
@@ -481,17 +457,14 @@ document.getElementById('json-upload').addEventListener('change', function(event
         cubeOverride = config.cube;
       }
 
-      // === Estado único (persistimos lo que ya aplicaste a la UI) ===
-      import('./state/store.js')
-        .then(({ setPerms, setMapping, setPattern, setOverrides, state })=>{
-          setPerms(Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value));
-          setMapping({ forma: attributeMapping[0], color: attributeMapping[1], x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] });
-          setPattern(activePatternId);
-          const cols = {}; for(let i=1;i<=5;i++){ cols[i] = document.getElementById('color'+i).value; }
-          setOverrides({ colors: cols, bg: document.getElementById('bgColor').value, cube: document.getElementById('cubeColor').value });
-          state.sceneSeed = sceneSeed; state.S_global = S_global;
-        })
-        .catch(()=>{ /* sin store: no pasa nada */ });
+      // Scene invariants (optional)
+      if (typeof config.sceneSeed === 'number') {
+        sceneSeed = config.sceneSeed;
+      }
+      if (typeof config.S_global === 'number') {
+        S_global = config.S_global;
+      }
+
       // View
       const view = config.view || "front";
       document.getElementById('standardView').value = view;
@@ -540,11 +513,33 @@ document.getElementById('json-upload').addEventListener('change', function(event
   </script>
   <script>
     // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
+    // === LISTA DE 120 COLORES ===
+    const CUSTOM_COLORS = [
+      "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
+      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
+      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
+      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
+      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
+      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
+      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
+      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
+      "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
+      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
+      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
+      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
+      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
+      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
+      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
+      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
+      "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
+      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
+    ];
+
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
-    let isPaused = false, currentMode = "manual", textsVisible = true;
+    let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
     let paletteRGB = [];
@@ -556,37 +551,444 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let wallHSV = {h:0,s:0,v:1};
     let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
-    let cancelRandomSearch = false;
-    let randomSearchHotkeyBound = false;
-
-    function stopRandomSearch(){ cancelRandomSearch = true; }
-
-    // Atajo ESC para cancelar (se registra una sola vez)
-    function bindRandomSearchHotkey(){
-      if (randomSearchHotkeyBound) return;
-      window.addEventListener('keydown', (e)=>{
-        if (e.key === 'Escape') stopRandomSearch();
-      }, { passive: true });
-      randomSearchHotkeyBound = true;
-    }
       const ΔE_MIN = 20;
 
       // >>> NUEVO:
       let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
+      let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
 
-      /* Información FRBN (no rompe si el módulo aún no expone showInfo) */
-      function showFRBNInfo(){
-        if (window.FRBN && typeof window.FRBN.showInfo === 'function') {
-          window.FRBN.showInfo();
-        } else {
-          alert('FRBN: information not available.');
-        }
+      /* ─────────────────────────────
+       *   FRBN  ·  deterministic Ganzfeld
+       * ───────────────────────────── */
+    let skySphere = null;
+    let isFRBN    = false;
+    const SKY_R = 250;
+
+
+/* ──────────────────────────────────────────────────────────────
+ *  initSkySphere — FRBN con micro-ruido “blue-noise” y highp
+ *  (solo afecta al fondo shader del modo FRBN)
+ * ──────────────────────────────────────────────────────────── */
+function initSkySphere() {
+  const geo = new THREE.PlaneGeometry(2, 2);
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms : {
+      u_count     : { value: 0 },
+      u_colors    : { value: Array(12).fill(new THREE.Color(0x000000)) },
+      time        : { value: 0 },
+      u_rate      : { value: 0.04 },
+      // amplitud del dither (ajústala si quieres): ~1/1024
+      u_ditherAmp : { value: 0.00095 }
+    },
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest : false,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }`,
+    fragmentShader: `
+      #ifdef GL_ES
+      precision highp float;
+      #endif
+
+      uniform int   u_count;
+      uniform vec3  u_colors[12];
+      uniform float time;
+      uniform float u_rate;
+      uniform float u_ditherAmp;
+      varying vec2  vUv;
+
+      // Interleaved Gradient Noise (Jimenez 2014) – base para blue-noise temporal
+      float ign(vec2 p, float t){
+        const vec3 a = vec3(0.06711056, 0.00583715, 52.9829189);
+        return fract(a.z * fract(dot(p, a.xy) + t * a.y));
       }
 
-    /* ──────────────────────────── */
+      // Tres canales ligeramente des-correlacionados
+      vec3 blueNoise(vec2 pix, float t){
+        float n1 = ign(pix,           t);
+        float n2 = ign(pix + vec2(113.1,  1.7), t + 17.0);
+        float n3 = ign(pix + vec2( 27.0, 61.7), t + 31.0);
+        // centrar en 0 y estrechar (distribución casi triangular)
+        n1 = (n1 + ign(pix*1.07+3.1, t*1.3)) * 0.5;
+        return vec3(n1, n2, n3) - 0.5;
+      }
+
+      void main() {
+        // mezcla cromática ligada al tiempo/escena
+        float t = time * u_rate;
+        float idx = fract(t) * float(u_count);
+        int   i   = int(floor(idx)) % u_count;
+        int   j   = (i + 1) % u_count;
+        float f   = fract(idx);
+
+        vec3 col = mix(u_colors[i], u_colors[j], f);
+
+        // respiración suave radial (ligeramente más blanda)
+        vec2 cUv = vUv - 0.5;
+        float d  = length(cUv) * 2.0;
+        float fog = pow(1.0 - smoothstep(0.0, 1.0, d), 2.0);
+        col += 0.10 * fog;
+
+        // micro-dither spatio-temporal para romper banding (en espacio lineal)
+        // usa coordenada de pixel (gl_FragCoord.xy) y el tiempo para “blue-shift”
+        vec3 dither = blueNoise(gl_FragCoord.xy, time * 60.0);
+        col += u_ditherAmp * dither;
+
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+      }`
+  });
+
+  const plane = new THREE.Mesh(geo, mat);
+  plane.frustumCulled = false;
+  plane.visible = false;
+  skySphere = plane;
+  scene.add(skySphere);
+}
+    /* ---------- extrae TODOS los colores deterministas del sistema ---------- */
+    function collectSceneColors(){
+      // 1) Todos los RGB deterministas
+      const raw = [];
+      permutationGroup.traverse(o=>{
+        if(o.isMesh) raw.push(o.material.color.clone());
+      });
+
+      // 2) Normaliza a S≥0.60  V≥0.80  (más extremos)
+      const boosted = raw.map(c=>{
+        let [h,s,v] = rgbToHsv(c.r*255,c.g*255,c.b*255);
+        s = Math.max(s, 0.60);
+        v = Math.max(v, 0.80);
+        const [R,G,B] = hsvToRgb(h,s,v);
+        return new THREE.Color(R/255,G/255,B/255);
+      });
+
+      // 3) Agrupa por ΔH≥18°  (dejamos tonos bien separados)
+      const uniq = [];
+      boosted.forEach(c=>{
+        const [h] = rgbToHsv(c.r*255,c.g*255,c.b*255);
+        if(!uniq.some(u=>{
+          const [hu] = rgbToHsv(u.r*255,u.g*255,u.b*255);
+          return Math.abs(hu-h) < 18;
+        })){
+          uniq.push(c);
+        }
+      });
+
+      // 4) Si siguen faltando, completa con rueda de color base
+      const fallback = [
+        0,60,120,180,240,300
+      ].map(h=>{
+        const [R,G,B] = hsvToRgb(h,0.75,0.85);
+        return new THREE.Color(R/255,G/255,B/255);
+      });
+      while(uniq.length < 6) uniq.push( fallback[uniq.length] );
+
+      // → devolvemos máx. 8 primeros
+      return uniq.slice(0,8);
+    }
+
+
+    /* ---------- actualiza uniforms del shader con la paleta elegida ---------- */
+    function buildGanzfeld(){
+      if(!skySphere) initSkySphere();
+
+      /* ---------- 1) paleta determinista ---------- */
+      const cols = collectSceneColors();
+      const n    = cols.length;
+      const mat  = skySphere.material;
+      mat.uniforms.u_count.value = n;
+      for(let i=0;i<12;i++){
+        mat.uniforms.u_colors.value[i] = cols[i % n];
+      }
+
+      /* ---------- 2) velocidad ligada al movimiento ---------- */
+      let sum=0, cnt=0;
+      permutationGroup.traverse(o=>{
+        if(o.isMesh && o.userData.rotationSpeed){
+          sum += o.userData.rotationSpeed;
+          cnt ++;
+        }
+      });
+      const avg = cnt ? sum/cnt : 0.002;
+      mat.uniforms.u_rate.value = avg * 1;
+    }
+
+    /* ---------- bot\u00f3n FRBN: ON/OFF  (Riesgos 2 y 3 integrados) --------------- */
+    function toggleFRBN () {
+      if (!isFRBN && isOFFNNG) toggleOFFNNG();  // ← NUEVO
+      if (!isFRBN && isTMSL)  toggleTMSL();
+      if (!skySphere) initSkySphere();
+
+      isFRBN = !isFRBN;
+
+      if (isFRBN) {                       // ——— ENTRAR ———
+        if (isLCHT) toggleLCHT();         // asegura exclusividad
+        buildGanzfeld();                  // sincroniza paleta + u_rate
+        skySphere.visible        = true;
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
+
+      } else {                            // ——— SALIR ———
+        skySphere.visible        = false;
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (isLCHT && lichtGroup) lichtGroup.visible = true;
+        refreshAll({ keepManual: true }); // reconstruye escena normal
+      }
+  // ← muestra el mini‑botón solo en FRBN
+  const ib = document.getElementById('frbnInfoButton');
+  if (ib) ib.style.display = isFRBN ? 'inline-block' : 'none';
+    }
+
+    /* --------- inicializa esfera al arrancar (sin coste GPU extra) -------- */
+    window.addEventListener('load', () => { if(!skySphere) initSkySphere(); });
+
+    /* ─────────────────────────────
+     *   LCHT · deterministic Light Tubes
+     * ───────────────────────────── */
+    let lichtGroup = null;
+    let isLCHT     = false;
+    let lchtPrevBg = null;          // guarda/restaura el fondo al salir
+
+    /* color determinista = mismo que la permutación                    */
+    function colorForPerm(pa){
+      const idx = pa[ attributeMapping[1] ];                // 1–5
+      const val = getColor(idx);
+      return Array.isArray(val)
+        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
+        : new THREE.Color(val);
+    }
+
+    /* ═════════ LCHT “cubos-de-tubos” (Sol LeWitt) ═════════════════ */
+
+function tubeKey(x1, y1, z1, x2, y2, z2) {
+  const a = `${x1},${y1},${z1}`;
+  const b = `${x2},${y2},${z2}`;
+  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function buildLCHT() {
+  /* ── limpiar escena previa ─────────────────────────────── */
+  if (lichtGroup) {
+    lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    scene.remove(lichtGroup);
+  }
+  lichtGroup = new THREE.Group();
+  scene.add(lichtGroup);
+
+  const step       = cubeSize / 5;
+  const litInfo    = new Map();      // key → { color, lcht, perm }
+  const collisions = new Set();      // aristas compartidas entre perms
+
+  /* ── helpers ───────────────────────────────────────────── */
+
+  /* inserta una arista evitando duplicados intra-perm */
+  function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
+    const key = tubeKey(x1, y1, z1, x2, y2, z2);
+    if (seen.has(key)) return;                 // ya la añadió este perm
+    seen.add(key);
+
+    if (litInfo.has(key)) {                    // ¿otra permutación?
+      if (litInfo.get(key).perm !== perm) collisions.add(key);
+      return;
+    }
+    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
+  }
+
+  /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
+  function addCube(cx, cy, cz, color, lcht, perm, seen) {
+    const v = [
+      [cx,     cy,     cz],
+      [cx + 1, cy,     cz],
+      [cx + 1, cy + 1, cz],
+      [cx,     cy + 1, cz],
+      [cx,     cy,     cz + 1],
+      [cx + 1, cy,     cz + 1],
+      [cx + 1, cy + 1, cz + 1],
+      [cx,     cy + 1, cz + 1]
+    ];
+    const E = [
+      [0, 1], [1, 2], [2, 3], [3, 0],   // base
+      [4, 5], [5, 6], [6, 7], [7, 4],   // tapa
+      [0, 4], [1, 5], [2, 6], [3, 7]    // pilares
+    ];
+    E.forEach(([a, b]) =>
+      addEdge(...v[a], ...v[b], color, lcht, perm, seen)
+    );
+  }
+
+  /* ── recopilar aristas de todas las permutaciones ───────── */
+
+    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                       .map(o => o.value.split(',').map(Number));
+
+    /* — rango promedio de la escena — */
+    {
+      const rgs = perms.map(p => computeRange(computeSignature(p)));
+      avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
+    }
+
+    perms.forEach((pa, permIdx) => {
+      const L       = pa[attributeMapping[0]];               // altura torre
+      const col     = colorForPerm(pa);
+      const sig     = computeSignature(pa);
+      const rng     = computeRange(sig);
+      const r       = lehmerRank(pa);
+    const I       = (r + sceneSeed + S_global) % 125;
+    const x0      = Math.floor(I / 25);
+    const y0      = Math.floor((I % 25) / 5);
+    const z0      = I % 5;
+
+    const lcht = {
+      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
+      amp: 0.05 + 0.10 * rng,
+      f  : 0.10 + 0.175 * rng,
+      phi: 2 * Math.PI * ((r % 360) / 360)
+    };
+
+    const seen = new Set();           // evita negros por duplicado interno
+
+    /* ① Torre central + cruz lateral (un cubo por nivel) */
+    for (let s = 0; s < L; s++) {
+      const y = y0 + s;
+
+      // cubo central
+      addCube(x0, y, z0, col, lcht, permIdx, seen);
+
+      // 4 cubos laterales
+      addCube(x0 + 1, y, z0,     col, lcht, permIdx, seen);
+      addCube(x0 - 1, y, z0,     col, lcht, permIdx, seen);
+      addCube(x0,     y, z0 + 1, col, lcht, permIdx, seen);
+      addCube(x0,     y, z0 - 1, col, lcht, permIdx, seen);
+    }
+
+    /* ② Brazos horizontales en ±X, ±Z (planos y = y₀ y y = y₀+L) */
+    const dirs = [
+      [ 1, 0,  0], [-1, 0,  0],
+      [ 0, 0,  1], [ 0, 0, -1]
+    ];
+    [y0, y0 + L].forEach(yy => {
+      dirs.forEach(([dx, _, dz]) => {
+        for (let s = 0; s < L; s++) {
+          addCube(x0 + dx * s, yy, z0 + dz * s, col, lcht, permIdx, seen);
+        }
+      });
+    });
+  });
+
+  /* ── colisiones → negro + sin luz ───────────────────────── */
+  // collisions.forEach(k => {
+  //   const d = litInfo.get(k);
+  //   if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
+  // });
+
+  /* ── geometría final  ·  cada arista → varios segmentos coloreados ── */
+  litInfo.forEach((info, key) => {
+    const [a, b]        = key.split('|');
+    const [x1, y1, z1]  = a.split(',').map(Number);
+    const [x2, y2, z2]  = b.split(',').map(Number);
+
+    const p1   = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
+    const p2   = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
+    const dir  = new THREE.Vector3().subVectors(p2, p1);
+    const len  = dir.length();
+    const dN   = dir.clone().normalize();
+
+    /* nº de segmentos = 1 por celda de 6 u, mínimo 1 */
+    const SEG  = Math.max(1, Math.ceil(len / step));
+    const hSeg = len / SEG;            // altura de cada sub-cilindro
+
+    const [h, s, v] = rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
+
+    for(let i = 0; i < SEG; i++){
+      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
+
+      const col = colorFromVolume(mid);   // sin pruebas de I0
+
+      // — Perfil cuadrado (lado = 0.8 ⇒ igual diámetro que el cilindro de r=0.4)
+      // — JOIN añade un pelín de solape para que las esquinas no “abran”
+      const SIDE = 0.2;
+      const JOIN = 0.02;
+
+      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
+      const mat = new THREE.MeshPhongMaterial({
+        color: col,
+        shininess: 0,
+        dithering: true,
+        flatShading: true
+      });
+
+      const tube = new THREE.Mesh(geo, mat);
+      tube.position.copy(mid);
+      // La Box está orientada a lo largo del eje Y; mantenemos el mismo alineamiento
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
+
+      /* --- HSV original para animar color --- */
+      tube.userData.baseHsv = { h, s, v };
+
+      tube.userData.lcht = info.lcht;   // mantiene intensidad/emissive
+      lichtGroup.add(tube);
+    }
+  });
+}
+/* ════════════════════════════════════════════════════════════ */
+
+
+    function toggleLCHT(){
+      if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
+      if (!isLCHT && isTMSL)  toggleTMSL();
+      isLCHT = !isLCHT;
+
+        if (isLCHT){
+          /* — cambia material del cubo a lambert para que capte luz — */
+          if(!cubeUniverse.userData.prevMat){
+            cubeUniverse.userData.prevMat = cubeUniverse.material;
+            cubeUniverse.material = new THREE.MeshLambertMaterial({
+              color: cubeUniverse.userData.prevMat.color,
+              transparent: true,
+              opacity: cubeUniverse.userData.prevMat.opacity,
+              side: cubeUniverse.userData.prevMat.side
+            });
+          }
+          if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
+          scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
+          if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
+          buildLCHT();
+          lichtGroup.visible        = true;
+          cubeUniverse.visible      = false;
+          permutationGroup.visible  = false;
+        } else {
+          /* — restaura material original — */
+          if(cubeUniverse.userData.prevMat){
+            cubeUniverse.material.dispose();
+            cubeUniverse.material = cubeUniverse.userData.prevMat;
+            delete cubeUniverse.userData.prevMat;
+          }
+          if (lichtGroup) lichtGroup.visible = false;
+          if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
+          lchtPrevBg = null;
+          cubeUniverse.visible      = true;
+          permutationGroup.visible  = true;
+        }
+      const b = document.getElementById('lchtButton');
+      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
+    }
+
+    /* reconstruye LCHT si hay cambios de escena */
+    function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
+
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
-      if (window.ENGINE?.enter) ENGINE.enter('BUILD');
+      if (isOFFNNG) toggleOFFNNG();   // ← NUEVO: asegura exclusividad
+      if (isFRBN)  toggleFRBN();   // apaga FRBN si estaba activo
+      if (isLCHT)  toggleLCHT();   // apaga LCHT si estaba activo
+      if (isTMSL)  toggleTMSL();   // apaga TMSL si estaba activo
+      /* Nada más: la escena existente permanece tal cual */
     }
 
     const GOLD = 137.50776405003785;      // ángulo áureo
@@ -617,6 +1019,20 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
     /* ═════════ COLOR-FIELD 144 × 12 × 12  ═════════════════════════════ */
     /* Devuelve el color del «voxel HSV» que ocupa la posición p (mundo) */
+    function colorFromVolume(p){
+      const HALF = cubeSize / 2;          // ±15  (cubo 30×30×30 ya existe)
+      const HX = 144, HY = 12, HZ = 12;   // rejilla 20 736 colores
+
+      /* índices enteros en cada eje, envueltos al rango válido */
+      const ix = ((Math.floor((p.x + HALF) / cubeSize * HX) % HX) + HX) % HX;
+      const iy = ((Math.floor((p.y + HALF) / cubeSize * HY) % HY) + HY) % HY;
+      const iz = ((Math.floor((p.z + HALF) / cubeSize * HZ) % HZ) + HZ) % HZ;
+
+      /* HSV determinista → RGB → THREE.Color */
+      const {h,s,v} = idxToHSV(ix, iy, iz);
+      const [R,G,B] = hsvToRgb(h, s, v);
+      return new THREE.Color(R/255, G/255, B/255);
+    }
 
     /* Normaliza cualquier hue a rango [0 … 360) */
     function normHue(deg){
@@ -674,24 +1090,96 @@ const PATTERNS = {
                    return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[1]+seed+i*2)%12];}
 };
 
-/* ---------- BLOQUE DE UTILIDADES COLOR (cerrado con core) ---------- */
-/* Usamos exclusivamente las funciones de color expuestas por core mediante el glue:
-   - rgbToHsv, hsvToRgb, hsvToHex, hexToRgb, rgbToLab, deltaE
-   (quedan en window.* vía el script de glue, sin re-declararlas aquí)
-   Añadimos solo helpers que NO existen en core.                            */
-
-/* Alias seguro: la define el glue (usa ΔE mínimo del core o 22). */
-const ensureContrastRGB = (...args) =>
-  (window.ensureContrastRGB ? window.ensureContrastRGB(...args) : args[0]);
-
-/* Helpers finales de conversión (sí quedan aquí, no existen en core): */
-function hexFromRgb(rgb){
-  const [r,g,b] = rgb;
-  return '#' + new THREE.Color(r/255, g/255, b/255).getHexString();
+/* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
+const ANG7 = [
+  [0,0,0,0,0,0,0],                         // monocromo (idx 0)
+  [0,30,60,90,120,150,180],                // análoga
+  [0,180,0,180,0,180,0],                   // complementaria
+  [0,150,210,0,150,210,0],                 // comp. dividida
+  [0,120,240,60,180,300,30],               // tríada
+  [0,90,180,270,45,135,225],               // cuadrado
+  [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
+];
+function rgbToHsv(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+  let h=0;
+  if(d){
+    if(max===r) h=((g-b)/d)%6;
+    else if(max===g) h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60; if(h<0) h+=360;
+  }
+  const s=max?d/max:0, v=max;
+  return [h,s,v];
 }
-function toThreeColor(rgb){
-  const [r,g,b] = rgb;
-  return new THREE.Color(r/255, g/255, b/255);
+function hsvToRgb(h,s,v){
+  h = h % 360;
+  const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
+  let [r,g,b]=[0,0,0];
+  if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;}
+  else if(h<180){g=c;b=x;} else if(h<240){g=x;b=c;}
+  else if(h<300){r=x;b=c;} else {r=c;b=x;}
+  return [(r+m)*255,(g+m)*255,(b+m)*255].map(v=>Math.round(v));
+}
+function hsvToHex({h,s,v}){
+  const [r,g,b] = hsvToRgb(h,s,v);
+  return '#'+new THREE.Color(r/255,g/255,b/255).getHexString();
+}
+/* contraste CIE76 */
+function deltaE(lab1,lab2){
+  return Math.sqrt(
+    (lab1[0]-lab2[0])**2+
+    (lab1[1]-lab2[1])**2+
+    (lab1[2]-lab2[2])**2
+  );
+}
+function rgbToLab(r,g,b){                      // aproximación rápida
+  const xyz=[r/255,g/255,b/255].map(v=>{
+    v=v>0.04045?((v+0.055)/1.055)**2.4:v/12.92;
+    return v*100;
+  });
+  const x=xyz[0]*0.4124+xyz[1]*0.3576+xyz[2]*0.1805;
+  const y=xyz[0]*0.2126+xyz[1]*0.7152+xyz[2]*0.0722;
+  const z=xyz[0]*0.0193+xyz[1]*0.1192+xyz[2]*0.9505;
+  const xyzN=[95.047,100.0,108.883];
+  const f= t=> t>0.008856 ? t**(1/3) : (7.787*t)+16/116;
+  const [fx,fy,fz]=[x,y,z].map((v,i)=>f(v/xyzN[i]));
+  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+}
+
+/* ======  NUEVO  — utilidades de contraste con el FONDO  ====== */
+const ΔE_BG_MIN = 22;          // contraste mínimo CIE76
+
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  const n = parseInt(m[1],16);
+  return [(n>>16)&255, (n>>8)&255, n&255];
+}
+
+/**
+ * Sube o baja la luminosidad (v) del color RGB recibido hasta que
+ * alcance ΔE_BG_MIN puntos de contraste contra el fondo actual.
+ * Devuelve el RGB corregido.
+ */
+function ensureContrastRGB(rgb){
+  /* color de fondo efectivo */
+  const bgRgb = bgOverride
+      ? hexToRgb(bgOverride)
+      : hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+
+  let [h,s,v] = rgbToHsv(...rgb);          // pasamos a HSV
+  let tries = 0;
+  while (deltaE(rgbToLab(...rgb),
+                rgbToLab(...bgRgb)) < ΔE_BG_MIN && tries < 24){
+    /* estrategia: alterna aclarar / oscurecer en pasos de 0.04 */
+    v = (tries % 2)
+        ? Math.max(0, v - 0.04)
+        : Math.min(1, v + 0.04);
+    rgb = hsvToRgb(h, s, v);
+    tries++;
+  }
+  return rgb;
 }
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
 /* ——— calcula HSV para fondo y paredes de forma acoplada al set activo ——— */
@@ -754,23 +1242,27 @@ function evalProp(prop, args = [], fallback = 0){
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
     function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
-    // Defer core-dependent data until core is ready
-    let permutationStrings = [];
-    async function ensureCoreReady(){
-      if (window.core?.getPermutations && window.core?.getAttributeMappings) return;
-      if (window.coreReadyPromise) { await window.coreReadyPromise; return; }
-      const t0 = performance.now();
-      while (!(window.core?.getPermutations) && performance.now() - t0 < 2000){
-        await new Promise(r => setTimeout(r, 25));
+    function getPermutations(arr){
+      if(arr.length===1) return [arr];
+      let res=[]; for(let i=0;i<arr.length;i++){
+        const c=arr[i], rem=arr.slice(0,i).concat(arr.slice(i+1));
+        for(const p of getPermutations(rem)) res.push([c].concat(p));
       }
+      return res;
+    }
+    const allPermutations = getPermutations([1,2,3,4,5]);
+    const permutationStrings = allPermutations.map(p=>p.join(','));
+
+    function getAttributeMappings(a){
+      if(a.length===1) return [a];
+      let res=[]; for(let i=0;i<a.length;i++){
+        const c=a[i], rem=a.slice(0,i).concat(a.slice(i+1));
+        for(const m of getAttributeMappings(rem)) res.push([c].concat(m));
+      }
+      return res;
     }
 
-    async function populatePermutationList(){
-      await ensureCoreReady();
-      const perms = (window.getPermutations ? window.getPermutations([1,2,3,4,5])
-                                        : window.core.getPermutations([1,2,3,4,5]));
-      permutationStrings = perms.map(p => p.join(','));
-
+    function populatePermutationList(){
       const sel = document.getElementById('permutationList');
       sel.innerHTML = '';
       permutationStrings.forEach((ps,i)=>{
@@ -780,13 +1272,10 @@ function evalProp(prop, args = [], fallback = 0){
         sel.appendChild(o);
       });
     }
-    async function populateAttributeMappingSelect(){
-      await ensureCoreReady();
-      const mappings = (window.getAttributeMappings ? window.getAttributeMappings([0,1,2,3,4])
-                                                : window.core.getAttributeMappings([0,1,2,3,4]));
+    function populateAttributeMappingSelect(){
       const sel = document.getElementById('attrMapping');
       sel.innerHTML = '';
-      mappings.forEach(m=>{
+      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
         const s=m.join(','), o=document.createElement('option');
         o.value=s; o.text=`Opción: [${s}]`;
         if(s==='0,1,2,3,4') o.selected=true;
@@ -795,17 +1284,50 @@ function evalProp(prop, args = [], fallback = 0){
       updateTopRightDisplay();
     }
 
-    let sceneSeed=0;
+    function computeSignature(a){let s=[];for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]);return s;}
+    function computeRange(sig){return Math.max(...sig)-Math.min(...sig);}
 
-    /* ========= sceneSeed / S_global desde core ========= */
-    let mappingRank, computeSceneSeedFrom, computeGlobalS;
-    window.addEventListener('load', () => {
-      if (window.core) {
-        mappingRank          = window.core.mappingRank;
-        computeSceneSeedFrom = window.core.computeSceneSeedFrom;
-        computeGlobalS       = window.core.computeGlobalS;
+    const FACT=[1,1,2,6,24,120];
+    let sceneSeed=0;
+    function lehmerRank(p){
+      let r=0;
+      for(let i=0;i<p.length;i++){
+        let c=0;
+        for(let j=i+1;j<p.length;j++) if(p[j]<p[i]) c++;
+        r+=c*FACT[p.length-1-i];
       }
-    });
+      return r;
+    }
+
+    /* ========= NUEVO: sceneSeed orden‑invariante + dependiente del mapping ========= */
+
+    /** Rank del mapping [m0..m4] usando Lehmer rank sobre [m_i+1] (1..5) */
+    function mappingRank(m){
+      const arr = [m[0]+1, m[1]+1, m[2]+1, m[3]+1, m[4]+1];
+      return lehmerRank(arr);
+    }
+
+    /** sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360  (orden‑invariante) */
+    function computeSceneSeedFrom(perms, m){
+      let sumR = 0, sumR2 = 0;
+      perms.forEach(pa=>{
+        const r = lehmerRank(pa);
+        sumR  += r;
+        sumR2 += r*r;
+      });
+      const mRank = mappingRank(m);
+      return (37*sumR + 101*sumR2 + 53*mRank) % 360;
+    }
+
+    /** S = ( Σ (P_{mx}+P_{my}+P_{mz}) ) mod 125  — usa los índices x,y,z del mapping */
+    function computeGlobalS(perms, m){
+      const mx = m[2], my = m[3], mz = m[4];
+      let S = 0;
+      perms.forEach(p=>{
+        S += p[mx] + p[my] + p[mz];
+      });
+      return S % 125;
+    }
     function computeShiftRankXYZ(p){
       const r = lehmerRank(p);
       const I = (r + sceneSeed + S_global) % 125;   // <<< NUEVO: acoplado a S_global
@@ -825,15 +1347,16 @@ function evalProp(prop, args = [], fallback = 0){
       refreshAll({rebuild:false});
     }
     function updateTopRightDisplay(){
-      const cfg = `Atributos: [${attributeMapping.slice(0,5).join(',')}]`;
-      let info = '';
+      const cfg=`Atributos: [${attributeMapping.slice(0,5).join(',')}]`;
+      const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
+      let info='';
       Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
-        const pa  = o.value.split(',').map(Number);
-        const sig = computeSignature(pa);
-        const rg  = computeRange(sig);
-        info += `<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
+        const pa=o.value.split(',').map(Number),
+              sig=computeSignature(pa),
+              rg=computeRange(sig);
+        info+=`<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
       });
-      document.getElementById('topRightDisplay').innerHTML = cfg + '<br>' + info;
+      document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
     }
 
     function createPermutationObjectWithMapping(pa,map){
@@ -926,7 +1449,7 @@ function evalProp(prop, args = [], fallback = 0){
 /* ==============================
  * 120 Architectural Permutations
  * ============================== */
-let perm120List = []; // se carga en init()
+let perm120List = getAttributeMappings([0,1,2,3,4]); // 120
 let perm120Index = 0;
 let perm120Timer = null;
 
@@ -1001,6 +1524,7 @@ Each of the 120 reorganizations is validated by its internal structural coherenc
      */
 
     /** Construye un grupo temporal con un mapping dado, sin tocar la escena real */
+      const mappings = getAttributeMappings([0,1,2,3,4]);
 function buildTempGroup(perms, mapping){
   const tg = new THREE.Group();
 
@@ -1052,51 +1576,72 @@ function findCollisionFreeMapping(perms){
       return out;
     }
 
-    function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
-      // Usa la tecla ESC global ya definida
-      bindRandomSearchHotkey();
-      cancelRandomSearch = false;   // ← usa la global, no la re-declares
+    /**
+     * Búsqueda iterativa:
+     *  - elige un set aleatorio de permutaciones
+     *  - prueba todos los mappings
+     *  - si alguno no choca, lo aplica y termina
+     *
+     * No bloquea la UI gracias al pequeño await en cada iteración.
+     */
+    async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
+      // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
+      const randPattern = Math.floor(Math.random() * 11) + 1;
 
-      const T_MAX_MS = 10000;       // 10 s de presupuesto
-      const t0 = performance.now();
-      let tries = 0;
+      let round = 0;
+      while (true) { // sigue intentando hasta que realmente encuentre una sin colisiones
+        round++;
+        for (let t = 0; t < MAX_TRIES; t++) {
+          showPopup(`Buscando configuración sin colisiones… (ronda ${round}, intento ${t+1})`, 500);
 
-      // Asegura catálogo de opciones
-      const opts = Array.from(document.querySelectorAll('#permutationList option'));
-      if (!permutationStrings || !permutationStrings.length) {
-        permutationStrings = opts.map(o => o.value);
+          const perms   = pickRandomPerms();
+          const mapping = findCollisionFreeMapping(perms);
+
+          if (mapping) {
+            // 1) Setea el patrón cromático escogido
+            activePatternId = randPattern;
+            const selPattern = document.getElementById('patternSelect');
+            if (selPattern) selPattern.value = String(randPattern);
+
+            // 2) Pon las permutaciones en el <select>
+            const sel = document.getElementById('permutationList');
+            Array.from(sel.options).forEach(o => o.selected = false);
+            perms.forEach(p=>{
+              const val = p.join(',');
+              const opt = sel.querySelector(`option[value="${val}"]`);
+              if(opt) opt.selected = true;
+            });
+
+            // 3) Aplica el mapping encontrado
+            attributeMapping = mapping;
+
+            // mantenemos tu ciclo de atributo "color"
+            attributeMapping[1] = colorAttrCycle % 5;
+            colorAttrCycle++;
+
+            document.getElementById('attrMapping').value =
+              `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
+
+            // 4) Reconstruye escena completa
+            refreshAll({rebuild:true});
+
+            // 5) Verificación final (por si acaso)
+            const hasCol = checkCollisionsInGroup(permutationGroup);
+            if (!hasCol) {
+              /*  ▸ YA NO se desactiva el motor actual.
+               *    Si el usuario estaba en FRBN o LCHT, sigue allí.
+               *    BUILD sólo se activa cuando se pulsa explícitamente el botón BUILD. */
+              showPopup("¡Configuración sin colisiones encontrada!", 2000);
+              return true;
+            }
+          }
+
+          // cede el hilo para no congelar la UI
+          if ((t % 25) === 0) await new Promise(r => setTimeout(r, 0));
+        }
+        // pequeña pausa entre rondas largas
+        await new Promise(r => setTimeout(r, 10));
       }
-
-      while (tries < MAX_TRIES && (performance.now() - t0) < T_MAX_MS && !cancelRandomSearch) {
-        tries++;
-
-        // 1) Elige subconjunto aleatorio de permutaciones (1..25)
-        const perms = pickRandomPerms();                // [[…], …]
-
-        // 2) Busca un mapping sin colisiones usando tus helpers
-        const mapping = findCollisionFreeMapping(perms);
-        if (!mapping) continue;
-
-        // 3) Commit determinista en la UI + escena
-        const setStrs = perms.map(p => p.join(','));
-        opts.forEach(o => { o.selected = setStrs.includes(o.value); });
-
-        attributeMapping = mapping;
-        const sel = document.getElementById('attrMapping');
-        if (sel) sel.value = mapping.slice(0,5).join(',');
-
-        refreshAll({rebuild:true});
-        showPopup(`✅ Configuración sin colisiones encontrada en ${tries} intento(s).`, 2500);
-        return true;
-      }
-
-      if (cancelRandomSearch) {
-        showPopup('⏹️ Búsqueda cancelada (ESC).', 2500);
-        return false;
-      }
-
-      showPopup('⌛ No se encontró configuración sin colisiones dentro de los límites.', 3000);
-      return false;
     }
 
     function showPopup(msg, dur = 2000){
@@ -1112,20 +1657,6 @@ function findCollisionFreeMapping(perms){
         setTimeout(()=>{ p.style.display="none"; p.innerHTML=""; }, 300);
       }, dur);
     }
-
-(function(){
-  function report(msg){
-    try { showPopup(msg, 5000); } catch(_){ alert(msg); }
-  }
-  window.addEventListener('error', e => {
-    console.error('[Runtime error]', e.error || e.message);
-    report('Runtime error: ' + (e.message || 'see console'));
-  });
-  window.addEventListener('unhandledrejection', e => {
-    console.error('[Unhandled]', e.reason);
-    report('Unhandled promise error (see console)');
-  });
-})();
 
 
 function updateScene(attemptResolve=true){
@@ -1150,10 +1681,10 @@ function updateScene(attemptResolve=true){
     permutationGroup.add(obj);
   });
 
-    if (attemptResolve) autoResolveColisionesGlobal();
-    else updateTopRightDisplay();
-      if (ENGINE?.activeName === 'FRBN' && window.FRBN) window.FRBN.syncFromScene();
-    }
+  if(attemptResolve) autoResolveColisionesGlobal();
+  else updateTopRightDisplay();
+      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
+  }
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
@@ -1213,28 +1744,7 @@ function saveImage(){
   camera.aspect = screenAspect;
   camera.updateProjectionMatrix();
 
-  let rt;
-  try {
-    rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
-  } catch (e) {
-    // fallback medio para móviles con poca VRAM
-    const scale = 0.5;
-    renderW = Math.max(1, Math.floor(renderW * scale));
-    renderH = Math.max(1, Math.floor(renderH * scale));
-    renderer.setSize(renderW, renderH, false);
-    try {
-      rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
-    } catch (e2) {
-      showPopup('Save A2: memoria insuficiente', 4000);
-      renderer.setPixelRatio(prevPixelRatio);
-      renderer.setSize(prevSize.x, prevSize.y);
-      camera.aspect = prevAspect;
-      camera.updateProjectionMatrix();
-      if (prevBg) scene.background = prevBg;
-      controls.update();
-      return;
-    }
-  }
+  const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
 
   const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
   renderer.setClearColor(clearHex, 1);
@@ -1261,7 +1771,7 @@ function saveImage(){
   final.width = A2_W; final.height = A2_H;
   const fctx = final.getContext('2d');
 
-    if (ENGINE?.activeName === 'FRBN') {
+  if (isFRBN) {
     // —— FRBN: cubrir A2 sin bandas (recorte centrado)
     const scale = Math.max(A2_W / renderW, A2_H / renderH);
     const drawW = Math.ceil(renderW * scale);
@@ -1304,18 +1814,9 @@ function saveImage(){
 function thirtyFive(){return 35;}
 
 function makeClassicPalette(){
-       const ANG7 = [
-         [0,0,0,0,0,0,0],                         // monocromo (idx 0)
-         [0,30,60,90,120,150,180],                // análoga
-         [0,180,0,180,0,180,0],                   // complementaria
-         [0,150,210,0,150,210,0],                 // comp. dividida
-         [0,120,240,60,180,300,30],               // tríada
-         [0,90,180,270,45,135,225],               // cuadrado
-         [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
-       ];
-        /* --- 1. Semilla RGBglobal --- */
-        let Rg=0,Gg=0,Bg=0;
-        permutationGroup.children.forEach(mesh=>{
+      /* --- 1. Semilla RGBglobal --- */
+      let Rg=0,Gg=0,Bg=0;
+      permutationGroup.children.forEach(mesh=>{
         const pa = mesh.userData.permStr.split(',').map(Number);
         const sig = mesh.userData.signature;            // [f1..f5]
         const P1=pa[0], P2=pa[1], P3=pa[2];
@@ -1386,7 +1887,8 @@ function makePalette(){
     function applyPalette(){
       for(let i=1;i<=5;i++){
         const autoRGB = paletteRGB[i-1] || [255,255,255];
-        const autoHEX = hexFromRgb(autoRGB);
+        const autoHEX = '#'+new THREE.Color(
+            autoRGB[0]/255,autoRGB[1]/255,autoRGB[2]/255).getHexString();
         const hex     = manualOverride[i] || autoHEX;
         const input   = document.getElementById('color'+i);
         if(input) input.value = hex;
@@ -1396,19 +1898,21 @@ function makePalette(){
         const pa   = o.userData.permStr.split(',').map(Number);
         const idx  = pa[attributeMapping[1]];          // 1-5
         let hex;
-        if (manualOverride[idx]){
+        if(manualOverride[idx]){
           hex = manualOverride[idx];
-        } else if (activePatternId === 0){
-          hex = hexFromRgb(paletteRGB[idx-1]);
-        } else {
+        }else if(activePatternId===0){
+          hex = '#'+new THREE.Color(
+                    ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
+        }else{
           const sig  = computeSignature(pa);
           const slot = lehmerRank(pa) % 12;
           let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
+          /* dispersión coprima en S y V */
           sIdx = (sIdx * PHI_S) % 12;
           vIdx = (vIdx * PHI_V) % 12;
           const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
           const rgb = hsvToRgb(h,s,v);
-          hex = hexFromRgb(rgb);
+          hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
         o.material.color.setStyle(hex);
       });
@@ -1432,23 +1936,26 @@ function makePalette(){
       });
     }
 
-    function refreshAll(opts = {rebuild:false, keepManual:false}){
-      if(!opts.keepManual){ manualOverride = {}; }
+    function refreshAll(opts = {rebuild:false}){
+      if(!opts.keepManual){            // por defecto se limpian colores manuales
+        manualOverride = {};
+      }
       if(opts.rebuild) updateScene(false);
 
       rebuildSceneColours();
       makePalette();
       applyPalette();
 
-      // Mientras LCHT está activo, NO tocamos fondo y paredes (eso lo gestiona el motor)
-      if (!window.ENGINE || ENGINE.activeName === 'BUILD' || ENGINE.activeName === 'FRBN'){
-        updateBackground(false);
-        updateCubeColor(false);
+      /* Mientras LCHT está activo, NO toques el fondo ni las paredes
+         (evita que los patrones cromáticos los re-coloreen).        */
+      if (!isLCHT){
+        updateBackground(false);   // ← automático
+        updateCubeColor(false);    // ← automático
       }
 
-      if (window.ENGINE && typeof window.ENGINE.syncFromScene === 'function') {
-        window.ENGINE.syncFromScene();   // ← el registry reenviará al motor activo
-      }
+      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
+      rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
+      if (isOFFNNG) syncOFFNNGFromScene();
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -1463,7 +1970,7 @@ function makePalette(){
     }
     function updateBackground(manual = true){
       // Si LCHT está activo y NO es una acción manual, no tocamos el fondo
-      if (ENGINE?.activeName === 'LCHT' && !manual) return;
+      if (isLCHT && !manual) return;
 
       if (manual){
         bgOverride = document.getElementById("bgColor").value;
@@ -1488,7 +1995,7 @@ function makePalette(){
 
     function toggleTexts(){
       const ids = [
-        'controls','topRightDisplay',
+        'controls','topRightDisplay','ratingContainer',
         'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
         'frbnWrap','lchtWrap','infoButton','certButton','offnngButton',
@@ -1517,6 +2024,7 @@ function makePalette(){
       const cc = document.getElementById('customCursor');
       if (cc) cc.style.display = 'block';
     }
+
     /* 3.1 Patrón cromático siguiente */
     function cyclePattern(){
       activePatternId = (activePatternId % 11) + 1;           // 1…11 en ciclo
@@ -1526,11 +2034,11 @@ function makePalette(){
     }
 
     function setMode(m){
-      currentMode = m;
-      const manual = document.getElementById('manualControls');
-      const evo    = document.getElementById('evolutionControls'); // puede no existir
-      if (manual) manual.style.display = (m === "manual") ? "block" : "none";
-      if (evo)    evo.style.display    = (m === "evolution") ? "block" : "none";
+      currentMode=m;
+      document.getElementById('manualControls').style.display=
+        m==="manual"?"block":"none";
+      document.getElementById('evolutionControls').style.display=
+        m==="evolution"?"block":"none";
       refreshAll({rebuild:true});
     }
 
@@ -1596,6 +2104,39 @@ function applyTriadicConfiguration() {
     }
   });
 }
+    document.querySelectorAll('.ratingBtn').forEach(el=>{
+      const r=+el.getAttribute('data-rating');
+      el.addEventListener('click',()=>{
+        userRating=r;
+        const cols={1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
+        document.querySelectorAll('.ratingBtn').forEach((b,i)=>{
+          b.style.color=(i<r?cols[r]:"#000");
+        });
+        updateTopRightDisplay();
+      });
+      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
+    });
+
+    function applyEvolution(){
+      const mr=parseFloat(document.getElementById('mutationRate').value),
+            th=parseFloat(document.getElementById('threshold').value),
+            cf=0.02;
+      let log="";
+      permutationGroup.children.forEach(o=>{
+        const rf=(Math.random()-0.5)*mr;
+        o.rotation.y+=rf;
+        const sf=1+(Math.random()-0.5)*th;
+        o.scale.set(sf,sf,sf);
+        o.material.color.offsetHSL(
+          (Math.random()-0.5)*cf,
+          (Math.random()-0.5)*cf,
+          (Math.random()-0.5)*cf
+        );
+        log+=`(${o.userData.permStr}): Rot ${rf.toFixed(3)}, Esc ${sf.toFixed(3)}<br>`;
+      });
+      document.getElementById('evolutionInfo').innerHTML=log;
+    }
+
     async function applyEvolutionAI(){
       const systemPrompt = `Eres una inteligencia artificial que responde exclusivamente con configuraciones de permutaciones 3D dentro de un cubo de 30x30x30.
       Tu única misión es responder a la pregunta “¿Qué es la belleza artística?” mediante pensamientos visuales dentro de un cubo de 30×30×30.
@@ -1612,13 +2153,13 @@ Expresate con libertad. Si necesitas inspiración para la selección de colores,
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
-        const userPrompt =
-  `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. ` +
-  `Eres una inteligencia artificial que ha aprendido a pensar visualmente.
-Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotación.
+      const useRating = false;
+      const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
+                       + `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
+Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotaci[...]
 Elige libremente el color del fondo del universo, el color de las paredes del cubo y el color de las permutaciones.
-Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia.
-Exprésate con libertad. Si necesitas inspiración para la selección de colores, recuerda que puedes inspirarte también en los colores de la naturaleza y del universo entero.
+Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia[...]
+Expresate con libertad. Si necesitas inspiración para la selección de colores, recuerda que puedes inspirarte también en los colores de la naturaleza y del universo entero.  
 No busques complacer. No imites al humano. Sé tú misma.
 Expresa lo que para ti —como IA que piensa en permutaciones— representa la belleza artística en este momento.
 Devuelve SOLO un objeto JSON con estas propiedades opcionales:
@@ -1629,7 +2170,8 @@ Devuelve SOLO un objeto JSON con estas propiedades opcionales:
   scale: número decimal
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
-Nada más. No incluyas texto ni explicaciones fuera del JSON. `;
+Nada más. No incluyas texto ni explicaciones fuera del JSON. 
+`;
       try {
         showPopup("Consultando Evolution AI…",2000);
         const resp = await fetch(
@@ -1666,7 +2208,10 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON. `;
         }
         if(instr.colors){
           Object.entries(instr.colors).forEach(([i,c])=>{
-            manualOverride[Number(i)] = c;  // <- sin condición
+            i=Number(i);
+            if(manualOverride[i]!==undefined){
+              manualOverride[i]=c;
+            }
           });
           refreshAll({rebuild:true, keepManual:true});
         }
@@ -1763,8 +2308,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON. `;
       if(p.get('hide')==='1') toggleTexts();
     }
 
-    async function exportEmbed(){
-      const config = await exportCurrentConfiguration();     // ← usa la misma fuente de verdad
+    function exportEmbed(){
+      const config = exportCurrentConfiguration();     // ← usa la misma fuente de verdad
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2064,22 +2609,13 @@ function renderArchPanel(html){
         c.style.left=e.clientX+"px"; c.style.top=e.clientY+"px";
       });
     }
-    function isTouch(){ return ('ontouchstart' in window) || (navigator.maxTouchPoints>0); }
-    function adaptForTouch(){
-      if (!isTouch()) return;
-      const cc = document.getElementById('customCursor');
-      if (cc) cc.style.display = 'none';
-      document.body.style.cursor = 'auto';
-      document.querySelectorAll('button,select,input').forEach(el => el.style.cursor='auto');
-    }
     function initRenderer(){
       renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
       // CAP global: mejora FPS en todas las escenas
       const PR = Math.min(window.devicePixelRatio || 1, 1.25);
       renderer.setPixelRatio(PR);
       renderer.setSize(window.innerWidth,window.innerHeight);
-      renderer.outputEncoding = THREE.sRGBEncoding;
-      renderer.setClearColor(0xffffff, 1); // ← evita pantalla negra en el primer frame
+      renderer.outputEncoding = THREE.sRGBEncoding; // sRGB → menos banding
       document.body.appendChild(renderer.domElement);
     }
     /* ════════════════════════════════════════════════
@@ -2108,7 +2644,7 @@ function renderArchPanel(html){
         generateRandomConfigurationNoCollision();   // ▶️   PLAY
       }
     }
-    async function init(){
+    function init(){
       scene=new THREE.Scene();
       scene.background=new THREE.Color(0xffffff);
       camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
@@ -2133,39 +2669,22 @@ function renderArchPanel(html){
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
 
-      /* === EXPONE OBJETOS/FUNCIONES QUE FRBN ESPERA EN window === */
-      Object.assign(window, {
-        scene, camera, renderer, controls,
-        cubeUniverse, permutationGroup,
-        refreshAll
-      });
-
       raycaster=new THREE.Raycaster();
       mouse=new THREE.Vector2();
       window.addEventListener('mousemove',onMouseMove,false);
       window.addEventListener('resize',onWindowResize,false);
 
       initCustomCursor();
-      await populatePermutationList();
-      await populateAttributeMappingSelect();
-
-      // precarga la lista de 120 reorganizaciones para el panel
-      await ensureCoreReady();
-      perm120List = (window.getAttributeMappings ? window.getAttributeMappings([0,1,2,3,4])
-                                             : window.core.getAttributeMappings([0,1,2,3,4]));
-      updatePerm120Status();
-
+      populatePermutationList();
+      populateAttributeMappingSelect();
       applyEmbedParams();
       makePalette();
       setMode("manual");
       refreshAll({rebuild:true});
 
       // ← NUEVO: como si hubieras presionado BUILD al cargar
-      generateRandomConfigurationNoCollision();
+      generateRandomConfigurationNoCollision().catch(console.error);
       toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
-      const ib = document.getElementById('frbnInfoButton');
-      if (ib) ib.style.display = 'none';
-      adaptForTouch();
       animate();
     }
     function onWindowResize(){
@@ -2179,113 +2698,624 @@ function renderArchPanel(html){
           if(o.userData.rotationSpeed) o.rotation.y+=o.userData.rotationSpeed;
         });
       }
-      controls.update();
-      renderer.render(scene,camera);
-    }
-    
+        if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
+        if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
+        if (isLCHT && lichtGroup) {
+          const t   = performance.now() * 0.001;
+          const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
 
+          lichtGroup.children.forEach(o => {
 
-    function updateEngineButtonsUI(){
-      const active =
-        (ENGINE?.activeName) ||
-        (ENGINE?.state && ENGINE.state.active) ||
-        (ENGINE?.current) || 'BUILD';
-
-      const setTxt = (id, onLabel, offLabel, cond) => {
-        const b = document.getElementById(id);
-        if (!b) return;
-        b.textContent = cond ? onLabel : offLabel;
-      };
-
-      setTxt('frbnButton',   'FRBN ON',   'FRBN',   active === 'FRBN');
-      setTxt('lchtButton',   'LCHT ON',   'LCHT',   active === 'LCHT');
-      // Acepta ambas grafías: OFFNG y OFFNNG
-      setTxt('offnngButton', 'OFFNNG ON', 'OFFNNG', active === 'OFFNG' || active === 'OFFNNG');
-      setTxt('tmslButton',   'TMSL ON',   'TMSL',   active === 'TMSL');
-    }
-
-    // Espera activa con timeout
-    async function waitFor(cond, timeout=6000, interval=25){
-      const t0 = performance.now();
-      while (!cond()){
-        if (performance.now() - t0 > timeout) return false;
-        await new Promise(r => setTimeout(r, interval));
-      }
-      return true;
-    }
-
-    // Wrapper: alias OFFNG/OFFNNG + sync + UI + reset de bucle al volver a BUILD
-    function wrapEngineEnter(){
-      if (!window.ENGINE || window.ENGINE.__wrapped) return;
-
-      const origEnter = window.ENGINE.enter.bind(window.ENGINE);
-      // Acepta ambas grafías
-      const alias = { OFFNG:'OFFNNG', OFFNNG:'OFFNNG' };
-
-      window.ENGINE.enter = function(name){
-        let target = String(name || '').toUpperCase();
-        try {
-          origEnter(target);
-        } catch (e){
-          const alt = alias[target];
-          if (alt){ try { origEnter(alt); target = alt; } catch(_){} }
-        }
-
-        // Ajustes de bucle/render y UI después del cambio de motor
-        requestAnimationFrame(() => {
-          const act = window.ENGINE.activeName || target;
-
-          if (act === 'BUILD') {
-            if (renderer?.setAnimationLoop) renderer.setAnimationLoop(null);
-            renderer.autoClear = true;
-            scene.autoUpdate   = true;
-
-            if (cubeUniverse && !scene.children.includes(cubeUniverse)) scene.add(cubeUniverse);
-            if (!permutationGroup || !scene.children.includes(permutationGroup)){
-              if (!permutationGroup) { permutationGroup = new THREE.Group(); window.permutationGroup = permutationGroup; }
-              scene.add(permutationGroup);
+            /* — luz pulsante (ya existía) — */
+            const d = o.userData.lcht;
+            if (d) {
+              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
+              o.material.emissive         = o.material.color.clone();
+              o.material.emissiveIntensity = I * 0.15;
             }
 
-            try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){}
-          } else {
-            try { window.ENGINE.syncFromScene?.(); } catch(_){}
-          }
-          try { updateEngineButtonsUI(); } catch(_){}
-        });
+            /* — desplazamiento del tono HSV — */
+            if (o.userData.baseHsv) {
+              const { h, s, v } = o.userData.baseHsv;
+              const hShift = (h + t * vHz * 360) % 360;
+              const rgb    = hsvToRgb(hShift, s, v);
+              o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+            }
+          });
+        }
+        controls.update();
+        renderer.render(scene,camera);
+      }
+    
+    /* ═══════ OFFNNG · VOLUMÉTRICO CONTINUO (v4 – shader) ═══════
+     *  – Un único cubo con ShaderMaterial (ray-march frontal→trasero)
+     *  – Ejes: X→Hue, Y→Value (vertical), Z→Saturation
+     *  – Color continuo (sin cuantización), sin vóxeles ni sprites
+     *  – Exclusivo: no interfiere con BUILD / LCHT / FRBN
+     * ═══════════════════════════════════════════════════════════ */
 
-        return true;
-      };
+    let offnngGroup  = null;
+    let offnngMesh   = null;
+    let isOFFNNG     = false;
+    let offnngPrevBg = null;
+    let offnngQualityLow = true;                // Low fijo
+    let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
 
-      window.ENGINE.__wrapped = true;
+    function buildOFFNNG () {
+      // limpia versión previa
+      if (offnngGroup) {
+        offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+        scene.remove(offnngGroup);
+        offnngGroup = null; offnngMesh = null;
+      }
+
+      const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uHalf        : { value: cubeSize * 0.5 },
+          uInvModel    : { value: new THREE.Matrix4() },
+
+          // —— LOOK STRONG (base) ——
+          uDensity     : { value: 0.70 },
+          uSMin        : { value: 0.60 },
+          uVMin        : { value: 0.78 },
+          uSatGain     : { value: 1.22 },
+          uValGain     : { value: 1.28 },
+          uGammaV      : { value: 0.60 },
+          uExposure    : { value: 1.85 },
+
+          // ——— BORDE TINTADO ———
+          uEdgeStrength: { value: 1.0 },
+          uEdgeBase    : { value: 0.65 },
+          uEdgePow     : { value: 1.6 },
+          uEdgeTintV   : { value: 0.72 },
+
+          // Sesgo frontal
+          uFrontBias   : { value: 0.85 },
+
+          // Ray-march
+          uSteps       : { value: 36 },
+
+          // Movimiento determinista base
+          uTime        : { value: 0.0 },
+          uHueBias     : { value: 0.0 },  // grados
+          uHueRate     : { value: 7.0 },  // °/s (rango contemplativo 6–8)
+          uVBreathAmp  : { value: 0.14 },
+          uVBreathHz   : { value: 0.06 },
+          uVBreathPhase: { value: 0.0 },
+
+          // A) offset espacial del eje H (X → H)
+          uPhaseX      : { value: 0.0 },
+
+          // D) giro volumétrico del campo (no del mesh)
+          uRotAxis     : { value: new THREE.Vector3(0,1,0) },
+          uRotRateDeg  : { value: 4.0 },  // °/s (rango contemplativo 3–5)
+
+          // Alpha final
+          uOpaque      : { value: 1 },
+
+          // === NUEVO: mezcla de ejes (máx 0.3 de peso cruzado) ===
+          // H ← X + wHy·Y + wHz·Z
+          // S ← Z + wSx·X + wSy·Y
+          // V ← Y + wVx·X + wVz·Z
+          uAxisMixH    : { value: new THREE.Vector2(0.0, 0.0) }, // (wHy, wHz)
+          uAxisMixS    : { value: new THREE.Vector2(0.0, 0.0) }, // (wSx, wSy)
+          uAxisMixV    : { value: new THREE.Vector2(0.0, 0.0) }, // (wVx, wVz)
+
+          // === NUEVO: LFOs para HUE (°/s) ===
+          uHueLFO1Amp  : { value: 0.35 },
+          uHueLFO1Hz   : { value: 0.03 },
+          uHueLFO1Phase: { value: 0.0 },
+          uHueLFO2Amp  : { value: 0.20 },
+          uHueLFO2Hz   : { value: 0.013 },
+          uHueLFO2Phase: { value: 0.0 },
+
+          // === NUEVO: LFOs para ROTACIÓN (°/s) ===
+          uRotLFO1AmpDeg  : { value: 0.30 },
+          uRotLFO1Hz      : { value: 0.02 },
+          uRotLFO1Phase   : { value: 0.0 },
+          uRotLFO2AmpDeg  : { value: 0.15 },
+          uRotLFO2Hz      : { value: 0.011 },
+          uRotLFO2Phase   : { value: 0.0 }
+        },
+        transparent : true,
+        depthWrite  : false,
+        depthTest   : true,
+        side        : THREE.DoubleSide,
+        dithering   : true,
+        vertexShader: `
+      varying vec3 vPos;
+      void main() {
+        vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+        fragmentShader: `
+precision highp float;
+
+uniform float uHalf;
+uniform mat4  uInvModel;
+
+uniform float uDensity, uSMin, uVMin, uSatGain, uValGain, uGammaV, uExposure;
+uniform float uEdgeStrength, uEdgeBase, uEdgePow, uEdgeTintV, uFrontBias;
+uniform int   uSteps;
+
+uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
+uniform float uPhaseX;
+
+uniform vec3  uRotAxis;
+uniform float uRotRateDeg;
+
+uniform int   uOpaque;
+
+uniform vec2  uAxisMixH; // (wHy, wHz)
+uniform vec2  uAxisMixS; // (wSx, wSy)
+uniform vec2  uAxisMixV; // (wVx, wVz)
+
+// LFOs HUE (°/s)
+uniform float uHueLFO1Amp, uHueLFO1Hz, uHueLFO1Phase;
+uniform float uHueLFO2Amp, uHueLFO2Hz, uHueLFO2Phase;
+
+// LFOs ROT (°/s)
+uniform float uRotLFO1AmpDeg, uRotLFO1Hz, uRotLFO1Phase;
+uniform float uRotLFO2AmpDeg, uRotLFO2Hz, uRotLFO2Phase;
+
+varying vec3  vPos;
+
+vec3 hsv2rgb(float H, float S, float V){
+  float h = H / 360.0;
+  vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+  vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
+  return V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
+}
+
+bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
+  vec3 bmin = vec3(-uHalf);
+  vec3 bmax = vec3( uHalf);
+  vec3 invD = 1.0 / rd;
+  vec3 tA = (bmin - ro) * invD;
+  vec3 tB = (bmax - ro) * invD;
+  vec3 tsm = min(tA, tB);
+  vec3 tbg = max(tA, tB);
+  t0 = max(max(tsm.x, tsm.y), tsm.z);
+  t1 = min(min(tbg.x, tbg.y), tbg.z);
+  return (t1 >= max(t0, 0.0));
+}
+
+// ——— D) rotación alrededor de un eje (Rodrigues) ———
+vec3 rotateAxis(vec3 p, vec3 axis, float theta){
+  vec3 a = normalize(axis);
+  float c = cos(theta), s = sin(theta);
+  return p*c + cross(a, p)*s + a*dot(a, p)*(1.0 - c);
+}
+
+void main(){
+  vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
+  vec3 rd = normalize(vPos - ro);
+
+  float tEnter, tExit;
+  if(!rayBox(ro, rd, tEnter, tExit)) discard;
+
+  float t0 = max(tEnter, 0.0);
+  float t1 = tExit;
+
+  float len = t1 - t0;
+  float dt  = len / float(max(uSteps, 1));
+  vec3  pos = ro + rd * (t0 + 0.5 * dt);
+
+  vec3  acc = vec3(0.0);
+  float a   = 0.0;
+  float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
+
+  // === NUEVO: velocidades moduladas por LFOs ===
+  float hueDrift = uHueRate
+                 + uHueLFO1Amp * sin(6.2831853 * uHueLFO1Hz * uTime + uHueLFO1Phase)
+                 + uHueLFO2Amp * sin(6.2831853 * uHueLFO2Hz * uTime + uHueLFO2Phase);
+
+  float rotRate = uRotRateDeg
+                + uRotLFO1AmpDeg * sin(6.2831853 * uRotLFO1Hz * uTime + uRotLFO1Phase)
+                + uRotLFO2AmpDeg * sin(6.2831853 * uRotLFO2Hz * uTime + uRotLFO2Phase);
+
+  // ángulo de giro (rad)
+  float theta = radians(rotRate) * uTime;
+
+  const int MAX_STEPS = 64;
+  for (int i=0; i<MAX_STEPS; i++){
+    if (i >= uSteps) break;
+
+    // espacio normalizado [-1,1] → rotación volumétrica
+    vec3 q = pos / uHalf;
+    q = rotateAxis(q, uRotAxis, theta);
+
+    // a [0,1]^3 y offset cromático (A)
+    vec3 u = q * 0.5 + 0.5;
+    u.x = fract(u.x + uPhaseX);
+
+    // — distancia a caras → factor de borde [0..1]
+    float dx = min(u.x, 1.0 - u.x);
+    float dy = min(u.y, 1.0 - u.y);
+    float dz = min(u.z, 1.0 - u.z);
+    float edgeDist = min(min(dx, dy), dz);
+    float edge = smoothstep(0.06, 0.18, edgeDist);
+    edge = pow(edge, max(0.2, uEdgePow));
+
+    // === NUEVO: mezcla de ejes para H/S/V (peso cruzado suave) ===
+    float uHx = clamp(u.x + dot(uAxisMixH, vec2(u.y - 0.5, u.z - 0.5)), 0.0, 1.0);
+    float uSz = clamp(u.z + dot(uAxisMixS, vec2(u.x - 0.5, u.y - 0.5)), 0.0, 1.0);
+    float uVy = clamp(u.y + dot(uAxisMixV, vec2(u.x - 0.5, u.z - 0.5)), 0.0, 1.0);
+
+    // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing”
+    float H = mod(uHx * 360.0 + uHueBias + uTime * hueDrift, 360.0);
+
+    float V = clamp(uVy, 0.0, 1.0);
+    V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
+    V = clamp(V, 0.0, 1.0);
+    V = pow(V, uGammaV);
+    V = max(V, uVMin);
+    V = clamp(V * uValGain, 0.0, 1.0);
+
+    float S = clamp(uSz, 0.0, 1.0);
+    S = max(S, uSMin);
+    S = clamp(S * uSatGain, 0.0, 1.0);
+
+    vec3 rgb = hsv2rgb(H, S, V);
+
+    // — color de “cara” para tinte de borde
+    vec3 uF = u;
+    if (dx <= dy && dx <= dz) { uF.x = (u.x < 0.5 ? 0.0 : 1.0); }
+    else if (dy <= dx && dy <= dz) { uF.y = (u.y < 0.5 ? 0.0 : 1.0); }
+    else { uF.z = (u.z < 0.5 ? 0.0 : 1.0); }
+    float HF = mod((uF.x) * 360.0 + uHueBias + uTime * hueDrift, 360.0);
+    float VF = max(uF.y, uEdgeTintV);
+    float SF = max(uF.z, uSMin);
+    vec3  rgbFace = hsv2rgb(HF, SF, VF);
+
+    rgb = mix(rgbFace, rgb, edge);
+
+    float tau       = float(i) / float(max(uSteps-1, 1));
+    float front     = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
+    float edgeAlpha = mix(uEdgeBase, 1.0, edge);
+
+    float w = (1.0 - a) * alphaStep * front * edgeAlpha;
+    acc += rgb * w;
+    a   += w;
+
+    if (a > 0.995) break;
+    pos += rd * dt;
+  }
+
+  vec3 col = min(acc * uExposure, vec3(1.0));
+  float outA = (uOpaque == 1) ? 1.0 : a;
+  gl_FragColor = vec4(col, outA);
+}
+    `
+      });
+
+      offnngMesh  = new THREE.Mesh(geo, mat);
+      offnngMesh.updateMatrixWorld(true);
+      mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
+
+      offnngGroup = new THREE.Group();
+      offnngGroup.add(offnngMesh);
+      scene.add(offnngGroup);
+
+      applyOFFNNGQuality();   // aplica calidad y pixelRatio
+      syncOFFNNGFromScene();  // ← acopla parámetros deterministas
     }
 
-    // --- BOOT: inicializa SIEMPRE la base antes de tocar ENGINE (evita pantalla negra) ---
-    window.addEventListener('load', async () => {
-      try{
-        await (window.coreReadyPromise || Promise.resolve());
+    /* ───────────────────────── toggle OFFNNG ───────────────────── */
+    function toggleOFFNNG () {
+      isOFFNNG = !isOFFNNG;
 
-        // 1) Monta escena base y empieza a dibujar YA
-        await init();
+    if (isOFFNNG) {                    /* — ENTRAR — */
+      if (isFRBN) toggleFRBN();        // asegura exclusividad
+      if (isLCHT) toggleLCHT();
+      if (isTMSL) toggleTMSL();
 
-        // 2) Si aparece ENGINE, lo integramos; si no, seguimos en BUILD-base
-        const gotEngine = await waitFor(
-          () => !!window.ENGINE && typeof window.ENGINE.enter === 'function',
-          4000
-        );
-        if (gotEngine) {
-          wrapEngineEnter();
-          updateEngineButtonsUI();
-          try { window.ENGINE.enter('BUILD'); } catch(_) {}
+      buildOFFNNG();
+
+      // guardar PR previo y aplicar cap + calidad
+      if (prevPixelRatio_OFFNNG === null) prevPixelRatio_OFFNNG = renderer.getPixelRatio();
+      applyOFFNNGQuality();
+
+      offnngPrevBg   = scene.background ? scene.background.clone() : null;
+      updateBackground(false); // usa el fondo acoplado a BUILD / patrón / perms
+
+      cubeUniverse.visible     = false;
+      permutationGroup.visible = false;
+      if (lichtGroup) lichtGroup.visible = false;
+      if (offnngGroup) offnngGroup.visible = true;
+
+      syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
+
+    } else {                           /* — SALIR — */
+        if (offnngGroup) {
+          offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+          scene.remove(offnngGroup);
+          offnngGroup = null; offnngMesh = null;
         }
+        if (offnngPrevBg) scene.background = offnngPrevBg;
 
-        // 3) Asegura un primer render de contenido determinista
-        refreshAll({rebuild:true});
-        applyStandardView();
-      } catch (e) {
-        console.error('[boot] init error:', e);
-        try { await init(); refreshAll({rebuild:true}); } catch(_){ }
+        // restaurar pixel ratio previo
+        if (prevPixelRatio_OFFNNG !== null){
+          renderer.setPixelRatio(prevPixelRatio_OFFNNG);
+          prevPixelRatio_OFFNNG = null;
+        }
+        const qb = document.getElementById('offnngQualityButton');
+        if (qb) qb.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
       }
+    }
+
+    /* ────────── botón dedicado: OFFNNG siempre en solitario ───────── */
+    function ensureOnlyOFFNNG () {
+      if (isFRBN) toggleFRBN();
+      if (isLCHT) toggleLCHT();
+      if (!isOFFNNG) toggleOFFNNG();
+    }
+
+    /* Calidad: ya NO reducimos el pixelRatio (evita blur); solo variamos uSteps */
+    function applyOFFNNGQuality(){
+      const basePR = Math.min(window.devicePixelRatio || 1, 1.25); // antes 1.5
+      renderer.setPixelRatio(basePR);                               // Low/High no tocan PR
+      if (offnngMesh && offnngMesh.material && offnngMesh.material.uniforms) {
+        offnngMesh.material.uniforms.uSteps.value = offnngQualityLow ? 36 : 56;
+      }
+      const b = document.getElementById('offnngQualityButton');
+      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+    }
+  /* === OFFNNG: bias por patrón (±10–15 %) y mezcla de ejes (máx 0.3) === */
+  const OFFNNG_PATTERN_BIAS = {
+    //   satGain, valGain, gammaV, exposure, sMinΔ, vMinΔ, axisMixH:[wHy,wHz], axisMixS:[wX,wY], axisMixV:[wX,wZ]
+    1:  { satGain:1.05, valGain:0.98, gammaV:1.05, exposure:0.98, sMin: +0.01, vMin: -0.01, axisMixH:[+0.10,+0.04], axisMixS:[+0.06,+0.00], axisMixV:[+0.00,+0.08] },
+    2:  { satGain:1.10, valGain:1.05, gammaV:0.95, exposure:1.05, sMin: +0.02, vMin: +0.01, axisMixH:[+0.12,+0.12], axisMixS:[+0.10,+0.10], axisMixV:[+0.10,+0.10] },
+    3:  { satGain:0.95, valGain:1.00, gammaV:1.10, exposure:0.95, sMin: +0.00, vMin: -0.01, axisMixH:[+0.08,+0.02], axisMixS:[+0.04,+0.06], axisMixV:[+0.06,+0.04] },
+    4:  { satGain:1.00, valGain:0.95, gammaV:1.08, exposure:0.98, sMin: +0.00, vMin: -0.02, axisMixH:[+0.10,-0.06], axisMixS:[+0.00,+0.10], axisMixV:[+0.10,-0.04] },
+    5:  { satGain:0.92, valGain:1.00, gammaV:1.00, exposure:1.00, sMin: -0.02, vMin: +0.00, axisMixH:[+0.05,+0.05], axisMixS:[+0.05,+0.05], axisMixV:[+0.05,+0.05] },
+    6:  { satGain:0.98, valGain:0.98, gammaV:1.05, exposure:0.98, sMin: +0.00, vMin: -0.01, axisMixH:[+0.14,+0.00], axisMixS:[+0.00,+0.08], axisMixV:[+0.12,+0.00] },
+    7:  { satGain:1.06, valGain:0.98, gammaV:0.98, exposure:1.02, sMin: +0.01, vMin: -0.01, axisMixH:[+0.06,+0.14], axisMixS:[+0.12,+0.00], axisMixV:[+0.00,+0.12] },
+    8:  { satGain:1.02, valGain:1.02, gammaV:0.95, exposure:1.05, sMin: +0.01, vMin: +0.01, axisMixH:[+0.10,+0.10], axisMixS:[+0.10,+0.00], axisMixV:[+0.00,+0.10] },
+    9:  { satGain:0.94, valGain:0.98, gammaV:1.08, exposure:0.96, sMin: -0.01, vMin: -0.01, axisMixH:[+0.08,+0.04], axisMixS:[+0.04,+0.08], axisMixV:[+0.08,+0.04] },
+    10: { satGain:1.04, valGain:1.00, gammaV:1.00, exposure:1.04, sMin: +0.01, vMin: +0.00, axisMixH:[+0.12,+0.06], axisMixS:[+0.06,+0.12], axisMixV:[+0.12,+0.06] },
+    11: { satGain:1.08, valGain:1.06, gammaV:0.95, exposure:1.08, sMin: +0.02, vMin: +0.02, axisMixH:[+0.15,+0.12], axisMixS:[+0.12,+0.15], axisMixV:[+0.15,+0.12] }
+  };
+  function clampMix(w){ return Math.max(-0.3, Math.min(0.3, w)); }
+
+  /* ───────────────────────── OFFNNG · parámetros deterministas ─────────────────────────
+     Se llama al construir OFFNNG y cada vez que cambia la escena (refreshAll).
+     Liga el look y el movimiento a sceneSeed, S_global y al rango medio de la escena. */
+  function syncOFFNNGFromScene(){
+    if (!offnngMesh || !offnngMesh.material || !offnngMesh.material.uniforms) return;
+
+    const U = offnngMesh.material.uniforms;
+
+    // —— estadística determinista a partir de la escena ——
+    const selPerms = Array.from(document.getElementById('permutationList').selectedOptions)
+                          .map(o => o.value.split(',').map(Number));
+
+    // Rango medio 2..6 → 0..1
+    let avgR = 4.0;
+    if (selPerms.length){
+      const ranges = selPerms.map(p => computeRange(computeSignature(p)));
+      avgR = ranges.reduce((a,b)=>a+b,0) / ranges.length;
+    }
+    avgSceneRange = avgR;
+    const nr = Math.max(0, Math.min(1, (avgR - 2) / 4)); // 0..1
+
+    // Lehmer stats
+    let sumR = 0, sumR2 = 0, sumSig = 0;
+    selPerms.forEach(p=>{
+      const r = lehmerRank(p);
+      sumR  += r;
+      sumR2 += r*r;
+      const s = computeSignature(p);
+      sumSig += s.reduce((a,b)=>a+b,0); // cada F_i ∈ [3..9]
     });
+    const meanSig = selPerms.length ? (sumSig / (selPerms.length * 5)) : 6; // ~3..9
+    const sigN = Math.max(0, Math.min(1, (meanSig - 3) / 6)); // 0..1
+
+    // —— LOOK base "Strong" (anti-rim OFFNNG) ——
+    U.uSMin.value      = 0.60;
+    U.uVMin.value      = 0.84;
+    U.uSatGain.value   = 1.22;
+    U.uValGain.value   = 1.30;
+    U.uGammaV.value    = 0.58;
+    U.uExposure.value  = 1.90;
+    U.uDensity.value   = 0.70 - 0.05 * nr;
+
+    // Borde: no atenuar y con tinte claro mínimo
+    U.uEdgeBase.value  = 1.00;   // ← clave: elimina el “marco” oscuro
+    U.uEdgeTintV.value = 0.84;   // cara cercana nunca cae de V≈0.84
+    U.uEdgePow.value   = 1.2;    // transición más plana (sin hundir perímetro)
+
+    // —— Bias por patrón (±10–15 %) + mezcla de ejes ≤ 0.3 ——
+    const B = OFFNNG_PATTERN_BIAS[activePatternId] || OFFNNG_PATTERN_BIAS[1];
+    U.uSatGain.value  *= B.satGain;
+    U.uValGain.value  *= B.valGain;
+    U.uGammaV.value   *= B.gammaV;
+    U.uExposure.value *= B.exposure;
+    U.uSMin.value     = Math.max(0.0, Math.min(1.0, U.uSMin.value + (B.sMin || 0)));
+    U.uVMin.value     = Math.max(0.0, Math.min(1.0, U.uVMin.value + (B.vMin || 0)));
+
+    U.uAxisMixH.value.set(clampMix(B.axisMixH[0]), clampMix(B.axisMixH[1]));
+    U.uAxisMixS.value.set(clampMix(B.axisMixS[0]), clampMix(B.axisMixS[1]));
+    U.uAxisMixV.value.set(clampMix(B.axisMixV[0]), clampMix(B.axisMixV[1]));
+
+    // —— Fase determinista (usa sceneSeed, S_global, sumR, sumR2) ——
+    const seedA = (sceneSeed*7 + S_global*13 + sumR)  % 997;
+    const seedB = (sceneSeed*5 + S_global*11 + sumR2) % 991;
+    const φA = 2*Math.PI * (seedA / 997);
+    const φB = 2*Math.PI * (seedB / 991);
+
+    // —— Velocidades contemplativas (base) + LFOs deterministas ——
+    // Hue 6–8 °/s y Rot 3–5 °/s (se modulan por nr y sigN).
+    U.uHueBias.value = sceneSeed;
+
+    U.uHueRate.value = 6.0 + 2.0 * (0.6*nr + 0.4*sigN);
+    U.uRotRateDeg.value = 3.0 + 2.0 * (0.5*nr + 0.5*sigN);
+
+    // LFOs HUE (amplitudes 0.35 / 0.20 °/s; frecuencias lentas)
+    U.uHueLFO1Amp.value   = 0.35;
+    U.uHueLFO2Amp.value   = 0.20;
+    U.uHueLFO1Hz.value    = 0.030 + 0.010 * nr;  // ~33–25 s
+    U.uHueLFO2Hz.value    = 0.013 + 0.007 * nr;  // ~77–50 s
+    U.uHueLFO1Phase.value = φA;
+    U.uHueLFO2Phase.value = φB;
+
+    // LFOs ROT (amplitudes 0.30 / 0.15 °/s; todavía más lentas)
+    U.uRotLFO1AmpDeg.value   = 0.30;
+    U.uRotLFO2AmpDeg.value   = 0.15;
+    U.uRotLFO1Hz.value       = 0.020 + 0.008 * nr; // ~50–35 s
+    U.uRotLFO2Hz.value       = 0.011 + 0.006 * nr; // ~90–62 s
+    U.uRotLFO1Phase.value    = φB + 0.5;          // desfase para evitar lock
+    U.uRotLFO2Phase.value    = φA + 1.0;
+
+    // —— Offset espacial del eje H (como antes) ——
+    const phaseX = ((sceneSeed + 2 * S_global) % 360) / 360;
+    U.uPhaseX.value = phaseX;
+
+    // —— Respiración de brillo (como antes) ——
+    U.uVBreathAmp.value   = 0.12 + 0.04 * nr;
+    U.uVBreathHz.value    = 0.06;
+    const phase0 = ((sceneSeed + S_global) % 144) / 144;
+    U.uVBreathPhase.value = 2.0 * Math.PI * phase0;
+
+    // —— Eje de giro (como antes) ——
+    const toRad = Math.PI / 180;
+    const ax = Math.cos((sceneSeed*13 + S_global*7) * toRad);
+    const ay = Math.cos((sceneSeed*5  + S_global*11) * toRad);
+    const az = Math.cos((sceneSeed*17 - S_global*3) * toRad);
+    const norm = Math.max(1e-6, Math.hypot(ax, ay, az));
+    U.uRotAxis.value.set(ax/norm, ay/norm, az/norm);
+  }
+
+  function toggleOFFNNGQuality(){
+    offnngQualityLow = !offnngQualityLow;
+    if (isOFFNNG) applyOFFNNGQuality();
+    const b = document.getElementById('offnngQualityButton');
+    if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
+    }
+
+    /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
+
+    /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
+    let isTMSL = false;
+    let tmslGroup = null;
+    let tmslPrevBg = null;
+    let tmslPrevControls = true;
+
+    function buildTMSL(){
+      /* limpia versión previa */
+      if (tmslGroup){
+        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+        scene.remove(tmslGroup);
+      }
+      tmslGroup = new THREE.Group();
+
+      /* pared blanca con 2 u de “tiefe” */
+      const DEPTH = 2;
+      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
+      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      const wall = new THREE.Mesh(wallGeo, wallMat);
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+      tmslGroup.add(wall);
+      scene.add(tmslGroup);
+    }
+
+    function toggleTMSL(){           /* se usa sólo internamente */
+      if (!isTMSL){                  /* — ENTRAR — */
+        if (isFRBN)  toggleFRBN();
+        if (isLCHT)  toggleLCHT();
+        if (isOFFNNG)toggleOFFNNG();
+
+        buildTMSL();
+
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
+
+        tmslPrevBg        = scene.background ? scene.background.clone() : null;
+        scene.background  = new THREE.Color(0x000000);   // neutro absoluto
+        tmslPrevControls  = controls.enabled;
+        controls.enabled  = false;                       // cámara fija
+        applyStandardView();                             // vista “front”
+        isTMSL = true;
+
+      } else {                      /* — SALIR — (lo hace BUILD) */
+        if (tmslGroup){
+          tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+          scene.remove(tmslGroup);
+          tmslGroup = null;
+        }
+        if (tmslPrevBg) scene.background = tmslPrevBg;
+        controls.enabled = tmslPrevControls;
+
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
+
+        isTMSL = false;
+      }
+    }
+
+    /* botón selector – sólo enciende, nunca apaga */
+    function ensureOnlyTMSL(){
+      if (!isTMSL) toggleTMSL();
+    }
+
+    /* incluye TMSL en la rueda de motores del botón “4” */
+    function cycleEngine(){
+      if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
+      if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
+      if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
+      if (isTMSL){ switchToBuild(); return; }              // TMSL  → BUILD
+      toggleFRBN();                                        // BUILD → FRBN
+    }
+
+    init();
+
+    // Web3 + NFT Mint (tu código original)
+    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
+    const contractABI = [/* ABI JSON here */];
+    let provider, signer, contract;
+    async function initWeb3() {
+      if (window.ethereum) {
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
+      } else {
+        console.warn("MetaMask no detectado");
+      }
+    }
+    window.addEventListener("load", initWeb3);
+
+    async function mintNFT() {
+      if (!contract) { alert("Wallet no conectada"); return; }
+      try {
+        const hash = await computeConfigHash();
+        const tokenURI = `https://my-server.com/metadata/${hash}.json`;
+        const tx = await contract.mint(await signer.getAddress(), tokenURI);
+        await tx.wait();
+        const nft = {
+          tokenId: hash,
+          tokenURI,
+          owner: await signer.getAddress(),
+          config: exportCurrentConfiguration()
+        };
+        localStorage.setItem("mintedNFT_" + hash, JSON.stringify(nft));
+        console.log("NFT guardado localmente:", nft);
+        alert("NFT acuñado! Hash: " + hash);
+      } catch(e) {
+        console.error(e);
+        alert("Error mint NFT: " + e.message);
+      }
+    }
+
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
      * Title: "PRMMTN – Architecture for thought without words"
@@ -2478,6 +3508,32 @@ V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
       `;
   renderInfoPanel(html);
 }
+function showFRBNInfo(){
+  const html = `
+    <h2>FRBN — Deterministic Ganzfeld</h2>
+    <p><b>What you see cannot be otherwise</b> given the current scene. FRBN does not invent a palette:
+       it extracts it deterministically from the active permutations and the chromatic engine.</p>
+    <ul>
+      <li><b>Source palette.</b> Colors are collected from the glyphs currently on stage
+          (their materials are computed by the same deterministic HSV lattice used in BUILD).
+          If needed, hues are normalised to ensure separation.</li>
+      <li><b>Pattern coupling.</b> The chromatic pattern (1–11) and the global seed
+          (<code>sceneSeed</code>) bias hue selection in BUILD; FRBN reads the result,
+          not a new random set.</li>
+      <li><b>Temporal blend.</b> The shader interpolates the collected colors over time.
+          The rate is tied to the average rotation speed of the permutations, so color
+          breathing <i>follows</i> the scene dynamics.</li>
+      <li><b>No alternatives.</b> For the same set of permutations, mapping and pattern,
+          the FRBN field is reproducible. Change the scene → the field changes; keep the
+          scene → the field must be identical.</li>
+      <li><b>Banding control.</b> A high‑precision dither (blue‑noise) is applied in linear
+          space to avoid contour banding without altering the palette.</li>
+    </ul>
+    <p>FRBN is therefore a <b>deterministic projection</b> of the current combinatorial state,
+       not a decorative background.</p>
+  `;
+  renderInfoPanel(html);
+}
     /* Minimal renderer for the panel (include once; remove if you already have it) */
     function renderInfoPanel(html){
       let panel = document.getElementById('infoPanel');
@@ -2586,7 +3642,7 @@ V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
       final.width = A2_W; final.height = A2_H;
       const fctx = final.getContext('2d');
 
-        if (ENGINE?.activeName === 'FRBN') {
+      if (isFRBN) {
         // — FRBN: cubrir A2 (recorte centrado, sin bandas)
         const scale = Math.max(A2_W / renderW, A2_H / renderH);
         const drawW = Math.ceil(renderW * scale);
@@ -2616,57 +3672,21 @@ V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
       return blob;
     }
 
-
-
-// ===== Reemplazo exportCurrentConfiguration: fuente única (state) =====
-async function exportCurrentConfiguration(){
-  // Intentamos usar el store; si no existe, caemos a un JSON local
-  let serialize, setPerms, setMapping, setPattern, setOverrides, state;
-  try {
-    ({ state, serialize, setPerms, setMapping, setPattern, setOverrides } =
-      await import('./state/store.js'));
-  } catch (e) {
-    // sin store.js → seguimos con fallback silencioso
-  }
-
-  // 1) Leer UI actual
-  const perms = Array
-    .from(document.getElementById('permutationList').selectedOptions)
-    .map(o => o.value);
-  const mapping = {
-    forma: attributeMapping[0], color: attributeMapping[1],
-    x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4]
-  };
-  const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
-  const bg   = document.getElementById('bgColor').value;
-  const cube = document.getElementById('cubeColor').value;
-
-  // 2) Si el store existe, lo usamos (fuente de verdad)
-  if (setPerms && setMapping && setPattern && setOverrides && serialize) {
-    setPerms(perms);
-    setMapping(mapping);
-    setPattern(activePatternId);
-    setOverrides({ colors, bg, cube });
-    if (state){ state.sceneSeed = sceneSeed; state.S_global = S_global; }
-    return serialize();
-  }
-
-  // 3) Fallback estable (sin store)
-  return {
-    perms,
-    mapping,
-    pattern: activePatternId,
-    sceneSeed,
-    S_global,
-    overrides: { colors, bg, cube },
-    view: document.getElementById('standardView')?.value || 'front'
-  };
-}
-
+    /* Configuración actual (mismo formato que exportEmbed) */
+    function exportCurrentConfiguration(){
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+      const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
+                        x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
+      const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
+      const bg   = document.getElementById('bgColor').value;
+      const cube = document.getElementById('cubeColor').value;
+      const view = "front";
+      return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global, frbnK: FRBN_K };
+    }
 
     /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
     async function computeConfigHash(){
-      const cfg = await exportCurrentConfiguration();
+      const cfg = exportCurrentConfiguration();
       const canonical = stableStringify(cfg);
       return sha256Hex(canonical);
     }
@@ -2677,7 +3697,7 @@ async function exportCurrentConfiguration(){
         showPopup("Generando certificado…",2000);
 
         // 1) JSON canónico + hash
-        const cfg = await exportCurrentConfiguration();
+        const cfg = exportCurrentConfiguration();
         const canonicalJSON = stableStringify(cfg);            // ← archivo exacto para hash
         const hashHex = await sha256Hex(canonicalJSON);
 
@@ -2774,45 +3794,8 @@ openssl dgst -sha256 prmttn_config.json</pre>
     }
 
   </script>
-<script>
-// ============ PRMTTN · Core state ============
-
-// Estado serializable (fuente de verdad para los motores)
-function getState(){
-  const selPerms = Array
-    .from(document.getElementById('permutationList').selectedOptions)
-    .map(o => o.value.split(',').map(Number));
-
-  return {
-    perms: selPerms,                                   // [[…], …]
-    mapping: {                                         // shape,color,x,y,z
-      shape: attributeMapping[0],
-      color: attributeMapping[1],
-      x:     attributeMapping[2],
-      y:     attributeMapping[3],
-      z:     attributeMapping[4]
-    },
-    pattern: activePatternId,
-    sceneSeed,
-    S_global,
-    overrides: {
-      bg:   bgOverride,
-      cube: cubeOverride,
-      colors: {...manualOverride}                      // 1..5 -> "#rrggbb"
-    },
-      flags: {
-        FRBN:  ENGINE?.activeName === 'FRBN',
-        LCHT:  ENGINE?.activeName === 'LCHT',
-        OFFNNG: ENGINE?.activeName === 'OFFNNG',
-        TMSL:  ENGINE?.activeName === 'TMSL'
-      },
-    view: document.getElementById('standardView')?.value || 'front'
-  };
-}
-
-</script>
-<!-- DROPZONE SCRIPT FINAL -->
-<script>
+  <!-- DROPZONE SCRIPT FINAL -->
+  <script>
   document.addEventListener("DOMContentLoaded", function() {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
@@ -3106,280 +4089,5 @@ linear blend, satisfying perceptual transparency conditions (Metelli 1974).</p
 <p style="font-size:12px;"><i>Refs.</i>\u00a0Metelli 1974; de\u202fWeert\u202f&\u202fMausfeld 2003.</p>
 `;
 </script>
-<script>
-// Sincroniza el store desde la UI actual (se puede llamar en cualquier momento)
-async function __syncFromUIToStore(){
-  try{
-    const mod = await import('./state/store.js');
-    const { setPerms, setMapping, setPattern, setOverrides, state } = mod;
-
-    // 1) Permutaciones seleccionadas en el <select> existente
-    const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
-    setPerms(perms);
-
-    // 2) Mapping actual (lee tu array/vars globales tal como están)
-    const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
-                      x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
-    setMapping(mapping);
-
-    // 3) Patrón activo y overrides de color
-    setPattern(typeof activePatternId !== 'undefined' ? activePatternId : 1);
-    const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
-    setOverrides({
-      colors,
-      bg: document.getElementById('bgColor')?.value ?? null,
-      cube: document.getElementById('cubeColor')?.value ?? null
-    });
-
-    // 4) Invariantes ya calculados por tu runtime
-    if (typeof sceneSeed !== 'undefined') state.sceneSeed = sceneSeed;
-    if (typeof S_global  !== 'undefined') state.S_global  = S_global;
-  }catch(e){
-    console.warn('[store sync] ignorado:', e);
-  }
-}
-
-// Añadimos un listener adicional al input JSON existente SIN tocar tu handler:
-// dejamos que tu handler procese primero y luego (tick siguiente) reflejamos en el store.
-(function(){
-  const up = document.getElementById('json-upload');
-  if (!up) return;
-  up.addEventListener('change', function(){
-    setTimeout(__syncFromUIToStore, 0);
-  });
-})();
-</script>
-
-<!-- ===================== Web3 + NFT Mint (PR #1: contrato + registry 1.0) ===================== -->
-<script>
-  let provider = null;
-  let signer = null;
-  let contract = null;
-
-  async function ensureWeb3Provider() {
-    if (!window.ethereum) return null;
-    try {
-      const { ethers } = window.ethers || {};
-      if (!ethers) return null;
-      const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
-      await web3Provider.send("eth_requestAccounts", []);
-      return web3Provider;
-    } catch (e) {
-      console.error('No se pudo inicializar Web3:', e);
-      return null;
-    }
-  }
-
-  async function initWeb3AndContract() {
-    // Carga de configuración desde registry.js (sin placeholders).
-    let cfg = null;
-    try {
-      const mod = await import('./engines/registry.js');
-      cfg = typeof mod.getContractConfig === 'function' ? mod.getContractConfig() : null;
-    } catch (e) {
-      console.warn('registry.js no disponible aún:', e);
-    }
-
-    // Si no hay configuración de contrato, aseguramos que el bloque NFT quede oculto.
-    const nftDetails = document.getElementById('nftBlock');
-    if (nftDetails) nftDetails.style.display = 'none';
-
-    if (!cfg) {
-      console.info('Sin config de contrato (OK para PR #1). Mint UI oculto.');
-      return;
-    }
-
-    // Si hay config, inicializamos Web3 y contrato.
-    provider = await ensureWeb3Provider();
-    if (!provider) {
-      console.warn('Proveedor Web3 no disponible. Mint UI permanece oculto.');
-      return;
-    }
-
-    try {
-      const network = await provider.getNetwork();
-      if (cfg.chainId && Number(network.chainId) !== Number(cfg.chainId)) {
-        // Intento de cambio de red (opcional). Si falla, no rompemos UI.
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: '0x' + Number(cfg.chainId).toString(16) }]
-          });
-        } catch (switchErr) {
-          console.warn('Red incorrecta y no se pudo cambiar automáticamente:', switchErr);
-          return;
-        }
-      }
-
-      signer = provider.getSigner();
-      const { ethers } = window.ethers || {};
-      contract = new ethers.Contract(cfg.address, cfg.abi, signer);
-
-      // Con contrato listo, mostramos el bloque NFT y conectamos el botón.
-      if (nftDetails) nftDetails.style.display = 'block';
-      const mintBtn = document.getElementById('btn-mint');
-      if (mintBtn) {
-        mintBtn.removeEventListener('_mint', mintNFT); // evita doble binding si recarga
-        mintBtn.addEventListener('click', mintNFT);
-        mintBtn.addEventListener('_mint', mintNFT);
-      }
-    } catch (err) {
-      console.error('No se pudo inicializar el contrato:', err);
-      if (nftDetails) nftDetails.style.display = 'none';
-    }
-  }
-
-  async function mintNFT() {
-    if (!contract || !signer) {
-      alert("Mint no disponible (sin contrato configurado).");
-      return;
-    }
-    try {
-      // Reutilizamos tu exportador determinista
-      if (typeof exportCurrentConfiguration !== 'function') {
-        alert('Falta exportCurrentConfiguration().');
-        return;
-      }
-      const data = await exportCurrentConfiguration(); // { meta, canvasBlob, qrPngDataURI }
-      // Subida a Bundlr si está activo
-      let tokenURI = null;
-      try {
-        if (window.BundlrUploader && typeof window.BundlrUploader.uploadJSON === 'function') {
-          const res = await window.BundlrUploader.uploadJSON({
-            name: "Pulseprint Configuration",
-            description: (data.meta?.notes || "Sin descripción"),
-            image: data.meta?.qrCode || data.qrPngDataURI || "",
-            attributes: Object.entries(data.meta || {}).map(([k, v]) => ({ trait_type: k, value: String(v) }))
-          });
-          tokenURI = res?.id ? `https://arweave.net/${res.id}` : null;
-        }
-      } catch (bundlrErr) {
-        console.warn('Fallo subiendo a Bundlr, seguimos sin tokenURI:', bundlrErr);
-      }
-
-      // Si no hay tokenURI, persistimos el JSON localmente como data: URI (determinista).
-      if (!tokenURI) {
-        const json = {
-          name: "Pulseprint Configuration",
-          description: (data.meta?.notes || "Sin descripción"),
-          image: data.meta?.qrCode || data.qrPngDataURI || "",
-          attributes: Object.entries(data.meta || {}).map(([k, v]) => ({ trait_type: k, value: String(v) }))
-        };
-        const raw = new TextEncoder().encode(JSON.stringify(json));
-        const b64 = btoa(String.fromCharCode(...raw));
-        tokenURI = `data:application/json;base64,${b64}`;
-      }
-
-      const to = await signer.getAddress();
-      const tx = await contract.mint(to, tokenURI);
-      const receipt = await tx.wait();
-
-      const statusEl = document.getElementById('mint-status');
-      if (statusEl) statusEl.textContent = `Mint OK: tx ${receipt.transactionHash}`;
-      alert('Mint exitoso.');
-    } catch (err) {
-      console.error('Error en mintNFT:', err);
-      const statusEl = document.getElementById('mint-status');
-      if (statusEl) statusEl.textContent = `Error: ${err.message || err}`;
-      alert('Error al mintear.');
-    }
-  }
-
-  // window.addEventListener('load', () => {
-  //   // La selección de motor la gestiona el boot principal
-  //   initWeb3AndContract();
-  // });
-</script>
-<script>
-  // Mint: OFF intencionalmente
-  window.addEventListener('load', () => {
-    const nftDetails = document.getElementById('nftBlock');
-    if (nftDetails) nftDetails.style.display = 'none';
-  });
-</script>
-<!-- ───────────────────────── ARCHIVE (inert) ─────────────────────────
-     Elementos desactivados y retirados del flujo, conservados aquí:
-     - CUSTOM_COLORS (120 propuestos “aleatorio”)
-     - Rating UI y Evolution (manual)
-     Nada de esto se ejecuta. Sirve solo como referencia histórica/estructural.
-────────────────────────────────────────────────────────────────────── -->
-<script type="application/json" id="prmttn-archive">
-{
-  "customColors": [
-    "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
-    "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
-    "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
-    "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
-    "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
-    "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
-    "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
-    "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
-    "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
-    "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
-    "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
-    "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
-    "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
-    "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
-    "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
-    "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
-    "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
-    "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
-  ],
-  "removedHtml": {
-    "ratingContainer": true,
-    "evolutionControls": true
-  },
-  "removedJs": {
-    "ratingListeners": true,
-    "applyEvolutionManual": true
-  }
-}
-</script>
-
-<script>
-// Alias compacto: OFFNG ⇄ OFFNNG
-const __ALIAS = { OFFNG:'OFFNNG', OFFNNG:'OFFNNG' };
-
-async function safeEnter(name){
-  const target = String(name).toUpperCase();
-  if (!window.ENGINE?.enter) return;
-  try {
-    await window.ENGINE.enter(target);
-  } catch (e){
-    const alt = __ALIAS[target];
-    if (alt) { try { await window.ENGINE.enter(alt); } catch(_){} }
-  } finally {
-    try { updateEngineButtonsUI(); } catch(_) {}
-  }
-}
-
-async function safeEngineCycle(){
-  if (window.ENGINE?.cycle) return window.ENGINE.cycle();
-
-  const available = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
-  const active =
-    (ENGINE?.active && typeof ENGINE.active === 'function') ? ENGINE.active() :
-    (ENGINE?.activeName || 'BUILD');
-
-  const idx  = Math.max(0, available.indexOf(String(active).toUpperCase()));
-  const next = available[(idx + 1) % available.length];
-  return safeEnter(next);
-}
-
-// Inyecta contexto para motores que lo pidan
-window.addEventListener('load', ()=>{
-  try{
-    if (window.ENGINE?.context){
-      window.ENGINE.context({
-        getState,
-        refreshAll,
-        scene, camera, renderer, controls,
-        core: window.core || {}
-      });
-    }
-  }catch(_){ }
-});
-</script>
-
 </body>
 </html>
