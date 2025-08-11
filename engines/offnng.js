@@ -1,4 +1,4 @@
-// engines/offnng.js
+// ./engines/offnng.js
 // OFFNNG volumétrico continuo (extraído y encapsulado)
 let isOn = false;
 let group = null;
@@ -140,7 +140,6 @@ void main(){
   vec3 pos = ro + rd * (t0 + 0.5 * dt);
 
   vec3 acc = vec3(0.0); float a=0.0;
-  float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
 
   float hueDrift = uHueRate
                  + uHueLFO1Amp * sin(6.2831853 * uHueLFO1Hz * uTime + uHueLFO1Phase)
@@ -219,17 +218,15 @@ function syncFromScene(){
   if (!mesh || !mesh.material || !mesh.material.uniforms) return;
   const U = mesh.material.uniforms;
 
-  const selPerms = Array.from(document.getElementById('permutationList').selectedOptions)
-    .map(o => o.value.split(',').map(Number));
+  const sel = document.getElementById('permutationList');
+  const selPerms = sel ? Array.from(sel.selectedOptions).map(o => o.value.split(',').map(Number)) : [];
 
-  // rango medio 2..6
   let avgR = 4.0;
   if (selPerms.length){
     const ranges = selPerms.map(p => window.computeRange(window.computeSignature(p)));
     avgR = ranges.reduce((a,b)=>a+b,0) / ranges.length;
   }
   const nr = Math.max(0, Math.min(1, (avgR - 2) / 4));
-  const sigAvg = 6;
   const sigN = 0.5;
 
   U.uHueBias.value = window.sceneSeed;
@@ -260,6 +257,10 @@ function syncFromScene(){
 
 function animate(){
   if (!isOn || !mesh) return;
+  // mantener uInvModel correcto por si hay transformaciones de escena
+  mesh.updateMatrixWorld(true);
+  mesh.material.uniforms.uInvModel.value.copy(mesh.matrixWorld).invert();
+
   mesh.material.uniforms.uTime.value = performance.now() * 0.001;
   rafId = requestAnimationFrame(animate);
 }

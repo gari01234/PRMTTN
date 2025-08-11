@@ -1,6 +1,5 @@
 // ./engines/registry.js
-// PRMTTN – Engine Registry (v2)
-// Objetivo: entradas fiables para LCHT/OFFNNG/TMSL y retorno estable a BUILD.
+// PRMTTN – Engine Registry (v2.1)
 
 const NAME_ALIAS = { OFFNG: 'OFFNNG', Offnng: 'OFFNNG', offng: 'OFFNNG' };
 const ORDER = ['BUILD', 'FRBN', 'LCHT', 'OFFNNG', 'TMSL'];
@@ -68,9 +67,11 @@ function ensureRegistered(name){
 
 // ————— API pública —————
 function register(name, api){
-  const N = norm(name);
-  if (!api) return;
-  _engines.set(N, api);
+  let N = null, A = null;
+  if (typeof name === 'string') { N = norm(name); A = api; }
+  else if (name && typeof name === 'object') { A = name; N = norm(name.name || name.id); }
+  if (!N || !A) return;
+  _engines.set(N, A);
 }
 
 function enter(name){
@@ -80,9 +81,9 @@ function enter(name){
 
   if (finalName === _activeName) return true;
 
-  // 1) salir del motor anterior (si lo hay)
+  // 1) salir del motor anterior (acepta 'exit' también)
   if (_active){
-    callOne(_active, ['leave','stop','unmount','destroy'], ctx());
+    callOne(_active, ['leave','exit','stop','unmount','destroy'], ctx());
   }
   // 2) saneo del renderer/escena por si el motor tocó el loop
   restoreBaseLoop();

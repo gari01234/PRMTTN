@@ -1,5 +1,5 @@
-// engines/frbn.js
-// FRBN como Engine: exclusivo, pero con fallbacks a window.* y loop de tiempo propio.
+// ./engines/frbn.js
+// FRBN como Engine: exclusivo, con fallbacks a window.* y loop de tiempo propio.
 
 let hostRef = null;
 const FRBNEngine = (() => {
@@ -182,7 +182,7 @@ const FRBNEngine = (() => {
       if (!skySphere) skySphere = buildSkySphere(H);
       if (H.scene && skySphere && skySphere.parent !== H.scene) H.scene.add(skySphere);
 
-      // shim/namespace público
+      // shim público (asegura que window.FRBN tenga enter/leave también)
       try {
         window.FRBN = Object.assign(window.FRBN || {}, {
           isFRBN: true,
@@ -192,14 +192,18 @@ const FRBNEngine = (() => {
             if (H.cubeUniverse) H.cubeUniverse.visible = !!cube;
             if (H.permutationGroup) H.permutationGroup.visible = !!perms;
           },
-          __host: hostRef
+          __host: hostRef,
+          enter: (...args)=>FRBNEngine.enter(...args),
+          leave: ()=>FRBNEngine.leave(),
+          exit:  ()=>FRBNEngine.leave()
         });
       } catch(_) {}
 
       sync();
       startTick();
     },
-    exit(){
+    // IMPORTANTE: usar "leave" (el registry lo invoca)
+    leave(){
       const H = safeHost(hostRef);
       stopTick();
       if (skySphere && H.scene) H.scene.remove(skySphere);
@@ -208,21 +212,23 @@ const FRBNEngine = (() => {
       if (H.scene)             H.scene.background         = prev.bg || H.scene.background;
       try { if (window.FRBN) window.FRBN.isFRBN = false; } catch(_) {}
     },
+    // alias por compatibilidad
+    exit(){ FRBNEngine.leave(); },
     syncFromScene: sync
   };
 })();
 
-// auto-registro (con reintento si registry aún no cargó)
+// auto-registro (con nombre correcto)
 (function registerWhenReady(){
-  if (window.ENGINE && typeof window.ENGINE.register === 'function') {
-    window.ENGINE.register(FRBNEngine);
-  } else {
+  const reg = () => window.ENGINE && typeof window.ENGINE.register === 'function'
+    ? window.ENGINE.register('FRBN', FRBNEngine) : null;
+  if (!reg()){
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const again = () => {
-      if (window.ENGINE && typeof window.ENGINE.register === 'function') {
-        window.ENGINE.register(FRBNEngine);
-      } else if (((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 4000) {
-        setTimeout(again, 50);
+      if (!reg()){
+        if (((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 4000) {
+          setTimeout(again, 50);
+        }
       }
     };
     setTimeout(again, 50);
@@ -232,10 +238,10 @@ const FRBNEngine = (() => {
 export default FRBNEngine;
 export const FRBN = FRBNEngine;
 
-// ——— Controlador público (wire/toggle) con fallbacks ———
+// Controlador público (mantiene API previa)
 (function(){
   try{
-    const CTRL = window.FRBN = Object.assign(window.FRBN || {}, {});
+    const CTRL = window.FRBN = Object.assign(window.FRBN || {}, FRBNEngine);
     CTRL.wire = function(host){
       try { CTRL.__host = host; } catch(_){ }
       try { FRBNEngine && FRBNEngine.enter && (hostRef = host); } catch(_){ }
@@ -243,7 +249,7 @@ export const FRBN = FRBNEngine;
     CTRL.toggle = async function(){
       const host = CTRL.__host || null;
       if (!CTRL.isFRBN) FRBNEngine.enter(host);
-      else FRBNEngine.exit();
+      else FRBNEngine.leave();
     };
     if (typeof CTRL.syncFromScene !== 'function') {
       CTRL.syncFromScene = () => { try { FRBNEngine.syncFromScene(); } catch(_){ } };
