@@ -1383,21 +1383,23 @@ function evalProp(prop, args = [], fallback = 0){
       const [X,Y,Z]=computeShiftRankXYZ(pa);
 
       // --- BOOST frontal (0..1) en función de Z dentro del cubo ---
-      const zNorm = (Z + halfCube) / cubeSize;               // -15→0  ·  +15→1
-      let [hh,ss,vv] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
-      // un poco más de luz y croma hacia delante, sin clip
-      vv = Math.min(1, vv * (1.05 + 0.25*zNorm) + 0.06*zNorm);
-      ss = Math.min(1, ss * (1.02 + 0.18*zNorm));
+      const zNorm = (Z + halfCube) / cubeSize;               // -15→0 · +15→1
+      let [hh, ss, vv] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+
+      /* ✅ Ajustes suaves: reducimos el over-boost que lavaba/quemaba color. */
+      vv = Math.min(1, vv * (1.03 + 0.15 * zNorm) + 0.03 * zNorm);
+      ss = Math.min(1, ss * (1.01 + 0.10 * zNorm));
       const rgbBoost = hsvToRgb(hh, ss, vv);
 
-      const mat=new THREE.MeshPhongMaterial({
-        color:new THREE.Color(rgbBoost[0]/255,rgbBoost[1]/255,rgbBoost[2]/255),
-        shininess:60,
-        dithering:true
+      /* ✅ Menos brillo especular y emissive controlado → colores más limpios */
+      const mat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255),
+        shininess: 18,                               // antes 60
+        specular: new THREE.Color(0x111111),         // evita brillos blancos
+        dithering: true
       });
-      // brillo intrínseco suave (más al frente)
-      mat.emissive = new THREE.Color(rgbBoost[0]/255,rgbBoost[1]/255,rgbBoost[2]/255);
-      mat.emissiveIntensity = 0.18 + 0.55 * zNorm;
+      mat.emissive = new THREE.Color(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
+      mat.emissiveIntensity = 0.08 + 0.30 * zNorm;   // antes 0.18 + 0.55*zNorm
 
       const geo=new THREE.BoxGeometry(w,h,t);
       const mesh=new THREE.Mesh(geo,mat);
@@ -2610,12 +2612,20 @@ function renderArchPanel(html){
       });
     }
     function initRenderer(){
-      renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
-      // CAP global: mejora FPS en todas las escenas
-      const PR = Math.min(window.devicePixelRatio || 1, 1.25);
+      // Antialias + conservar buffer para exportación
+      renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+
+      /* ✅ Más nitidez en BUILD:
+         - Subimos el cap del pixelRatio de 1.25 → 2.0 (sin ir al máximo del dispositivo para no matar FPS).
+         - ACES + exposure suave evitan “quemados” y lavados sin tocar tus colores deterministas. */
+      const PR = Math.min(window.devicePixelRatio || 1, 2.0);
       renderer.setPixelRatio(PR);
-      renderer.setSize(window.innerWidth,window.innerHeight);
-      renderer.outputEncoding = THREE.sRGBEncoding; // sRGB → menos banding
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.95;
+
       document.body.appendChild(renderer.domElement);
     }
     /* ════════════════════════════════════════════════
@@ -2656,9 +2666,12 @@ function renderArchPanel(html){
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
       document.getElementById('standardView').value = 'front';
       applyStandardView();
-      scene.add(new THREE.AmbientLight(0xffffff,0.8));
-      const dir=new THREE.DirectionalLight(0xffffff,0.5);
-      dir.position.set(1,1,1);
+      // Al entrar, ver un poco más lejos: 2× zoomOut (cada uno mueve +5 en Z)
+      zoomOut();
+      zoomOut();
+      scene.add(new THREE.AmbientLight(0xffffff, 0.35));   // antes 0.8
+      const dir = new THREE.DirectionalLight(0xffffff, 0.85); // antes 0.5
+      dir.position.set(1, 1.2, 1.5);
       scene.add(dir);
 
       const cubeGeo=new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
