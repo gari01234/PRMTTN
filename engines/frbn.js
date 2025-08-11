@@ -169,6 +169,7 @@ const FRBNEngine = (() => {
   }
 
   return {
+    name: 'FRBN',
     id: 'FRBN',
     enter(host){
       hostRef = host || hostRef || {};
@@ -211,10 +212,22 @@ const FRBNEngine = (() => {
   };
 })();
 
-// auto-registro
-if (window.ENGINE && typeof window.ENGINE.register === 'function') {
-  window.ENGINE.register(FRBNEngine);
-}
+// auto-registro (con reintento si registry aún no cargó)
+(function registerWhenReady(){
+  if (window.ENGINE && typeof window.ENGINE.register === 'function') {
+    window.ENGINE.register(FRBNEngine);
+  } else {
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const again = () => {
+      if (window.ENGINE && typeof window.ENGINE.register === 'function') {
+        window.ENGINE.register(FRBNEngine);
+      } else if (((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 4000) {
+        setTimeout(again, 50);
+      }
+    };
+    setTimeout(again, 50);
+  }
+})();
 
 export default FRBNEngine;
 export const FRBN = FRBNEngine;
