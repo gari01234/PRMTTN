@@ -59,6 +59,10 @@
     })();
     </script>
     <script type="module" src="./engines/frbn.js"></script>
+    <!-- engines -->
+    <script type="module" src="./engines/lcht.js"></script>
+    <script type="module" src="./engines/offnng.js"></script>
+    <script type="module" src="./engines/tmsl.js"></script>
   <style>
   body {
     margin: 0;
@@ -569,142 +573,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       // >>> NUEVO:
       let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
-      let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
-
-      /* ─────────────────────────────
-       *   FRBN  ·  shim con carga perezosa (engines/frbn.js)
-       * ───────────────────────────── */
-      let isFRBN = false; // espejo usado en otras partes del código
-
-      // Entorno explícito que ofrecemos a FRBN (sin asumir globales)
-      function getFRBNHost(){
-        const getSelectedPerms = () =>
-          Array.from(document.getElementById('permutationList').selectedOptions)
-            .map(o => o.value.split(',').map(Number));
-
-        return {
-          THREE,
-          scene,
-          camera,
-          renderer,
-          controls,
-          cubeUniverse,
-          permutationGroup,
-          getSelectedPerms,
-          invariants: {
-            get sceneSeed(){ return sceneSeed; },
-            get S_global(){ return S_global; },
-            get attributeMapping(){ return attributeMapping.slice(0,5); },
-            get activePatternId(){ return activePatternId; }
-          },
-          utils: {
-            computeSignature, computeRange, lehmerRank,
-            idxToHSV, hsvToRgb, rgbToHsv, hsvToHex,
-            ensureContrastRGB, deltaE, rgbToLab
-          }
-        };
-      }
-
-      async function ensureFRBNLoaded(){
-        // 1) ¿ya está disponible?
-        if (window.FRBN && typeof window.FRBN === 'object') {
-          await tryWireFRBN();                   // asegura "wire" una sola vez
-          return typeof window.FRBN.toggle === 'function';
-        }
-
-        // 2) import dinámico (el <script type="module"> podría no haber registrado aún)
-        try {
-          const mod = await import('./engines/frbn.js');
-          // Si el módulo no se auto-registra, exponemos algo razonable
-          if (!window.FRBN) {
-            window.FRBN = mod.default || mod.FRBN || mod;
-          }
-        } catch (e) {
-          // silencioso: seguimos al polling corto
-        }
-
-        // 3) Espera corta a que el módulo se auto-registre en window.FRBN
-        const t0 = performance.now();
-        while (performance.now() - t0 < 1500){
-          if (window.FRBN && typeof window.FRBN.toggle === 'function') {
-            await tryWireFRBN();
-            return true;
-          }
-          await new Promise(r => setTimeout(r, 50));
-        }
-
-        console.error('FRBN no disponible: engines/frbn.js no expone interfaz usable');
-        return false;
-      }
-
-      // Realiza el “wire”/“init” una sola vez, sin asumir nombre exacto
-      async function tryWireFRBN(){
-        if (!window.FRBN || window.FRBN.__wired) return;
-        const host = getFRBNHost();
-
-        try {
-          if (typeof window.FRBN.wire === 'function') {
-            await window.FRBN.wire(host);
-          } else if (typeof window.FRBN.init === 'function') {
-            await window.FRBN.init(host);
-          } else if (typeof window.FRBN.setup === 'function') {
-            await window.FRBN.setup(host);
-          } else if (typeof window.FRBN.acceptHost === 'function') {
-            await window.FRBN.acceptHost(host);
-          } else {
-            // Último recurso: dejamos el host disponible
-            window.FRBN.host = host;
-          }
-          window.FRBN.__wired = true;
-        } catch(e){
-          console.error('FRBN: fallo al inicializar/wire', e);
-        }
-      }
-
-      async function toggleFRBN(){
-        const ok = await ensureFRBNLoaded();
-        if (!ok) { showPopup('FRBN no disponible (engines/frbn.js)', 3000); return false; }
-
-        try{
-          await window.FRBN.toggle();
-          isFRBN = !!window.FRBN.isFRBN;              // espejo local consistente
-
-          // Sincroniza inmediatamente si el motor lo expone
-          if (isFRBN && typeof window.FRBN.syncFromScene === 'function') {
-            window.FRBN.syncFromScene();
-          }
-
-          // Botones
-          updateEngineButtonsUI?.();
-
-          // Visibilidad básica (por si el motor no la fuerza)
-          if (typeof window.FRBN.controlsVisibility === 'function'){
-            window.FRBN.controlsVisibility({ cube:false, perms:false });
-          } else {
-            cubeUniverse.visible     = !isFRBN;
-            permutationGroup.visible = !isFRBN;
-          }
-
-          const b = document.getElementById('frbnButton');
-          if (b) b.textContent = isFRBN ? 'FRBN ON' : 'FRBN';
-          window.isFRBN = isFRBN;
-
-          return isFRBN;
-        }catch(e){
-          console.error('FRBN: error al alternar', e);
-          showPopup('FRBN: error al alternar', 3000);
-          return false;
-        }
-      }
-
-      function frbnOn(){ return !!(window.FRBN && window.FRBN.isFRBN); }
-
-      // Utilidad opcional (si el motor la implementa)
-      function buildGanzfeld(){
-        if (window.FRBN && typeof window.FRBN.buildGanzfeld === 'function') {
-          window.FRBN.buildGanzfeld();
-        }
-      }
 
       /* Información FRBN (no rompe si el módulo aún no expone showInfo) */
       function showFRBNInfo(){
@@ -716,248 +584,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
       }
 
     /* ────────────────────────────
-     *   LCHT · deterministic Light Tubes
-     * ───────────────────────────── */
-    let lichtGroup = null;
-    let isLCHT     = false;
-    let lchtPrevBg = null;          // guarda/restaura el fondo al salir
-
-    /* color determinista = mismo que la permutación                    */
-    function colorForPerm(pa){
-      const idx = pa[ attributeMapping[1] ];                // 1–5
-      const val = getColor(idx);
-      return Array.isArray(val)
-        ? toThreeColor(val)
-        : new THREE.Color(val);
-    }
-
-    /* ═════════ LCHT “cubos-de-tubos” (Sol LeWitt) ═════════════════ */
-
-function tubeKey(x1, y1, z1, x2, y2, z2) {
-  const a = `${x1},${y1},${z1}`;
-  const b = `${x2},${y2},${z2}`;
-  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
-}
-
-function buildLCHT() {
-  /* ── limpiar escena previa ─────────────────────────────── */
-  if (lichtGroup) {
-    lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-    scene.remove(lichtGroup);
-  }
-  lichtGroup = new THREE.Group();
-  scene.add(lichtGroup);
-
-  const step       = cubeSize / 5;
-  const litInfo    = new Map();      // key → { color, lcht, perm }
-  const collisions = new Set();      // aristas compartidas entre perms
-
-  /* ── helpers ───────────────────────────────────────────── */
-
-  /* inserta una arista evitando duplicados intra-perm */
-  function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
-    const key = tubeKey(x1, y1, z1, x2, y2, z2);
-    if (seen.has(key)) return;                 // ya la añadió este perm
-    seen.add(key);
-
-    if (litInfo.has(key)) {                    // ¿otra permutación?
-      if (litInfo.get(key).perm !== perm) collisions.add(key);
-      return;
-    }
-    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
-  }
-
-  /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
-  function addCube(cx, cy, cz, color, lcht, perm, seen) {
-    const v = [
-      [cx,     cy,     cz],
-      [cx + 1, cy,     cz],
-      [cx + 1, cy + 1, cz],
-      [cx,     cy + 1, cz],
-      [cx,     cy,     cz + 1],
-      [cx + 1, cy,     cz + 1],
-      [cx + 1, cy + 1, cz + 1],
-      [cx,     cy + 1, cz + 1]
-    ];
-    const E = [
-      [0, 1], [1, 2], [2, 3], [3, 0],   // base
-      [4, 5], [5, 6], [6, 7], [7, 4],   // tapa
-      [0, 4], [1, 5], [2, 6], [3, 7]    // pilares
-    ];
-    E.forEach(([a, b]) =>
-      addEdge(...v[a], ...v[b], color, lcht, perm, seen)
-    );
-  }
-
-  /* ── recopilar aristas de todas las permutaciones ───────── */
-
-    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                       .map(o => o.value.split(',').map(Number));
-
-    /* — rango promedio de la escena — */
-    {
-      const rgs = perms.map(p => computeRange(computeSignature(p)));
-      avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
-    }
-
-    perms.forEach((pa, permIdx) => {
-      const L       = pa[attributeMapping[0]];               // altura torre
-      const col     = colorForPerm(pa);
-      const sig     = computeSignature(pa);
-      const rng     = computeRange(sig);
-      const r       = lehmerRank(pa);
-    const I       = (r + sceneSeed + S_global) % 125;
-    const x0      = Math.floor(I / 25);
-    const y0      = Math.floor((I % 25) / 5);
-    const z0      = I % 5;
-
-    const lcht = {
-      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
-      amp: 0.05 + 0.10 * rng,
-      f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((r % 360) / 360)
-    };
-
-    const seen = new Set();           // evita negros por duplicado interno
-
-    /* ① Torre central + cruz lateral (un cubo por nivel) */
-    for (let s = 0; s < L; s++) {
-      const y = y0 + s;
-
-      // cubo central
-      addCube(x0, y, z0, col, lcht, permIdx, seen);
-
-      // 4 cubos laterales
-      addCube(x0 + 1, y, z0,     col, lcht, permIdx, seen);
-      addCube(x0 - 1, y, z0,     col, lcht, permIdx, seen);
-      addCube(x0,     y, z0 + 1, col, lcht, permIdx, seen);
-      addCube(x0,     y, z0 - 1, col, lcht, permIdx, seen);
-    }
-
-    /* ② Brazos horizontales en ±X, ±Z (planos y = y₀ y y = y₀+L) */
-    const dirs = [
-      [ 1, 0,  0], [-1, 0,  0],
-      [ 0, 0,  1], [ 0, 0, -1]
-    ];
-    [y0, y0 + L].forEach(yy => {
-      dirs.forEach(([dx, _, dz]) => {
-        for (let s = 0; s < L; s++) {
-          addCube(x0 + dx * s, yy, z0 + dz * s, col, lcht, permIdx, seen);
-        }
-      });
-    });
-  });
-
-  /* ── colisiones → negro + sin luz ───────────────────────── */
-  // collisions.forEach(k => {
-  //   const d = litInfo.get(k);
-  //   if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
-  // });
-
-  /* ── geometría final  ·  cada arista → varios segmentos coloreados ── */
-  litInfo.forEach((info, key) => {
-    const [a, b]        = key.split('|');
-    const [x1, y1, z1]  = a.split(',').map(Number);
-    const [x2, y2, z2]  = b.split(',').map(Number);
-
-    const p1   = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
-    const p2   = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
-    const dir  = new THREE.Vector3().subVectors(p2, p1);
-    const len  = dir.length();
-    const dN   = dir.clone().normalize();
-
-    /* nº de segmentos = 1 por celda de 6 u, mínimo 1 */
-    const SEG  = Math.max(1, Math.ceil(len / step));
-    const hSeg = len / SEG;            // altura de cada sub-cilindro
-
-    const [h, s, v] = rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
-
-    for(let i = 0; i < SEG; i++){
-      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
-
-      const col = colorFromVolume(mid);   // sin pruebas de I0
-
-      // — Perfil cuadrado (lado = 0.8 ⇒ igual diámetro que el cilindro de r=0.4)
-      // — JOIN añade un pelín de solape para que las esquinas no “abran”
-      const SIDE = 0.2;
-      const JOIN = 0.02;
-
-      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
-      const mat = new THREE.MeshPhongMaterial({
-        color: col,
-        shininess: 0,
-        dithering: true,
-        flatShading: true
-      });
-
-      const tube = new THREE.Mesh(geo, mat);
-      tube.position.copy(mid);
-      // La Box está orientada a lo largo del eje Y; mantenemos el mismo alineamiento
-      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
-
-      /* --- HSV original para animar color --- */
-      tube.userData.baseHsv = { h, s, v };
-
-      tube.userData.lcht = info.lcht;   // mantiene intensidad/emissive
-      lichtGroup.add(tube);
-    }
-  });
-}
-/* ════════════════════════════════════════════════════════════ */
-
-
-    function toggleLCHT(){
-      if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
-      if (!isLCHT && isTMSL)  toggleTMSL();
-      isLCHT = !isLCHT;
-
-        if (isLCHT){
-          /* — cambia material del cubo a lambert para que capte luz — */
-          if(!cubeUniverse.userData.prevMat){
-            cubeUniverse.userData.prevMat = cubeUniverse.material;
-            cubeUniverse.material = new THREE.MeshLambertMaterial({
-              color: cubeUniverse.userData.prevMat.color,
-              transparent: true,
-              opacity: cubeUniverse.userData.prevMat.opacity,
-              side: cubeUniverse.userData.prevMat.side
-            });
-          }
-          if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-          scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-          if (frbnOn()) toggleFRBN();                         // LCHT excluye FRBN
-          buildLCHT();
-          lichtGroup.visible        = true;
-          cubeUniverse.visible      = false;
-          permutationGroup.visible  = false;
-        } else {
-          /* — restaura material original — */
-          if(cubeUniverse.userData.prevMat){
-            cubeUniverse.material.dispose();
-            cubeUniverse.material = cubeUniverse.userData.prevMat;
-            delete cubeUniverse.userData.prevMat;
-          }
-          if (lichtGroup) lichtGroup.visible = false;
-          if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
-          lchtPrevBg = null;
-          cubeUniverse.visible      = true;
-          permutationGroup.visible  = true;
-        }
-      const b = document.getElementById('lchtButton');
-      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
-      window.isLCHT = isLCHT;
-      window.toggleLCHT = toggleLCHT;
-    }
-
-    /* reconstruye LCHT si hay cambios de escena */
-    function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
 
     /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
-      if (isOFFNNG) toggleOFFNNG();   // ← NUEVO: asegura exclusividad
-      if (frbnOn()) toggleFRBN();   // apaga FRBN si estaba activo
-      if (isLCHT)   toggleLCHT();   // apaga LCHT si estaba activo
-      if (isTMSL)   toggleTMSL();   // apaga TMSL si estaba activo
-      /* Nada más: la escena existente permanece tal cual */
+      if (window.ENGINE?.enter) ENGINE.enter('BUILD');
     }
 
     const GOLD = 137.50776405003785;      // ángulo áureo
@@ -988,20 +618,6 @@ function buildLCHT() {
 
     /* ═════════ COLOR-FIELD 144 × 12 × 12  ═════════════════════════════ */
     /* Devuelve el color del «voxel HSV» que ocupa la posición p (mundo) */
-    function colorFromVolume(p){
-      const HALF = cubeSize / 2;          // ±15  (cubo 30×30×30 ya existe)
-      const HX = 144, HY = 12, HZ = 12;   // rejilla 20 736 colores
-
-      /* índices enteros en cada eje, envueltos al rango válido */
-      const ix = ((Math.floor((p.x + HALF) / cubeSize * HX) % HX) + HX) % HX;
-      const iy = ((Math.floor((p.y + HALF) / cubeSize * HY) % HY) + HY) % HY;
-      const iz = ((Math.floor((p.z + HALF) / cubeSize * HZ) % HZ) + HZ) % HZ;
-
-      /* HSV determinista → RGB → THREE.Color */
-      const {h,s,v} = idxToHSV(ix, iy, iz);
-      const [R,G,B] = hsvToRgb(h, s, v);
-      return new THREE.Color(R/255, G/255, B/255);
-    }
 
     /* Normaliza cualquier hue a rango [0 … 360) */
     function normHue(deg){
@@ -1537,7 +1153,7 @@ function updateScene(attemptResolve=true){
 
     if (attemptResolve) autoResolveColisionesGlobal();
     else updateTopRightDisplay();
-    if (isFRBN && window.FRBN) window.FRBN.syncFromScene();
+      if (ENGINE?.activeName === 'FRBN' && window.FRBN) window.FRBN.syncFromScene();
     }
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
@@ -1646,7 +1262,7 @@ function saveImage(){
   final.width = A2_W; final.height = A2_H;
   const fctx = final.getContext('2d');
 
-  if (isFRBN) {
+    if (ENGINE?.activeName === 'FRBN') {
     // —— FRBN: cubrir A2 sin bandas (recorte centrado)
     const scale = Math.max(A2_W / renderW, A2_H / renderH);
     const drawW = Math.ceil(renderW * scale);
@@ -1817,28 +1433,23 @@ function makePalette(){
       });
     }
 
-    function refreshAll(opts = {rebuild:false}){
-      if(!opts.keepManual){            // por defecto se limpian colores manuales
-        manualOverride = {};
-      }
+    function refreshAll(opts = {rebuild:false, keepManual:false}){
+      if(!opts.keepManual){ manualOverride = {}; }
       if(opts.rebuild) updateScene(false);
 
       rebuildSceneColours();
       makePalette();
       applyPalette();
 
-      /* Mientras LCHT está activo, NO toques el fondo ni las paredes
-         (evita que los patrones cromáticos los re-coloreen).        */
-      if (!isLCHT){
-        updateBackground(false);   // ← automático
-        updateCubeColor(false);    // ← automático
+      // Mientras LCHT está activo, NO tocamos fondo y paredes (eso lo gestiona el motor)
+      if (!window.ENGINE || ENGINE.activeName === 'BUILD' || ENGINE.activeName === 'FRBN'){
+        updateBackground(false);
+        updateCubeColor(false);
       }
 
       if (window.ENGINE && typeof window.ENGINE.syncFromScene === 'function') {
-        window.ENGINE.syncFromScene();   // sincroniza el motor activo (FRBN u otro)
+        window.ENGINE.syncFromScene();   // ← el registry reenviará al motor activo
       }
-      rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
-      if (isOFFNNG) syncOFFNNGFromScene();
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -1853,7 +1464,7 @@ function makePalette(){
     }
     function updateBackground(manual = true){
       // Si LCHT está activo y NO es una acción manual, no tocamos el fondo
-      if (isLCHT && !manual) return;
+      if (ENGINE?.activeName === 'LCHT' && !manual) return;
 
       if (manual){
         bgOverride = document.getElementById("bgColor").value;
@@ -1909,36 +1520,17 @@ function makePalette(){
     }
 
     function safeEngineCycle(){
-      // Si el engine expone un ciclo propio, úsalo.
       if (window.ENGINE?.cycle) return ENGINE.cycle();
 
-      // Catálogo disponible en este runtime (orden estable)
-      const available = ['BUILD'];
-      if (typeof toggleFRBN  === 'function' || window.FRBN)  available.push('FRBN');
-      if (typeof toggleOFFNNG=== 'function')                 available.push('OFFNNG');
-      if (typeof toggleLCHT  === 'function')                 available.push('LCHT');
-      if (typeof toggleTMSL  === 'function')                 available.push('TMSL');
+      const available = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
+      const active =
+        (ENGINE?.activeName) ||
+        (ENGINE?.state && ENGINE.state.active) ||
+        (ENGINE?.current) || 'BUILD';
 
-      // Estado actual detectado
-      const current =
-        (window.isFRBN   && 'FRBN')   ||
-        (window.isOFFNNG && 'OFFNNG') ||
-        (window.isLCHT   && 'LCHT')   ||
-        (window.isTMSL   && 'TMSL')   ||
-        'BUILD';
-
-      const idx  = Math.max(0, available.indexOf(current));
+      const idx  = Math.max(0, available.indexOf(active));
       const next = available[(idx + 1) % available.length];
-
-      // Preferir toggles explícitos; usar registry sólo para BUILD
-      if (next === 'FRBN')   return toggleFRBN?.();
-      if (next === 'OFFNNG') return toggleOFFNNG?.();
-      if (next === 'LCHT')   return toggleLCHT?.();
-      if (next === 'TMSL')   return toggleTMSL?.();
-
-      // BUILD
-      if (window.ENGINE?.enter) return ENGINE.enter('BUILD');
-      return switchToBuild?.();
+      return ENGINE?.enter ? ENGINE.enter(next) : undefined;
     }
 
     /* 3.1 Patrón cromático siguiente */
@@ -2560,10 +2152,8 @@ function renderArchPanel(html){
       Object.assign(window, {
         scene, camera, renderer, controls,
         cubeUniverse, permutationGroup,
-        refreshAll, toggleLCHT, toggleOFFNNG, switchToBuild
+        refreshAll
       });
-      window.isLCHT = isLCHT;
-      window.isOFFNNG = isOFFNNG;
 
       raycaster=new THREE.Raycaster();
       mouse=new THREE.Vector2();
@@ -2604,613 +2194,31 @@ function renderArchPanel(html){
           if(o.userData.rotationSpeed) o.rotation.y+=o.userData.rotationSpeed;
         });
       }
-        if (window.FRBN && window.FRBN.skySphere) {
-          window.FRBN.skySphere.material.uniforms.time.value = performance.now() * 0.001;
-        }
-        if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
-        if (isLCHT && lichtGroup) {
-          const t   = performance.now() * 0.001;
-          const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
-
-          lichtGroup.children.forEach(o => {
-
-            /* — luz pulsante (ya existía) — */
-            const d = o.userData.lcht;
-            if (d) {
-              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
-              o.material.emissive         = o.material.color.clone();
-              o.material.emissiveIntensity = I * 0.15;
-            }
-
-            /* — desplazamiento del tono HSV — */
-            if (o.userData.baseHsv) {
-              const { h, s, v } = o.userData.baseHsv;
-              const hShift = (h + t * vHz * 360) % 360;
-              const rgb    = hsvToRgb(hShift, s, v);
-              o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-            }
-          });
-        }
-        controls.update();
-        renderer.render(scene,camera);
-      }
+      controls.update();
+      renderer.render(scene,camera);
+    }
     
-    /* ═══════ OFFNNG · VOLUMÉTRICO CONTINUO (v4 – shader) ═══════
-     *  – Un único cubo con ShaderMaterial (ray-march frontal→trasero)
-     *  – Ejes: X→Hue, Y→Value (vertical), Z→Saturation
-     *  – Color continuo (sin cuantización), sin vóxeles ni sprites
-     *  – Exclusivo: no interfiere con BUILD / LCHT / FRBN
-     * ═══════════════════════════════════════════════════════════ */
 
-    let offnngGroup  = null;
-    let offnngMesh   = null;
-    let isOFFNNG     = false;
-    let offnngPrevBg = null;
-    let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
-
-    function buildOFFNNG () {
-      // limpia versión previa
-      if (offnngGroup) {
-        offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-        scene.remove(offnngGroup);
-        offnngGroup = null; offnngMesh = null;
-      }
-
-      const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-
-      const mat = new THREE.ShaderMaterial({
-        uniforms: {
-          uHalf        : { value: cubeSize * 0.5 },
-          uInvModel    : { value: new THREE.Matrix4() },
-
-          // —— LOOK STRONG (base) ——
-          uDensity     : { value: 0.70 },
-          uSMin        : { value: 0.60 },
-          uVMin        : { value: 0.78 },
-          uSatGain     : { value: 1.22 },
-          uValGain     : { value: 1.28 },
-          uGammaV      : { value: 0.60 },
-          uExposure    : { value: 1.85 },
-
-          // ——— BORDE TINTADO ———
-          uEdgeStrength: { value: 1.0 },
-          uEdgeBase    : { value: 0.65 },
-          uEdgePow     : { value: 1.6 },
-          uEdgeTintV   : { value: 0.72 },
-
-          // Sesgo frontal
-          uFrontBias   : { value: 0.85 },
-
-          // Ray-march
-          uSteps       : { value: 36 },
-
-          // Movimiento determinista base
-          uTime        : { value: 0.0 },
-          uHueBias     : { value: 0.0 },  // grados
-          uHueRate     : { value: 7.0 },  // °/s (rango contemplativo 6–8)
-          uVBreathAmp  : { value: 0.14 },
-          uVBreathHz   : { value: 0.06 },
-          uVBreathPhase: { value: 0.0 },
-
-          // A) offset espacial del eje H (X → H)
-          uPhaseX      : { value: 0.0 },
-
-          // D) giro volumétrico del campo (no del mesh)
-          uRotAxis     : { value: new THREE.Vector3(0,1,0) },
-          uRotRateDeg  : { value: 4.0 },  // °/s (rango contemplativo 3–5)
-
-          // Alpha final
-          uOpaque      : { value: 1 },
-
-          // === NUEVO: mezcla de ejes (máx 0.3 de peso cruzado) ===
-          // H ← X + wHy·Y + wHz·Z
-          // S ← Z + wSx·X + wSy·Y
-          // V ← Y + wVx·X + wVz·Z
-          uAxisMixH    : { value: new THREE.Vector2(0.0, 0.0) }, // (wHy, wHz)
-          uAxisMixS    : { value: new THREE.Vector2(0.0, 0.0) }, // (wSx, wSy)
-          uAxisMixV    : { value: new THREE.Vector2(0.0, 0.0) }, // (wVx, wVz)
-
-          // === NUEVO: LFOs para HUE (°/s) ===
-          uHueLFO1Amp  : { value: 0.35 },
-          uHueLFO1Hz   : { value: 0.03 },
-          uHueLFO1Phase: { value: 0.0 },
-          uHueLFO2Amp  : { value: 0.20 },
-          uHueLFO2Hz   : { value: 0.013 },
-          uHueLFO2Phase: { value: 0.0 },
-
-          // === NUEVO: LFOs para ROTACIÓN (°/s) ===
-          uRotLFO1AmpDeg  : { value: 0.30 },
-          uRotLFO1Hz      : { value: 0.02 },
-          uRotLFO1Phase   : { value: 0.0 },
-          uRotLFO2AmpDeg  : { value: 0.15 },
-          uRotLFO2Hz      : { value: 0.011 },
-          uRotLFO2Phase   : { value: 0.0 }
-        },
-        transparent : true,
-        depthWrite  : false,
-        depthTest   : true,
-        side        : THREE.DoubleSide,
-        dithering   : true,
-        vertexShader: `
-      varying vec3 vPos;
-      void main() {
-        vPos = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-        fragmentShader: `
-precision highp float;
-
-uniform float uHalf;
-uniform mat4  uInvModel;
-
-uniform float uDensity, uSMin, uVMin, uSatGain, uValGain, uGammaV, uExposure;
-uniform float uEdgeStrength, uEdgeBase, uEdgePow, uEdgeTintV, uFrontBias;
-uniform int   uSteps;
-
-uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
-uniform float uPhaseX;
-
-uniform vec3  uRotAxis;
-uniform float uRotRateDeg;
-
-uniform int   uOpaque;
-
-uniform vec2  uAxisMixH; // (wHy, wHz)
-uniform vec2  uAxisMixS; // (wSx, wSy)
-uniform vec2  uAxisMixV; // (wVx, wVz)
-
-// LFOs HUE (°/s)
-uniform float uHueLFO1Amp, uHueLFO1Hz, uHueLFO1Phase;
-uniform float uHueLFO2Amp, uHueLFO2Hz, uHueLFO2Phase;
-
-// LFOs ROT (°/s)
-uniform float uRotLFO1AmpDeg, uRotLFO1Hz, uRotLFO1Phase;
-uniform float uRotLFO2AmpDeg, uRotLFO2Hz, uRotLFO2Phase;
-
-varying vec3  vPos;
-
-vec3 hsv2rgb(float H, float S, float V){
-  float h = H / 360.0;
-  vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
-  vec3 P = abs(fract(vec3(h) + K.xyz) * 6.0 - 3.0);
-  return V * mix(vec3(1.0), clamp(P - 1.0, 0.0, 1.0), S);
-}
-
-bool rayBox(vec3 ro, vec3 rd, out float t0, out float t1){
-  vec3 bmin = vec3(-uHalf);
-  vec3 bmax = vec3( uHalf);
-  vec3 invD = 1.0 / rd;
-  vec3 tA = (bmin - ro) * invD;
-  vec3 tB = (bmax - ro) * invD;
-  vec3 tsm = min(tA, tB);
-  vec3 tbg = max(tA, tB);
-  t0 = max(max(tsm.x, tsm.y), tsm.z);
-  t1 = min(min(tbg.x, tbg.y), tbg.z);
-  return (t1 >= max(t0, 0.0));
-}
-
-// ——— D) rotación alrededor de un eje (Rodrigues) ———
-vec3 rotateAxis(vec3 p, vec3 axis, float theta){
-  vec3 a = normalize(axis);
-  float c = cos(theta), s = sin(theta);
-  return p*c + cross(a, p)*s + a*dot(a, p)*(1.0 - c);
-}
-
-void main(){
-  vec3 ro = (uInvModel * vec4(cameraPosition, 1.0)).xyz;
-  vec3 rd = normalize(vPos - ro);
-
-  float tEnter, tExit;
-  if(!rayBox(ro, rd, tEnter, tExit)) discard;
-
-  float t0 = max(tEnter, 0.0);
-  float t1 = tExit;
-
-  float len = t1 - t0;
-  float dt  = len / float(max(uSteps, 1));
-  vec3  pos = ro + rd * (t0 + 0.5 * dt);
-
-  vec3  acc = vec3(0.0);
-  float a   = 0.0;
-  float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
-
-  // === NUEVO: velocidades moduladas por LFOs ===
-  float hueDrift = uHueRate
-                 + uHueLFO1Amp * sin(6.2831853 * uHueLFO1Hz * uTime + uHueLFO1Phase)
-                 + uHueLFO2Amp * sin(6.2831853 * uHueLFO2Hz * uTime + uHueLFO2Phase);
-
-  float rotRate = uRotRateDeg
-                + uRotLFO1AmpDeg * sin(6.2831853 * uRotLFO1Hz * uTime + uRotLFO1Phase)
-                + uRotLFO2AmpDeg * sin(6.2831853 * uRotLFO2Hz * uTime + uRotLFO2Phase);
-
-  // ángulo de giro (rad)
-  float theta = radians(rotRate) * uTime;
-
-  const int MAX_STEPS = 64;
-  for (int i=0; i<MAX_STEPS; i++){
-    if (i >= uSteps) break;
-
-    // espacio normalizado [-1,1] → rotación volumétrica
-    vec3 q = pos / uHalf;
-    q = rotateAxis(q, uRotAxis, theta);
-
-    // a [0,1]^3 y offset cromático (A)
-    vec3 u = q * 0.5 + 0.5;
-    u.x = fract(u.x + uPhaseX);
-
-    // — distancia a caras → factor de borde [0..1]
-    float dx = min(u.x, 1.0 - u.x);
-    float dy = min(u.y, 1.0 - u.y);
-    float dz = min(u.z, 1.0 - u.z);
-    float edgeDist = min(min(dx, dy), dz);
-    float edge = smoothstep(0.06, 0.18, edgeDist);
-    edge = pow(edge, max(0.2, uEdgePow));
-
-    // === NUEVO: mezcla de ejes para H/S/V (peso cruzado suave) ===
-    float uHx = clamp(u.x + dot(uAxisMixH, vec2(u.y - 0.5, u.z - 0.5)), 0.0, 1.0);
-    float uSz = clamp(u.z + dot(uAxisMixS, vec2(u.x - 0.5, u.y - 0.5)), 0.0, 1.0);
-    float uVy = clamp(u.y + dot(uAxisMixV, vec2(u.x - 0.5, u.z - 0.5)), 0.0, 1.0);
-
-    // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing”
-    float H = mod(uHx * 360.0 + uHueBias + uTime * hueDrift, 360.0);
-
-    float V = clamp(uVy, 0.0, 1.0);
-    V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
-    V = clamp(V, 0.0, 1.0);
-    V = pow(V, uGammaV);
-    V = max(V, uVMin);
-    V = clamp(V * uValGain, 0.0, 1.0);
-
-    float S = clamp(uSz, 0.0, 1.0);
-    S = max(S, uSMin);
-    S = clamp(S * uSatGain, 0.0, 1.0);
-
-    vec3 rgb = hsv2rgb(H, S, V);
-
-    // — color de “cara” para tinte de borde
-    vec3 uF = u;
-    if (dx <= dy && dx <= dz) { uF.x = (u.x < 0.5 ? 0.0 : 1.0); }
-    else if (dy <= dx && dy <= dz) { uF.y = (u.y < 0.5 ? 0.0 : 1.0); }
-    else { uF.z = (u.z < 0.5 ? 0.0 : 1.0); }
-    float HF = mod((uF.x) * 360.0 + uHueBias + uTime * hueDrift, 360.0);
-    float VF = max(uF.y, uEdgeTintV);
-    float SF = max(uF.z, uSMin);
-    vec3  rgbFace = hsv2rgb(HF, SF, VF);
-
-    rgb = mix(rgbFace, rgb, edge);
-
-    float tau       = float(i) / float(max(uSteps-1, 1));
-    float front     = mix(1.0, 1.0 - tau, clamp(uFrontBias, 0.0, 1.0));
-    float edgeAlpha = mix(uEdgeBase, 1.0, edge);
-
-    float w = (1.0 - a) * alphaStep * front * edgeAlpha;
-    acc += rgb * w;
-    a   += w;
-
-    if (a > 0.995) break;
-    pos += rd * dt;
-  }
-
-  vec3 col = min(acc * uExposure, vec3(1.0));
-  float outA = (uOpaque == 1) ? 1.0 : a;
-  gl_FragColor = vec4(col, outA);
-}
-    `
-      });
-
-      offnngMesh  = new THREE.Mesh(geo, mat);
-      offnngMesh.updateMatrixWorld(true);
-      mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
-
-      offnngGroup = new THREE.Group();
-      offnngGroup.add(offnngMesh);
-      scene.add(offnngGroup);
-
-      applyOFFNNGQuality();   // aplica calidad y pixelRatio
-      syncOFFNNGFromScene();  // ← acopla parámetros deterministas
-    }
-
-    /* ───────────────────────── toggle OFFNNG ───────────────────── */
-    function toggleOFFNNG () {
-      isOFFNNG = !isOFFNNG;
-
-    if (isOFFNNG) {                    /* — ENTRAR — */
-      if (frbnOn()) toggleFRBN();      // asegura exclusividad
-      if (isLCHT) toggleLCHT();
-      if (isTMSL) toggleTMSL();
-
-      buildOFFNNG();
-
-      // guardar PR previo y aplicar cap + calidad
-      if (prevPixelRatio_OFFNNG === null) prevPixelRatio_OFFNNG = renderer.getPixelRatio();
-      applyOFFNNGQuality();
-
-      offnngPrevBg   = scene.background ? scene.background.clone() : null;
-      updateBackground(false); // usa el fondo acoplado a BUILD / patrón / perms
-
-      cubeUniverse.visible     = false;
-      permutationGroup.visible = false;
-      if (lichtGroup) lichtGroup.visible = false;
-      if (offnngGroup) offnngGroup.visible = true;
-
-      syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
-
-    } else {                           /* — SALIR — */
-        if (offnngGroup) {
-          offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-          scene.remove(offnngGroup);
-          offnngGroup = null; offnngMesh = null;
-        }
-        if (offnngPrevBg) scene.background = offnngPrevBg;
-
-        // restaurar pixel ratio previo
-        if (prevPixelRatio_OFFNNG !== null){
-          renderer.setPixelRatio(prevPixelRatio_OFFNNG);
-          prevPixelRatio_OFFNNG = null;
-        }
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (lichtGroup && isLCHT) lichtGroup.visible = true;
-      }
-      window.isOFFNNG = isOFFNNG;
-      window.toggleOFFNNG = toggleOFFNNG;
-    }
-
-    /* ────────── botón dedicado: OFFNNG siempre en solitario ───────── */
-    function ensureOnlyOFFNNG () {
-      if (frbnOn()) toggleFRBN();
-      if (isLCHT) toggleLCHT();
-      if (!isOFFNNG) toggleOFFNNG();
-    }
-
-    function applyOFFNNGQuality(){
-      const basePR = Math.min(window.devicePixelRatio || 1, 1.25);
-      renderer.setPixelRatio(basePR);
-      if (offnngMesh?.material?.uniforms) {
-        offnngMesh.material.uniforms.uSteps.value = 46; // “medio”
-      }
-    }
-  /* === OFFNNG: bias por patrón (±10–15 %) y mezcla de ejes (máx 0.3) === */
-  const OFFNNG_PATTERN_BIAS = {
-    //   satGain, valGain, gammaV, exposure, sMinΔ, vMinΔ, axisMixH:[wHy,wHz], axisMixS:[wX,wY], axisMixV:[wX,wZ]
-    1:  { satGain:1.05, valGain:0.98, gammaV:1.05, exposure:0.98, sMin: +0.01, vMin: -0.01, axisMixH:[+0.10,+0.04], axisMixS:[+0.06,+0.00], axisMixV:[+0.00,+0.08] },
-    2:  { satGain:1.10, valGain:1.05, gammaV:0.95, exposure:1.05, sMin: +0.02, vMin: +0.01, axisMixH:[+0.12,+0.12], axisMixS:[+0.10,+0.10], axisMixV:[+0.10,+0.10] },
-    3:  { satGain:0.95, valGain:1.00, gammaV:1.10, exposure:0.95, sMin: +0.00, vMin: -0.01, axisMixH:[+0.08,+0.02], axisMixS:[+0.04,+0.06], axisMixV:[+0.06,+0.04] },
-    4:  { satGain:1.00, valGain:0.95, gammaV:1.08, exposure:0.98, sMin: +0.00, vMin: -0.02, axisMixH:[+0.10,-0.06], axisMixS:[+0.00,+0.10], axisMixV:[+0.10,-0.04] },
-    5:  { satGain:0.92, valGain:1.00, gammaV:1.00, exposure:1.00, sMin: -0.02, vMin: +0.00, axisMixH:[+0.05,+0.05], axisMixS:[+0.05,+0.05], axisMixV:[+0.05,+0.05] },
-    6:  { satGain:0.98, valGain:0.98, gammaV:1.05, exposure:0.98, sMin: +0.00, vMin: -0.01, axisMixH:[+0.14,+0.00], axisMixS:[+0.00,+0.08], axisMixV:[+0.12,+0.00] },
-    7:  { satGain:1.06, valGain:0.98, gammaV:0.98, exposure:1.02, sMin: +0.01, vMin: -0.01, axisMixH:[+0.06,+0.14], axisMixS:[+0.12,+0.00], axisMixV:[+0.00,+0.12] },
-    8:  { satGain:1.02, valGain:1.02, gammaV:0.95, exposure:1.05, sMin: +0.01, vMin: +0.01, axisMixH:[+0.10,+0.10], axisMixS:[+0.10,+0.00], axisMixV:[+0.00,+0.10] },
-    9:  { satGain:0.94, valGain:0.98, gammaV:1.08, exposure:0.96, sMin: -0.01, vMin: -0.01, axisMixH:[+0.08,+0.04], axisMixS:[+0.04,+0.08], axisMixV:[+0.08,+0.04] },
-    10: { satGain:1.04, valGain:1.00, gammaV:1.00, exposure:1.04, sMin: +0.01, vMin: +0.00, axisMixH:[+0.12,+0.06], axisMixS:[+0.06,+0.12], axisMixV:[+0.12,+0.06] },
-    11: { satGain:1.08, valGain:1.06, gammaV:0.95, exposure:1.08, sMin: +0.02, vMin: +0.02, axisMixH:[+0.15,+0.12], axisMixS:[+0.12,+0.15], axisMixV:[+0.15,+0.12] }
-  };
-  function clampMix(w){ return Math.max(-0.3, Math.min(0.3, w)); }
-
-  /* ───────────────────────── OFFNNG · parámetros deterministas ─────────────────────────
-     Se llama al construir OFFNNG y cada vez que cambia la escena (refreshAll).
-     Liga el look y el movimiento a sceneSeed, S_global y al rango medio de la escena. */
-  function syncOFFNNGFromScene(){
-    if (!offnngMesh || !offnngMesh.material || !offnngMesh.material.uniforms) return;
-
-    const U = offnngMesh.material.uniforms;
-
-    // —— estadística determinista a partir de la escena ——
-    const selPerms = Array.from(document.getElementById('permutationList').selectedOptions)
-                          .map(o => o.value.split(',').map(Number));
-
-    // Rango medio 2..6 → 0..1
-    let avgR = 4.0;
-    if (selPerms.length){
-      const ranges = selPerms.map(p => computeRange(computeSignature(p)));
-      avgR = ranges.reduce((a,b)=>a+b,0) / ranges.length;
-    }
-    avgSceneRange = avgR;
-    const nr = Math.max(0, Math.min(1, (avgR - 2) / 4)); // 0..1
-
-    // Lehmer stats
-    let sumR = 0, sumR2 = 0, sumSig = 0;
-    selPerms.forEach(p=>{
-      const r = lehmerRank(p);
-      sumR  += r;
-      sumR2 += r*r;
-      const s = computeSignature(p);
-      sumSig += s.reduce((a,b)=>a+b,0); // cada F_i ∈ [3..9]
-    });
-    const meanSig = selPerms.length ? (sumSig / (selPerms.length * 5)) : 6; // ~3..9
-    const sigN = Math.max(0, Math.min(1, (meanSig - 3) / 6)); // 0..1
-
-    // —— LOOK base "Strong" (anti-rim OFFNNG) ——
-    U.uSMin.value      = 0.60;
-    U.uVMin.value      = 0.84;
-    U.uSatGain.value   = 1.22;
-    U.uValGain.value   = 1.30;
-    U.uGammaV.value    = 0.58;
-    U.uExposure.value  = 1.90;
-    U.uDensity.value   = 0.70 - 0.05 * nr;
-
-    // Borde: no atenuar y con tinte claro mínimo
-    U.uEdgeBase.value  = 1.00;   // ← clave: elimina el “marco” oscuro
-    U.uEdgeTintV.value = 0.84;   // cara cercana nunca cae de V≈0.84
-    U.uEdgePow.value   = 1.2;    // transición más plana (sin hundir perímetro)
-
-    // —— Bias por patrón (±10–15 %) + mezcla de ejes ≤ 0.3 ——
-    const B = OFFNNG_PATTERN_BIAS[activePatternId] || OFFNNG_PATTERN_BIAS[1];
-    U.uSatGain.value  *= B.satGain;
-    U.uValGain.value  *= B.valGain;
-    U.uGammaV.value   *= B.gammaV;
-    U.uExposure.value *= B.exposure;
-    U.uSMin.value     = Math.max(0.0, Math.min(1.0, U.uSMin.value + (B.sMin || 0)));
-    U.uVMin.value     = Math.max(0.0, Math.min(1.0, U.uVMin.value + (B.vMin || 0)));
-
-    U.uAxisMixH.value.set(clampMix(B.axisMixH[0]), clampMix(B.axisMixH[1]));
-    U.uAxisMixS.value.set(clampMix(B.axisMixS[0]), clampMix(B.axisMixS[1]));
-    U.uAxisMixV.value.set(clampMix(B.axisMixV[0]), clampMix(B.axisMixV[1]));
-
-    // —— Fase determinista (usa sceneSeed, S_global, sumR, sumR2) ——
-    const seedA = (sceneSeed*7 + S_global*13 + sumR)  % 997;
-    const seedB = (sceneSeed*5 + S_global*11 + sumR2) % 991;
-    const φA = 2*Math.PI * (seedA / 997);
-    const φB = 2*Math.PI * (seedB / 991);
-
-    // —— Velocidades contemplativas (base) + LFOs deterministas ——
-    // Hue 6–8 °/s y Rot 3–5 °/s (se modulan por nr y sigN).
-    U.uHueBias.value = sceneSeed;
-
-    U.uHueRate.value = 6.0 + 2.0 * (0.6*nr + 0.4*sigN);
-    U.uRotRateDeg.value = 3.0 + 2.0 * (0.5*nr + 0.5*sigN);
-
-    // LFOs HUE (amplitudes 0.35 / 0.20 °/s; frecuencias lentas)
-    U.uHueLFO1Amp.value   = 0.35;
-    U.uHueLFO2Amp.value   = 0.20;
-    U.uHueLFO1Hz.value    = 0.030 + 0.010 * nr;  // ~33–25 s
-    U.uHueLFO2Hz.value    = 0.013 + 0.007 * nr;  // ~77–50 s
-    U.uHueLFO1Phase.value = φA;
-    U.uHueLFO2Phase.value = φB;
-
-    // LFOs ROT (amplitudes 0.30 / 0.15 °/s; todavía más lentas)
-    U.uRotLFO1AmpDeg.value   = 0.30;
-    U.uRotLFO2AmpDeg.value   = 0.15;
-    U.uRotLFO1Hz.value       = 0.020 + 0.008 * nr; // ~50–35 s
-    U.uRotLFO2Hz.value       = 0.011 + 0.006 * nr; // ~90–62 s
-    U.uRotLFO1Phase.value    = φB + 0.5;          // desfase para evitar lock
-    U.uRotLFO2Phase.value    = φA + 1.0;
-
-    // —— Offset espacial del eje H (como antes) ——
-    const phaseX = ((sceneSeed + 2 * S_global) % 360) / 360;
-    U.uPhaseX.value = phaseX;
-
-    // —— Respiración de brillo (como antes) ——
-    U.uVBreathAmp.value   = 0.12 + 0.04 * nr;
-    U.uVBreathHz.value    = 0.06;
-    const phase0 = ((sceneSeed + S_global) % 144) / 144;
-    U.uVBreathPhase.value = 2.0 * Math.PI * phase0;
-
-    // —— Eje de giro (como antes) ——
-    const toRad = Math.PI / 180;
-    const ax = Math.cos((sceneSeed*13 + S_global*7) * toRad);
-    const ay = Math.cos((sceneSeed*5  + S_global*11) * toRad);
-    const az = Math.cos((sceneSeed*17 - S_global*3) * toRad);
-    const norm = Math.max(1e-6, Math.hypot(ax, ay, az));
-    U.uRotAxis.value.set(ax/norm, ay/norm, az/norm);
-  }
-    /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
-
-    /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
-    let isTMSL = false;
-    let tmslGroup = null;
-    let tmslPrevBg = null;
-    let tmslPrevControls = true;
-
-    function buildTMSL(){
-      /* limpia versión previa */
-      if (tmslGroup){
-        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
-        scene.remove(tmslGroup);
-      }
-      tmslGroup = new THREE.Group();
-
-      /* pared blanca con 2 u de “tiefe” */
-      const DEPTH = 2;
-      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
-      const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
-      tmslGroup.add(wall);
-      scene.add(tmslGroup);
-    }
-
-    function toggleTMSL(){           /* se usa sólo internamente */
-      if (!isTMSL){                  /* — ENTRAR — */
-        if (isFRBN)  toggleFRBN();
-        if (isLCHT)  toggleLCHT();
-        if (isOFFNNG)toggleOFFNNG();
-
-        buildTMSL();
-
-        cubeUniverse.visible     = false;
-        permutationGroup.visible = false;
-        if (lichtGroup) lichtGroup.visible = false;
-
-        tmslPrevBg        = scene.background ? scene.background.clone() : null;
-        scene.background  = new THREE.Color(0x000000);   // neutro absoluto
-        tmslPrevControls  = controls.enabled;
-        controls.enabled  = false;                       // cámara fija
-        applyStandardView();                             // vista “front”
-        isTMSL = true;
-
-      } else {                      /* — SALIR — (lo hace BUILD) */
-        if (tmslGroup){
-          tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
-          scene.remove(tmslGroup);
-          tmslGroup = null;
-        }
-        if (tmslPrevBg) scene.background = tmslPrevBg;
-        controls.enabled = tmslPrevControls;
-
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (lichtGroup && isLCHT) lichtGroup.visible = true;
-
-        isTMSL = false;
-      }
-    }
-
-    /* botón selector – sólo enciende, nunca apaga */
-    function ensureOnlyTMSL(){
-      if (!isTMSL) toggleTMSL();
-    }
 
     function updateEngineButtonsUI(){
-      const bFR = document.getElementById('frbnButton');
-      const bLC = document.getElementById('lchtButton');
-      const bOF = document.getElementById('offnngButton');
-      const bTM = document.getElementById('tmslButton');
-      if (bFR) bFR.textContent = isFRBN   ? 'FRBN ON'   : 'FRBN';
-      if (bLC) bLC.textContent = isLCHT   ? 'LCHT ON'   : 'LCHT';
-      if (bOF) bOF.textContent = isOFFNNG ? 'OFFNNG ON' : 'OFFNNG';
-      if (bTM) bTM.textContent = isTMSL   ? 'TMSL ON'   : 'TMSL';
+      const active =
+        (ENGINE?.activeName) ||
+        (ENGINE?.state && ENGINE.state.active) ||
+        (ENGINE?.current) || 'BUILD';
+
+      const set = (id, onText, offText)=>{
+        const b = document.getElementById(id);
+        if (!b) return;
+        b.textContent = (active && onText.startsWith(active)) ? onText.split(' ')[0] + ' ON' : offText;
+      };
+      set('frbnButton',   'FRBN ON',   'FRBN');
+      set('lchtButton',   'LCHT ON',   'LCHT');
+      set('offnngButton', 'OFFNNG ON', 'OFFNNG');
+      set('tmslButton',   'TMSL ON',   'TMSL');
     }
     window.addEventListener('load', () => {
       updateEngineButtonsUI();
       init().then(() => { window.ENGINE?.enter('BUILD'); }).catch(console.error);
-    });
-
-    // === FRBN: shim para el registry – corrige ENGINE.enter('FRBN') sin tocar registry.js ===
-    window.addEventListener('load', () => {
-      const eng = window.ENGINE;
-      if (!eng || eng.__frbnShim) return;
-
-      const originalEnter = (typeof eng.enter === 'function') ? eng.enter.bind(eng) : null;
-
-      eng.enter = async function(name){
-        if (name === 'FRBN') {
-          try {
-            // Exclusividad: FRBN no coexiste con LCHT / OFFNNG / TMSL
-            if (window.isOFFNNG) toggleOFFNNG();
-            if (window.isLCHT)   toggleLCHT();
-            if (window.isTMSL)   toggleTMSL();
-
-            const ok = await ensureFRBNLoaded();
-            if (!ok) { showPopup('FRBN no disponible (engines/frbn.js)', 3000); return; }
-
-            // Idempotente: si ya está ON, no lo apagues; si está OFF, enciéndelo
-            if (!frbnOn()) { await toggleFRBN(); }
-
-            updateEngineButtonsUI?.();
-          } catch (e){
-            console.error('FRBN shim error:', e);
-            showPopup('FRBN: error al entrar (ver consola)', 4000);
-          }
-          return; // no llames al fallback del registry
-        }
-
-        // Cualquier otro motor → conducta original del registro
-        return originalEnter ? originalEnter(name) : undefined;
-      };
-
-      eng.__frbnShim = true; // marca para no parchear dos veces
     });
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
@@ -3512,7 +2520,7 @@ V = 0.20 + 0.75 × (V_idx / 11)</pre></li>
       final.width = A2_W; final.height = A2_H;
       const fctx = final.getContext('2d');
 
-      if (isFRBN) {
+        if (ENGINE?.activeName === 'FRBN') {
         // — FRBN: cubrir A2 (recorte centrado, sin bandas)
         const scale = Math.max(A2_W / renderW, A2_H / renderH);
         const drawW = Math.ceil(renderW * scale);
@@ -3726,12 +2734,12 @@ function getState(){
       cube: cubeOverride,
       colors: {...manualOverride}                      // 1..5 -> "#rrggbb"
     },
-    flags: {
-      FRBN:  !!isFRBN,
-      LCHT:  !!isLCHT,
-      OFFNNG:!!isOFFNNG,
-      TMSL:  !!isTMSL
-    },
+      flags: {
+        FRBN:  ENGINE?.activeName === 'FRBN',
+        LCHT:  ENGINE?.activeName === 'LCHT',
+        OFFNNG: ENGINE?.activeName === 'OFFNNG',
+        TMSL:  ENGINE?.activeName === 'TMSL'
+      },
     view: document.getElementById('standardView')?.value || 'front'
   };
 }
@@ -4263,56 +3271,5 @@ async function __syncFromUIToStore(){
   }
 }
 </script>
-<script>
-// REGISTRO DE MOTORES LEGACY → ENGINE
-// Permite que ENGINE.enter('LCHT'|'OFFNNG'|'TMSL') use tus toggles actuales.
-
-window.addEventListener('load', () => {
-  if (!window.ENGINE) return;
-
-  // LCHT
-  ENGINE.register({
-    id: 'LCHT',
-    enter(){
-      if (!window.isLCHT) window.toggleLCHT();
-    },
-    exit(){
-      if (window.isLCHT) window.toggleLCHT();
-    },
-    syncFromScene(){
-      // reconstruye cuando cambie la escena
-      if (window.isLCHT && typeof window.buildLCHT === 'function') window.buildLCHT();
-    }
-  });
-
-  // OFFNNG
-  ENGINE.register({
-    id: 'OFFNNG',
-    enter(){
-      if (!window.isOFFNNG) window.toggleOFFNNG();
-    },
-    exit(){
-      if (window.isOFFNNG) window.toggleOFFNNG();
-    },
-    syncFromScene(){
-      if (window.isOFFNNG && typeof window.syncOFFNNGFromScene === 'function') {
-        window.syncOFFNNGFromScene();
-      }
-    }
-  });
-
-  // TMSL
-  ENGINE.register({
-    id: 'TMSL',
-    enter(){
-      if (!window.isTMSL) window.toggleTMSL();
-    },
-    exit(){
-      if (window.isTMSL) window.toggleTMSL();
-    }
-  });
-});
-</script>
-
 </body>
 </html>
