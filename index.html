@@ -726,6 +726,7 @@ function initSkySphere() {
       isFRBN = !isFRBN;
 
       if (isFRBN) {                       // ——— ENTRAR ———
+        leaveBuildRenderBoost();          // ← desactiva boost de BUILD
         if (isLCHT) toggleLCHT();         // asegura exclusividad
         buildGanzfeld();                  // sincroniza paleta + u_rate
         skySphere.visible        = true;
@@ -945,6 +946,7 @@ function buildLCHT() {
       isLCHT = !isLCHT;
 
         if (isLCHT){
+          leaveBuildRenderBoost();          // ← desactiva boost de BUILD
           /* — cambia material del cubo a lambert para que capte luz — */
           if(!cubeUniverse.userData.prevMat){
             cubeUniverse.userData.prevMat = cubeUniverse.material;
@@ -988,7 +990,29 @@ function buildLCHT() {
       if (isFRBN)  toggleFRBN();   // apaga FRBN si estaba activo
       if (isLCHT)  toggleLCHT();   // apaga LCHT si estaba activo
       if (isTMSL)  toggleTMSL();   // apaga TMSL si estaba activo
+      enterBuildRenderBoost();   // ← aplica PR 2.5 + exposure 0.90 SOLO en BUILD
       /* Nada más: la escena existente permanece tal cual */
+    }
+
+    // === BUILD render boost (solo activo en BUILD) ==============================
+    let __buildBoostPrev = { pr: null, exp: null };
+
+    function enterBuildRenderBoost(){
+      if (!renderer || __buildBoostPrev.pr !== null) return;
+      // Guarda para restaurar al salir de BUILD
+      __buildBoostPrev.pr  = renderer.getPixelRatio();
+      __buildBoostPrev.exp = renderer.toneMappingExposure;
+      // Más nitidez y menos “quemado” SOLO en BUILD
+      const PR = Math.min(window.devicePixelRatio || 1, 2.5);
+      renderer.setPixelRatio(PR);
+      renderer.toneMappingExposure = 0.90;    // baseline 0.95 → BUILD más controlado
+    }
+
+    function leaveBuildRenderBoost(){
+      if (!renderer || __buildBoostPrev.pr === null) return;
+      renderer.setPixelRatio(__buildBoostPrev.pr);
+      renderer.toneMappingExposure = __buildBoostPrev.exp;
+      __buildBoostPrev.pr = null; __buildBoostPrev.exp = null;
     }
 
     const GOLD = 137.50776405003785;      // ángulo áureo
@@ -1382,24 +1406,31 @@ function evalProp(prop, args = [], fallback = 0){
       // --- POSICIÓN (antes de material para calcular frontalidad) ---
       const [X,Y,Z]=computeShiftRankXYZ(pa);
 
-      // --- BOOST frontal (0..1) en función de Z dentro del cubo ---
+      // --- BUILD · Vibrance v2: saturación fuerte sin quemar y sin spec blanco ---
       const zNorm = (Z + halfCube) / cubeSize;               // -15→0 · +15→1
-      let [hh, ss, vv] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
 
-      /* ✅ Ajustes suaves: reducimos el over-boost que lavaba/quemaba color. */
-      vv = Math.min(1, vv * (1.03 + 0.15 * zNorm) + 0.03 * zNorm);
-      ss = Math.min(1, ss * (1.01 + 0.10 * zNorm));
-      const rgbBoost = hsvToRgb(hh, ss, vv);
+      // 1) Partimos del RGB con contraste mínimo contra fondo
+      let [h0, s0, v0] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
 
-      /* ✅ Menos brillo especular y emissive controlado → colores más limpios */
-      const mat = new THREE.MeshPhongMaterial({
+      // 2) Vibrance: sube S con más fuerza cuanto más baja sea S (y un plus por frontalidad)
+      const vib = 0.22 + 0.10 * zNorm;                       // 0.22…0.32
+      const s1  = Math.min(1, s0 + vib * (1 - s0));
+
+      // 3) Brillo controlado: ligero boost pero con techo para evitar “quemados” en ACES
+      const v1  = Math.min(0.93, v0 * (1.02 + 0.06 * zNorm));
+
+      // 4) Volvemos a RGB
+      const rgbBoost = hsvToRgb(h0, s1, v1);
+
+      // 5) Material difuso (Lambert) → colores más limpios y saturados (sin specular blanco)
+      const mat = new THREE.MeshLambertMaterial({
         color: new THREE.Color(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255),
-        shininess: 18,                               // antes 60
-        specular: new THREE.Color(0x111111),         // evita brillos blancos
         dithering: true
       });
+
+      // Pequeña auto-luminancia para “energía” sin quemar (mucho menor que antes)
       mat.emissive = new THREE.Color(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
-      mat.emissiveIntensity = 0.08 + 0.30 * zNorm;   // antes 0.18 + 0.55*zNorm
+      mat.emissiveIntensity = 0.03 + 0.12 * zNorm;   // antes 0.08 + 0.30*zNorm
 
       const geo=new THREE.BoxGeometry(w,h,t);
       const mesh=new THREE.Mesh(geo,mat);
@@ -2694,6 +2725,7 @@ function renderArchPanel(html){
       makePalette();
       setMode("manual");
       refreshAll({rebuild:true});
+      enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
 
       // ← NUEVO: como si hubieras presionado BUILD al cargar
       generateRandomConfigurationNoCollision().catch(console.error);
@@ -3022,6 +3054,7 @@ void main(){
       isOFFNNG = !isOFFNNG;
 
     if (isOFFNNG) {                    /* — ENTRAR — */
+      leaveBuildRenderBoost();          // ← desactiva boost de BUILD
       if (isFRBN) toggleFRBN();        // asegura exclusividad
       if (isLCHT) toggleLCHT();
       if (isTMSL) toggleTMSL();
@@ -3241,6 +3274,7 @@ void main(){
 
     function toggleTMSL(){           /* se usa sólo internamente */
       if (!isTMSL){                  /* — ENTRAR — */
+        leaveBuildRenderBoost();          // ← desactiva boost de BUILD
         if (isFRBN)  toggleFRBN();
         if (isLCHT)  toggleLCHT();
         if (isOFFNNG)toggleOFFNNG();
