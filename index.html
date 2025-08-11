@@ -308,7 +308,7 @@
   <button id="randomConfigButton" onclick="safeEnter('BUILD')">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 <div id="frbnWrap">
-  <button id="frbnButton" onclick="ENGINE.enter('FRBN')">FRBN</button>
+  <button id="frbnButton" onclick="safeEnter('FRBN')">FRBN</button>
   <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
 </div>
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
@@ -1518,21 +1518,6 @@ function makePalette(){
       const cc = document.getElementById('customCursor');
       if (cc) cc.style.display = 'block';
     }
-
-    function safeEngineCycle(){
-      if (window.ENGINE?.cycle) return ENGINE.cycle();
-
-      const available = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
-      const active =
-        (ENGINE?.activeName) ||
-        (ENGINE?.state && ENGINE.state.active) ||
-        (ENGINE?.current) || 'BUILD';
-
-      const idx  = Math.max(0, available.indexOf(active));
-      const next = available[(idx + 1) % available.length];
-      return ENGINE?.enter ? ENGINE.enter(next) : undefined;
-    }
-
     /* 3.1 Patrón cromático siguiente */
     function cyclePattern(){
       activePatternId = (activePatternId % 11) + 1;           // 1…11 en ciclo
@@ -2273,28 +2258,6 @@ function renderArchPanel(html){
       };
       window.ENGINE.__wrapped = true;
     }
-
-    function safeEnter(name){
-      const alias = { OFFNNG:'OFFNG', OFFNG:'OFFNNG' };
-      let target = name;
-
-      if (!window.ENGINE?.enter) {
-        // Si aún no hay registry y pedimos BUILD, rearmamos la escena base
-        if (name === 'BUILD') {
-          if (renderer?.setAnimationLoop) renderer.setAnimationLoop(null);
-          renderer.autoClear = true;
-          scene.autoUpdate   = true;
-          if (cubeUniverse && !scene.children.includes(cubeUniverse)) scene.add(cubeUniverse);
-          if (!permutationGroup || !scene.children.includes(permutationGroup)){
-            if (!permutationGroup) { permutationGroup = new THREE.Group(); window.permutationGroup = permutationGroup; }
-            scene.add(permutationGroup);
-          }
-          try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){ }
-          updateEngineButtonsUI();
-        }
-        return;
-      }
-
       try { window.ENGINE.enter(target); }
       catch(e){
         const alt = alias[target];
@@ -3378,5 +3341,51 @@ async function __syncFromUIToStore(){
   }
 }
 </script>
+
+<script>
+// Alias compacto: OFFNG ⇄ OFFNNG
+const __ALIAS = { OFFNG:'OFFNNG', OFFNNG:'OFFNNG' };
+
+async function safeEnter(name){
+  const target = String(name).toUpperCase();
+  if (!window.ENGINE?.enter) return;
+  try {
+    await window.ENGINE.enter(target);
+  } catch (e){
+    const alt = __ALIAS[target];
+    if (alt) { try { await window.ENGINE.enter(alt); } catch(_){} }
+  } finally {
+    try { updateEngineButtonsUI(); } catch(_) {}
+  }
+}
+
+async function safeEngineCycle(){
+  if (window.ENGINE?.cycle) return window.ENGINE.cycle();
+
+  const available = ['BUILD','FRBN','LCHT','OFFNNG','TMSL'];
+  const active =
+    (ENGINE?.active && typeof ENGINE.active === 'function') ? ENGINE.active() :
+    (ENGINE?.activeName || 'BUILD');
+
+  const idx  = Math.max(0, available.indexOf(String(active).toUpperCase()));
+  const next = available[(idx + 1) % available.length];
+  return safeEnter(next);
+}
+
+// Inyecta contexto para motores que lo pidan
+window.addEventListener('load', ()=>{
+  try{
+    if (window.ENGINE?.context){
+      window.ENGINE.context({
+        getState,
+        refreshAll,
+        scene, camera, renderer, controls,
+        core: window.core || {}
+      });
+    }
+  }catch(_){ }
+});
+</script>
+
 </body>
 </html>
