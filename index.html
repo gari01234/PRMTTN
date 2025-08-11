@@ -2094,7 +2094,8 @@ function renderArchPanel(html){
       const PR = Math.min(window.devicePixelRatio || 1, 1.25);
       renderer.setPixelRatio(PR);
       renderer.setSize(window.innerWidth,window.innerHeight);
-      renderer.outputEncoding = THREE.sRGBEncoding; // sRGB → menos banding
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.setClearColor(0xffffff, 1); // ← evita pantalla negra en el primer frame
       document.body.appendChild(renderer.domElement);
     }
     /* ════════════════════════════════════════════════
@@ -2206,19 +2207,73 @@ function renderArchPanel(html){
         (ENGINE?.state && ENGINE.state.active) ||
         (ENGINE?.current) || 'BUILD';
 
-      const set = (id, onText, offText)=>{
+      const setTxt = (id, onLabel, offLabel, cond) => {
         const b = document.getElementById(id);
         if (!b) return;
-        b.textContent = (active && onText.startsWith(active)) ? onText.split(' ')[0] + ' ON' : offText;
+        b.textContent = cond ? onLabel : offLabel;
       };
-      set('frbnButton',   'FRBN ON',   'FRBN');
-      set('lchtButton',   'LCHT ON',   'LCHT');
-      set('offnngButton', 'OFFNNG ON', 'OFFNNG');
-      set('tmslButton',   'TMSL ON',   'TMSL');
+
+      setTxt('frbnButton',   'FRBN ON',   'FRBN',   active === 'FRBN');
+      setTxt('lchtButton',   'LCHT ON',   'LCHT',   active === 'LCHT');
+      // Acepta ambas grafías: OFFNG y OFFNNG
+      setTxt('offnngButton', 'OFFNNG ON', 'OFFNNG', active === 'OFFNG' || active === 'OFFNNG');
+      setTxt('tmslButton',   'TMSL ON',   'TMSL',   active === 'TMSL');
     }
-    window.addEventListener('load', () => {
-      updateEngineButtonsUI();
-      init().then(() => { window.ENGINE?.enter('BUILD'); }).catch(console.error);
+
+    // Espera activa con timeout
+    async function waitFor(cond, timeout=6000, interval=25){
+      const t0 = performance.now();
+      while (!cond()){
+        if (performance.now() - t0 > timeout) return false;
+        await new Promise(r => setTimeout(r, interval));
+      }
+      return true;
+    }
+
+    // Wrapper: alias OFFNG/OFFNNG + sync + UI + rebuild BUILD
+    function wrapEngineEnter(){
+      if (!window.ENGINE || window.ENGINE.__wrapped) return;
+      const origEnter = window.ENGINE.enter.bind(window.ENGINE);
+      const alias = { OFFNNG:'OFFNG', OFFNG:'OFFNNG' };
+
+      window.ENGINE.enter = function(name){
+        let target = name;
+        try {
+          origEnter(target);
+        } catch (e){
+          const alt = alias[target];
+          if (alt){
+            try { origEnter(alt); target = alt; } catch(_) {}
+          }
+        }
+        requestAnimationFrame(() => {
+          const act = window.ENGINE.activeName || target;
+          if (act === 'BUILD') {
+            try { refreshAll({rebuild:true}); applyStandardView(); } catch(_){ }
+          } else {
+            try { if (typeof window.ENGINE.syncFromScene === 'function') window.ENGINE.syncFromScene(); } catch(_){ }
+          }
+          try { updateEngineButtonsUI(); } catch(_){ }
+        });
+        return true;
+      };
+      window.ENGINE.__wrapped = true;
+    }
+
+    // Boot robusto: espera core + ENGINE, luego init() y entra a BUILD una sola vez
+    window.addEventListener('load', async () => {
+      try{
+        await (window.coreReadyPromise || Promise.resolve());
+        await waitFor(() => !!window.ENGINE && typeof window.ENGINE.enter === 'function', 6000);
+        wrapEngineEnter();
+        updateEngineButtonsUI();
+        await init();
+        window.ENGINE.enter('BUILD');
+      } catch (e) {
+        console.error('[boot] fallback init:', e);
+        await init();
+        refreshAll({rebuild:true});
+      }
     });
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
@@ -3220,17 +3275,8 @@ async function __syncFromUIToStore(){
   }
 
   window.addEventListener('load', () => {
-    // Inicializa infra de contrato + muestra/oculta NFT block según config presente.
+    // La selección de motor la gestiona el boot principal
     initWeb3AndContract();
-
-    // Integra con el Registry 1.0 ya cargado por <script type="module" src="./engines/registry.js">
-    try {
-      if (window.ENGINE && typeof window.ENGINE.enter === 'function') {
-        window.ENGINE.enter('BUILD');
-      }
-    } catch (e) {
-      console.warn('ENGINE no disponible aún:', e);
-    }
   });
 </script>
 <!-- ───────────────────────── ARCHIVE (inert) ─────────────────────────
