@@ -1438,82 +1438,49 @@ function findCollisionFreeMapping(perms){
     }
 
     function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
-      // Presupuesto duro
-      const T_MAX_MS   = 10_000; // 10s
-      const ROUNDS_MAX = 6;
+      // Usa la tecla ESC global ya definida
+      bindRandomSearchHotkey();
+      cancelRandomSearch = false;   // ← usa la global, no la re-declares
 
-      let cancelRandomSearch = false;
-      const onKeyDown = (e) => { if (e.key === 'Escape') cancelRandomSearch = true; };
-      window.addEventListener('keydown', onKeyDown, { once: false });
-
+      const T_MAX_MS = 10000;       // 10 s de presupuesto
       const t0 = performance.now();
-      let rounds = 0;
-      let tries  = 0;
-      let lastPopup = 0;
+      let tries = 0;
 
-      const showStatus = (msg) => {
-        const now = performance.now();
-        if (now - lastPopup > 600) {
-          showPopup(msg, 800); // showPopup ya respeta un mínimo de 3s; esto hace "refresh" suave
-          lastPopup = now;
-        }
-      };
-
-      const getRandomFromArray = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-      const applyRandomConfiguration = () => {
-        const state = computeSceneSeedFrom(document.body);
-        const { layers, bg, mainSwatches, auxSwatches } = state;
-
-        // Seleccionar pattern y mapping aleatorios
-        const availablePatterns = Object.values(PATTERNS).filter(p => typeof p.apply === 'function');
-        const randomPattern     = getRandomFromArray(availablePatterns);
-        const mapping           = getAttributeMappings(layers); // depende del DOM actual
-
-        // Asignar colores aleatorios coherentes
-        const pick = (arr) => getRandomFromArray(arr);
-        const chosenColors = {
-          bg: pick(bg),
-          main: pick(mainSwatches),
-          accent: pick(auxSwatches),
-        };
-
-        // Construir grupo temporal y validar colisiones
-        const tempGroup = buildTempGroup(randomPattern, mapping, chosenColors);
-        if (detectCollisions(tempGroup)) return false;
-
-        // Commit final si no hay colisiones
-        activePatternId = randomPattern.id;
-        randomPattern.apply(mapping, chosenColors);
-        return true;
-      };
-
-      // Bucle con límites duros
-      while (rounds < ROUNDS_MAX && (performance.now() - t0) < T_MAX_MS && !cancelRandomSearch) {
-        rounds++;
-        showStatus(`🔀 Buscando configuración (ronda ${rounds}/${ROUNDS_MAX})…`);
-
-        for (let i = 0; i < MAX_TRIES; i++) {
-          tries++;
-          if (applyRandomConfiguration()) {
-            window.removeEventListener('keydown', onKeyDown);
-            showPopup(`✅ Configuración encontrada en ${rounds} ronda(s), ${tries} intento(s).`, 3000);
-            return true;
-          }
-          if ((performance.now() - t0) >= T_MAX_MS || cancelRandomSearch) break;
-          // Ceder control para no bloquear UI
-          if (i % 200 === 0) { /* micro-yield */ }
-        }
+      // Asegura catálogo de opciones
+      const opts = Array.from(document.querySelectorAll('#permutationList option'));
+      if (!permutationStrings || !permutationStrings.length) {
+        permutationStrings = opts.map(o => o.value);
       }
 
-      window.removeEventListener('keydown', onKeyDown);
+      while (tries < MAX_TRIES && (performance.now() - t0) < T_MAX_MS && !cancelRandomSearch) {
+        tries++;
+
+        // 1) Elige subconjunto aleatorio de permutaciones (1..25)
+        const perms = pickRandomPerms();                // [[…], …]
+
+        // 2) Busca un mapping sin colisiones usando tus helpers
+        const mapping = findCollisionFreeMapping(perms);
+        if (!mapping) continue;
+
+        // 3) Commit determinista en la UI + escena
+        const setStrs = perms.map(p => p.join(','));
+        opts.forEach(o => { o.selected = setStrs.includes(o.value); });
+
+        attributeMapping = mapping;
+        const sel = document.getElementById('attrMapping');
+        if (sel) sel.value = mapping.slice(0,5).join(',');
+
+        refreshAll({rebuild:true});
+        showPopup(`✅ Configuración sin colisiones encontrada en ${tries} intento(s).`, 2500);
+        return true;
+      }
 
       if (cancelRandomSearch) {
-        showPopup(`⏹️ Búsqueda cancelada por el usuario tras ${rounds} ronda(s) y ${tries} intento(s).`, 3000);
+        showPopup('⏹️ Búsqueda cancelada (ESC).', 2500);
         return false;
       }
 
-      showPopup(`⌛ No se encontró configuración sin colisiones en ${ROUNDS_MAX} ronda(s) / ${Math.round((performance.now() - t0)/1000)}s.`, 3000);
+      showPopup('⌛ No se encontró configuración sin colisiones dentro de los límites.', 3000);
       return false;
     }
 
