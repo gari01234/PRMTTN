@@ -1,8 +1,8 @@
 // engines/frbn.js
 // FRBN como Engine: exclusivo, sin leer globals; con shim de compatibilidad para animate()
 
+let hostRef = null;
 const FRBNEngine = (() => {
-  let hostRef = null;
   let skySphere = null;
   let prev = { bg: null, cube: true, perms: true };
 
@@ -122,17 +122,18 @@ const FRBNEngine = (() => {
       if (!skySphere) skySphere = buildSkySphere(host);
       if (host.scene && skySphere.parent !== host.scene) host.scene.add(skySphere);
 
-      // shim de compatibilidad para tu animate()
+      // shim de compatibilidad para tu animate() + UI
       try {
-        window.FRBN = {
+        window.FRBN = Object.assign(window.FRBN || {}, {
           isFRBN: true,
           skySphere,
           syncFromScene: sync,
           controlsVisibility: ({cube, perms})=>{
             if (hostRef?.cubeUniverse) hostRef.cubeUniverse.visible = !!cube;
             if (hostRef?.permutationGroup) hostRef.permutationGroup.visible = !!perms;
-          }
-        };
+          },
+          __host: host   // recordamos el host para toggles directos
+        });
       } catch (_) {}
 
       sync();
@@ -156,3 +157,41 @@ if (window.ENGINE && typeof window.ENGINE.register === 'function') {
 
 export default FRBNEngine;
 export const FRBN = FRBNEngine;
+
+// ——— Controlador público para el HTML (ensureFRBNLoaded/tryWireFRBN/toggleFRBN) ———
+(function(){
+  try{
+    // mantenemos (o creamos) el namespace sin perder lo ya puesto
+    const CTRL = window.FRBN = Object.assign(window.FRBN || {}, {});
+
+    // El HTML puede llamarnos con un host para «cablear» el engine
+    CTRL.wire = function(host){
+      try { CTRL.__host = host; } catch(_){ }
+      // también actualizamos el host interno del engine
+      try { /* FRBNEngine cierra sobre hostRef */ FRBNEngine && FRBNEngine.enter && (hostRef = host); } catch(_){ }
+    };
+
+    // Toggle utilizado por toggleFRBN() en el HTML
+    CTRL.toggle = async function(){
+      // si aún no tenemos host, intentamos usar el recordado
+      const host = CTRL.__host;
+      if (!host) {
+        console.warn('[FRBN] host no cableado aún (wire/tryWireFRBN)');
+        return;
+      }
+      // idempotente: si está OFF → enter(host); si está ON → exit()
+      if (!CTRL.isFRBN) {
+        FRBNEngine.enter(host);
+      } else {
+        FRBNEngine.exit();
+      }
+    };
+
+    // Proxy opcional (ya lo exponemos también al entrar)
+    if (typeof CTRL.syncFromScene !== 'function') {
+      CTRL.syncFromScene = () => { try { FRBNEngine.syncFromScene(); } catch(_){ } };
+    }
+  }catch(e){
+    console.error('[FRBN] controlador público', e);
+  }
+})();
