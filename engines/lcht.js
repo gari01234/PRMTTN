@@ -1,4 +1,4 @@
-// engines/lcht.js
+// ./engines/lcht.js
 // LCHT: deterministic light-tubes (extraído del HTML, registrado en ENGINE)
 let isOn = false;
 let group = null;
@@ -8,8 +8,9 @@ let avgSceneRange = 0;
 
 function getTHREE(){ return window.THREE; }
 function getPerms(){
-  return Array.from(document.getElementById('permutationList').selectedOptions)
-    .map(o => o.value.split(',').map(Number));
+  const sel = document.getElementById('permutationList');
+  if (!sel) return [];
+  return Array.from(sel.selectedOptions).map(o => o.value.split(',').map(Number));
 }
 function getCubeSize(){
   const w = window.cubeUniverse?.geometry?.parameters?.width;
@@ -59,7 +60,7 @@ function build(){
     avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
   }
 
-  perms.forEach((pa, idxPerm) => {
+  perms.forEach((pa) => {
     const sig = window.computeSignature(pa);
     const rng = window.computeRange(sig);
     const r   = window.lehmerRank(pa);
