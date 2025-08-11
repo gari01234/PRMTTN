@@ -3167,6 +3167,42 @@ void main(){
       init().then(() => { window.ENGINE?.enter('BUILD'); }).catch(console.error);
     });
 
+    // === FRBN: shim para el registry – corrige ENGINE.enter('FRBN') sin tocar registry.js ===
+    window.addEventListener('load', () => {
+      const eng = window.ENGINE;
+      if (!eng || eng.__frbnShim) return;
+
+      const originalEnter = (typeof eng.enter === 'function') ? eng.enter.bind(eng) : null;
+
+      eng.enter = async function(name){
+        if (name === 'FRBN') {
+          try {
+            // Exclusividad: FRBN no coexiste con LCHT / OFFNNG / TMSL
+            if (window.isOFFNNG) toggleOFFNNG();
+            if (window.isLCHT)   toggleLCHT();
+            if (window.isTMSL)   toggleTMSL();
+
+            const ok = await ensureFRBNLoaded();
+            if (!ok) { showPopup('FRBN no disponible (engines/frbn.js)', 3000); return; }
+
+            // Idempotente: si ya está ON, no lo apagues; si está OFF, enciéndelo
+            if (!frbnOn()) { await toggleFRBN(); }
+
+            updateEngineButtonsUI?.();
+          } catch (e){
+            console.error('FRBN shim error:', e);
+            showPopup('FRBN: error al entrar (ver consola)', 4000);
+          }
+          return; // no llames al fallback del registry
+        }
+
+        // Cualquier otro motor → conducta original del registro
+        return originalEnter ? originalEnter(name) : undefined;
+      };
+
+      eng.__frbnShim = true; // marca para no parchear dos veces
+    });
+
     // Web3 + NFT Mint (tu código original)
     const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
     const contractABI = [/* ABI JSON here */];
