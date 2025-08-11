@@ -138,6 +138,8 @@ function build(){
       const SIDE = 0.2, JOIN = 0.02;
       const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
       const mat = new THREE.MeshPhongMaterial({ color: col, shininess: 0, dithering: true, flatShading: true });
+      // Inicializar emissive una sola vez (evita allocs por frame)
+      mat.emissive = mat.color.clone();
       const tube = new THREE.Mesh(geo, mat);
       tube.position.copy(mid);
       tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dN);
@@ -156,7 +158,13 @@ function animate(){
     const d = o.userData.lcht;
     if (d) {
       const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
-      o.material.emissive = o.material.color.clone();
+      // ANTES (malo para GC):
+      // o.material.emissive = o.material.color.clone();
+
+      // AHORA (sin allocations por frame):
+      o.material.emissive.copy(o.material.color);
+
+      // Si modulas brillo, hazlo con la intensidad:
       o.material.emissiveIntensity = I * 0.15;
     }
     if (o.userData.baseHsv){
