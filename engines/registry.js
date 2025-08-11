@@ -1,114 +1,82 @@
-// engines/registry.js
-// Contrato 1.0: ENGINE.enter(name), ENGINE.leave(), ENGINE.cycle(), ENGINE.syncFromScene()
-// Exclusividad gestionada aquí. Registro provisional de BUILD, FRBN, LCHT, OFFNNG y TMSL.
+// ./engines/registry.js
+// Registry 1.0 — motor centralizado + configuración del contrato (opcional)
+// Sin placeholders: si no hay config de contrato, simplemente no se muestra el bloque NFT.
 
-const REGISTRY = (() => {
-  const engines = new Map();
-  const order = [];
-  let active = null;
+const READY_CHECK_INTERVAL_MS = 50;
 
-  function register(name, impl) {
-    engines.set(name, impl);
-    if (!order.includes(name)) order.push(name);
-  }
+function waitFor(fnNames) {
+  return new Promise((resolve) => {
+    const ok = () => fnNames.every((n) => typeof window[n] === 'function');
+    if (ok()) return resolve();
+    const iv = setInterval(() => {
+      if (ok()) { clearInterval(iv); resolve(); }
+    }, READY_CHECK_INTERVAL_MS);
+  });
+}
 
-  async function leave() {
-    if (!active) return;
-    const impl = engines.get(active);
-    try { if (impl?.leave) await impl.leave(); }
-    catch (e) { console.error(`[ENGINE] leave(${active}) error:`, e); }
-    active = null;
-  }
+const state = {
+  engines: ['BUILD', 'FRBN', 'OFFNNG', 'LCHT', 'TMSL'],
+  idx: 0
+};
 
-  async function enter(name) {
-    if (active === name) {
-      try { await engines.get(name)?.syncFromScene?.(); } catch (_) {}
-      return name;
+function updateEngineButtonsUIActive(name) {
+  try {
+    const map = {
+      BUILD: 'btn-engine-build',
+      FRBN: 'toggleFRBN',
+      OFFNNG: 'toggleOFFNNG',
+      LCHT: 'toggleLCHT',
+      TMSL: 'toggleTMSL'
+    };
+    for (const key in map) {
+      const el = document.getElementById(map[key]);
+      if (!el) continue;
+      if (key === name) el.classList.add('active');
+      else el.classList.remove('active');
     }
-    if (!engines.has(name)) {
-      console.warn(`[ENGINE] '${name}' no registrado`);
-      return null;
-    }
-    await leave();
-    try { await engines.get(name)?.enter?.(); }
-    catch (e) { console.error(`[ENGINE] enter(${name}) error:`, e); }
-    active = name;
-    if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
-    return name;
+  } catch {}
+}
+
+async function invokeEngine(name) {
+  await waitFor(['switchToBuild', 'toggleFRBN', 'toggleOFFNNG', 'toggleLCHT', 'toggleTMSL']);
+  switch (name) {
+    case 'BUILD': window.switchToBuild?.(); break;
+    case 'FRBN': window.toggleFRBN?.(); break;
+    case 'OFFNNG': window.toggleOFFNNG?.(); break;
+    case 'LCHT': window.toggleLCHT?.(); break;
+    case 'TMSL': window.toggleTMSL?.(); break;
+    default: window.switchToBuild?.();
   }
+  updateEngineButtonsUIActive(name);
+}
 
-  async function cycle() {
-    if (!order.length) return null;
-    const i = active ? order.indexOf(active) : -1;
-    const next = order[(i + 1) % order.length];
-    return enter(next);
-  }
-
-  async function syncFromScene() {
-    try { await engines.get(active)?.syncFromScene?.(); }
-    catch (e) { console.error('[ENGINE] syncFromScene error:', e); }
-  }
-
-  return {
-    register, enter, leave, cycle, syncFromScene,
-    getActive: () => active,
-    list: () => order.slice()
-  };
-})();
-
-window.ENGINE = REGISTRY;
-
-/* =================== REGISTROS PROVISIONALES =================== */
-/* BUILD: delega en switchToBuild() (ya asegura exclusividad) */
-REGISTRY.register('BUILD', {
-  enter: async () => { if (typeof window.switchToBuild === 'function') window.switchToBuild(); },
-  leave: async () => {},
-  syncFromScene: async () => {}
-});
-
-/* FRBN: usa ensureFRBNLoaded()/toggleFRBN()/frbnOn() definidos en el HTML */
-REGISTRY.register('FRBN', {
-  enter: async () => {
-    if (typeof window.ensureFRBNLoaded === 'function') {
-      const ok = await window.ensureFRBNLoaded();
-      if (!ok) return;
-    }
-    if (typeof window.frbnOn === 'function' && !window.frbnOn()) {
-      if (typeof window.toggleFRBN === 'function') await window.toggleFRBN();
-    } else if (window.FRBN && typeof window.FRBN.syncFromScene === 'function') {
-      window.FRBN.syncFromScene();
-    }
+export const ENGINE = {
+  async enter(name) {
+    if (!state.engines.includes(name)) name = 'BUILD';
+    state.idx = state.engines.indexOf(name);
+    await invokeEngine(name);
   },
-  leave: async () => {
-    if (typeof window.frbnOn === 'function' && window.frbnOn()) {
-      if (typeof window.toggleFRBN === 'function') await window.toggleFRBN();
-    }
-  },
-  syncFromScene: async () => {
-    if (window.FRBN && typeof window.FRBN.syncFromScene === 'function') window.FRBN.syncFromScene();
+  async cycle() {
+    state.idx = (state.idx + 1) % state.engines.length;
+    await invokeEngine(state.engines[state.idx]);
   }
-});
+};
 
-/* LCHT: passthrough provisional a tus toggles actuales */
-REGISTRY.register('LCHT', {
-  enter: async () => { if (!window.isLCHT && typeof window.toggleLCHT === 'function') window.toggleLCHT(); },
-  leave: async () => { if (window.isLCHT && typeof window.toggleLCHT === 'function') window.toggleLCHT(); },
-  syncFromScene: async () => { if (typeof window.rebuildLCHTIfActive === 'function') window.rebuildLCHTIfActive(); }
-});
+// Expone globalmente para el HTML existente
+window.ENGINE = ENGINE;
 
-/* OFFNNG: passthrough provisional (usa ensureOnlyOFFNNG / toggleOFFNNG) */
-REGISTRY.register('OFFNNG', {
-  enter: async () => { if (typeof window.ensureOnlyOFFNNG === 'function') window.ensureOnlyOFFNNG(); },
-  leave: async () => { if (window.isOFFNNG && typeof window.toggleOFFNNG === 'function') window.toggleOFFNNG(); },
-  syncFromScene: async () => { if (typeof window.syncOFFNNGFromScene === 'function') window.syncOFFNNGFromScene(); }
-});
+// ---- Contrato (infra) ----
+// Devuelve null si no hay config (no placeholders). Cuando haya dirección/ABI reales,
+// se añadirá aquí en un PR posterior sin tocar el HTML.
+export function getContractConfig() {
+  // Sin placeholders: por ahora no hay contrato configurado.
+  // Retorna null y el front ocultará el bloque NFT de forma segura.
+  return null;
 
-/* TMSL: passthrough provisional */
-REGISTRY.register('TMSL', {
-  enter: async () => { if (typeof window.ensureOnlyTMSL === 'function') window.ensureOnlyTMSL(); },
-  leave: async () => { if (window.isTMSL && typeof window.toggleTMSL === 'function') window.toggleTMSL(); },
-  syncFromScene: async () => {}
-});
-
-export default REGISTRY;
-
+  // Ejemplo futuro (NO incluir ahora):
+  // return {
+  //   chainId: 137, // Polygon mainnet
+  //   address: "0x....",
+  //   abi: [ ...ABI... ]
+  // };
+}
