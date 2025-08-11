@@ -285,7 +285,7 @@
 <body>
   <div id="customCursor"></div>
   <button id="patternNextButton" onclick="cyclePattern()">11</button>
-  <button id="engineCycleButton"  onclick="ENGINE.cycle()">4</button>
+  <button id="engineCycleButton"  onclick="safeEngineCycle()">4</button>
   <button id="permNextButton"     onclick="nextPerm120()">120</button>
   <div id="topRightDisplay"></div>
 
@@ -552,6 +552,19 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let wallHSV = {h:0,s:0,v:1};
     let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
+    let cancelRandomSearch = false;
+    let randomSearchHotkeyBound = false;
+
+    function stopRandomSearch(){ cancelRandomSearch = true; }
+
+    // Atajo ESC para cancelar (se registra una sola vez)
+    function bindRandomSearchHotkey(){
+      if (randomSearchHotkeyBound) return;
+      window.addEventListener('keydown', (e)=>{
+        if (e.key === 'Escape') stopRandomSearch();
+      }, { passive: true });
+      randomSearchHotkeyBound = true;
+    }
       const ΔE_MIN = 20;
 
       // >>> NUEVO:
@@ -1433,63 +1446,66 @@ function findCollisionFreeMapping(perms){
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
     async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
-      // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
+      bindRandomSearchHotkey();
+      cancelRandomSearch = false;
+
+      // Elegimos un patrón cromático aleatorio (1..11, evitando legacy 0)
       const randPattern = Math.floor(Math.random() * 11) + 1;
 
       let round = 0;
-      while (true) { // sigue intentando hasta que realmente encuentre una sin colisiones
+      let lastPopup = 0;
+
+      while (!cancelRandomSearch) {
         round++;
-        for (let t = 0; t < MAX_TRIES; t++) {
-          showPopup(`Buscando configuración sin colisiones… (ronda ${round}, intento ${t+1})`, 500);
+        for (let t = 0; t < MAX_TRIES && !cancelRandomSearch; t++) {
+          // Throttle de popup (máx. ~1 cada 600 ms)
+          const now = performance.now();
+          if (now - lastPopup > 600) {
+            showPopup(`Buscando configuración sin colisiones… (ronda ${round}, intento ${t+1})`, 800);
+            lastPopup = now;
+          }
 
           const perms   = pickRandomPerms();
           const mapping = findCollisionFreeMapping(perms);
 
           if (mapping) {
-            // 1) Setea el patrón cromático escogido
+            // 1) set patrón cromático elegido
             activePatternId = randPattern;
             const selPattern = document.getElementById('patternSelect');
             if (selPattern) selPattern.value = String(randPattern);
 
-            // 2) Pon las permutaciones en el <select>
+            // 2) aplica selección de permutaciones a la UI
             const sel = document.getElementById('permutationList');
             Array.from(sel.options).forEach(o => o.selected = false);
             perms.forEach(p=>{
               const val = p.join(',');
               const opt = sel.querySelector(`option[value="${val}"]`);
-              if(opt) opt.selected = true;
+              if (opt) opt.selected = true;
             });
 
-            // 3) Aplica el mapping encontrado
+            // 3) aplica mapping encontrado + ciclo P2
             attributeMapping = mapping;
-
-            // mantenemos tu ciclo de atributo "color"
             attributeMapping[1] = colorAttrCycle % 5;
             colorAttrCycle++;
+            const msel = document.getElementById('attrMapping');
+            if (msel) msel.value = attributeMapping.slice(0,5).join(',');
 
-            document.getElementById('attrMapping').value =
-              `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
-
-            // 4) Reconstruye escena completa
+            // 4) reconstruye y valida
             refreshAll({rebuild:true});
-
-            // 5) Verificación final (por si acaso)
             const hasCol = checkCollisionsInGroup(permutationGroup);
             if (!hasCol) {
-              /*  ▸ YA NO se desactiva el motor actual.
-               *    Si el usuario estaba en FRBN o LCHT, sigue allí.
-               *    BUILD sólo se activa cuando se pulsa explícitamente el botón BUILD. */
               showPopup("¡Configuración sin colisiones encontrada!", 2000);
               return true;
             }
           }
 
-          // cede el hilo para no congelar la UI
+          // ceder hilo cada N iteraciones
           if ((t % 25) === 0) await new Promise(r => setTimeout(r, 0));
         }
-        // pequeña pausa entre rondas largas
         await new Promise(r => setTimeout(r, 10));
       }
+      showPopup("Búsqueda cancelada.", 1200);
+      return false;
     }
 
     function showPopup(msg, dur = 2000){
@@ -1914,6 +1930,34 @@ function makePalette(){
       // Asegura que el cursor personalizado vuelva a mostrarse
       const cc = document.getElementById('customCursor');
       if (cc) cc.style.display = 'block';
+    }
+
+    function safeEngineCycle(){
+      if (window.ENGINE?.cycle) return ENGINE.cycle();
+
+      // Fallback: ciclo mínimo entre motores disponibles
+      const order = ['BUILD','FRBN','OFFNNG','LCHT','TMSL'].filter(n=>{
+        // incluye sólo los que existan en el registro o tengan enter()
+        return window.ENGINE?.enter || typeof window[n]?.toggle === 'function';
+      });
+
+      const current =
+        (window.isFRBN && 'FRBN') ||
+        (window.isOFFNNG && 'OFFNNG') ||
+        (window.isLCHT && 'LCHT') ||
+        (window.isTMSL && 'TMSL') ||
+        'BUILD';
+
+      const idx = Math.max(0, order.indexOf(current));
+      const next = order[(idx + 1) % order.length];
+
+      if (window.ENGINE?.enter) return ENGINE.enter(next);
+      // ultra-fallback si no hay registry: intenta toggles directos
+      if (next === 'FRBN')  return toggleFRBN?.();
+      if (next === 'OFFNNG')return toggleOFFNNG?.();
+      if (next === 'LCHT')  return toggleLCHT?.();
+      if (next === 'TMSL')  return toggleTMSL?.();
+      return switchToBuild?.();
     }
 
     /* 3.1 Patrón cromático siguiente */
@@ -2621,7 +2665,6 @@ function renderArchPanel(html){
     let offnngMesh   = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
-    let offnngQualityLow = true;                // Low fijo
     let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
 
     function buildOFFNNG () {
@@ -2925,9 +2968,6 @@ void main(){
           renderer.setPixelRatio(prevPixelRatio_OFFNNG);
           prevPixelRatio_OFFNNG = null;
         }
-        const qb = document.getElementById('offnngQualityButton');
-        if (qb) qb.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
-
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
         if (lichtGroup && isLCHT) lichtGroup.visible = true;
@@ -2943,15 +2983,12 @@ void main(){
       if (!isOFFNNG) toggleOFFNNG();
     }
 
-    /* Calidad: ya NO reducimos el pixelRatio (evita blur); solo variamos uSteps */
     function applyOFFNNGQuality(){
-      const basePR = Math.min(window.devicePixelRatio || 1, 1.25); // antes 1.5
-      renderer.setPixelRatio(basePR);                               // Low/High no tocan PR
-      if (offnngMesh && offnngMesh.material && offnngMesh.material.uniforms) {
-        offnngMesh.material.uniforms.uSteps.value = offnngQualityLow ? 36 : 56;
+      const basePR = Math.min(window.devicePixelRatio || 1, 1.25);
+      renderer.setPixelRatio(basePR);
+      if (offnngMesh?.material?.uniforms) {
+        offnngMesh.material.uniforms.uSteps.value = 46; // “medio”
       }
-      const b = document.getElementById('offnngQualityButton');
-      if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
     }
   /* === OFFNNG: bias por patrón (±10–15 %) y mezcla de ejes (máx 0.3) === */
   const OFFNNG_PATTERN_BIAS = {
@@ -3077,14 +3114,6 @@ void main(){
     const norm = Math.max(1e-6, Math.hypot(ax, ay, az));
     U.uRotAxis.value.set(ax/norm, ay/norm, az/norm);
   }
-
-  function toggleOFFNNGQuality(){
-    offnngQualityLow = !offnngQualityLow;
-    if (isOFFNNG) applyOFFNNGQuality();
-    const b = document.getElementById('offnngQualityButton');
-    if (b) b.textContent = offnngQualityLow ? 'Quality: Low' : 'Quality: High';
-    }
-
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
 
     /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
