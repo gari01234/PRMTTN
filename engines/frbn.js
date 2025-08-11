@@ -113,6 +113,7 @@ const FRBNEngine = (() => {
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = 'FRBN_skySphere';
+    mesh.renderOrder = -1; // asegura dibujado detrás
     return mesh;
   }
 
@@ -218,15 +219,22 @@ const FRBNEngine = (() => {
   };
 })();
 
-// auto-registro (con nombre correcto)
+// Autorregistro robusto para FRBN (sin bucles falsos)
 (function registerWhenReady(){
-  const reg = () => window.ENGINE && typeof window.ENGINE.register === 'function'
-    ? window.ENGINE.register('FRBN', FRBNEngine) : null;
-  if (!reg()){
-    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const tryRegister = () => {
+    if (window.ENGINE && typeof window.ENGINE.register === 'function') {
+      // IMPORTANTE: que register devuelva true
+      const ok = window.ENGINE.register('FRBN', FRBNEngine);
+      return !!ok;
+    }
+    return false;
+  };
+
+  if (!tryRegister()){
+    const t0 = (performance?.now?.() ?? Date.now());
     const again = () => {
-      if (!reg()){
-        if (((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) < 4000) {
+      if (!tryRegister()){
+        if ( ((performance?.now?.() ?? Date.now()) - t0) < 4000 ) {
           setTimeout(again, 50);
         }
       }
