@@ -168,5 +168,12 @@
     }
   };
 
+  // Getters de compatibilidad con el HTML actual:
+  Object.defineProperty(API, 'activeName', { get(){ return _activeName; }});
+  // Algunas rutas antiguas consultan ENGINE.state.active o ENGINE.current
+  API.state = API.state || {};
+  Object.defineProperty(API.state, 'active', { get(){ return _activeName; }});
+  Object.defineProperty(API, 'current',    { get(){ return _activeName; }});
+
   g.ENGINE = API;
 })();
