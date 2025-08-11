@@ -3212,45 +3212,6 @@ void main(){
 
       eng.__frbnShim = true; // marca para no parchear dos veces
     });
-
-    // Web3 + NFT Mint (tu código original)
-    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
-    const contractABI = [/* ABI JSON here */];
-    let provider, signer, contract;
-    async function initWeb3() {
-      if (window.ethereum) {
-        provider = new ethers.providers.Web3Provider(window.ethereum);
-        await provider.send("eth_requestAccounts", []);
-        signer = provider.getSigner();
-        contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
-      } else {
-        console.warn("MetaMask no detectado");
-      }
-    }
-    window.addEventListener("load", initWeb3);
-
-    async function mintNFT() {
-      if (!contract) { alert("Wallet no conectada"); return; }
-      try {
-        const hash = await computeConfigHash();
-        const tokenURI = `https://my-server.com/metadata/${hash}.json`;
-        const tx = await contract.mint(await signer.getAddress(), tokenURI);
-        await tx.wait();
-        const nft = {
-          tokenId: hash,
-          tokenURI,
-          owner: await signer.getAddress(),
-          config: await exportCurrentConfiguration()
-        };
-        localStorage.setItem("mintedNFT_" + hash, JSON.stringify(nft));
-        console.log("NFT guardado localmente:", nft);
-        alert("NFT acuñado! Hash: " + hash);
-      } catch(e) {
-        console.error(e);
-        alert("Error mint NFT: " + e.message);
-      }
-    }
-
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
      * Title: "PRMMTN – Architecture for thought without words"
@@ -4113,6 +4074,156 @@ async function __syncFromUIToStore(){
     setTimeout(__syncFromUIToStore, 0);
   });
 })();
+</script>
+
+<!-- ===================== Web3 + NFT Mint (PR #1: contrato + registry 1.0) ===================== -->
+<script>
+  let provider = null;
+  let signer = null;
+  let contract = null;
+
+  async function ensureWeb3Provider() {
+    if (!window.ethereum) return null;
+    try {
+      const { ethers } = window.ethers || {};
+      if (!ethers) return null;
+      const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+      await web3Provider.send("eth_requestAccounts", []);
+      return web3Provider;
+    } catch (e) {
+      console.error('No se pudo inicializar Web3:', e);
+      return null;
+    }
+  }
+
+  async function initWeb3AndContract() {
+    // Carga de configuración desde registry.js (sin placeholders).
+    let cfg = null;
+    try {
+      const mod = await import('./engines/registry.js');
+      cfg = typeof mod.getContractConfig === 'function' ? mod.getContractConfig() : null;
+    } catch (e) {
+      console.warn('registry.js no disponible aún:', e);
+    }
+
+    // Si no hay configuración de contrato, aseguramos que el bloque NFT quede oculto.
+    const nftDetails = document.getElementById('nftBlock');
+    if (nftDetails) nftDetails.style.display = 'none';
+
+    if (!cfg) {
+      console.info('Sin config de contrato (OK para PR #1). Mint UI oculto.');
+      return;
+    }
+
+    // Si hay config, inicializamos Web3 y contrato.
+    provider = await ensureWeb3Provider();
+    if (!provider) {
+      console.warn('Proveedor Web3 no disponible. Mint UI permanece oculto.');
+      return;
+    }
+
+    try {
+      const network = await provider.getNetwork();
+      if (cfg.chainId && Number(network.chainId) !== Number(cfg.chainId)) {
+        // Intento de cambio de red (opcional). Si falla, no rompemos UI.
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0x' + Number(cfg.chainId).toString(16) }]
+          });
+        } catch (switchErr) {
+          console.warn('Red incorrecta y no se pudo cambiar automáticamente:', switchErr);
+          return;
+        }
+      }
+
+      signer = provider.getSigner();
+      const { ethers } = window.ethers || {};
+      contract = new ethers.Contract(cfg.address, cfg.abi, signer);
+
+      // Con contrato listo, mostramos el bloque NFT y conectamos el botón.
+      if (nftDetails) nftDetails.style.display = 'block';
+      const mintBtn = document.getElementById('btn-mint');
+      if (mintBtn) {
+        mintBtn.removeEventListener('_mint', mintNFT); // evita doble binding si recarga
+        mintBtn.addEventListener('click', mintNFT);
+        mintBtn.addEventListener('_mint', mintNFT);
+      }
+    } catch (err) {
+      console.error('No se pudo inicializar el contrato:', err);
+      if (nftDetails) nftDetails.style.display = 'none';
+    }
+  }
+
+  async function mintNFT() {
+    if (!contract || !signer) {
+      alert("Mint no disponible (sin contrato configurado).");
+      return;
+    }
+    try {
+      // Reutilizamos tu exportador determinista
+      if (typeof exportCurrentConfiguration !== 'function') {
+        alert('Falta exportCurrentConfiguration().');
+        return;
+      }
+      const data = await exportCurrentConfiguration(); // { meta, canvasBlob, qrPngDataURI }
+      // Subida a Bundlr si está activo
+      let tokenURI = null;
+      try {
+        if (window.BundlrUploader && typeof window.BundlrUploader.uploadJSON === 'function') {
+          const res = await window.BundlrUploader.uploadJSON({
+            name: "Pulseprint Configuration",
+            description: (data.meta?.notes || "Sin descripción"),
+            image: data.meta?.qrCode || data.qrPngDataURI || "",
+            attributes: Object.entries(data.meta || {}).map(([k, v]) => ({ trait_type: k, value: String(v) }))
+          });
+          tokenURI = res?.id ? `https://arweave.net/${res.id}` : null;
+        }
+      } catch (bundlrErr) {
+        console.warn('Fallo subiendo a Bundlr, seguimos sin tokenURI:', bundlrErr);
+      }
+
+      // Si no hay tokenURI, persistimos el JSON localmente como data: URI (determinista).
+      if (!tokenURI) {
+        const json = {
+          name: "Pulseprint Configuration",
+          description: (data.meta?.notes || "Sin descripción"),
+          image: data.meta?.qrCode || data.qrPngDataURI || "",
+          attributes: Object.entries(data.meta || {}).map(([k, v]) => ({ trait_type: k, value: String(v) }))
+        };
+        const raw = new TextEncoder().encode(JSON.stringify(json));
+        const b64 = btoa(String.fromCharCode(...raw));
+        tokenURI = `data:application/json;base64,${b64}`;
+      }
+
+      const to = await signer.getAddress();
+      const tx = await contract.mint(to, tokenURI);
+      const receipt = await tx.wait();
+
+      const statusEl = document.getElementById('mint-status');
+      if (statusEl) statusEl.textContent = `Mint OK: tx ${receipt.transactionHash}`;
+      alert('Mint exitoso.');
+    } catch (err) {
+      console.error('Error en mintNFT:', err);
+      const statusEl = document.getElementById('mint-status');
+      if (statusEl) statusEl.textContent = `Error: ${err.message || err}`;
+      alert('Error al mintear.');
+    }
+  }
+
+  window.addEventListener('load', () => {
+    // Inicializa infra de contrato + muestra/oculta NFT block según config presente.
+    initWeb3AndContract();
+
+    // Integra con el Registry 1.0 ya cargado por <script type="module" src="./engines/registry.js">
+    try {
+      if (window.ENGINE && typeof window.ENGINE.enter === 'function') {
+        window.ENGINE.enter('BUILD');
+      }
+    } catch (e) {
+      console.warn('ENGINE no disponible aún:', e);
+    }
+  });
 </script>
 <!-- ───────────────────────── ARCHIVE (inert) ─────────────────────────
      Elementos desactivados y retirados del flujo, conservados aquí:
