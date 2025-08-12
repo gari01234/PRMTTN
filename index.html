@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <title>PRMTTN</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script type="module" src="https://esm.sh/web-bundlr@0.1.1"></script>
-  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -106,10 +104,6 @@
   select, input[type="range"], input[type="color"] { cursor: none; width: 100%; }
   #permutationList { width: 100%; height: 100px; }
 
-  /* rating oculto */
-  #ratingContainer{
-    display:none !important;
-  }
 
   #hoverPopup {
     position:absolute; padding:5px 10px;
@@ -119,11 +113,6 @@
     transition:opacity .3s; z-index:200;
   }
 
-  #modeBlock,
-  #nftBlock,
-  #secretBlock{
-    display:none;
-  }
 
   /* Panel BUILD */
   #archPanel{
@@ -290,21 +279,6 @@
     <div id="perm120Status">Permutation: 0 / 119</div>
   </div>
 
-  <div id="ratingContainer">
-    <details open>
-      <summary>Calificar Configuración</summary>
-      <div id="ratingControls">
-        <div id="ratingLabels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
-        <div id="ratingDots">
-          <span class="ratingBtn" data-rating="1">●</span>
-          <span class="ratingBtn" data-rating="2">●</span>
-          <span class="ratingBtn" data-rating="3">●</span>
-          <span class="ratingBtn" data-rating="4">●</span>
-          <span class="ratingBtn" data-rating="5">●</span>
-        </div>
-      </div>
-    </details>
-  </div>
 
   <div id="controls">
   <details open>
@@ -338,15 +312,6 @@
     </details>
   </div>
 
-  <div id="evolutionControls" style="display:none;">
-    <details open>
-      <summary>Evolution Parameters</summary>
-      <p>Mutation Rate: <input type="range" id="mutationRate" min="0" max="1" step="0.01" value="0.1"></p>
-      <p>Change Threshold: <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"></p>
-      <button onclick="applyEvolution()">Apply Evolution</button>
-      <div id="evolutionInfo" style="margin-top:8px;font-size:12px;"></div>
-    </details>
-  </div>
 
   <details>
     <summary>Manual Colors (override)</summary>
@@ -404,10 +369,6 @@
   </details>
 </div>
 
-<details id="nftBlock">
-  <summary>⋆ NFT</summary>
-  <button id="btn-mint" style="width:100%;margin-top:8px;">Mint NFT</button>
-</details>
 
 <script>
 document.getElementById('json-upload').addEventListener('change', function(event) {
@@ -482,58 +443,12 @@ document.getElementById('json-upload').addEventListener('change', function(event
 });
 </script>
 
-<details id="secretBlock" open>
-  <summary>📁 Añadir Archivo Secreto</summary>
-  <div id="dropzone" style="padding:10px;border:2px dashed #ccc;background:#f9f9f9;margin-top:10px;text-align:center;cursor:pointer;transition:border-color 0.2s;">
-    <p>Arrastra aquí tu archivo secreto o haz clic para seleccionar</p>
-    <input type="file" id="fileInput" style="display:none" />
-    <p id="uploadStatus"></p>
-    <p id="jwkOutput" style="word-break:break-all;font-size:11px;"></p>
-    <p id="cidOutput" style="word-break:break-all;font-size:11px;"></p>
-  </div>
-</details>
 
   <div id="hoverPopup"></div>
 
   <!-- (eliminados: copias duplicadas de Three, OrbitControls y Ethers) -->
-  <!-- Bundlr -->
-  <script type="module">
-    import { WebBundlr } from "https://esm.sh/web-bundlr@0.1.1";
-    window.addEventListener("load", async () => {
-      try {
-        const bundlr = new WebBundlr("https://node1.bundlr.network", "matic", window.ethereum);
-        await bundlr.ready();
-        const balance = await bundlr.getLoadedBalance();
-        console.log("Bundlr listo, balance:", balance.toString());
-        window.bundlr = bundlr;
-      } catch (err) {
-        console.error("Error inicializando Bundlr:", err);
-      }
-    });
-  </script>
   <script>
     // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
-    // === LISTA DE 120 COLORES ===
-    const CUSTOM_COLORS = [
-      "#070709","#898052","#402523","#0d080a","#070909","#050608","#070509",
-      "#12080d","#330a0d","#9c714f","#382e24","#883933","#decda0",
-      "#fafcff","#a4b6bc","#e7e8e1","#f3f1ea","#eaebe2","#dcdacf","#f8f9f8",
-      "#f6f5ea","#ffffff","#f3f3f0","#faf9f0","#f5f7f6","#eeece8","#fffef7",
-      "#350b0c","#9e4031","#820707","#eeb049","#120607","#f6f1ed",
-      "#300809","#8c2d18","#6a6620","#b99c5c","#110505","#5f2423",
-      "#400909","#a04b37","#180506","#e1b055","#6f2919","#170607",
-      "#000000","#9c822b","#3e1b2c","#edce83","#1b0408","#8a4667",
-      "#000000","#ec9b1c","#701a25","#9c2c1a","#480b0b","#150407",
-      "#2a0607","#b08b4f","#7a181d","#5d180f","#1f0908","#dfb46e",
-      "#0b0304","#a4735a","#4e272a","#cab296","#923930","#1d0709",
-      "#f4c061","#963326","#d89048","#430f0c","#ce5830","#72121a",
-      "#fefffe","#c0b280","#57231d","#99541e","#210d0a","#8a5d2f",
-      "#33090a","#e2a33f","#a24a2c","#591e14","#8f2e1c","#1e0809",
-      "#bd4d1d","#441b1d","#0f0406","#e3a337","#886c39","#1a0807",
-      "#fffcee","#cea564","#9a7859","#080103","#000003","#000100",
-      "#000000","#6d4d2c","#2d060a","#000005","#000100","#2d0006",
-      "#17120a","#451e18","#42401c","#7c4934","#8c7640","#c0b468"
-    ];
 
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
@@ -2068,11 +1983,11 @@ function makePalette(){
     }
 
     function setMode(m){
-      currentMode=m;
-      document.getElementById('manualControls').style.display=
-        m==="manual"?"block":"none";
-      document.getElementById('evolutionControls').style.display=
-        m==="evolution"?"block":"none";
+      currentMode = m;
+      const manual = document.getElementById('manualControls');
+      if (manual) manual.style.display = (m === "manual" ? "block" : "none");
+      const evo = document.getElementById('evolutionControls'); // puede no existir
+      if (evo) evo.style.display = (m === "evolution" ? "block" : "none");
       refreshAll({rebuild:true});
     }
 
@@ -3326,43 +3241,6 @@ void main(){
 
     init();
 
-    // Web3 + NFT Mint (tu código original)
-    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
-    const contractABI = [/* ABI JSON here */];
-    let provider, signer, contract;
-    async function initWeb3() {
-      if (window.ethereum) {
-        provider = new ethers.providers.Web3Provider(window.ethereum);
-        await provider.send("eth_requestAccounts", []);
-        signer = provider.getSigner();
-        contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
-      } else {
-        console.warn("MetaMask no detectado");
-      }
-    }
-    window.addEventListener("load", initWeb3);
-
-    async function mintNFT() {
-      if (!contract) { alert("Wallet no conectada"); return; }
-      try {
-        const hash = await computeConfigHash();
-        const tokenURI = `https://my-server.com/metadata/${hash}.json`;
-        const tx = await contract.mint(await signer.getAddress(), tokenURI);
-        await tx.wait();
-        const nft = {
-          tokenId: hash,
-          tokenURI,
-          owner: await signer.getAddress(),
-          config: exportCurrentConfiguration()
-        };
-        localStorage.setItem("mintedNFT_" + hash, JSON.stringify(nft));
-        console.log("NFT guardado localmente:", nft);
-        alert("NFT acuñado! Hash: " + hash);
-      } catch(e) {
-        console.error(e);
-        alert("Error mint NFT: " + e.message);
-      }
-    }
 
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
@@ -3662,80 +3540,6 @@ openssl dgst -sha256 prmttn_config.json</pre>
       }
     }
 
-  </script>
-  <!-- DROPZONE SCRIPT FINAL -->
-  <script>
-  document.addEventListener("DOMContentLoaded", function() {
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('fileInput');
-    const uploadStatus = document.getElementById('uploadStatus');
-    const jwkOutput = document.getElementById('jwkOutput');
-    const cidOutput = document.getElementById('cidOutput');
-
-    dropzone.addEventListener('click', () => fileInput.click());
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropzone.style.borderColor = "#888";
-    });
-    dropzone.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      dropzone.style.borderColor = "#ccc";
-    });
-    dropzone.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      dropzone.style.borderColor = "#ccc";
-      if (e.dataTransfer.files.length > 0) {
-        await handleFile(e.dataTransfer.files[0]);
-      }
-    });
-    fileInput.addEventListener('change', async (e) => {
-      if (e.target.files.length > 0) {
-        await handleFile(e.target.files[0]);
-      }
-    });
-    async function handleFile(file) {
-      uploadStatus.textContent = "Cifrando archivo…";
-      jwkOutput.textContent = "";
-      cidOutput.textContent = "";
-      const key = await crypto.subtle.generateKey(
-        { name: "AES-GCM", length: 256 },
-        true,
-        ["encrypt", "decrypt"]
-      );
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const data = new Uint8Array(await file.arrayBuffer());
-      const encrypted = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        key,
-        data
-      );
-      const exportedKey = await crypto.subtle.exportKey("jwk", key);
-      jwkOutput.textContent = " Clave secreta (guárdala para descifrar): " + JSON.stringify(exportedKey);
-      const ivHex = Array.from(iv).map(x=>x.toString(16).padStart(2,"0")).join("");
-      jwkOutput.textContent += "\n IV usado: " + ivHex;
-
-      const combined = new Uint8Array(iv.byteLength + encrypted.byteLength);
-      combined.set(iv, 0);
-      combined.set(new Uint8Array(encrypted), iv.byteLength);
-      const encryptedBlob = new Blob([combined], { type: file.type });
-
-      uploadStatus.textContent = "Subiendo a Bundlr (requiere wallet conectada)…";
-      try {
-        if (!window.bundlr) {
-          uploadStatus.textContent = "Bundlr no está listo aún o la wallet no está conectada";
-          return;
-        }
-        const tx = await window.bundlr.upload(encryptedBlob, {
-          tags: [{ name: "Content-Type", value: file.type }]
-        });
-        uploadStatus.textContent = " Subida exitosa";
-        window.lastUploadedTxId = tx.id;
-        cidOutput.textContent = "CID (Arweave/Bundlr): " + tx.id;
-      } catch (err) {
-        uploadStatus.textContent = " Error subiendo a Bundlr: " + err.message;
-      }
-    }
-  });
   </script>
 <script>
 /* ══════════════════════════════════════════════════════════════
