@@ -824,30 +824,38 @@ function buildLCHT() {
     for(let i = 0; i < SEG; i++){
       const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
 
-      const col = colorFromVolume(mid);   // sin pruebas de I0
+      // === BUILD-like color pipeline para LCHT ===
+      const zNorm = (mid.z + halfCube) / cubeSize;            // frontalidad 0..1
+      const vib   = 0.22 + 0.10 * zNorm;                      // vibrance
+      const s1    = Math.min(1, s + vib * (1 - s));           // sube S con más fuerza en S bajas
+      const v1    = Math.min(0.93, v * (1.02 + 0.06 * zNorm));// brillo controlado (evita “quemados”)
+      let   rgb   = hsvToRgb(h, s1, v1);                      // HSV → RGB
+      rgb = ensureContrastRGB(rgb);                           // ΔEbg ≥ 22
 
-      // — Perfil cuadrado (lado = 0.8 ⇒ igual diámetro que el cilindro de r=0.4)
-      // — JOIN añade un pelín de solape para que las esquinas no “abran”
+      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+
+      // — Perfil cuadrado (lado = 0.8 del cilindro r=0.4) + pequeño solape
       const SIDE = 0.2;
       const JOIN = 0.02;
 
       const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
-      const mat = new THREE.MeshPhongMaterial({
+      const mat = new THREE.MeshLambertMaterial({
         color: col,
-        shininess: 0,
         dithering: true,
         flatShading: true
       });
 
+      // luminancia muy sutil de base (animación ajusta intensidad cada frame)
+      mat.emissive = col.clone();
+      mat.emissiveIntensity = 0.06 + 0.10 * zNorm;
+
       const tube = new THREE.Mesh(geo, mat);
       tube.position.copy(mid);
-      // La Box está orientada a lo largo del eje Y; mantenemos el mismo alineamiento
       tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
 
-      /* --- HSV original para animar color --- */
-      tube.userData.baseHsv = { h, s, v };
-
-      tube.userData.lcht = info.lcht;   // mantiene intensidad/emissive
+      // guardamos el HSV de base ya “boosteado” (la animación solo mueve el H)
+      tube.userData.baseHsv = { h, s: s1, v: v1 };
+      tube.userData.lcht    = info.lcht;
       lichtGroup.add(tube);
     }
   });
@@ -1103,18 +1111,25 @@ function hexToRgb(hex){
  */
 function ensureContrastRGB(rgb){
   /* color de fondo efectivo */
-  const bgRgb = bgOverride
-      ? hexToRgb(bgOverride)
-      : hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+  let bgRgb;
+  if (bgOverride) {
+    bgRgb = hexToRgb(bgOverride);
+  } else if (scene && scene.background && scene.background.isColor) {
+    // fondo actual de THREE.Color (incluye el gris de LCHT)
+    bgRgb = [
+      Math.round(scene.background.r * 255),
+      Math.round(scene.background.g * 255),
+      Math.round(scene.background.b * 255)
+    ];
+  } else {
+    bgRgb = hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+  }
 
-  let [h,s,v] = rgbToHsv(...rgb);          // pasamos a HSV
+  let [h,s,v] = rgbToHsv(rgb[0], rgb[1], rgb[2]);  // pasamos a HSV
   let tries = 0;
-  while (deltaE(rgbToLab(...rgb),
-                rgbToLab(...bgRgb)) < ΔE_BG_MIN && tries < 24){
-    /* estrategia: alterna aclarar / oscurecer en pasos de 0.04 */
-    v = (tries % 2)
-        ? Math.max(0, v - 0.04)
-        : Math.min(1, v + 0.04);
+  while (deltaE(rgbToLab(...rgb), rgbToLab(...bgRgb)) < ΔE_BG_MIN && tries < 24){
+    // alterna aclarar / oscurecer en pasos de 0.04
+    v = (tries % 2) ? Math.max(0, v - 0.04) : Math.min(1, v + 0.04);
     rgb = hsvToRgb(h, s, v);
     tries++;
   }
