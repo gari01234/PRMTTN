@@ -1,0 +1,5 @@
+The 120 architectural permutations are the 120 ways to reassign P₁–P₅ to the attributes [shape, color, x, y, z]. The architecture (the set of selected permutations) does not change; what changes is its visual phenotype by deciding which component controls each spatial and chromatic attribute.
+These reconstructions do not add semantics, do not break the logic of the system, and remain within the combinatorial framework. They reorganize the structural availability of pre‑verbal thought.
+
+Each of the 120 reorganizations is validated by its internal structural coherence, not by usefulness or beauty.
+“Evolution” is goal‑free reordering: same architecture, 120 phenotypic expressions.

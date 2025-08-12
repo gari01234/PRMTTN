@@ -1,0 +1,21 @@
+    <h2>FRBN — Deterministic Ganzfeld</h2>
+    <p><b>What you see cannot be otherwise</b> given the current scene. FRBN does not invent a palette:
+       it extracts it deterministically from the active permutations and the chromatic engine.</p>
+    <ul>
+      <li><b>Source palette.</b> Colors are collected from the glyphs currently on stage
+          (their materials are computed by the same deterministic HSV lattice used in BUILD).
+          If needed, hues are normalised to ensure separation.</li>
+      <li><b>Pattern coupling.</b> The chromatic pattern (1–11) and the global seed
+          (<code>sceneSeed</code>) bias hue selection in BUILD; FRBN reads the result,
+          not a new random set.</li>
+      <li><b>Temporal blend.</b> The shader interpolates the collected colors over time.
+          The rate is tied to the average rotation speed of the permutations, so color
+          breathing <i>follows</i> the scene dynamics.</li>
+      <li><b>No alternatives.</b> For the same set of permutations, mapping and pattern,
+          the FRBN field is reproducible. Change the scene → the field changes; keep the
+          scene → the field must be identical.</li>
+      <li><b>Banding control.</b> A high‑precision dither (blue‑noise) is applied in linear
+          space to avoid contour banding without altering the palette.</li>
+    </ul>
+    <p>FRBN is therefore a <b>deterministic projection</b> of the current combinatorial state,
+       not a decorative background.</p>
