@@ -3376,143 +3376,235 @@ void main(){
       scene.remove(g);
     }
 
-    function buildRAUM(){
-      // limpia versión previa
-      clearGroup(raumGroup);
-      raumGroup = new THREE.Group();
+      function buildRAUM(){
+        // —— limpia versión previa
+        clearGroup(raumGroup);
+        raumGroup = new THREE.Group();
 
-      // asegúrate de que el fondo está sincronizado con BUILD/OFFNNG
-      updateBackground(false);
+        // asegura fondo sincronizado con BUILD/OFFNNG
+        updateBackground(false);
 
-      const W=RAUM_W, H=RAUM_H, D=RAUM_D, g=RAUM_G;
-      const Wi=W-2*g, Hi=H-2*g, Di=D-2*g;
+        const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
+        const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
 
-      // ====== COLORES deterministas ======
-      const colCeil = raumColorFor(1);
-      const colFloor= raumColorFor(2);
-      const colLeft = raumColorFor(3);
-      const colRight= raumColorFor(4);
-      const colBack = raumColorFor(5);
-      const colA    = raumColorFor(6);
-      const colB    = raumColorFor(7);
+        // ====== COLORES deterministas ======
+        const colCeil  = raumColorFor(1);
+        const colFloor = raumColorFor(2);
+        const colLeft  = raumColorFor(3);
+        const colRight = raumColorFor(4);
+        const colBack  = raumColorFor(5);
+        const colA     = raumColorFor(6);
+        const colB     = raumColorFor(7);
 
-      function lambert(c, opacity){
-        const baseColor = applyBuildVibranceToColor(c);
-        const matOpts = {
-          color: baseColor,
-          side: THREE.DoubleSide,
-          dithering: true
-        };
-        if (typeof opacity === 'number' && opacity < 1){
-          matOpts.transparent = true;
-          matOpts.opacity = opacity;     // p.ej. 0.8 = 20% de transparencia
+        function lambert(c, opacity){
+          const base = applyBuildVibranceToColor(c);
+          const matOpts = {
+            color: base,
+            side: THREE.DoubleSide,
+            dithering: true
+          };
+          if (typeof opacity === 'number' && opacity < 1){
+            matOpts.transparent = true;
+            matOpts.opacity = opacity;
+          }
+          const m = new THREE.MeshLambertMaterial(matOpts);
+          m.emissive = base.clone();
+          m.emissiveIntensity = 0.06;
+          return m;
         }
-        const m = new THREE.MeshLambertMaterial(matOpts);
-        m.emissive = baseColor.clone();
-        m.emissiveIntensity = 0.06;      // un poco más “vivo” que 0.04
-        return m;
+
+        // ====== PAREDES EXTERIORES (caja sin frente) ======
+        const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colLeft));
+        left.position.set(-W/2 + g/2, 0, 0);
+        const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colRight));
+        right.position.set( W/2 - g/2, 0, 0);
+
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colFloor));
+        floor.position.set(0, -H/2 + g/2, 0);
+        const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colCeil));
+        ceil.position.set(0,  H/2 - g/2, 0);
+
+        raumGroup.add(left, right, floor, ceil);
+
+        // ====== INVARIANTES / ESTADÍSTICAS DETERMINISTAS ======
+        const { sumR, sumR2, mRank } = raumStats();
+
+        // ====== MUROS INTERIORES (A y B) — primero sus PARÁMETROS ======
+        // — A (longitudinal, grosor g en X, largo LA en Z)
+        const LAmin = 8, LAmax = Di; // 8..28
+        const LA = LAmin + ((sumR + 5*mRank + sceneSeed) % (LAmax - LAmin + 1));
+        const xAmin = -Wi/2 + g/2, xAmax = Wi/2 - g/2;
+        const zAmin = -Di/2 + LA/2, zAmax = Di/2 - LA/2;
+        const uAx   = ((11*sumR2 + 7*mRank + sceneSeed) % 991) / 991;
+        const uAz   = ((S_global + 23*mRank + sumR2) % 983) / 983;
+        const xA    = xAmin + (xAmax - xAmin) * uAx;
+        const zA    = zAmin + (zAmax - zAmin) * uAz;
+
+        // — B (transversal, ancho LB en X, grosor g en Z)
+        const LBmin = 10, LBmax = Wi; // 10..58
+        const LB = LBmin + ((sumR2 + 9*mRank + 3*sceneSeed) % (LBmax - LBmin + 1));
+        const xBmin = -Wi/2 + LB/2, xBmax = Wi/2 - LB/2;
+        const zBmin = -Di/2 + g/2,  zBmax = Di/2 - g/2;
+        const uBx   = ((17*sumR2 + 31*mRank + sceneSeed) % 971) / 971;
+        const uBz   = ((19*sumR + 29*mRank + S_global) % 977) / 977;
+        const xB    = xBmin + (xBmax - xBmin) * uBx;
+        const zB    = zBmin + (zBmax - zBmin) * uBz;
+
+        // ====== APERTURA EN LA PARED DEL FONDO (con regla 33%) ======
+        const zBack = -D/2 + g/2;
+
+        // — dimensiones base (10..25), sin forzar área mínima
+        let breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16); // 10..25
+        let hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16); // 10..25
+        breite = Math.max(2, Math.min(breite, Wi));
+        hoehe  = Math.max(2, Math.min(hoehe,  Hi));
+
+        // — centro determinista propuesto
+        const xmin0 = -Wi/2 + breite/2, xmax0 = Wi/2 - breite/2;
+        const ymin0 = -Hi/2 + hoehe/2,  ymax0 = Hi/2 - hoehe/2;
+
+        const ux = ((37*sumR + 13*mRank + S_global) % 997) / 997;
+        const uy = ((53*sumR2 + 17*mRank + sceneSeed) % 991) / 991;
+        let xC   = xmin0 + (xmax0 - xmin0) * ux;
+        const yC = ymin0 + (ymax0 - ymin0) * uy;
+
+        // — utilidades de intervalos en X
+        function clipInterval(a,b,min,max){
+          const s = Math.max(a,min), e = Math.min(b,max);
+          return (e > s) ? [s,e] : null;
+        }
+        function mergeIntervals(list){
+          if (!list.length) return [];
+          const v = list.slice().sort((p,q)=>p[0]-q[0]);
+          const out = [ v[0].slice() ];
+          for (let i=1;i<v.length;i++){
+            const cur = v[i], last = out[out.length-1];
+            if (cur[0] <= last[1]) last[1] = Math.max(last[1], cur[1]);
+            else out.push(cur.slice());
+          }
+          return out;
+        }
+        function complement(minX, maxX, occ){
+          const gaps=[];
+          let cur = minX;
+          occ.forEach(([a,b])=>{
+            if (a > cur) gaps.push([cur,a]);
+            cur = Math.max(cur,b);
+          });
+          if (cur < maxX) gaps.push([cur,maxX]);
+          return gaps;
+        }
+        function visibleFraction(center, width, occ){
+          const L = center - width/2, R = center + width/2;
+          let occLen = 0;
+          occ.forEach(([a,b])=>{
+            const s = Math.max(L,a), e = Math.min(R,b);
+            if (e > s) occLen += (e - s);
+          });
+          const vis = Math.max(0, width - Math.min(width, occLen));
+          return vis / Math.max(1e-6, width);
+        }
+
+        // — proyección de A y B sobre el fondo (intervalos en X, altura total)
+        const occRaw = [];
+        const iA = clipInterval(xA - g/2,   xA + g/2,   -Wi/2, Wi/2);
+        const iB = clipInterval(xB - LB/2,  xB + LB/2,  -Wi/2, Wi/2);
+        if (iA) occRaw.push(iA);
+        if (iB) occRaw.push(iB);
+        const occ = mergeIntervals(occRaw);
+        const gaps = complement(-Wi/2, Wi/2, occ);
+
+        // — regla 33%: recolocación suave + fallback de reducción de ancho
+        const VISIBLE_MIN = 0.33;
+
+        function gapLen(g){ return g[1]-g[0]; }
+        const maxGap = gaps.length ? gaps.reduce((best,g)=> gapLen(g) > gapLen(best) ? g : best, gaps[0]) : [0,0];
+        const Lmax   = gapLen(maxGap);
+
+        let xmin = xmin0, xmax = xmax0;
+        let vis  = visibleFraction(xC, breite, occ);
+
+        if (vis < VISIBLE_MIN){
+          // 1) ¿Existe algún gap que pueda contener COMPLETA la ventana?
+          const bigGaps = gaps.filter(g => gapLen(g) >= breite);
+          if (bigGaps.length){
+            // coloca en el gap más cercano al xC original (mínimo desplazamiento)
+            let best = null;
+            bigGaps.forEach(g=>{
+              const cmin = g[0] + breite/2, cmax = g[1] - breite/2;
+              const newX = clamp(xC, Math.max(cmin, xmin), Math.min(cmax, xmax));
+              const d    = Math.abs(newX - xC);
+              if (!best || d < best.d) best = {x:newX, d};
+            });
+            if (best){
+              xC = best.x;
+              vis = 1;
+            }
+          } else {
+            // 2) No cabe completa: céntrala en el mayor gap
+            const mid = (maxGap[0] + maxGap[1]) / 2;
+            xC = clamp(mid, xmin, xmax);
+            vis = (Lmax / breite);
+
+            // 3) Fallback: reducir ancho hasta garantizar ≥ 33 %
+            if (vis < VISIBLE_MIN){
+              const newW = Math.max(2, Math.min(breite, 3 * Lmax)); // (Lmax / newW) ≥ 1/3
+              if (newW !== breite){
+                breite = newW;
+                xmin = -Wi/2 + breite/2;
+                xmax =  Wi/2 - breite/2;
+              }
+              const cmin2 = maxGap[0] + breite/2, cmax2 = maxGap[1] - breite/2;
+              if (cmax2 >= cmin2){
+                const mid2 = (maxGap[0] + maxGap[1]) / 2;
+                xC = clamp(mid2, Math.max(cmin2, xmin), Math.min(cmax2, xmax));
+                vis = 1;
+              } else {
+                // caso extremo: Lmax == 0 → no hay hueco; mantenemos determinismo
+                vis = (Lmax / Math.max(1e-6, breite)); // 0
+              }
+            }
+          }
+        }
+
+        // — bandas del “marco” (4 piezas)
+        const hTop = (Hi/2) - (yC + hoehe/2);
+        if (hTop > 0.0001){
+          const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
+          top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
+          raumGroup.add(top);
+        }
+        const hBot = (yC - hoehe/2) - (-Hi/2);
+        if (hBot > 0.0001){
+          const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
+          bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
+          raumGroup.add(bot);
+        }
+        const wLeft = (xC - breite/2) - (-Wi/2);
+        if (wLeft > 0.0001){
+          const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
+          l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
+          raumGroup.add(l);
+        }
+        const wRight = (Wi/2) - (xC + breite/2);
+        if (wRight > 0.0001){
+          const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
+          r.position.set(xC + breite/2 + wRight/2, yC, zBack);
+          raumGroup.add(r);
+        }
+
+        // ====== AHORA sí: instanciar muros interiores A y B (opacos) ======
+        const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)); // opaco
+        wallA.position.set(xA, 0, zA);
+        raumGroup.add(wallA);
+
+        const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB)); // opaco
+        wallB.position.set(xB, 0, zB);
+        raumGroup.add(wallB);
+
+        // —— añadir grupo a escena
+        scene.add(raumGroup);
       }
-
-      // ====== PAREDES EXTERIORES (caja sin frente) ======
-      const left  = new THREE.Mesh(new THREE.BoxGeometry(g,H,D), lambert(colLeft));
-      left.position.set(-W/2 + g/2, 0, 0);
-      const right = new THREE.Mesh(new THREE.BoxGeometry(g,H,D), lambert(colRight));
-      right.position.set( W/2 - g/2, 0, 0);
-
-      const floor = new THREE.Mesh(new THREE.BoxGeometry(W,g,D), lambert(colFloor));
-      floor.position.set(0, -H/2 + g/2, 0);
-      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W,g,D), lambert(colCeil));
-      ceil.position.set(0,  H/2 - g/2, 0);
-
-      raumGroup.add(left, right, floor, ceil);
-
-      // ====== APERTURA en PARED DEL FONDO (marco en 4 piezas; sin dependencias extra) ======
-      const { sumR, sumR2, mRank } = raumStats();
-
-      // dimensiones base (10..25), luego garantizamos ≥ 1/3 de área visible
-      let breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16);      // 10..25
-      let hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16);    // 10..25
-
-      const minArea = (Wi * Hi) / 3;  // al menos un tercio del rectángulo visible
-      let area = breite * hoehe;
-      if (area < minArea){
-        const s = Math.min(Math.sqrt(minArea / area), Wi / breite, Hi / hoehe);
-        breite = Math.floor(breite * s);
-        hoehe  = Math.floor(hoehe  * s);
-      }
-      breite = Math.max(2, Math.min(breite, Wi));
-      hoehe  = Math.max(2, Math.min(hoehe,  Hi));
-
-      const xmin = -Wi/2 + breite/2, xmax = Wi/2 - breite/2;
-      const ymin = -Hi/2 + hoehe/2,  ymax = Hi/2 - hoehe/2;
-
-      // centro determinista
-      const ux   = ((37*sumR + 13*mRank + S_global) % 997) / 997;
-      const uy   = ((53*sumR2 + 17*mRank + sceneSeed) % 991) / 991;
-      const xC   = xmin + (xmax - xmin) * ux;
-      const yC   = ymin + (ymax - ymin) * uy;
-
-      // pared del fondo con hueco (4 rectángulos)
-      const zBack = -D/2 + g/2;
-
-      // Bandas superior e inferior
-      const hTop = (Hi/2) - (yC + hoehe/2);
-      if (hTop > 0.0001){
-        const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
-        top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
-        raumGroup.add(top);
-      }
-      const hBot = (yC - hoehe/2) - (-Hi/2);
-      if (hBot > 0.0001){
-        const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
-        bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
-        raumGroup.add(bot);
-      }
-
-      // Bandas izquierda y derecha
-      const wLeft = (xC - breite/2) - (-Wi/2);
-      if (wLeft > 0.0001){
-        const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
-        l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
-        raumGroup.add(l);
-      }
-      const wRight = (Wi/2) - (xC + breite/2);
-      if (wRight > 0.0001){
-        const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
-        r.position.set(xC + breite/2 + wRight/2, yC, zBack);
-        raumGroup.add(r);
-      }
-
-      // ====== MURO INTERIOR A (longitudinal Z) ======
-      const LAmin = 8, LAmax = Di; // 8..28
-      const LA = LAmin + ((sumR + 5*mRank + sceneSeed) % (LAmax - LAmin + 1));
-      const xAmin = -Wi/2 + g/2, xAmax = Wi/2 - g/2;
-      const zAmin = -Di/2 + LA/2, zAmax = Di/2 - LA/2;
-      const uAx = ((11*sumR2 + 7*mRank + sceneSeed) % 991) / 991;
-      const uAz = ((S_global + 23*mRank + sumR2) % 983) / 983;
-      const xA  = xAmin + (xAmax - xAmin) * uAx;
-      const zA  = zAmin + (zAmax - zAmin) * uAz;
-
-      const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)); // opaco
-      wallA.position.set(xA, 0, zA);
-      raumGroup.add(wallA);
-
-      // ====== MURO INTERIOR B (transversal X) ======
-      const LBmin = 10, LBmax = Wi; // 10..58
-      const LB = LBmin + ((sumR2 + 9*mRank + 3*sceneSeed) % (LBmax - LBmin + 1));
-      const xBmin = -Wi/2 + LB/2, xBmax = Wi/2 - LB/2;
-      const zBmin = -Di/2 + g/2,  zBmax = Di/2 - g/2;
-      const uBx = ((17*sumR2 + 31*mRank + sceneSeed) % 971) / 971;
-      const uBz = ((19*sumR + 29*mRank + S_global) % 977) / 977;
-      const xB  = xBmin + (xBmax - xBmin) * uBx;
-      const zB  = zBmin + (zBmax - zBmin) * uBz;
-
-      const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB)); // opaco
-      wallB.position.set(xB, 0, zB);
-      raumGroup.add(wallB);
-
-      scene.add(raumGroup);
-    }
 
     function toggleRAUM(){
       isRAUM = !isRAUM;
