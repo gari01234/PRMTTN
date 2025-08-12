@@ -940,6 +940,27 @@ function buildLCHT() {
       __buildBoostPrev.pr = null; __buildBoostPrev.exp = null;
     }
 
+    // === RAUM crispness boost (solo activo en RAUM) =============================
+    let __raumBoostPrev = { pr: null, exp: null };
+
+    function enterRaumRenderBoost(){
+      if (!renderer || __raumBoostPrev.pr !== null) return;
+      __raumBoostPrev.pr  = renderer.getPixelRatio();
+      __raumBoostPrev.exp = renderer.toneMappingExposure;
+
+      // Más nitidez SOLO en RAUM (cap prudente para FPS)
+      const PR = Math.min(window.devicePixelRatio || 1, 2.75);
+      renderer.setPixelRatio(PR);
+      renderer.toneMappingExposure = 0.98;
+    }
+
+    function leaveRaumRenderBoost(){
+      if (!renderer || __raumBoostPrev.pr === null) return;
+      renderer.setPixelRatio(__raumBoostPrev.pr);
+      renderer.toneMappingExposure = __raumBoostPrev.exp;
+      __raumBoostPrev.pr = null; __raumBoostPrev.exp = null;
+    }
+
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
@@ -3270,7 +3291,7 @@ void main(){
     /* ───────────────  RAUM  ·  fixed room 60×30×30  ─────────────── */
     let isRAUM = false;
     let raumGroup = null;
-    const RAUM_W = 60, RAUM_H = 30, RAUM_D = 30, RAUM_G = 1;
+    const RAUM_W = 60, RAUM_H = 30, RAUM_D = 30, RAUM_G = 2;
     const RAUM_CAMERA_Z = 80;   // vista frontal fija cómoda para 60 de ancho
 
     // ===== RAUM · ajustes de zoom y color =====
@@ -3401,7 +3422,7 @@ void main(){
           const matOpts = {
             color: base,
             side: THREE.DoubleSide,
-            dithering: true
+            dithering: false                // ← sin granulado en planos grandes
           };
           if (typeof opacity === 'number' && opacity < 1){
             matOpts.transparent = true;
@@ -3610,12 +3631,17 @@ void main(){
       isRAUM = !isRAUM;
 
       if (isRAUM){
+        // RAUM debe estar en solitario
         if (isFRBN)  toggleFRBN();
         if (isLCHT)  toggleLCHT();
         if (isOFFNNG)toggleOFFNNG();
         if (isTMSL)  toggleTMSL();
 
-        // Frontal fija con zoom
+        // Sal del boost de BUILD si venías de allí y entra al boost de RAUM
+        leaveBuildRenderBoost();
+        enterRaumRenderBoost();
+
+        // Controles: vista frontal fija con zoom permitido
         controls.enabled      = true;
         controls.enableRotate = false;
         controls.enablePan    = false;
@@ -3634,7 +3660,11 @@ void main(){
         if (lichtGroup) lichtGroup.visible = false;
 
       } else {
-        clearGroup(raumGroup); raumGroup = null;
+        // Salida de RAUM: limpia y restaura PR/exposición previos
+        leaveRaumRenderBoost();
+
+        clearGroup(raumGroup);
+        raumGroup = null;
 
         // Restaurar comportamiento libre
         controls.enabled      = true;
