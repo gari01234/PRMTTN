@@ -2752,6 +2752,8 @@ function renderArchPanel(html){
 
           // Ray-march
           uSteps       : { value: 36 },
+          uLenComp     : { value: 1.0 },  // 0..1 (1 = compensa completamente el grosor)
+          uLenFloor    : { value: 0.55 }, // piso para evitar picos en rayos muy finos
 
           // Movimiento determinista base
           uTime        : { value: 0.0 },
@@ -2816,6 +2818,9 @@ uniform mat4  uInvModel;
 uniform float uDensity, uSMin, uVMin, uSatGain, uValGain, uGammaV, uExposure;
 uniform float uEdgeStrength, uEdgeBase, uEdgePow, uEdgeTintV, uFrontBias;
 uniform int   uSteps;
+
+uniform float uLenComp;
+uniform float uLenFloor;
 
 uniform float uTime, uHueBias, uHueRate, uVBreathAmp, uVBreathHz, uVBreathPhase;
 uniform float uPhaseX;
@@ -2882,7 +2887,13 @@ void main(){
 
   vec3  acc = vec3(0.0);
   float a   = 0.0;
-  float alphaStep = 1.0 - exp(-uDensity * dt / (2.0*uHalf));
+  
+  /* === Compensación por espesor ===
+     Normalizamos el grosor cruzado (0..~√3) y escalamos la densidad
+     para que los bordes no queden subexpuestos. */
+  float normLen = len / (2.0 * uHalf);
+  float comp    = mix(1.0, 1.0 / max(normLen, uLenFloor), clamp(uLenComp, 0.0, 1.0));
+  float alphaStep = 1.0 - exp(-(uDensity * comp) * dt / (2.0 * uHalf));
 
   // === NUEVO: velocidades moduladas por LFOs ===
   float hueDrift = uHueRate
