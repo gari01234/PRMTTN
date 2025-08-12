@@ -2256,7 +2256,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
     function applyStandardView(){
       if (isRAUM){
-        camera.position.set(0, 0, RAUM_CAMERA_Z);
+        camera.position.set(0, 0, RAUM_CAMERA_ZOOMED);
         camera.lookAt(new THREE.Vector3(0,0,0));
         controls.update();
         return;
@@ -3243,6 +3243,29 @@ void main(){
     const RAUM_W = 60, RAUM_H = 30, RAUM_D = 30, RAUM_G = 1;
     const RAUM_CAMERA_Z = 80;   // vista frontal fija cómoda para 60 de ancho
 
+    // ===== RAUM · ajustes de zoom y color =====
+    const RAUM_ZOOM_STEPS   = 5;        // “+5 veces” de tu zoom In (cada una = 5 unidades)
+    const RAUM_ZOOM_STEP    = 5;
+    const RAUM_CAMERA_ZOOMED = RAUM_CAMERA_Z - RAUM_ZOOM_STEPS * RAUM_ZOOM_STEP;
+
+    /* Vibrance parecido a BUILD para superficies RAUM:
+       - sube S con más fuerza cuando S es baja
+       - levanta V muy poco con techo 0.93
+       - mantiene contraste ΔE>=22 contra el fondo actual */
+    function applyBuildVibranceToColor(colorTHREE){
+      const rgb = [
+        Math.round(colorTHREE.r * 255),
+        Math.round(colorTHREE.g * 255),
+        Math.round(colorTHREE.b * 255)
+      ];
+      let [h,s,v] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+      const s1 = Math.min(1, s + 0.22 * (1 - s));
+      const v1 = Math.min(0.93, v * 1.02);
+      let rgb2 = hsvToRgb(h, s1, v1);
+      rgb2 = ensureContrastRGB(rgb2);
+      return new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
+    }
+
     function buildTMSL(){
       /* limpia versión previa */
       if (tmslGroup){
@@ -3329,8 +3352,22 @@ void main(){
       const colA    = raumColorFor(6);
       const colB    = raumColorFor(7);
 
-      function lambert(c){ const m=new THREE.MeshLambertMaterial({color:c,side:THREE.DoubleSide,dithering:true});
-                           m.emissive = c.clone(); m.emissiveIntensity = 0.04; return m; }
+      function lambert(c, opacity){
+        const baseColor = applyBuildVibranceToColor(c);
+        const matOpts = {
+          color: baseColor,
+          side: THREE.DoubleSide,
+          dithering: true
+        };
+        if (typeof opacity === 'number' && opacity < 1){
+          matOpts.transparent = true;
+          matOpts.opacity = opacity;     // p.ej. 0.8 = 20% de transparencia
+        }
+        const m = new THREE.MeshLambertMaterial(matOpts);
+        m.emissive = baseColor.clone();
+        m.emissiveIntensity = 0.06;      // un poco más “vivo” que 0.04
+        return m;
+      }
 
       // ====== PAREDES EXTERIORES (caja sin frente) ======
       const left  = new THREE.Mesh(new THREE.BoxGeometry(g,H,D), lambert(colLeft));
@@ -3399,7 +3436,7 @@ void main(){
       const xA  = xAmin + (xAmax - xAmin) * uAx;
       const zA  = zAmin + (zAmax - zAmin) * uAz;
 
-      const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA));
+      const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA, 0.8)); // 20% transparencia
       wallA.position.set(xA, 0, zA);
       raumGroup.add(wallA);
 
@@ -3413,7 +3450,7 @@ void main(){
       const xB  = xBmin + (xBmax - xBmin) * uBx;
       const zB  = zBmin + (zBmax - zBmin) * uBz;
 
-      const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB));
+      const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB, 0.8)); // 20% transparencia
       wallB.position.set(xB, 0, zB);
       raumGroup.add(wallB);
 
@@ -3433,7 +3470,7 @@ void main(){
         // cámara frontal fija
         raumPrevControls = controls.enabled;
         controls.enabled = false;
-        camera.position.set(0, 0, RAUM_CAMERA_Z);
+        camera.position.set(0, 0, RAUM_CAMERA_ZOOMED);
         camera.lookAt(0,0,0);
         controls.update();
 
