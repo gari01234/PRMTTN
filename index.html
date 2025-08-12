@@ -256,6 +256,7 @@
   </div>
   <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
   <button id="tmslButton" onclick="ensureOnlyTMSL()">TMSL</button>
+  <button id="raumButton" onclick="ensureOnlyRAUM()">RAUM</button>
   <button id="infoButton"       onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
@@ -913,6 +914,7 @@ function buildLCHT() {
       if (isFRBN)  toggleFRBN();   // apaga FRBN si estaba activo
       if (isLCHT)  toggleLCHT();   // apaga LCHT si estaba activo
       if (isTMSL)  toggleTMSL();   // apaga TMSL si estaba activo
+      if (isRAUM)  toggleRAUM();  // apaga RAUM si estaba activo
       enterBuildRenderBoost();   // ← aplica PR 2.5 + exposure 0.90 SOLO en BUILD
       /* Nada más: la escena existente permanece tal cual */
     }
@@ -1294,6 +1296,37 @@ function evalProp(prop, args = [], fallback = 0){
         (y-2)*step,
         (z-2)*step
       ];
+    }
+
+    function getSelectedPerms(){
+      return Array.from(document.getElementById('permutationList').selectedOptions)
+                  .map(o => o.value.split(',').map(Number));
+    }
+    function raumSignatures(){
+      const perms = getSelectedPerms();
+      const sigs  = perms.map(p => computeSignature(p));
+      return sigs.length ? sigs : [[0,0,0,0,0]];
+    }
+    function raumStats(){
+      const perms = getSelectedPerms();
+      let sumR=0, sumR2=0;
+      perms.forEach(p => { const r = lehmerRank(p); sumR += r; sumR2 += r*r; });
+      const mRank = mappingRank(attributeMapping.slice(0,5));
+      const slot0 = perms.length;
+      return { perms, sumR, sumR2, mRank, slot0 };
+    }
+    /* Color determinista para el elemento k de RAUM (k=1..7) */
+    function raumColorFor(k){
+      const sigs = raumSignatures();
+      const { slot0 } = raumStats();
+      const sig  = sigs[(k-1) % sigs.length];
+      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot0 + k);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+      const {h,s,v} = idxToHSV(hI, sI, vI);
+      let rgb = hsvToRgb(h,s,v);
+      rgb = ensureContrastRGB(rgb);
+      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
     }
 
     function setActivePattern(id){
@@ -1920,6 +1953,7 @@ function makePalette(){
       if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
       rebuildLCHTIfActive();                      // mantiene LCHT sincronizado
       if (isOFFNNG) syncOFFNNGFromScene();
+      rebuildRAUMIfActive();
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2221,6 +2255,12 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function applyStandardView(){
+      if (isRAUM){
+        camera.position.set(0, 0, RAUM_CAMERA_Z);
+        camera.lookAt(new THREE.Vector3(0,0,0));
+        controls.update();
+        return;
+      }
       const view=document.getElementById('standardView').value,
             pos=new THREE.Vector3();
       switch(view){
@@ -3196,6 +3236,13 @@ void main(){
     let tmslPrevBg = null;
     let tmslPrevControls = true;
 
+    /* ───────────────  RAUM  ·  fixed room 60×30×30  ─────────────── */
+    let isRAUM = false;
+    let raumGroup = null;
+    let raumPrevControls = true;
+    const RAUM_W = 60, RAUM_H = 30, RAUM_D = 30, RAUM_G = 1;
+    const RAUM_CAMERA_Z = 80;   // vista frontal fija cómoda para 60 de ancho
+
     function buildTMSL(){
       /* limpia versión previa */
       if (tmslGroup){
@@ -3256,12 +3303,165 @@ void main(){
       if (!isTMSL) toggleTMSL();
     }
 
-    /* incluye TMSL en la rueda de motores del botón “4” */
+    function clearGroup(g){
+      if (!g) return;
+      g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
+      scene.remove(g);
+    }
+
+    function buildRAUM(){
+      // limpia versión previa
+      clearGroup(raumGroup);
+      raumGroup = new THREE.Group();
+
+      // asegúrate de que el fondo está sincronizado con BUILD/OFFNNG
+      updateBackground(false);
+
+      const W=RAUM_W, H=RAUM_H, D=RAUM_D, g=RAUM_G;
+      const Wi=W-2*g, Hi=H-2*g, Di=D-2*g;
+
+      // ====== COLORES deterministas ======
+      const colCeil = raumColorFor(1);
+      const colFloor= raumColorFor(2);
+      const colLeft = raumColorFor(3);
+      const colRight= raumColorFor(4);
+      const colBack = raumColorFor(5);
+      const colA    = raumColorFor(6);
+      const colB    = raumColorFor(7);
+
+      function lambert(c){ const m=new THREE.MeshLambertMaterial({color:c,side:THREE.DoubleSide,dithering:true});
+                           m.emissive = c.clone(); m.emissiveIntensity = 0.04; return m; }
+
+      // ====== PAREDES EXTERIORES (caja sin frente) ======
+      const left  = new THREE.Mesh(new THREE.BoxGeometry(g,H,D), lambert(colLeft));
+      left.position.set(-W/2 + g/2, 0, 0);
+      const right = new THREE.Mesh(new THREE.BoxGeometry(g,H,D), lambert(colRight));
+      right.position.set( W/2 - g/2, 0, 0);
+
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(W,g,D), lambert(colFloor));
+      floor.position.set(0, -H/2 + g/2, 0);
+      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W,g,D), lambert(colCeil));
+      ceil.position.set(0,  H/2 - g/2, 0);
+
+      raumGroup.add(left, right, floor, ceil);
+
+      // ====== APERTURA en PARED DEL FONDO (marco en 4 piezas; sin dependencias extra) ======
+      const { sumR, sumR2, mRank } = raumStats();
+
+      const breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16); // 10..25
+      const hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16); // 10..25
+
+      const xmin = -Wi/2 + breite/2, xmax = Wi/2 - breite/2;
+      const ymin = -Hi/2 + hoehe/2,  ymax = Hi/2 - hoehe/2;
+      const ux   = ((37*sumR + 13*mRank + S_global) % 997) / 997;
+      const uy   = ((53*sumR2 + 17*mRank + sceneSeed) % 991) / 991;
+      const xC   = xmin + (xmax - xmin) * ux;
+      const yC   = ymin + (ymax - ymin) * uy;
+
+      // Para construir la pared del fondo con hueco, usamos 4 rectángulos (top/bot/left/right)
+      // todos con grosor g en Z.
+      const zBack = -D/2 + g/2;
+
+      // Bandas superior e inferior
+      const hTop = (Hi/2) - (yC + hoehe/2);
+      if (hTop > 0.0001){
+        const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
+        top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
+        raumGroup.add(top);
+      }
+      const hBot = (yC - hoehe/2) - (-Hi/2);
+      if (hBot > 0.0001){
+        const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
+        bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
+        raumGroup.add(bot);
+      }
+      // Bandas izquierda y derecha
+      const wLeft = (xC - breite/2) - (-Wi/2);
+      if (wLeft > 0.0001){
+        const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
+        l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
+        raumGroup.add(l);
+      }
+      const wRight = (Wi/2) - (xC + breite/2);
+      if (wRight > 0.0001){
+        const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
+        r.position.set(xC + breite/2 + wRight/2, yC, zBack);
+        raumGroup.add(r);
+      }
+
+      // ====== MURO INTERIOR A (longitudinal Z) ======
+      const LAmin = 8, LAmax = Di; // 8..28
+      const LA = LAmin + ((sumR + 5*mRank + sceneSeed) % (LAmax - LAmin + 1));
+      const xAmin = -Wi/2 + g/2, xAmax = Wi/2 - g/2;
+      const zAmin = -Di/2 + LA/2, zAmax = Di/2 - LA/2;
+      const uAx = ((11*sumR2 + 7*mRank + sceneSeed) % 991) / 991;
+      const uAz = ((S_global + 23*mRank + sumR2) % 983) / 983;
+      const xA  = xAmin + (xAmax - xAmin) * uAx;
+      const zA  = zAmin + (zAmax - zAmin) * uAz;
+
+      const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA));
+      wallA.position.set(xA, 0, zA);
+      raumGroup.add(wallA);
+
+      // ====== MURO INTERIOR B (transversal X) ======
+      const LBmin = 10, LBmax = Wi; // 10..58
+      const LB = LBmin + ((sumR2 + 9*mRank + 3*sceneSeed) % (LBmax - LBmin + 1));
+      const xBmin = -Wi/2 + LB/2, xBmax = Wi/2 - LB/2;
+      const zBmin = -Di/2 + g/2,  zBmax = Di/2 - g/2;
+      const uBx = ((17*sumR2 + 31*mRank + sceneSeed) % 971) / 971;
+      const uBz = ((19*sumR + 29*mRank + S_global) % 977) / 977;
+      const xB  = xBmin + (xBmax - xBmin) * uBx;
+      const zB  = zBmin + (zBmax - zBmin) * uBz;
+
+      const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB));
+      wallB.position.set(xB, 0, zB);
+      raumGroup.add(wallB);
+
+      scene.add(raumGroup);
+    }
+
+    function toggleRAUM(){
+      isRAUM = !isRAUM;
+
+      if (isRAUM){
+        // exclusividad con otros motores
+        if (isFRBN)  toggleFRBN();
+        if (isLCHT)  toggleLCHT();
+        if (isOFFNNG)toggleOFFNNG();
+        if (isTMSL)  toggleTMSL();
+
+        // cámara frontal fija
+        raumPrevControls = controls.enabled;
+        controls.enabled = false;
+        camera.position.set(0, 0, RAUM_CAMERA_Z);
+        camera.lookAt(0,0,0);
+        controls.update();
+
+        buildRAUM();
+        // ocultar resto
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
+
+      } else {
+        clearGroup(raumGroup); raumGroup = null;
+        controls.enabled = raumPrevControls;
+
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
+      }
+    }
+    function ensureOnlyRAUM(){ if (!isRAUM) toggleRAUM(); }
+    function rebuildRAUMIfActive(){ if (isRAUM) buildRAUM(); }
+
+    /* rueda de motores del botón “4” */
     function cycleEngine(){
       if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
       if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
       if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
-      if (isTMSL){ switchToBuild(); return; }              // TMSL  → BUILD
+      if (isTMSL){ ensureOnlyRAUM(); return; }             // TMSL  → RAUM
+      if (isRAUM){ switchToBuild(); return; }              // RAUM  → BUILD
       toggleFRBN();                                        // BUILD → FRBN
     }
 
