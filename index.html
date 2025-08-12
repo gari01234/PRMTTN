@@ -211,6 +211,17 @@
   }
   #tmslButton:hover{ background:rgba(255,255,255,0.20); }
 
+  /* Botón RAUM – visible también en Minimal UI (no está en toggleTexts) */
+  #raumButton{
+    position:fixed; left:10px; bottom:370px;   /* encima de TMSL (330) y OFFNNG (290) */
+    z-index:260;
+    border:none; border-radius:4px;
+    padding:8px 12px; font-size:12px;
+    background:rgba(255,255,255,0.12);
+    cursor:none; transition:background .2s;
+  }
+  #raumButton:hover{ background:rgba(255,255,255,0.20); }
+
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
     position:fixed;               /* mismo estilo general */
@@ -2266,7 +2277,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       switch(view){
         case "isometric": pos.set(50,50,50); break;
         case "top":       pos.set(0,80,0);   break;
-        case "front":     pos.set(0,0,40);   break;  // antes 50
+        case "front":     pos.set(0,0,25);   break;  // 3× zoom-in neto (con los 2 zoomOut() del init queda en ~35)
         case "side":      pos.set(50,0,0);   break;
         case "diagonal":  pos.set(-50,50,-50);break;
         default:          pos.set(0,0,50);
@@ -3403,6 +3414,11 @@ void main(){
       wallA.position.set(xA, 0, zA);
       raumGroup.add(wallA);
 
+      // transparencia para muro interior A
+      wallA.material.transparent = true;
+      wallA.material.opacity = 0.45;
+      wallA.material.depthWrite = false;
+
       // ====== MURO INTERIOR B (transversal X) ======
       const LBmin = 10, LBmax = Wi; // 10..58
       const LB = LBmin + ((sumR2 + 9*mRank + 3*sceneSeed) % (LBmax - LBmin + 1));
@@ -3416,6 +3432,11 @@ void main(){
       const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB));
       wallB.position.set(xB, 0, zB);
       raumGroup.add(wallB);
+
+      // transparencia para muro interior B
+      wallB.material.transparent = true;
+      wallB.material.opacity = 0.45;
+      wallB.material.depthWrite = false;
 
       scene.add(raumGroup);
     }
