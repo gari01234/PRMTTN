@@ -2279,8 +2279,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     function applyStandardView(){
       const target = new THREE.Vector3(0,0,0);
 
-      // RAUM y 13245: frontal fija con zoom permitido
-      if (isRAUM || is13245){
+      // RAUM: frontal fija con zoom permitido (sin rotación)
+      if (isRAUM){
         camera.position.set(0, 0, RAUM_CAMERA_ZOOMED);
         camera.lookAt(target);
 
@@ -2291,6 +2291,18 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         controls.minDistance  = 25;
         controls.maxDistance  = 140;
 
+        controls.update();
+        return;
+      }
+
+      // 13245: Orbit completo (como BUILD)
+      if (is13245){
+        controls.enabled      = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minDistance  = 10;
+        controls.maxDistance  = 200;
         controls.update();
         return;
       }
@@ -3743,11 +3755,11 @@ void main(){
 
     /* Alturas de los 3 tramos (abajo, medio, arriba) con el caso P1=5≈ε */
     function heightsFor(pa){
-      // rango suave 1.6…4.0 por tramo; el superior se acorta y si P1=5 → ε
-      const f = v => 1.6 + 2.4 * ((v - 1) / 4);     // 1..5 → 1.6..4.0
+      // Tramos con mayor contraste y separación clara; si P1=5 → sin tramo superior
+      const f    = v => 1.6 + 2.4 * ((v - 1) / 4);  // 1..5 → 1.6..4.0
       const hBot = f(pa[2]);
       const hMid = f(pa[1]);
-      const hTop = (pa[0] === 5) ? 0.12 : (1.2 + 1.8 * ((pa[0] - 1) / 4));
+      const hTop = (pa[0] === 5) ? 0.0 : (1.2 + 1.8 * ((pa[0] - 1) / 4));
       return [hBot, hMid, hTop];
     }
 
@@ -3770,32 +3782,53 @@ void main(){
       floor.position.set(0, 0, 0);
       group13245.add(floor);
 
-      // — Muro exterior: anillo aproximado con N paneles
-      const N = 64;
-      const Rmid = R_OUT132 - WALL_THICK132 * 0.5;
-      const arcLen = 2 * Math.PI * Rmid / N;
-      const segGeo = new THREE.BoxGeometry(WALL_THICK132, WALL_H132, arcLen * 1.02);
-      const wallMat = new THREE.MeshLambertMaterial({
-        color: 0xffffff,
-        side: THREE.DoubleSide,
-        dithering: true
-      });
-      for (let i = 0; i < N; i++){
-        const am = (i + 0.5) * 2 * Math.PI / N;
-        const seg = new THREE.Mesh(segGeo, wallMat);
-        seg.position.set(Rmid * Math.cos(am), WALL_H132/2, Rmid * Math.sin(am));
-        seg.rotation.y = am;
-        group13245.add(seg);
+      // — Muro exterior: anillo continuo (ExtrudeGeometry)
+      {
+        const R_OUT = R_OUT132;
+        const R_IN  = R_OUT132 - WALL_THICK132;
+
+        const shape = new THREE.Shape();
+        shape.absarc(0, 0, R_OUT, 0, Math.PI * 2, false);
+
+        const hole  = new THREE.Path();
+        hole.absarc(0, 0, R_IN, 0, Math.PI * 2, true);
+        shape.holes.push(hole);
+
+        const extr = new THREE.ExtrudeGeometry(shape, {
+          depth: WALL_H132,
+          bevelEnabled: false,
+          curveSegments: 128,
+          steps: 1
+        });
+
+        // El extruido sale a lo largo de +Z → lo rotamos para que la altura sea Y
+        extr.rotateX(Math.PI / 2);
+        extr.translate(0, WALL_H132 / 2, 0);
+
+        const wallMat = new THREE.MeshLambertMaterial({
+          color: 0xffffff,
+          dithering: true,
+          side: THREE.DoubleSide
+        });
+
+        const ring = new THREE.Mesh(extr, wallMat);
+        group13245.add(ring);
       }
 
-      // — Centros de la grilla 10×10 (en el cuadrado del piso)
+      // — Intersecciones de la grilla 10×10 (11×11 puntos) dentro del anillo
       const centers = [];
-      const half = FLOOR132 * 0.5, step = CELL132;
-      for (let gz = 0; gz < 10; gz++){
-        for (let gx = 0; gx < 10; gx++){
-          const x = -half + step*gx + step*0.5;
-          const z = -half + step*gz + step*0.5;
-          centers.push([x, z]);
+      {
+        const half   = FLOOR132 * 0.5;
+        const step   = CELL132;
+        const R_IN   = R_OUT132 - WALL_THICK132;
+        const margin = CROSS132 * 0.60;    // separa de la pared
+
+        for (let gz = 0; gz <= 10; gz++){
+          for (let gx = 0; gx <= 10; gx++){
+            const x = -half + step * gx;
+            const z = -half + step * gz;
+            if (Math.hypot(x, z) <= (R_IN - margin)) centers.push([x, z]);
+          }
         }
       }
 
@@ -3814,7 +3847,7 @@ void main(){
         const [hBot, hMid, hTop] = heightsFor(pa);
         const cols = [0,1,2].map(k => color132For(pa, k));
 
-        const sep = 0.06;
+        const sep = 0.20;  // separación visible entre volúmenes
         let y = 0.0;
 
         // tramo inferior
@@ -3827,10 +3860,12 @@ void main(){
         m1.material.emissive = cols[1].clone(); m1.material.emissiveIntensity = 0.06;
         m1.scale.y = hMid; m1.position.set(x, y + hMid/2, z); y += hMid + sep; group13245.add(m1);
 
-        // tramo superior (puede ser ε≈0.12)
-        const m2 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[2], dithering:true }));
-        m2.material.emissive = cols[2].clone(); m2.material.emissiveIntensity = 0.06;
-        m2.scale.y = hTop; m2.position.set(x, y + hTop/2, z); group13245.add(m2);
+        // tramo superior (se omite si hTop = 0)
+        if (hTop > 0.0001){
+          const m2 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[2], dithering:true }));
+          m2.material.emissive = cols[2].clone(); m2.material.emissiveIntensity = 0.06;
+          m2.scale.y = hTop; m2.position.set(x, y + hTop/2, z); group13245.add(m2);
+        }
       });
 
       scene.add(group13245);
@@ -3839,7 +3874,7 @@ void main(){
     /* rebuild si hay cambios de escena */
     function rebuild13245IfActive(){ if (is13245) build13245(); }
 
-    /* Exclusivo (como RAUM). Usa el “crispness boost” de RAUM y vista frontal fija con zoom. */
+    /* Exclusivo (como RAUM). Usa el “crispness boost” de RAUM. */
     function toggle13245(){
       is13245 = !is13245;
 
@@ -3856,13 +3891,25 @@ void main(){
 
         build13245();
 
+        // Vista inicial: dentro del anillo, con Orbit activo y target al centro
+        {
+          const R_IN = R_OUT132 - WALL_THICK132;
+          camera.position.set(0, WALL_H132 * 0.60, Math.min(R_IN * 0.80, 12));
+          controls.target.set(0, WALL_H132 * 0.40, 0);
+
+          controls.enabled      = true;
+          controls.enableRotate = true;
+          controls.enablePan    = true;
+          controls.enableZoom   = true;
+          controls.minDistance  = 10;
+          controls.maxDistance  = 200;
+
+          controls.update();
+        }
+
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
-
-        // vista frontal con zoom permitido (igual a RAUM)
-        document.getElementById('standardView').value = 'front';
-        applyStandardView();
 
       } else {
         leaveRaumRenderBoost();
