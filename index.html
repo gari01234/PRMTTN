@@ -3775,6 +3775,9 @@ void main(){
     const GRID_COUNT  = 11;
     const GRID_MARGIN = 1.5;
 
+    // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
+    const SLAB_THICK  = 0.50;
+
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
 
@@ -3821,14 +3824,12 @@ void main(){
     }
 
     /* Alturas exactas (en unidades del cubo).
-       hBot fijo; hMid depende de P2; hTop depende de P1 (si P1=5 → 0). */
+       hBot fijo; hMid depende de P2; hTop = 30 para todas las permutaciones. */
     function heightsFor(pa){
       const H_MID = [0, 5.56, 6.365, 7.795, 9.00, 10.06]; // idx 1..5
-      const H_TOP = [0, 4.50, 3.70,  2.27,  1.06,  0.00]; // idx 1..5
-
       const hBot = 2.25;
       const hMid = H_MID[ pa[1] ];
-      const hTop = H_TOP[ pa[0] ];
+      const hTop = 30.0;
       return [hBot, hMid, hTop];
     }
 
@@ -3840,6 +3841,15 @@ void main(){
 
       // Fondo acoplado (no manual)
       updateBackground(false);
+
+      // ★ NUEVO: losa global 30×0.50×30 (cara superior en y = 0)
+      {
+        const slabGeo = new THREE.BoxGeometry(cubeSize, SLAB_THICK, cubeSize);
+        const slabMat = lambertRaumColor(cubeUniverse.material.color, 0.04, true);
+        const slab    = new THREE.Mesh(slabGeo, slabMat);
+        slab.position.set(0, -SLAB_THICK/2, 0);
+        group13245.add(slab);
+      }
 
       // === Centros 11×11 en 30×30: paso 3.00, margen 1.50 ===
       const centers = [];
