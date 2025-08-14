@@ -3777,6 +3777,7 @@ void main(){
 
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
+    const SLAB_EXTRA_X = 90.00; // ← esta línea nueva
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
@@ -3842,9 +3843,10 @@ void main(){
       // Fondo acoplado (no manual)
       updateBackground(false);
 
-      // ★ NUEVO: losa global 90×30×90 (cara superior en y = 0)
+      // ★ NUEVO: losa global extendida (X = 30 + 90; Y = THICK; Z = 30)
+      //           cara superior en y = 0 (se ve 45u extra a cada lado)
       {
-        const slabGeo = new THREE.BoxGeometry(cubeSize, SLAB_THICK, cubeSize);
+        const slabGeo = new THREE.BoxGeometry(cubeSize + SLAB_EXTRA_X, SLAB_THICK, cubeSize);
         const slabMat = lambertRaumColor(cubeUniverse.material.color, 0.04, true);
         const slab    = new THREE.Mesh(slabGeo, slabMat);
         slab.position.set(0, -SLAB_THICK/2, 0);
@@ -3927,27 +3929,27 @@ void main(){
         enterRaumRenderBoost();
         build13245();
 
-        // — Cámara nivelada: verticales siempre rectas (sin tilt)
-        const R_IN = R_OUT132 - WALL_THICK132;
-        const eyeY = 0;                 // misma altura para cámara y target
+        // — VISTA POR DEFECTO (similar a la imagen):
+        //   cámara un poco elevada, mirando levemente hacia abajo para ver la losa.
+        //   Orbit libre activado (rotar/pan/zoom permitidos).
         camera.up.set(0,1,0);
-        camera.fov = 55;                // FOV moderado para evitar sensación de inclinación
+        camera.fov = 55;
         camera.updateProjectionMatrix();
 
-        camera.position.set(0, eyeY, Math.min(R_IN * 0.90, 18));
-        controls.target.set(0, eyeY, 0);
+        // Posición inicial y punto de mira
+        camera.position.set(0, 7.5, 22);
+        controls.target.set(0, 5.0, 0);
 
+        // Controles: rango polar amplio para ver suelo y cielo
         controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw
+        controls.enableRotate       = true;
         controls.enablePan          = true;
         controls.enableZoom         = true;
         controls.minDistance        = 10;
         controls.maxDistance        = 200;
         controls.screenSpacePanning = true;
-
-        // Bloquea el ángulo polar en el horizonte (sin cabeceo)
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.minPolarAngle      = Math.PI / 3;            // ~60°
+        controls.maxPolarAngle      = Math.PI - Math.PI/6;    // ~150°
 
         controls.update();
 
