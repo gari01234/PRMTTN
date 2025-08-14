@@ -3766,8 +3766,17 @@ void main(){
     const WALL_THICK132  = 2.0 * K132;              // ~0.6667
     const WALL_H132      = 50.0 * K132;             // ~16.667
     const CELL132        = FLOOR132 / 10;           // ~6
-    const CROSS132       = 2.25 * K132;             // ~0.75
-    const STEP_OPEN_ADDR = 37;                      // coprimo con 100
+
+    // ★ NUEVO: sección real de cada volumen (en unidades del cubo 30×30×30)
+    const CROSS132 = 2.25;
+
+    // ★ NUEVO: grilla de 30×30 con 11×11 centros (paso 3.00 y margen 1.50)
+    const GRID_STEP   = 3.0;
+    const GRID_COUNT  = 11;
+    const GRID_MARGIN = 1.5;
+
+    // salto coprimo para open-addressing
+    const STEP_OPEN_ADDR = 37;
 
     function disposeGroup(g){
       if (!g) return;
@@ -3811,13 +3820,15 @@ void main(){
       return applyBuildVibranceToColor(col);
     }
 
-    /* Alturas de los 3 tramos (abajo, medio, arriba) con el caso P1=5≈ε */
+    /* Alturas exactas (en unidades del cubo).
+       hBot fijo; hMid depende de P2; hTop depende de P1 (si P1=5 → 0). */
     function heightsFor(pa){
-      // Tramos con mayor contraste y separación clara; si P1=5 → sin tramo superior
-      const f    = v => 1.6 + 2.4 * ((v - 1) / 4);  // 1..5 → 1.6..4.0
-      const hBot = f(pa[2]);
-      const hMid = f(pa[1]);
-      const hTop = (pa[0] === 5) ? 0.0 : (1.2 + 1.8 * ((pa[0] - 1) / 4));
+      const H_MID = [0, 5.56, 6.365, 7.795, 9.00, 10.06]; // idx 1..5
+      const H_TOP = [0, 4.50, 3.70,  2.27,  1.06,  0.00]; // idx 1..5
+
+      const hBot = 2.25;
+      const hMid = H_MID[ pa[1] ];
+      const hTop = H_TOP[ pa[0] ];
       return [hBot, hMid, hTop];
     }
 
@@ -3827,49 +3838,26 @@ void main(){
       disposeGroup(group13245);
       group13245 = new THREE.Group();
 
-      // Fondo acoplado a BUILD (sin intervención manual)
+      // Fondo acoplado (no manual)
       updateBackground(false);
 
-      // — Piso: BLOQUE grueso (hacia abajo), con huella EXACTA de BUILD (30×30)
-      //    · top en y=0  · grosor hacia y negativo  · color RAUM #2  · doble cara
-      const floorCol   = raumColorFor(2);
-      const BASE_THICK = 12.0;               // espesor “alto” hacia abajo
-      const base = new THREE.Mesh(
-        new THREE.BoxGeometry(cubeSize, BASE_THICK, cubeSize),   // ← 30×12×30
-        lambertRaumColor(floorCol, 0.04, true)
-      );
-      base.position.set(0, -BASE_THICK/2, 0); // la cara superior queda en y=0
-      group13245.add(base);
-
-      // — CENTROS DE LA GRILLA:
-      //    · MISMA HUELLA que BUILD (30×30) → half = 15
-      //    · súper compacta: paso = ancho de columna + pequeño GAP
-      //    · margen mínimo para no tocar borde
+      // === Centros 11×11 en 30×30: paso 3.00, margen 1.50 ===
       const centers = [];
-      {
-        const half   = cubeSize * 0.5;      // 15
-        const GAP    = CROSS132 * 0.20;     // separación mínima visible
-        const margin = CROSS132 * 0.60;     // despeje en bordes
-        const step   = CROSS132 + GAP;      // distancia centro-a-centro
-        const span   = (half - margin) * 2; // ancho útil dentro de ±(15−margen)
-        const count  = Math.max(1, Math.floor(span / step) + 1);
-
-        // centra la malla para que quede simétrica en ±X, ±Z
-        const start = -((count - 1) * step) / 2;
-
-        for (let gz = 0; gz < count; gz++){
-          for (let gx = 0; gx < count; gx++){
-            const x = start + gx * step;
-            const z = start + gz * step;
-            centers.push([x, z]);
-          }
+      const half = halfCube; // 15
+      for (let j = 0; j < GRID_COUNT; j++){
+        const z = -half + GRID_MARGIN + j * GRID_STEP; // −13.5 … +13.5
+        for (let i = 0; i < GRID_COUNT; i++){
+          const x = -half + GRID_MARGIN + i * GRID_STEP;
+          centers.push([x, z]);
         }
       }
 
-      // — Colocación determinista (open addressing con salto coprimo 37)
-      const occ      = Array(centers.length).fill(false);
-      const perms    = getSelectedPerms();
-      const baseGeo  = new THREE.BoxGeometry(CROSS132, 1, CROSS132);
+      // Open addressing determinista (coprimo con 121)
+      const occ   = Array(centers.length).fill(false);
+      const perms = getSelectedPerms();
+
+      // Base 2.25×2.25; la altura real la da scale.y = h
+      const baseGeo = new THREE.BoxGeometry(CROSS132, 1, CROSS132);
 
       perms.forEach(pa => {
         const r = lehmerRank(pa);
@@ -3879,27 +3867,31 @@ void main(){
 
         const [x, z] = centers[idx];
 
+        // alturas y colores por tramo (k=0,1,2)
         const [hBot, hMid, hTop] = heightsFor(pa);
         const cols = [0,1,2].map(k => color132For(pa, k));
 
-        const sep = 0.20;  // separación visible entre tramos
-        let y = 0.0;       // ¡arrancamos justo sobre el piso grueso (top en y=0)!
+        // — SIN separación vertical (sep = 0)
+        let y = 0.0;
 
         // tramo inferior
         const m0 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[0], dithering:true }));
         m0.material.emissive = cols[0].clone(); m0.material.emissiveIntensity = 0.06;
-        m0.scale.y = hBot; m0.position.set(x, y + hBot/2, z); y += hBot + sep; group13245.add(m0);
+        m0.scale.y = hBot; m0.position.set(x, y + hBot/2, z); y += hBot;
+        group13245.add(m0);
 
         // tramo medio
         const m1 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[1], dithering:true }));
         m1.material.emissive = cols[1].clone(); m1.material.emissiveIntensity = 0.06;
-        m1.scale.y = hMid; m1.position.set(x, y + hMid/2, z); y += hMid + sep; group13245.add(m1);
+        m1.scale.y = hMid; m1.position.set(x, y + hMid/2, z); y += hMid;
+        group13245.add(m1);
 
-        // tramo superior (omitido si hTop=0)
+        // tramo superior (P1=5 ⇒ hTop=0 ⇒ no se crea)
         if (hTop > 0.0001){
           const m2 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[2], dithering:true }));
           m2.material.emissive = cols[2].clone(); m2.material.emissiveIntensity = 0.06;
-          m2.scale.y = hTop; m2.position.set(x, y + hTop/2, z); group13245.add(m2);
+          m2.scale.y = hTop; m2.position.set(x, y + hTop/2, z);
+          group13245.add(m2);
         }
       });
 
