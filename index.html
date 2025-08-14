@@ -3777,7 +3777,8 @@ void main(){
 
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
-    const SLAB_EXTRA_X = 90.00; // ← esta línea nueva
+    const SLAB_EXTRA_X = 90.00; // ← ya existente (45u por lado en X)
+    const SLAB_EXTRA_Z = 90.00; // ← NUEVO (45u al frente y 45u atrás en Z)
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
@@ -3825,12 +3826,12 @@ void main(){
     }
 
     /* Alturas exactas (en unidades del cubo).
-       hBot fijo; hMid depende de P2; hTop = 30 para todas las permutaciones. */
+       hBot fijo; hMid depende de P2; hTop fijo 60 para todas las permutaciones. */
     function heightsFor(pa){
       const H_MID = [0, 5.56, 6.365, 7.795, 9.00, 10.06]; // idx 1..5
       const hBot = 2.25;
       const hMid = H_MID[ pa[1] ];
-      const hTop = 30.0;
+      const hTop = 60.0;
       return [hBot, hMid, hTop];
     }
 
@@ -3843,10 +3844,17 @@ void main(){
       // Fondo acoplado (no manual)
       updateBackground(false);
 
-      // ★ NUEVO: losa global extendida (X = 30 + 90; Y = THICK; Z = 30)
-      //           cara superior en y = 0 (se ve 45u extra a cada lado)
+      // ★ ACTUALIZADO: losa global extendida
+      //   X = 30 + 90  (45u extra por lado)
+      //   Y = THICK
+      //   Z = 30 + 90  (45u extra al frente y atrás)
+      //   cara superior en y = 0
       {
-        const slabGeo = new THREE.BoxGeometry(cubeSize + SLAB_EXTRA_X, SLAB_THICK, cubeSize);
+        const slabGeo = new THREE.BoxGeometry(
+          cubeSize + SLAB_EXTRA_X,
+          SLAB_THICK,
+          cubeSize + SLAB_EXTRA_Z
+        );
         const slabMat = lambertRaumColor(cubeUniverse.material.color, 0.04, true);
         const slab    = new THREE.Mesh(slabGeo, slabMat);
         slab.position.set(0, -SLAB_THICK/2, 0);
@@ -3898,7 +3906,7 @@ void main(){
         m1.scale.y = hMid; m1.position.set(x, y + hMid/2, z); y += hMid;
         group13245.add(m1);
 
-        // tramo superior (P1=5 ⇒ hTop=0 ⇒ no se crea)
+        // tramo superior (hTop fijo 60)
         if (hTop > 0.0001){
           const m2 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[2], dithering:true }));
           m2.material.emissive = cols[2].clone(); m2.material.emissiveIntensity = 0.06;
