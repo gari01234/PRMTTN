@@ -3776,7 +3776,7 @@ void main(){
     const GRID_MARGIN = 1.5;
 
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
-    const SLAB_THICK  = 0.50;
+    const SLAB_THICK  = 30.00;
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
@@ -3842,7 +3842,7 @@ void main(){
       // Fondo acoplado (no manual)
       updateBackground(false);
 
-      // ★ NUEVO: losa global 30×0.50×30 (cara superior en y = 0)
+      // ★ NUEVO: losa global 90×30×90 (cara superior en y = 0)
       {
         const slabGeo = new THREE.BoxGeometry(cubeSize, SLAB_THICK, cubeSize);
         const slabMat = lambertRaumColor(cubeUniverse.material.color, 0.04, true);
