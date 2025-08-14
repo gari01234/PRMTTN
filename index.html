@@ -869,38 +869,59 @@ function buildLCHT() {
       if (!isLCHT && isTMSL)  toggleTMSL();
       isLCHT = !isLCHT;
 
-        if (isLCHT){
-          leaveBuildRenderBoost();          // ← desactiva boost de BUILD
-          /* — cambia material del cubo a lambert para que capte luz — */
-          if(!cubeUniverse.userData.prevMat){
-            cubeUniverse.userData.prevMat = cubeUniverse.material;
-            cubeUniverse.material = new THREE.MeshLambertMaterial({
-              color: cubeUniverse.userData.prevMat.color,
-              transparent: true,
-              opacity: cubeUniverse.userData.prevMat.opacity,
-              side: cubeUniverse.userData.prevMat.side
-            });
-          }
-          if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-          scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-          if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
-          buildLCHT();
-          lichtGroup.visible        = true;
-          cubeUniverse.visible      = false;
-          permutationGroup.visible  = false;
-        } else {
-          /* — restaura material original — */
-          if(cubeUniverse.userData.prevMat){
-            cubeUniverse.material.dispose();
-            cubeUniverse.material = cubeUniverse.userData.prevMat;
-            delete cubeUniverse.userData.prevMat;
-          }
-          if (lichtGroup) lichtGroup.visible = false;
-          if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
-          lchtPrevBg = null;
-          cubeUniverse.visible      = true;
-          permutationGroup.visible  = true;
+      if (isLCHT){
+        leaveBuildRenderBoost();          // ← desactiva boost de BUILD
+        /* — cambia material del cubo a lambert para que capte luz — */
+        if(!cubeUniverse.userData.prevMat){
+          cubeUniverse.userData.prevMat = cubeUniverse.material;
+          cubeUniverse.material = new THREE.MeshLambertMaterial({
+            color: cubeUniverse.userData.prevMat.color,
+            transparent: true,
+            opacity: cubeUniverse.userData.prevMat.opacity,
+            side: cubeUniverse.userData.prevMat.side
+          });
         }
+        if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
+        scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
+        if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
+        buildLCHT();
+        lichtGroup.visible        = true;
+        cubeUniverse.visible      = false;
+        permutationGroup.visible  = false;
+
+        // Controles: ORBIT LIBRE en LCHT
+        controls.enabled            = true;
+        controls.enableRotate       = true;
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+
+      } else {
+        /* — restaura material original — */
+        if(cubeUniverse.userData.prevMat){
+          cubeUniverse.material.dispose();
+          cubeUniverse.material = cubeUniverse.userData.prevMat;
+          delete cubeUniverse.userData.prevMat;
+        }
+        if (lichtGroup) lichtGroup.visible = false;
+        if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
+        lchtPrevBg = null;
+        cubeUniverse.visible      = true;
+        permutationGroup.visible  = true;
+
+        // Al salir de LCHT dejamos controles en modo “normal” (libre)
+        controls.enabled            = true;
+        controls.enableRotate       = true;
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
       const b = document.getElementById('lchtButton');
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
@@ -917,7 +938,16 @@ function buildLCHT() {
       if (isRAUM)  toggleRAUM();
       if (is13245) toggle13245();     // ← NUEVO
       enterBuildRenderBoost();        // PR/exposure para BUILD
-      /* Nada más: la escena existente permanece tal cual */
+
+      // Controles: ORBIT LIBRE en BUILD
+      controls.enabled            = true;
+      controls.enableRotate       = true;
+      controls.enablePan          = true;
+      controls.enableZoom         = true;
+      controls.minPolarAngle      = 0;
+      controls.maxPolarAngle      = Math.PI;
+      controls.screenSpacePanning = false;
+      controls.update();
     }
 
     // === BUILD render boost (solo activo en BUILD) ==============================
@@ -2317,7 +2347,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         return;
       }
 
-      // Otros modos
+      // ===== Otros modos (BUILD, LCHT, OFFNNG, TMSL, etc.) =====
       const view = document.getElementById('standardView').value;
       const pos = new THREE.Vector3();
       switch(view){
@@ -2332,20 +2362,38 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       camera.position.copy(pos);
       camera.lookAt(target);
 
-      if (view === "front"){
-        controls.enabled      = true;
-        controls.enableRotate = false;
-        controls.enablePan    = false;
-        controls.enableZoom   = true;
-        controls.minDistance  = 25;
-        controls.maxDistance  = 140;
+      // Detectar BUILD “puro” (ningún otro motor activado)
+      const isBuild =
+        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245;
+
+      if (isBuild || isLCHT){
+        // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
+        controls.enabled            = true;
+        controls.enableRotate       = true;
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minDistance        = 10;
+        controls.maxDistance        = 200;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
       } else {
-        controls.enabled      = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minDistance  = 10;
-        controls.maxDistance  = 200;
+        // Resto: comportamiento previo (FRONT bloquea rotación)
+        if (view === "front"){
+          controls.enabled      = true;
+          controls.enableRotate = false;
+          controls.enablePan    = false;
+          controls.enableZoom   = true;
+          controls.minDistance  = 25;
+          controls.maxDistance  = 140;
+        } else {
+          controls.enabled      = true;
+          controls.enableRotate = true;
+          controls.enablePan    = true;
+          controls.enableZoom   = true;
+          controls.minDistance  = 10;
+          controls.maxDistance  = 200;
+        }
       }
 
       controls.update();
@@ -3782,41 +3830,45 @@ void main(){
       // Fondo acoplado a BUILD (sin intervención manual)
       updateBackground(false);
 
-      // — Piso: plano XZ del tamaño exacto (color RAUM #2)
-      const floorCol = raumColorFor(2);
-      const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(FLOOR132, FLOOR132),
+      // — Piso: BLOQUE grueso (hacia abajo), con huella EXACTA de BUILD (30×30)
+      //    · top en y=0  · grosor hacia y negativo  · color RAUM #2  · doble cara
+      const floorCol   = raumColorFor(2);
+      const BASE_THICK = 12.0;               // espesor “alto” hacia abajo
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(cubeSize, BASE_THICK, cubeSize),   // ← 30×12×30
         lambertRaumColor(floorCol, 0.04, true)
       );
-      floor.rotation.x = -Math.PI / 2;
-      floor.position.set(0, 0, 0);
-      group13245.add(floor);
+      base.position.set(0, -BASE_THICK/2, 0); // la cara superior queda en y=0
+      group13245.add(base);
 
-      // — Muro exterior (anillo) ELIMINADO — dejamos solo el piso
-
-      // — Centros de la grilla: más densa para que queden más juntos
-      //   (antes 10×10 dentro del anillo; ahora cuadrícula 14×14 en todo el piso)
+      // — CENTROS DE LA GRILLA:
+      //    · MISMA HUELLA que BUILD (30×30) → half = 15
+      //    · súper compacta: paso = ancho de columna + pequeño GAP
+      //    · margen mínimo para no tocar borde
       const centers = [];
       {
-        const half   = FLOOR132 * 0.5;
-        const GRID_N = 14;                 // ← grilla más densa (sube a 16/18 si quieres aún más)
-        const step   = FLOOR132 / GRID_N;  // separación menor
-        const margin = CROSS132 * 0.35;    // pequeño margen en bordes
+        const half   = cubeSize * 0.5;      // 15
+        const GAP    = CROSS132 * 0.20;     // separación mínima visible
+        const margin = CROSS132 * 0.60;     // despeje en bordes
+        const step   = CROSS132 + GAP;      // distancia centro-a-centro
+        const span   = (half - margin) * 2; // ancho útil dentro de ±(15−margen)
+        const count  = Math.max(1, Math.floor(span / step) + 1);
 
-        for (let gz = 0; gz <= GRID_N; gz++){
-          for (let gx = 0; gx <= GRID_N; gx++){
-            const x = -half + step * gx;
-            const z = -half + step * gz;
-            if (Math.abs(x) <= half - margin && Math.abs(z) <= half - margin){
-              centers.push([x, z]);
-            }
+        // centra la malla para que quede simétrica en ±X, ±Z
+        const start = -((count - 1) * step) / 2;
+
+        for (let gz = 0; gz < count; gz++){
+          for (let gx = 0; gx < count; gx++){
+            const x = start + gx * step;
+            const z = start + gz * step;
+            centers.push([x, z]);
           }
         }
       }
 
       // — Colocación determinista (open addressing con salto coprimo 37)
       const occ      = Array(centers.length).fill(false);
-      const perms    = getSelectedPerms();                      // seleccionadas en UI
+      const perms    = getSelectedPerms();
       const baseGeo  = new THREE.BoxGeometry(CROSS132, 1, CROSS132);
 
       perms.forEach(pa => {
@@ -3831,7 +3883,7 @@ void main(){
         const cols = [0,1,2].map(k => color132For(pa, k));
 
         const sep = 0.20;  // separación visible entre tramos
-        let y = 0.0;
+        let y = 0.0;       // ¡arrancamos justo sobre el piso grueso (top en y=0)!
 
         // tramo inferior
         const m0 = new THREE.Mesh(baseGeo, new THREE.MeshLambertMaterial({ color: cols[0], dithering:true }));
