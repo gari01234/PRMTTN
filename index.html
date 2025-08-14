@@ -3937,28 +3937,27 @@ void main(){
         enterRaumRenderBoost();
         build13245();
 
-        // — VISTA POR DEFECTO (similar a la imagen):
-        //   cámara un poco elevada, mirando levemente hacia abajo para ver la losa.
-        //   Orbit libre activado (rotar/pan/zoom permitidos).
+        // — VISTA POR DEFECTO NIVELADA (verticales rectas en todos los dispositivos)
         camera.up.set(0,1,0);
         camera.fov = 55;
         camera.updateProjectionMatrix();
 
-        // Posición inicial y punto de mira
-        camera.position.set(0, 7.5, 22);
-        controls.target.set(0, 5.0, 0);
+        // Misma Y para cámara y target (sin inclinación)
+        camera.position.set(0, 0, 22);     // vista frontal cómoda
+        controls.target.set(0, 0, 0);
 
-        // Controles: rango polar amplio para ver suelo y cielo
+        // Controles: yaw/pan/zoom permitidos; pitch bloqueado a 90°
         controls.enabled            = true;
-        controls.enableRotate       = true;
+        controls.enableRotate       = true;   // solo yaw (por el clamp polar)
         controls.enablePan          = true;
         controls.enableZoom         = true;
         controls.minDistance        = 10;
         controls.maxDistance        = 200;
         controls.screenSpacePanning = true;
-        controls.minPolarAngle      = Math.PI / 3;            // ~60°
-        controls.maxPolarAngle      = Math.PI - Math.PI/6;    // ~150°
 
+        // Bloquea el pitch para mantener las verticales “gerade”
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
         controls.update();
 
         cubeUniverse.visible     = false;
@@ -3970,7 +3969,7 @@ void main(){
         disposeGroup(group13245);
         group13245 = null;
 
-        // Restaurar ajustes por defecto
+        // Restaurar ajustes por defecto al salir de 13245
         camera.fov = 75;
         camera.updateProjectionMatrix();
         controls.minPolarAngle      = 0;
