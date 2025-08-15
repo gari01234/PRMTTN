@@ -3395,66 +3395,13 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      /* ── 1) MURO grande blanco ───────────────────────────────────── */
-      const WALL_T = 2; // espesor del muro grande
-      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, WALL_T);
-      const wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-      const wall    = new THREE.Mesh(wallGeo, wallMat);
-
-      // pegado al frontal del cubo (cara a z=15). Centro en z = 15 + WALL_T/2 = 16
-      const wallZ = halfCube + WALL_T/2;      // 16
-      wall.position.set(0, 0, wallZ);
+      /* pared blanca con 2 u de “tiefe” */
+      const DEPTH = 2;
+      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
+      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      const wall = new THREE.Mesh(wallGeo, wallMat);
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
       tmslGroup.add(wall);
-
-      /* ── 2) PANEL 30×30×2 al otro lado del muro, a 1u cara-a-cara ─ */
-      const PANEL_W = cubeSize;   // 30
-      const PANEL_H = cubeSize;   // 30
-      const PANEL_T = 2;          // espesor
-      const GAP     = 1;          // ← separación entre superficies (ANTES: 12)
-
-      // color determinista = mismo que el fondo de BUILD (bgHSV → hex)
-      const buildBGHex = hsvToHex(bgHSV);
-
-      // BoxGeometry tiene 6 “grupos” en este orden:
-      // 0: +X, 1: −X, 2: +Y, 3: −Y, 4: +Z (front), 5: −Z (back)
-      // El panel queda DETRÁS del muro (z > 17); la cara que MIRA al muro es la −Z (grupo 5).
-      const matWhite = new THREE.MeshLambertMaterial({ color: 0xffffff });
-
-      // Cara −Z muy reflectiva (glossy). Phong: brillo alto para especular fuerte.
-      const matFaceReflective = new THREE.MeshPhongMaterial({
-        color: new THREE.Color(buildBGHex),
-        specular: new THREE.Color(0xffffff),
-        shininess: 250,      // muy brillante
-        dithering: true
-      });
-
-      const panelGeo = new THREE.BoxGeometry(PANEL_W, PANEL_H, PANEL_T);
-      const panel    = new THREE.Mesh(
-        panelGeo,
-        [matWhite, matWhite, matWhite, matWhite, matWhite, matFaceReflective]
-      );
-
-      // posición: otro lado del muro → a partir de su cara exterior (z = wallZ + WALL_T/2)
-      const zWallOuter   = wallZ + WALL_T/2;                 // 17
-      const zPanelCenter = zWallOuter + GAP + (PANEL_T/2);   // 17 + 1 + 1 = 19
-      panel.position.set(0, 0, zPanelCenter);
-      tmslGroup.add(panel);
-
-      /* ── 3) Luz de rebote coloreada (simula el “reflejo” del panel en el muro) ──
-         SpotLight del color del panel, colocado en la cara −Z del panel y
-         apuntando al muro grande para teñirlo sutilmente. */
-      {
-        const lightColor = new THREE.Color(buildBGHex);
-        const spill = new THREE.SpotLight(lightColor, /*intensity*/ 1.6, /*distance*/ 40, /*angle*/ Math.PI*0.45, /*penumbra*/ 0.45, /*decay*/ 2.0);
-        // justo delante de la cara −Z del panel (hacia el muro)
-        spill.position.set(0, 0, zPanelCenter - PANEL_T/2 + 0.01);  // ~18.01
-        // Apunta al centro del muro (cara orientada hacia el panel está en z≈17; el centro está en wallZ=16)
-        spill.target.position.set(0, 0, wallZ);
-        tmslGroup.add(spill);
-        tmslGroup.add(spill.target);
-      }
-
-      /* ── añade el grupo a escena ── */
       scene.add(tmslGroup);
     }
 
@@ -4038,40 +3985,15 @@ void main(){
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
-    /* rueda de motores del botón “4” — apaga el actual y enciende el siguiente */
+    /* rueda de motores del botón “4” */
     function cycleEngine(){
-      if (isFRBN){ 
-        toggleFRBN();           // apaga FRBN
-        toggleLCHT();           // enciende LCHT
-        return;                 // FRBN → LCHT
-      }
-      if (isLCHT){
-        toggleLCHT();           // apaga LCHT
-        ensureOnlyOFFNNG();     // enciende OFFNNG (exclusivo)
-        return;                 // LCHT → OFFNNG
-      }
-      if (isOFFNNG){
-        toggleOFFNNG();         // apaga OFFNNG
-        ensureOnlyTMSL();       // enciende TMSL (exclusivo)
-        return;                 // OFFNNG → TMSL
-      }
-      if (isTMSL){
-        toggleTMSL();           // apaga TMSL (evita que interfiera)
-        ensureOnlyRAUM();       // enciende RAUM (exclusivo)
-        return;                 // TMSL → RAUM
-      }
-      if (isRAUM){
-        toggleRAUM();           // apaga RAUM
-        ensureOnly13245();      // enciende 13245 (exclusivo)
-        return;                 // RAUM → 13245
-      }
-      if (is13245){
-        toggle13245();          // apaga 13245
-        switchToBuild();        // vuelve a BUILD
-        return;                 // 13245 → BUILD
-      }
-      // BUILD → FRBN
-      toggleFRBN();
+      if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
+      if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
+      if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
+      if (isTMSL){ ensureOnlyRAUM(); return; }             // TMSL  → RAUM
+      if (isRAUM){ ensureOnly13245(); return; }            // RAUM  → 13245
+      if (is13245){ switchToBuild(); return; }             // 13245 → BUILD
+      toggleFRBN();                                        // BUILD → FRBN
     }
 
     init();
