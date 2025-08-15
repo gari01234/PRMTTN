@@ -211,6 +211,25 @@
   }
   #tmslButton:hover{ background:rgba(255,255,255,0.20); }
 
+  /* === ENGINE MENU (reemplaza botones sueltos) === */
+  #engineSelectWrap {
+    position: fixed;
+    left: 10px;
+    bottom: 290px;      /* ocupa el lugar que usaba OFFNNG, sin solapar PLAY/BUILD antiguos */
+    z-index: 260;
+    background: rgba(255,255,255,0.12);
+    padding: 6px 8px;
+    border-radius: 4px;
+  }
+  #engineSelectWrap select {
+    width: 180px;       /* ancho cómodo; no usamos 100% para no romper layout */
+    cursor: none;
+  }
+  #engineSelectWrap label {
+    font-size: 12px;
+    opacity: .85;
+  }
+
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
     position:fixed;               /* mismo estilo general */
@@ -243,21 +262,24 @@
   <!-- NUEVO: Play (genera nueva configuración) -->
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
 
-  <!-- EXISTENTE: BUILD  ➜ sólo cambia de motor -->
-  <button id="randomConfigButton" onclick="switchToBuild()">BUILD</button>
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
-<div id="frbnWrap">
-  <button id="frbnButton" onclick="toggleFRBN()">FRBN</button>
-  <button id="frbnInfoButton" onclick="showFRBNInfo()" title="Information">i</button>
-</div>
-  <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
-  <div id="lchtWrap">
-    <button id="lchtButton" onclick="toggleLCHT()">LCHT</button>
+
+  <!-- NUEVO: Menú de motores -->
+  <div id="engineSelectWrap">
+    <label for="engineSelect" style="display:block;margin-bottom:4px;">Engine</label>
+    <select id="engineSelect" onchange="applyEngineFromSelect(this.value)">
+      <option value="BUILD">BUILD</option>
+      <option value="FRBN">FRBN</option>
+      <option value="LCHT">LCHT</option>
+      <option value="OFFNNG">OFFNNG</option>
+      <option value="TMSL">TMSL</option>
+      <option value="RAUM">RAUM</option>
+      <option value="13245">13245</option>
+    </select>
   </div>
-  <button id="offnngButton" onclick="ensureOnlyOFFNNG()">OFFNNG</button>
-  <button id="tmslButton" onclick="ensureOnlyTMSL()">TMSL</button>
-  <button id="raumButton" onclick="ensureOnlyRAUM()">RAUM</button>
-  <button id="infoButton"       onclick="showInformation()">Information</button>
+
+  <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
+  <button id="infoButton" onclick="showInformation()">Information</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
           onclick="mostrarDebugColores()">
@@ -2049,7 +2071,7 @@ function makePalette(){
         'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
         'frbnWrap','lchtWrap','infoButton','certButton','offnngButton',
-        'tmslButton'            // ← NUEVO
+        'tmslButton','engineSelectWrap','raumButton'   // ← añadidos para ocultar en Minimal UI
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -2824,6 +2846,7 @@ function renderArchPanel(html){
       // ← NUEVO: como si hubieras presionado BUILD al cargar
       generateRandomConfigurationNoCollision().catch(console.error);
       toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
+      updateEngineSelectUI(); // ← deja el menú en el valor correcto (aunque esté oculto en Minimal UI)
       animate();
     }
     function onWindowResize(){
@@ -3985,15 +4008,44 @@ void main(){
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
-    /* rueda de motores del botón “4” */
+    /* === Actualiza el menú según el motor activo === */
+    function updateEngineSelectUI(){
+      const sel = document.getElementById('engineSelect');
+      if (!sel) return;
+      let v = 'BUILD';
+      if (isFRBN)   v = 'FRBN';
+      else if (isLCHT)  v = 'LCHT';
+      else if (isOFFNNG) v = 'OFFNNG';
+      else if (isTMSL)   v = 'TMSL';
+      else if (isRAUM)   v = 'RAUM';
+      else if (is13245)  v = '13245';
+      sel.value = v;
+    }
+
+    /* === Cambia de motor cuando el usuario selecciona en el menú === */
+    function applyEngineFromSelect(name){
+      switch(name){
+        case 'BUILD':  switchToBuild(); break;
+        case 'FRBN':   if (!isFRBN)  toggleFRBN();  break;
+        case 'LCHT':   if (!isLCHT)  toggleLCHT();  break;
+        case 'OFFNNG': ensureOnlyOFFNNG();          break;
+        case 'TMSL':   ensureOnlyTMSL();           break;
+        case 'RAUM':   ensureOnlyRAUM();           break;
+        case '13245':  ensureOnly13245();          break;
+      }
+      updateEngineSelectUI();
+    }
+
+    /* === Rueda de motores del botón “4” (sincroniza el menú) === */
     function cycleEngine(){
-      if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
-      if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
-      if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
-      if (isTMSL){ ensureOnlyRAUM(); return; }             // TMSL  → RAUM
-      if (isRAUM){ ensureOnly13245(); return; }            // RAUM  → 13245
-      if (is13245){ switchToBuild(); return; }             // 13245 → BUILD
-      toggleFRBN();                                        // BUILD → FRBN
+      if (isFRBN){  toggleFRBN(); toggleLCHT(); updateEngineSelectUI(); return; }   // FRBN → LCHT
+      if (isLCHT){  ensureOnlyOFFNNG();        updateEngineSelectUI(); return; }   // LCHT → OFFNNG
+      if (isOFFNNG){ensureOnlyTMSL();          updateEngineSelectUI(); return; }   // OFFNNG → TMSL
+      if (isTMSL){  ensureOnlyRAUM();          updateEngineSelectUI(); return; }   // TMSL  → RAUM
+      if (isRAUM){  ensureOnly13245();         updateEngineSelectUI(); return; }   // RAUM  → 13245
+      if (is13245){ switchToBuild();           updateEngineSelectUI(); return; }   // 13245 → BUILD
+      toggleFRBN();                             // BUILD → FRBN
+      updateEngineSelectUI();
     }
 
     init();
