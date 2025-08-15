@@ -2348,14 +2348,15 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
 
       // 13245: cámara nivelada (verticales “gerade”)
+      // Mantiene el offset vertical actual del target (no lo fuerza a 0)
       if (is13245){
-        const eyeY = 0;                    // misma Y para cámara y target
+        const eyeY = (controls && controls.target) ? controls.target.y : 0;
         camera.up.set(0,1,0);
         camera.position.set(camera.position.x, eyeY, camera.position.z);
         controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
-        controls.enableRotate       = true;  // yaw
+        controls.enableRotate       = true;   // yaw
         controls.enablePan          = true;
         controls.enableZoom         = true;
         controls.minDistance        = 10;
@@ -3798,6 +3799,12 @@ void main(){
     const GRID_COUNT  = 11;
     const GRID_MARGIN = 1.5;
 
+    // Pasos de cámara para la vista default de 13245
+    // – zoomOut() mueve +5 en Z → usamos el mismo paso
+    const ZOOM_STEP_13245  = 5.0;
+    // – pan vertical: usamos el paso de la grilla (GRID_STEP = 3.0)
+    const PAN_STEP_Y_13245 = GRID_STEP;
+
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
     const SLAB_EXTRA_X = 90.00; // ← ya existente (45u por lado en X)
@@ -3960,14 +3967,18 @@ void main(){
         enterRaumRenderBoost();
         build13245();
 
-        // — VISTA POR DEFECTO NIVELADA (verticales rectas en todos los dispositivos)
+        // — VISTA POR DEFECTO NIVELADA (verticales rectas)
         camera.up.set(0,1,0);
         camera.fov = 55;
         camera.updateProjectionMatrix();
 
-        // Misma Y para cámara y target (sin inclinación)
-        camera.position.set(0, 0, 22);     // vista frontal cómoda
-        controls.target.set(0, 0, 0);
+        // 2× “scroll” hacia arriba (pan en Y) y 2× zoom-out en Z
+        const yOffset = 2 * PAN_STEP_Y_13245;   // 2 · 3  = +6
+        const zOffset = 2 * ZOOM_STEP_13245;    // 2 · 5  = +10
+
+        // Misma Y para cámara y target (mantiene verticales “gerade”)
+        camera.position.set(0, yOffset, 22 + zOffset); // antes: (0, 0, 22)
+        controls.target.set(0, yOffset, 0);            // antes: (0, 0, 0)
 
         // Controles: yaw/pan/zoom permitidos; pitch bloqueado a 90°
         controls.enabled            = true;
