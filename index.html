@@ -275,6 +275,7 @@
       <option value="TMSL">TMSL</option>
       <option value="RAUM">RAUM</option>
       <option value="13245">13245</option>
+      <option value="R5X10">R5×10</option>
     </select>
   </div>
 
@@ -659,6 +660,9 @@ function initSkySphere() {
     function toggleFRBN () {
       if (!isFRBN && isOFFNNG) toggleOFFNNG();  // ← NUEVO
       if (!isFRBN && isTMSL)  toggleTMSL();
+      if (!isFRBN && isRAUM)  toggleRAUM();
+      if (!isFRBN && is13245) toggle13245();
+      if (!isFRBN && isR5X10) toggleR5X10();
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -959,6 +963,7 @@ function buildLCHT() {
       if (isTMSL)  toggleTMSL();
       if (isRAUM)  toggleRAUM();
       if (is13245) toggle13245();     // ← NUEVO
+      if (isR5X10) toggleR5X10();     // ← NUEVO
       enterBuildRenderBoost();        // PR/exposure para BUILD
 
       // Controles: ORBIT LIBRE en BUILD
@@ -2028,6 +2033,7 @@ function makePalette(){
       if (isOFFNNG) syncOFFNNGFromScene();
       rebuildRAUMIfActive();
       rebuild13245IfActive();                     // ← NUEVO
+      rebuildR5X10IfActive();                 // ← NUEVO
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2370,6 +2376,30 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         return;
       }
 
+      // R5X10: cámara nivelada (verticales “gerade”), yaw/pan/zoom permitidos
+      if (typeof isR5X10 !== 'undefined' && isR5X10){
+        const eyeY = (controls && controls.target) ? controls.target.y : 0;
+        camera.up.set(0,1,0);
+        camera.fov = 55;
+        camera.position.set(0, eyeY, 32);     // distancia cómoda para W=30
+        controls.target.set(0, eyeY, 0);
+
+        controls.enabled            = true;
+        controls.enableRotate       = true;   // solo yaw (pitch bloqueado)
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minDistance        = 10;
+        controls.maxDistance        = 200;
+        controls.screenSpacePanning = true;
+
+        // bloquea pitch
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+
+        controls.update();
+        return;
+      }
+
       // ===== Otros modos (BUILD, LCHT, OFFNNG, TMSL, etc.) =====
       const view = document.getElementById('standardView').value;
       const pos = new THREE.Vector3();
@@ -2387,7 +2417,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       // Detectar BUILD “puro” (ningún otro motor activado)
       const isBuild =
-        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245;
+        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isR5X10;
 
       if (isBuild || isLCHT){
         // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
@@ -3730,6 +3760,8 @@ void main(){
         if (isLCHT)  toggleLCHT();
         if (isOFFNNG)toggleOFFNNG();
         if (isTMSL)  toggleTMSL();
+        if (is13245) toggle13245();
+        if (isR5X10) toggleR5X10();
 
         // Sal del boost de BUILD si venías de allí y entra al boost de RAUM
         leaveBuildRenderBoost();
@@ -3962,6 +3994,7 @@ void main(){
         if (isOFFNNG)toggleOFFNNG();
         if (isTMSL)  toggleTMSL();
         if (isRAUM)  toggleRAUM();
+        if (isR5X10) toggleR5X10();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -4019,6 +4052,164 @@ void main(){
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
+    // ──────────────────────────────
+    // R5X10 · Root-Five reciprocal grid (5×2, sin movimiento)
+    // ──────────────────────────────
+    let isR5X10   = false;
+    let groupR5X10 = null;
+
+    function disposeGroupR5X10(){
+      if (!groupR5X10) return;
+      disposeGroup(groupR5X10);
+      groupR5X10 = null;
+    }
+
+    /* Color determinista para la celda (offset +1 en fila superior) */
+    function colorR5For(pa, isTop){
+      const sig  = computeSignature(pa);
+      const r    = lehmerRank(pa);
+      const slot = (r % 12) + (isTop ? 1 : 0);
+
+      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+
+      const {h,s,v} = idxToHSV(hI, sI, vI);
+      let  rgb = hsvToRgb(h,s,v);
+      rgb = ensureContrastRGB(rgb);
+
+      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+      return applyBuildVibranceToColor(col);
+    }
+
+    /* Construye/rehace toda la retícula R5×10 dentro del cubo 30×30×30 */
+    function buildR5X10(){
+      disposeGroupR5X10();
+      groupR5X10 = new THREE.Group();
+
+      // Fondo sincronizado con BUILD (no manual)
+      updateBackground(false);
+
+      // Constantes exactas (root-five)
+      const W  = cubeSize;               // 30
+      const H  = W / Math.sqrt(5);       // ≈ 13.4164
+      const COL_W = W / 5;               // 6
+      const INV_SQRT5 = 1/Math.sqrt(5);  // ≈ 0.4472135955
+
+      const H_BOT = H * INV_SQRT5;       // ≈  5.9999
+      const H_TOP = H * (1 - INV_SQRT5); // ≈  7.4164
+
+      const Y_TOP = ( H/2 - H_TOP/2);    // centro fila superior
+      const Y_BOT = -(H/2 - H_BOT/2);    // centro fila inferior
+      const T     = 0.5;                 // espesor plano (Z)
+
+      // Centros X de las 5 columnas
+      const Xs = [...Array(5)].map((_,j)=> -W/2 + COL_W/2 + j*COL_W);
+
+      // Asignación determinista de permutaciones a 10 celdas con open-addressing
+      const perms = getSelectedPerms();
+      const occ   = Array(10).fill(false);
+      const STEP  = 7;                   // coprimo con 10
+
+      // Base geométrica por fila (evita crear 10 geometrías distintas)
+      const geoTop = new THREE.BoxGeometry(COL_W, H_TOP, T);
+      const geoBot = new THREE.BoxGeometry(COL_W, H_BOT, T);
+
+      // Rellena hasta 10 celdas (si hay >10 permutaciones, ignora el resto)
+      for (let p = 0; p < Math.min(perms.length, 10); p++){
+        const pa = perms[p];
+        let idx  = lehmerRank(pa) % 10;
+        let tries= 0;
+        while (occ[idx] && tries < 10){ idx = (idx + STEP) % 10; tries++; }
+        if (occ[idx]) continue;
+        occ[idx] = true;
+
+        const row = Math.floor(idx / 5);   // 0: top, 1: bottom
+        const col = idx % 5;
+
+        const x = Xs[col];
+        const y = (row === 0) ? Y_TOP : Y_BOT;
+        const isTop = (row === 0);
+
+        const color = colorR5For(pa, isTop);
+        const mat   = lambertRaumColor(color);
+
+        const mesh  = new THREE.Mesh(isTop ? geoTop : geoBot, mat);
+        mesh.position.set(x, y, 0);
+        // SIN movimiento → no asignamos rotationSpeed
+        mesh.userData = {
+          permStr: pa.join(','),
+          signature: computeSignature(pa),
+          range: computeRange(computeSignature(pa))
+        };
+        groupR5X10.add(mesh);
+      }
+
+      scene.add(groupR5X10);
+    }
+
+    /* rebuild si hay cambios de escena */
+    function rebuildR5X10IfActive(){ if (isR5X10) buildR5X10(); }
+
+    /* Exclusivo (como RAUM/13245). Usa el “crispness boost” de RAUM. */
+    function toggleR5X10(){
+      isR5X10 = !isR5X10;
+
+      if (isR5X10){
+        // exclusividad
+        if (isFRBN)   toggleFRBN();
+        if (isLCHT)   toggleLCHT();
+        if (isOFFNNG) toggleOFFNNG();
+        if (isTMSL)   toggleTMSL();
+        if (isRAUM)   toggleRAUM();
+        if (is13245)  toggle13245();
+
+        leaveBuildRenderBoost();
+        enterRaumRenderBoost();       // nitidez tipo RAUM
+        buildR5X10();
+
+        // Cámara nivelada por defecto
+        camera.up.set(0,1,0);
+        camera.fov = 55;
+        camera.updateProjectionMatrix();
+        camera.position.set(0, 0, 32);
+        controls.target.set(0, 0, 0);
+
+        controls.enabled            = true;
+        controls.enableRotate       = true;
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minDistance        = 10;
+        controls.maxDistance        = 200;
+        controls.screenSpacePanning = true;
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.update();
+
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
+
+      } else {
+        leaveRaumRenderBoost();
+        disposeGroupR5X10();
+
+        // Restaurar ajustes por defecto al salir de R5X10
+        camera.fov = 75;
+        camera.updateProjectionMatrix();
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
+
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
+      }
+    }
+
+    /* botón selector – sólo enciende, nunca apaga */
+    function ensureOnlyR5X10(){ if (!isR5X10) toggleR5X10(); }
+
     /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
       const sel = document.getElementById('engineSelect');
@@ -4030,6 +4221,7 @@ void main(){
       else if (isTMSL)   v = 'TMSL';
       else if (isRAUM)   v = 'RAUM';
       else if (is13245)  v = '13245';
+      else if (isR5X10)  v = 'R5X10';
       sel.value = v;
     }
 
@@ -4043,6 +4235,7 @@ void main(){
         case 'TMSL':   ensureOnlyTMSL();           break;
         case 'RAUM':   ensureOnlyRAUM();           break;
         case '13245':  ensureOnly13245();          break;
+        case 'R5X10': ensureOnlyR5X10();        break;
       }
       updateEngineSelectUI();
     }
@@ -4054,7 +4247,8 @@ void main(){
       if (isOFFNNG){ensureOnlyTMSL();          updateEngineSelectUI(); return; }   // OFFNNG → TMSL
       if (isTMSL){  ensureOnlyRAUM();          updateEngineSelectUI(); return; }   // TMSL  → RAUM
       if (isRAUM){  ensureOnly13245();         updateEngineSelectUI(); return; }   // RAUM  → 13245
-      if (is13245){ switchToBuild();           updateEngineSelectUI(); return; }   // 13245 → BUILD
+      if (is13245){ ensureOnlyR5X10();         updateEngineSelectUI(); return; }   // 13245 → R5X10
+      if (isR5X10){ switchToBuild();           updateEngineSelectUI(); return; }   // R5X10 → BUILD
       toggleFRBN();                             // BUILD → FRBN
       updateEngineSelectUI();
     }
