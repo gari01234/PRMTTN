@@ -3395,13 +3395,41 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      /* pared blanca con 2 u de “tiefe” */
-      const DEPTH = 2;
-      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      /* ── 1) PARED blanca (igual que antes) ───────────────────────── */
+      const WALL_T = 2; // espesor de la pared
+      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, WALL_T);
+      const wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
       const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+
+      // La pared queda “pegada” al frontal del cubo (z = 15) con su centro a z = 15 + WALL_T/2
+      const wallZ = halfCube + WALL_T/2; // 15 + 1 = 16
+      wall.position.set(0, 0, wallZ);
       tmslGroup.add(wall);
+
+      /* ── 2) VOLUMEN 30×30×2 delante de la pared, separado 12u (cara-a-cara) ─── */
+      const PANEL_W = cubeSize;   // 30
+      const PANEL_H = cubeSize;   // 30
+      const PANEL_T = 2;          // espesor del volumen
+      const GAP     = 12;         // separación (pared→volumen) medida entre superficies
+
+      const panelGeo = new THREE.BoxGeometry(PANEL_W, PANEL_H, PANEL_T);
+      const panelMat = wallMat.clone(); // mismo aspecto que la pared
+      const panel    = new THREE.Mesh(panelGeo, panelMat);
+
+      /* Cálculo de la posición en Z:
+         - Cara frontal de la pared (la que mira a cámara): z_wall_front = wallZ - WALL_T/2
+         - Queremos que la cara trasera del volumen quede a 12u delante de esa cara:
+           z_panel_back = z_wall_front - GAP
+         - El centro del volumen está 1u por detrás de su cara trasera (PANEL_T/2):
+           z_panel_center = z_panel_back - PANEL_T/2
+      */
+      const zWallFront  = wallZ - WALL_T/2;                 // 16 - 1 = 15
+      const zPanelCenter= (zWallFront - GAP) - (PANEL_T/2); // 15 - 12 - 1 = 2
+      panel.position.set(0, 0, zPanelCenter);
+
+      tmslGroup.add(panel);
+
+      /* ── añade el grupo a escena ── */
       scene.add(tmslGroup);
     }
 
