@@ -3395,36 +3395,42 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      /* ── 1) PARED blanca (igual que antes) ───────────────────────── */
-      const WALL_T = 2; // espesor de la pared
+      /* ── 1) MURO grande blanco (igual que antes) ───────────────────── */
+      const WALL_T = 2; // espesor del muro grande
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, WALL_T);
       const wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-      const wall = new THREE.Mesh(wallGeo, wallMat);
+      const wall    = new THREE.Mesh(wallGeo, wallMat);
 
-      // La pared queda “pegada” al frontal del cubo (z = 15) con su centro a z = 15 + WALL_T/2
-      const wallZ = halfCube + WALL_T/2; // 15 + 1 = 16
+      // pegado al frontal del cubo (cara a z=15). Centro en z = 15 + WALL_T/2 = 16
+      const wallZ = halfCube + WALL_T/2;
       wall.position.set(0, 0, wallZ);
       tmslGroup.add(wall);
 
-      /* ── 2) VOLUMEN 30×30×2 delante de la pared, separado 12u (cara-a-cara) ─── */
+      /* ── 2) PANEL 30×30×2 AL OTRO LADO del muro, a 12u cara-a-cara ─── */
       const PANEL_W = cubeSize;   // 30
       const PANEL_H = cubeSize;   // 30
-      const PANEL_T = 2;          // espesor del volumen
-      const GAP     = 12;         // separación (pared→volumen) medida entre superficies
+      const PANEL_T = 2;          // espesor
+      const GAP     = 12;         // separación entre superficies
+
+      // color determinista = mismo que el fondo de BUILD (bgHSV → hex)
+      const buildBGHex = hsvToHex(bgHSV);
+
+      // BoxGeometry tiene 6 “grupos” en este orden:
+      // 0: +X (right), 1: −X (left), 2: +Y (top), 3: −Y (bottom),
+      // 4: +Z (front), 5: −Z (back)
+      // El panel quedará DETRÁS del muro (z > 17); la cara que MIRA al muro es la −Z (grupo 5).
+      const matWhite = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      const matFace  = new THREE.MeshLambertMaterial({ color: new THREE.Color(buildBGHex) });
 
       const panelGeo = new THREE.BoxGeometry(PANEL_W, PANEL_H, PANEL_T);
-      const panelMat = wallMat.clone(); // mismo aspecto que la pared
-      const panel    = new THREE.Mesh(panelGeo, panelMat);
+      const panel    = new THREE.Mesh(
+        panelGeo,
+        [matWhite, matWhite, matWhite, matWhite, matWhite, matFace] // solo la cara −Z coloreada
+      );
 
-      /* Cálculo de la posición en Z:
-         - Cara frontal de la pared (la que mira a cámara): z_wall_front = wallZ - WALL_T/2
-         - Queremos que la cara trasera del volumen quede a 12u delante de esa cara:
-           z_panel_back = z_wall_front - GAP
-         - El centro del volumen está 1u por detrás de su cara trasera (PANEL_T/2):
-           z_panel_center = z_panel_back - PANEL_T/2
-      */
-      const zWallFront  = wallZ - WALL_T/2;                 // 16 - 1 = 15
-      const zPanelCenter= (zWallFront - GAP) - (PANEL_T/2); // 15 - 12 - 1 = 2
+      // posición: otro lado del muro → a partir de su cara exterior (z = wallZ + WALL_T/2)
+      const zWallOuter   = wallZ + WALL_T/2;                 // 17
+      const zPanelCenter = zWallOuter + GAP + (PANEL_T/2);   // 17 + 12 + 1 = 30
       panel.position.set(0, 0, zPanelCenter);
 
       tmslGroup.add(panel);
