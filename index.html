@@ -4038,15 +4038,40 @@ void main(){
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
-    /* rueda de motores del botón “4” */
+    /* rueda de motores del botón “4” — apaga el actual y enciende el siguiente */
     function cycleEngine(){
-      if (isFRBN){ toggleFRBN(); toggleLCHT(); return; }   // FRBN → LCHT
-      if (isLCHT){ ensureOnlyOFFNNG(); return; }           // LCHT → OFFNNG
-      if (isOFFNNG){ ensureOnlyTMSL(); return; }           // OFFNNG → TMSL
-      if (isTMSL){ ensureOnlyRAUM(); return; }             // TMSL  → RAUM
-      if (isRAUM){ ensureOnly13245(); return; }            // RAUM  → 13245
-      if (is13245){ switchToBuild(); return; }             // 13245 → BUILD
-      toggleFRBN();                                        // BUILD → FRBN
+      if (isFRBN){ 
+        toggleFRBN();           // apaga FRBN
+        toggleLCHT();           // enciende LCHT
+        return;                 // FRBN → LCHT
+      }
+      if (isLCHT){
+        toggleLCHT();           // apaga LCHT
+        ensureOnlyOFFNNG();     // enciende OFFNNG (exclusivo)
+        return;                 // LCHT → OFFNNG
+      }
+      if (isOFFNNG){
+        toggleOFFNNG();         // apaga OFFNNG
+        ensureOnlyTMSL();       // enciende TMSL (exclusivo)
+        return;                 // OFFNNG → TMSL
+      }
+      if (isTMSL){
+        toggleTMSL();           // apaga TMSL (evita que interfiera)
+        ensureOnlyRAUM();       // enciende RAUM (exclusivo)
+        return;                 // TMSL → RAUM
+      }
+      if (isRAUM){
+        toggleRAUM();           // apaga RAUM
+        ensureOnly13245();      // enciende 13245 (exclusivo)
+        return;                 // RAUM → 13245
+      }
+      if (is13245){
+        toggle13245();          // apaga 13245
+        switchToBuild();        // vuelve a BUILD
+        return;                 // 13245 → BUILD
+      }
+      // BUILD → FRBN
+      toggleFRBN();
     }
 
     init();
