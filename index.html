@@ -4420,8 +4420,9 @@ void main(){
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
     // ──────────────────────────────
+    // ──────────────────────────────
     // R5NOVA · Proportional tiling engine (tilers-integrated)
-    // (v2) · gap mínimo + cuarto tipo RAUM (sin pared del fondo)
+    // (v2) · gap mínimo + menos subrectángulos (BSP con tope de piezas)
     // ──────────────────────────────
     let isR5NOVA    = false;
     let groupR5NOVA = null;
@@ -4439,7 +4440,7 @@ void main(){
       groupR5NOVA = null;
     }
 
-    /* Color determinista por celda (offset cromático opcional según tag) */
+    /* Color determinista por celda (offset cromático opcional) */
     function colorR5NFor(pa, offset=0){
       const sig  = computeSignature(pa);
       const r    = lehmerRank(pa);
@@ -4453,13 +4454,13 @@ void main(){
       let rgb = hsvToRgb(h,s,v);
       rgb = ensureContrastRGB(rgb);
 
-      // Vibrance BUILD en superficies + ∆E contra fondo
+      // “vibrance BUILD” en superficies planas (+ ∆E contra fondo)
       const base = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-      const boosted = (function applyBuildVibranceToColor(colorTHREE){
+      const boosted = (function applyBuildVibranceToColor(cTHREE){
         const raw = [
-          Math.round(colorTHREE.r * 255),
-          Math.round(colorTHREE.g * 255),
-          Math.round(colorTHREE.b * 255)
+          Math.round(cTHREE.r * 255),
+          Math.round(cTHREE.g * 255),
+          Math.round(cTHREE.b * 255)
         ];
         let [hh,ss,vv] = rgbToHsv(raw[0], raw[1], raw[2]);
         const s1 = Math.min(1, ss + 0.22 * (1 - ss));
@@ -4472,129 +4473,85 @@ void main(){
       return boosted;
     }
 
-    /* Parámetros geométricos (idénticos a RAUM) */
+    /* Parámetros geométricos */
     const R5_W = 30, R5_H = 30, R5_D = 30, R5_G = 2;  // ancho, alto, fondo, grosor pared (pared de fondo 30×30)
     const R5_DEPTH = 1.50;       // espesor de los volúmenes (extrusión hacia la cámara)
     const R5_GAP   = 0.20;       // ← separación mínima (x2)
+    // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
+    const R5N_MAX_TILES = 8;        // máximo de volúmenes a instanciar
+    const R5N_MIN_CELL  = 6.0;      // tamaño mínimo de celda del BSP (menos particiones)
+    const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
+    const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-    /* Construye la escena R5NOVA:
-       - Pared izquierda, derecha, piso y techo (como RAUM, deterministas)
-       - Sin pared del fondo
-       - En la cara del fondo, los volúmenes del motor R5Nova (tilers) */
+    /* —— NUEVO buildR5NOVA con menos piezas en la pared de fondo —— */
     function buildR5NOVA(){
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
+      scene.add(groupR5NOVA);
 
-      // Fondo acoplado (no manual), igual que RAUM/BUILD
+      // Sincroniza colores de fondo y paredes (no manual)
       updateBackground(false);
+      updateCubeColor(false);
 
-      const Wi = R5_W - 2*R5_G;
-      const Hi = R5_H - 2*R5_G;
-      const Di = R5_D - 2*R5_G;
+      // Caja 30×30 (coordenadas centradas) para el tiler
+      const bbox = { x: -R5_W/2, y: -R5_H/2, w: R5_W, h: R5_H };
 
-      // ====== Colores deterministas para las paredes (reusa RAUM) ======
-      const colCeil  = raumColorFor(1);
-      const colFloor = raumColorFor(2);
-      const colLeft  = raumColorFor(3);
-      const colRight = raumColorFor(4);
+      // Semilla determinista — misma lógica que el resto del sistema
+      const seed = computeLayoutSeed();
 
-      function lambertWall(cTHREE){
-        return lambertRaumColor(cTHREE, 0.06, false);
-      }
+      // 1) Tiling BSP con pocas celdas y celdas grandes
+      let rects = window.Tilers.assemble(bbox, { ratios: [] }, {
+        engine   : 'bsp',
+        familyId : 'r5',            // explícito, solo por coherencia nominal
+        rndSeed  : seed,
+        minCell  : R5N_MIN_CELL,    // ← celdas grandes = menos splits
+        ratioMin : 0.40,
+        ratioMax : 0.60,
+        targetN  : R5N_TARGETN,     // ← pocas celdas
+        mergeProb: R5N_MERGE        // ← fusión de adyacentes
+      });
 
-      // ====== PAREDES (como RAUM) ======
-      const left  = new THREE.Mesh(new THREE.BoxGeometry(R5_G, R5_H, R5_D), lambertWall(colLeft));
-      left.position.set(-R5_W/2 + R5_G/2, 0, 0);
-      const right = new THREE.Mesh(new THREE.BoxGeometry(R5_G, R5_H, R5_D), lambertWall(colRight));
-      right.position.set( R5_W/2 - R5_G/2, 0, 0);
+      // 2) Filtro adicional: quedarse con las piezas de mayor área (máx. 8)
+      rects.sort((a,b)=> (b.w*b.h) - (a.w*a.h));
+      rects = rects.slice(0, R5N_MAX_TILES);
 
-      const floor = new THREE.Mesh(new THREE.BoxGeometry(R5_W, R5_G, R5_D), lambertWall(colFloor));
-      floor.position.set(0, -R5_H/2 + R5_G/2, 0);
-      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(R5_W, R5_G, R5_D), lambertWall(colCeil));
-      ceil.position.set(0,  R5_H/2 - R5_G/2, 0);
+      // Profundidad: extrusión hacia la cámara desde la pared posterior (z = -15)
+      const zPlate = -R5_D/2 + R5_DEPTH/2;
 
-      groupR5NOVA.add(left, right, floor, ceil);
+      // Colores deterministas tomando la selección actual de permutaciones
+      const perms = getSelectedPerms();
+      const palette = perms.length
+        ? perms.map((pa,i)=> colorR5NFor(pa, i))      // ciclo por permutación
+        : [ new THREE.Color(0x888888) ];              // fallback gris si no hay perms
 
-      // ====== PLANO DEL FONDO (sin pared): mosaico R5Nova ======
-      // Cara interior del fondo (zBack int.)
-      const zBack = -R5_D/2 + R5_G;
-
-      // --- Layout determinista con tilers ---
-      const seedU32 = computeLayoutSeed();     // acoplado a sceneSeed, S_global, mapping, etc.
-      const b = { x: -Wi/2, y: -Hi/2, w: Wi, h: Hi };
-
-      // Familia raíz √5 por defecto; motor BSP con fusión (igual que integración previa)
-      const rects = window.Tilers.assemble(
-        b,
-        { ratios: [] },
-        {
-          rndSeed  : seedU32,
-          familyId : 'r5',
-          engine   : 'bsp',
-          minCell  : 3.0,
-          ratioMin : 0.35,
-          ratioMax : 0.65,
-          targetN  : [24, 40],
-          mergeProb: 0.30
-        }
-      );
-
-      // Permutaciones activas (para coloreo determinista)
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                         .map(o => o.value.split(',').map(Number));
-      const permsSafe = perms.length ? perms : [[1,2,3,4,5]]; // fallback determinista
-
-      // Mapeo: tag → offset cromático (sutil y determinista)
-      function offsetFromTag(t){
-        if (!t) return 0;
-        if (String(t).startsWith('euclid')) return 1;
-        if (String(t).startsWith('beatty')) return 2;
-        if (String(t).startsWith('subst'))  return 3;
-        if (String(t).startsWith('bsp-merged')) return 1;
-        return 0;
-      }
-
-      // Geometría base: se recalcula por rect para ajustar gap mínimo
-      rects.forEach((r, i) => {
-        // Centro del rectángulo en coordenadas de habitación
-        const cx = r.x + r.w/2;
-        const cy = r.y + r.h/2;
-
-        // Tamaño con separación mínima (gap uniforme alrededor)
-        const w = Math.max(0.001, r.w - R5_GAP);
-        const h = Math.max(0.001, r.h - R5_GAP);
+      // 3) Instanciar los volúmenes (con gap mínimo)
+      rects.forEach((r, i)=>{
+        const w = Math.max(0, r.w - 2*R5_GAP);
+        const h = Math.max(0, r.h - 2*R5_GAP);
+        if (w <= 0 || h <= 0) return;
 
         const geo = new THREE.BoxGeometry(w, h, R5_DEPTH);
-
-        // Color determinista ciclando permutaciones + offset por tag
-        const pa   = permsSafe[i % permsSafe.length];
-        const offs = offsetFromTag(r.tag);
-        const col  = colorR5NFor(pa, offs);
-
-        const mat = new THREE.MeshLambertMaterial({
-          color: col,
-          dithering: true
-        });
+        const col = palette[i % palette.length];
+        const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
         mat.emissive = col.clone();
         mat.emissiveIntensity = 0.06;
 
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(cx, cy, zBack + R5_DEPTH/2); // extruye desde el fondo hacia la cámara
+        mesh.position.set(r.x + r.w/2, r.y + r.h/2, zPlate);
+        mesh.userData = { r5nTag: r.tag, area: r.w*r.h };
         groupR5NOVA.add(mesh);
       });
-
-      scene.add(groupR5NOVA);
     }
 
-    /* Rebuild si hay cambios de escena */
+    /* rebuild si cambia la escena */
     function rebuildR5NOVAIfActive(){ if (isR5NOVA) buildR5NOVA(); }
 
-    /* Exclusivo (como RAUM/13245). Usa el “crispness boost” de RAUM. */
+    /* Exclusivo (como RAUM/13245) — cámara nivelada con yaw/pan/zoom */
     function toggleR5NOVA(){
       isR5NOVA = !isR5NOVA;
 
       if (isR5NOVA){
-        // Exclusividad con otros motores
+        // exclusividad con los demás motores
         if (isFRBN)  toggleFRBN();
         if (isLCHT)  toggleLCHT();
         if (isOFFNNG)toggleOFFNNG();
@@ -4602,56 +4559,41 @@ void main(){
         if (isRAUM)  toggleRAUM();
         if (is13245) toggle13245();
 
-        leaveBuildRenderBoost();
-        enterRaumRenderBoost();   // nitidez como RAUM/13245
-
+        leaveBuildRenderBoost(); // R5NOVA no usa el boost de BUILD
         buildR5NOVA();
 
-        // Cámara nivelada; yaw/pan/zoom permitidos (pitch bloqueado)
+        // Mostramos el cubo y las perms; el “relieve” vive en la pared del fondo
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup) lichtGroup.visible = false;
+
+        // Cámara nivelada (verticales rectas), yaw/pan/zoom permitidos
         camera.up.set(0,1,0);
         camera.fov = 55;
-        camera.updateProjectionMatrix();
-
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.position.set(0, eyeY, 32);
-        controls.target.set(0, eyeY, 0);
+        camera.position.set(0, 0, 32);
+        controls.target.set(0, 0, 0);
 
         controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw (clamp polar)
+        controls.enableRotate       = true;   // yaw
         controls.enablePan          = true;
         controls.enableZoom         = true;
         controls.minDistance        = 10;
         controls.maxDistance        = 200;
         controls.screenSpacePanning = true;
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.minPolarAngle      = Math.PI / 2;
+        controls.maxPolarAngle      = Math.PI / 2;
         controls.update();
-
-        // Oculta cubo/BUILD/LCHT
-        cubeUniverse.visible     = false;
-        permutationGroup.visible = false;
-        if (lichtGroup) lichtGroup.visible = false;
-
       } else {
-        leaveRaumRenderBoost();
         disposeGroupR5NOVA();
-        groupR5NOVA = null;
 
-        // Restaurar ajustes por defecto al salir
+        // Restaurar controles por defecto
         camera.fov = 75;
         camera.updateProjectionMatrix();
         controls.minPolarAngle      = 0;
         controls.maxPolarAngle      = Math.PI;
         controls.screenSpacePanning = false;
-
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (lichtGroup && isLCHT) lichtGroup.visible = true;
       }
     }
-    
-    /* botón selector – sólo enciende, nunca apaga */
-    function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
     
     /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
@@ -4688,7 +4630,7 @@ void main(){
       if (isOFFNNG){ensureOnlyTMSL();          updateEngineSelectUI(); return; }   // OFFNNG → TMSL
       if (isTMSL){  ensureOnlyRAUM();          updateEngineSelectUI(); return; }   // TMSL  → RAUM
       if (isRAUM){  ensureOnly13245();         updateEngineSelectUI(); return; }   // RAUM  → 13245
-      if (is13245){ ensureOnlyR5NOVA();        updateEngineSelectUI(); return; }   // 13245 → R5NOVA
+      if (is13245){ toggleR5NOVA();             updateEngineSelectUI(); return; }   // 13245 → R5NOVA
       if (isR5NOVA){ switchToBuild();          updateEngineSelectUI(); return; }   // R5NOVA → BUILD
       toggleFRBN();                             // BUILD → FRBN
       updateEngineSelectUI();
