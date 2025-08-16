@@ -475,7 +475,7 @@ window.Tilers = { PHI, ROOT2, ROOT3, ROOT4, ROOT5, families, whichFamily, assemb
       <option value="TMSL">TMSL</option>
       <option value="RAUM">RAUM</option>
       <option value="13245">13245</option>
-      <option value="R5X10">R5×10</option>
+      <option value="R5NOVA">R5NOVA</option>
     </select>
   </div>
 
@@ -863,7 +863,7 @@ function initSkySphere() {
       if (!isFRBN && isTMSL)  toggleTMSL();
       if (!isFRBN && isRAUM)  toggleRAUM();
       if (!isFRBN && is13245) toggle13245();
-      if (!isFRBN && isR5X10) toggleR5X10();
+      if (!isFRBN && isR5NOVA) toggleR5NOVA();
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -1164,7 +1164,7 @@ function buildLCHT() {
       if (isTMSL)  toggleTMSL();
       if (isRAUM)  toggleRAUM();
       if (is13245) toggle13245();     // ← NUEVO
-      if (isR5X10) toggleR5X10();     // ← NUEVO
+      if (isR5NOVA) toggleR5NOVA();     // ← NUEVO
       enterBuildRenderBoost();        // PR/exposure para BUILD
 
       // Controles: ORBIT LIBRE en BUILD
@@ -2234,7 +2234,7 @@ function makePalette(){
       if (isOFFNNG) syncOFFNNGFromScene();
       rebuildRAUMIfActive();
       rebuild13245IfActive();                     // ← NUEVO
-      rebuildR5X10IfActive();                 // ← NUEVO
+      rebuildR5NOVAIfActive();                // ← NUEVO
     }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -2577,8 +2577,8 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         return;
       }
 
-      // R5X10: cámara nivelada (verticales “gerade”), yaw/pan/zoom permitidos
-      if (typeof isR5X10 !== 'undefined' && isR5X10){
+      // R5NOVA: cámara nivelada (verticales “gerade”), yaw/pan/zoom permitidos
+      if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
         const eyeY = (controls && controls.target) ? controls.target.y : 0;
         camera.up.set(0,1,0);
         camera.fov = 55;
@@ -2618,7 +2618,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       // Detectar BUILD “puro” (ningún otro motor activado)
       const isBuild =
-        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isR5X10;
+        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isR5NOVA;
 
       if (isBuild || isLCHT){
         // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
@@ -3962,7 +3962,7 @@ void main(){
         if (isOFFNNG)toggleOFFNNG();
         if (isTMSL)  toggleTMSL();
         if (is13245) toggle13245();
-        if (isR5X10) toggleR5X10();
+        if (isR5NOVA) toggleR5NOVA();
 
         // Sal del boost de BUILD si venías de allí y entra al boost de RAUM
         leaveBuildRenderBoost();
@@ -4195,7 +4195,7 @@ void main(){
         if (isOFFNNG)toggleOFFNNG();
         if (isTMSL)  toggleTMSL();
         if (isRAUM)  toggleRAUM();
-        if (isR5X10) toggleR5X10();
+        if (isR5NOVA) toggleR5NOVA();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -4254,147 +4254,153 @@ void main(){
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
     // ──────────────────────────────
-    // R5X10 · Root-Five reciprocal grid (tilers-integrated)
+    // R5NOVA · Proportional tiling engine (tilers-integrated)
     // ──────────────────────────────
-    let isR5X10    = false;
-    let groupR5X10 = null;
-
-    function disposeGroupR5X10(){
-      if (!groupR5X10) return;
-      groupR5X10.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
-      scene.remove(groupR5X10);
-      groupR5X10 = null;
+    let isR5NOVA    = false;
+    let groupR5NOVA = null;
+    
+    function disposeGroupR5NOVA(){
+      if (!groupR5NOVA) return;
+      groupR5NOVA.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
+      scene.remove(groupR5NOVA);
+      groupR5NOVA = null;
     }
-
-    /* pequeño inset/gutter para respirar visualmente (en unidades del cubo 30×30) */
-    function insetRect(r, g){
-      return {
-        x: r.x + g,
-        y: r.y + g,
-        w: Math.max(0, r.w - 2*g),
-        h: Math.max(0, r.h - 2*g),
-        tag: r.tag
-      };
-    }
-
+    
     /* Color determinista por celda; offset cromático opcional (según tag) */
-    function colorR5For(pa, offset=0){
+    function colorR5NFor(pa, offset=0){
       const sig  = computeSignature(pa);
       const r    = lehmerRank(pa);
       const slot = (r % 12) + offset;
-
+    
       let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
       sI = (sI * PHI_S) % 12;
       vI = (vI * PHI_V) % 12;
-
+    
       const {h,s,v} = idxToHSV(hI, sI, vI);
       let rgb = hsvToRgb(h,s,v);
       rgb = ensureContrastRGB(rgb);
-
+    
       // “vibrance BUILD” para superficies (evita lavado y mantiene ΔE contra fondo)
       const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-      return applyBuildVibranceToColor(col);
+      return (function applyBuildVibranceToColor(colorTHREE){
+        const base = [
+          Math.round(colorTHREE.r * 255),
+          Math.round(colorTHREE.g * 255),
+          Math.round(colorTHREE.b * 255)
+        ];
+        let [hh,ss,vv] = rgbToHsv(base[0], base[1], base[2]);
+        const s1 = Math.min(1, ss + 0.22 * (1 - ss));
+        const v1 = Math.min(0.93, vv * 1.02);
+        let rgb2 = hsvToRgb(hh, s1, v1);
+        rgb2 = ensureContrastRGB(rgb2);
+        return new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
+      })(col);
     }
-
-    /* Construye la composición R5×10 sobre el plano frontal del cubo (30×30) */
-      function buildR5X10(){
-        disposeGroupR5X10();
-        groupR5X10 = new THREE.Group();
-
-        // Fondo sincronizado (no manual) como en BUILD/RAUM
-        updateBackground(false);
-
-        // 1) BBox en unidades del cubo 30×30 (origen arriba-izquierda del plano frontal)
-        const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
-
-        // 2) Familia determinista: ahora φ, √2, √3, √4, √5
-        const fams = ['phi','r2','r3','r4','r5'];                         // ← ampliado
-        const fam  = fams[(sceneSeed + S_global + (getSelectedPerms().length||1)) % fams.length];
-
-        // 3) Inventario: dos tamaños de la MISMA familia (rho y 1/rho)
-        const T = window.Tilers;
-        function rhoOf(f){
-          return f==='phi'?T.PHI : f==='r2'?T.ROOT2 : f==='r3'?T.ROOT3 : f==='r4'?T.ROOT4 : T.ROOT5;
-        }
-        const rho = rhoOf(fam);
-        let inv;
-        if (fam==='phi'){
-          inv = { ratios:[ { r:  rho,   area: 0.618 },
-                           { r: 1/rho, area: 0.382 } ] };
-        } else if (fam==='r2'){
-          inv = { ratios:[ { r:  rho,   area: 0.60  },
-                           { r: 1/rho, area: 0.40  } ] };
-        } else {
-          inv = { ratios:[ { r:  rho,   area: 0.66  },                // r3, r4, r5
-                           { r: 1/rho, area: 0.34  } ] };
-        }
-
-        // 4) Ensamble con alternancia de estrategias por “bandas” euclidianas
-        const stratCycle = ['beatty','euclid','subst']; // ‘subst’ hará fallback a Beatty en r4/r5
-        const rawRects = window.Tilers.assemble(bbox, inv, {
-          familyId: fam,
-          strategyCycle: stratCycle,
-          wantSpiral: false
-        });
-
-        // 5) Inset (gutter) – respira sin romper conectividad
-        const G = 0.20;
-        const rects = rawRects.map(r => ({
+    
+    /* Construye la composición R5NOVA sobre el plano frontal del cubo (30×30) */
+    function buildR5NOVA(){
+      disposeGroupR5NOVA();
+      groupR5NOVA = new THREE.Group();
+    
+      // Fondo sincronizado (no manual) como en BUILD/RAUM
+      updateBackground(false);
+    
+      // 1) BBox en unidades del cubo 30×30 (origen arriba-izquierda del plano frontal)
+      const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
+    
+      // 2) Familia determinista: φ, √2, √3, √4, √5
+      const fams = ['phi','r2','r3','r4','r5'];
+      const fam  = fams[(sceneSeed + S_global + (getSelectedPerms().length||1)) % fams.length];
+    
+      // 3) Inventario: dos tamaños de la MISMA familia (rho y 1/rho)
+      const T = window.Tilers;
+      function rhoOf(f){
+        return f==='phi'?T.PHI : f==='r2'?T.ROOT2 : f==='r3'?T.ROOT3 : f==='r4'?T.ROOT4 : T.ROOT5;
+      }
+      const rho = rhoOf(fam);
+      let inv;
+      if (fam==='phi'){
+        inv = { ratios:[ { r:  rho,   area: 0.618 },
+                         { r: 1/rho, area: 0.382 } ] };
+      } else if (fam==='r2'){
+        inv = { ratios:[ { r:  rho,   area: 0.60  },
+                         { r: 1/rho, area: 0.40  } ] };
+      } else {
+        inv = { ratios:[ { r:  rho,   area: 0.66  },                // r3, r4, r5
+                         { r: 1/rho, area: 0.34  } ] };
+      }
+    
+      // 4) Ensamble con alternancia de estrategias por “bandas” euclidianas
+      const stratCycle = ['beatty','euclid','subst']; // ‘subst’ hace fallback a Beatty en r4/r5
+      const rawRects = window.Tilers.assemble(bbox, inv, {
+        familyId: fam,
+        strategyCycle: stratCycle,
+        wantSpiral: false
+      });
+    
+      // 5) Inset (gutter) – respira sin romper conectividad
+      const G = 0.20;
+      const rects = rawRects
+        .filter(r => r.w > EPS && r.h > EPS)
+        .map(r => ({
           x: r.x + G,
           y: r.y + G,
           w: Math.max(0, r.w - 2*G),
           h: Math.max(0, r.h - 2*G),
           tag: r.tag
         }));
-
-        // 6) Permutaciones activas (ciclaje si hay más celdas que perms)
-        const perms  = getSelectedPerms();
-        const N      = rects.length;
-        const depth  = 0.60;
-
-        for (let i=0;i<N;i++){
-          const r = rects[i];
-          if (r.w <= EPS || r.h <= EPS) continue;
-
-          // mapeo 2D→3D (centro de la celda). Y de tilers baja; Three sube.
-          const cx = (r.x + r.w/2) - halfCube;
-          const cy = halfCube - (r.y + r.h/2);
-          const cz = 0.0;
-
-          // offset cromático (mantenemos tu lógica)
-          let off = 0;
-          if (r.tag === 'beatty' || r.tag === 'beatty-in-band') off = 1;
-          if (r.tag === 'subst') off = 2;
-
-          const pa  = perms.length ? perms[i % perms.length] : [1,2,3,4,5];
-          const col = colorR5For(pa, off);
-
-          const geo = new THREE.BoxGeometry(r.w, r.h, depth);
-          const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
-          mat.emissive = col.clone();
-          mat.emissiveIntensity = 0.06;
-
-          const tile = new THREE.Mesh(geo, mat);
-          tile.position.set(cx, cy, cz);
-          tile.userData = {
-            source: 'R5X10',
-            permStr: pa.join(','),
-            tag: r.tag,
-            family: fam
-          };
-          groupR5X10.add(tile);
-        }
-
-        scene.add(groupR5X10);
+    
+      // 6) Permutaciones activas (ciclaje si hay más celdas que perms)
+      const perms  = getSelectedPerms();
+      const N      = rects.length;
+    
+      for (let i=0;i<N;i++){
+        const r = rects[i];
+        if (r.w <= EPS || r.h <= EPS) continue;
+    
+        // mapeo 2D→3D (centro de la celda). Y de tilers baja; Three sube.
+        const cx = (r.x + r.w/2) - halfCube;
+        const cy = halfCube - (r.y + r.h/2);
+        const cz = 0.0 + i * 0.0008;   // micro-separación para evitar z-fighting
+    
+        // offset cromático por estrategia
+        let off = 0;
+        if (r.tag === 'beatty' || r.tag === 'beatty-in-band') off = 1;
+        else if (r.tag === 'subst') off = 2;
+    
+        const pa  = perms.length ? perms[i % perms.length] : [1,2,3,4,5];
+        const col = colorR5NFor(pa, off);
+    
+        // profundidad adaptativa (0.45 – 1.00) según el lado menor
+        const minSide = Math.min(r.w, r.h);
+        const depth   = 0.45 + 0.55 * Math.min(1, minSide / (cubeSize/3));
+    
+        const geo = new THREE.BoxGeometry(r.w, r.h, depth);
+        const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
+        mat.emissive = col.clone();
+        mat.emissiveIntensity = 0.06;
+    
+        const tile = new THREE.Mesh(geo, mat);
+        tile.position.set(cx, cy, cz);
+        tile.userData = {
+          source: 'R5NOVA',
+          permStr: pa.join(','),
+          tag: r.tag,
+          family: fam
+        };
+        groupR5NOVA.add(tile);
       }
-
-    function rebuildR5X10IfActive(){ if (isR5X10) buildR5X10(); }
-
+    
+      scene.add(groupR5NOVA);
+    }
+    
+    function rebuildR5NOVAIfActive(){ if (isR5NOVA) buildR5NOVA(); }
+    
     /* Exclusivo (como RAUM/13245). Mantiene verticales “gerade” y yaw/pan/zoom. */
-    function toggleR5X10(){
-      isR5X10 = !isR5X10;
-
-      if (isR5X10){
+    function toggleR5NOVA(){
+      isR5NOVA = !isR5NOVA;
+    
+      if (isR5NOVA){
         // exclusividad
         if (isFRBN)  toggleFRBN();
         if (isLCHT)  toggleLCHT();
@@ -4402,18 +4408,17 @@ void main(){
         if (isTMSL)  toggleTMSL();
         if (isRAUM)  toggleRAUM();
         if (is13245) toggle13245();
-
-        leaveBuildRenderBoost();        // sal de boost de BUILD
-
-        buildR5X10();
-
+    
+        leaveBuildRenderBoost();        // sal del boost de BUILD
+        buildR5NOVA();
+    
         // Cámara nivelada (verticales rectas), yaw/pan/zoom; pitch bloqueado
         const eyeY = (controls && controls.target) ? controls.target.y : 0;
         camera.up.set(0,1,0);
         camera.fov = 55;
         camera.position.set(0, eyeY, 32);
         controls.target.set(0, eyeY, 0);
-
+    
         controls.enabled            = true;
         controls.enableRotate       = true;   // yaw
         controls.enablePan          = true;
@@ -4424,31 +4429,31 @@ void main(){
         controls.minPolarAngle = Math.PI / 2;
         controls.maxPolarAngle = Math.PI / 2;
         controls.update();
-
+    
         // visibilidades
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
-
+    
       } else {
-        disposeGroupR5X10();
-
+        disposeGroupR5NOVA();
+    
         // restaurar escena base
         camera.fov = 75;
         camera.updateProjectionMatrix();
         controls.minPolarAngle      = 0;
         controls.maxPolarAngle      = Math.PI;
         controls.screenSpacePanning = false;
-
+    
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
         if (lichtGroup && isLCHT) lichtGroup.visible = true;
       }
     }
-
+    
     /* botón selector – sólo enciende, nunca apaga */
-    function ensureOnlyR5X10(){ if (!isR5X10) toggleR5X10(); }
-
+    function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
+    
     /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
       const sel = document.getElementById('engineSelect');
@@ -4460,7 +4465,7 @@ void main(){
       else if (isTMSL)   v = 'TMSL';
       else if (isRAUM)   v = 'RAUM';
       else if (is13245)  v = '13245';
-      else if (isR5X10)  v = 'R5X10';
+      else if (isR5NOVA)  v = 'R5NOVA';
       sel.value = v;
     }
 
@@ -4474,7 +4479,7 @@ void main(){
         case 'TMSL':   ensureOnlyTMSL();           break;
         case 'RAUM':   ensureOnlyRAUM();           break;
         case '13245':  ensureOnly13245();          break;
-        case 'R5X10': ensureOnlyR5X10();        break;
+        case 'R5NOVA': ensureOnlyR5NOVA();       break;
       }
       updateEngineSelectUI();
     }
@@ -4486,8 +4491,8 @@ void main(){
       if (isOFFNNG){ensureOnlyTMSL();          updateEngineSelectUI(); return; }   // OFFNNG → TMSL
       if (isTMSL){  ensureOnlyRAUM();          updateEngineSelectUI(); return; }   // TMSL  → RAUM
       if (isRAUM){  ensureOnly13245();         updateEngineSelectUI(); return; }   // RAUM  → 13245
-      if (is13245){ ensureOnlyR5X10();         updateEngineSelectUI(); return; }   // 13245 → R5X10
-      if (isR5X10){ switchToBuild();           updateEngineSelectUI(); return; }   // R5X10 → BUILD
+      if (is13245){ ensureOnlyR5NOVA();        updateEngineSelectUI(); return; }   // 13245 → R5NOVA
+      if (isR5NOVA){ switchToBuild();          updateEngineSelectUI(); return; }   // R5NOVA → BUILD
       toggleFRBN();                             // BUILD → FRBN
       updateEngineSelectUI();
     }
