@@ -7,6 +7,165 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
+  <script type="module">
+  /* ───────── tilers (sin TypeScript) ───────── */
+  const PHI   = (1 + Math.sqrt(5)) / 2;
+  const ROOT2 = Math.SQRT2;
+  const ROOT3 = Math.sqrt(3);
+  const ROOT5 = Math.sqrt(5);
+  const EPS   = 1e-6;
+
+  /** Rect y BBox en JS simple */
+  function near(a,b, eps=EPS){ return Math.abs(a-b) <= eps; }
+
+  const families = [
+    { id:'phi', r:PHI,   aliases:[1/PHI, 1-PHI**-1, PHI**2-PHI] },     // .618, .382, 1
+    { id:'r2',  r:ROOT2, aliases:[1/ROOT2, 2-ROOT2] },                 // .7071, .5858
+    { id:'r3',  r:ROOT3, aliases:[ROOT3-1, 1-(ROOT3-1)] },             // .732, .268
+    { id:'r5',  r:ROOT5, aliases:[1/ROOT5, (ROOT5-2)] }                // .4472, .236
+  ];
+
+  function whichFamily(r, eps=EPS){
+    let best = null;
+    for (const f of families){
+      const cands = [f.r, ...f.aliases];
+      for (const c of cands){
+        const d = Math.abs(r - c);
+        if (best===null || d < best.d) best = { f:f.id, d };
+      }
+    }
+    return (best && best.d <= 5e-3) ? best.f : null;  // tolerancia holgada
+  }
+
+  function dominantFamily(inv){
+    const acc = {phi:0,r2:0,r3:0,r5:0};
+    for (const it of (inv?.ratios||[])){
+      const fam = whichFamily(it.r) ?? 'phi';
+      acc[fam] += it.area || 0;
+    }
+    return ['phi','r2','r3','r5'].reduce((best,f)=> (acc[f] > acc[best] + 1e-9) ? f : best, 'phi');
+  }
+
+  /* ---------- 1) Euclid / Continued Fraction tiler ---------- */
+  function tilesEuclid(b, r, tag='euclid'){
+    const out = [];
+    let x=b.x, y=b.y, w=b.w, h=b.h;
+
+    const orient = (w>=h) ? 1 : -1;   // 1 ⇒ bandas verticales, -1 ⇒ horizontales
+    if (orient<0){ [w,h] = [h,w]; }
+
+    let W=w, H=h;
+    let baseX=0, baseY=0;
+    while (W > EPS && H > EPS){
+      const q = Math.floor(W / H + EPS);
+      for (let i=0;i<q;i++){
+        const rect = orient>0
+          ? { x: b.x + baseX + i*H, y: b.y + baseY, w: H, h: H, tag }
+          : { x: b.x + baseY,       y: b.y + baseX + i*H, w: H, h: H, tag };
+        out.push(rect);
+      }
+      const rem = W - q*H;
+      if (rem <= EPS) break;
+      if (orient>0){ baseX += q*H; } else { baseY += q*H; }
+      W = H; H = rem;
+    }
+    return out;
+  }
+
+  /* ---------- 2) Beatty / Sturmian tiler (dos tamaños) ---------- */
+  function beattyPairFor(f){
+    if (f==='phi'){ const a = PHI*PHI;     return [a, a/(a-1)]; }
+    if (f==='r2'){  const a = 1+ROOT2;     return [a, a/(a-1)]; }
+    if (f==='r3'){  const a = 1+ROOT3;     return [a, a/(a-1)]; }
+    const a = 1+ROOT5; return [a, a/(a-1)];
+  }
+  function tilesBeatty(b, f, majorFirst=true, tag='beatty'){
+    const [alpha] = beattyPairFor(f);
+    const N = Math.max(2, Math.round(b.w / (b.h*0.25)));
+    const seq = [];
+    for (let k=1;k<=N;k++){
+      const LA = Math.floor(k*alpha) - Math.floor((k-1)*alpha);
+      seq.push(LA===2); // true=L, false=S
+    }
+    const L = majorFirst ? b.h : b.h*0.618;
+    const S = majorFirst ? b.h*0.618 : b.h;
+
+    const wL = 1.0, wS = 1/( (alpha-1) );
+    const widths = seq.map(s => s ? wL : wS);
+    const sum = widths.reduce((a,c)=>a+c,0);
+    const kscale = b.w / sum;
+
+    let x = b.x;
+    const out = [];
+    for (let i=0;i<widths.length;i++){
+      const cw = widths[i]*kscale;
+      const ch = seq[i] ? L : S;
+      out.push({x, y:b.y, w:cw, h:ch, tag});
+      if (ch < b.h - EPS){
+        out.push({x, y:b.y+ch, w:cw, h:b.h-ch, tag});
+      }
+      x += cw;
+      if (x > b.x + b.w - EPS) break;
+    }
+    return out;
+  }
+
+  /* ---------- 3) Sustitución inflacionaria ---------- */
+  function substRules(f){
+    if (f==='phi') return ['LS','L'];   // Fibonacci
+    if (f==='r2')  return ['LSS','L'];  // Pell-like
+    return ['LLS','L'];                 // √3 genérica
+  }
+  function tilesSubstitution(b, f, iters=6, tag='subst'){
+    let word = 'L';
+    const [RL,RS] = substRules(f);
+    for (let i=0;i<iters;i++){
+      let next = '';
+      for (const ch of word) next += (ch==='L'?RL:RS);
+      word = next;
+    }
+    const wL = 1, wS = 1/(f==='phi'?PHI: (f==='r2'?(1+ROOT2-1):(ROOT3-1)) );
+    const widths = [...word].map(ch => ch==='L'?wL:wS);
+    const sum = widths.reduce((a,c)=>a+c,0);
+    const kscale = b.w / sum;
+    let x = b.x;
+    const out = [];
+    for (const ch of word){
+      const cw = (ch==='L'?wL:wS)*kscale;
+      out.push({x, y:b.y, w:cw, h:b.h, tag});
+      x += cw;
+      if (x > b.x + b.w - EPS) break;
+    }
+    return out;
+  }
+
+  /* ---------- Orquestador ---------- */
+  function assemble(b, inv, opt={}){
+    const fam = dominantFamily(inv||{ratios:[]});
+    const rBox = Math.max(b.w,b.h)/Math.min(b.w,b.h);
+
+    const ratios = inv?.ratios || [];
+    const famOf = r => whichFamily(r) ?? 'phi';
+    const singleSize = ratios.length<=1 || ratios.every(x=>famOf(x.r)===fam);
+    const twoSizesSameFamily = ratios.length===2 && ratios.every(x=>famOf(x.r)===fam);
+
+    if (opt.wantSpiral) return tilesSubstitution(b, fam, 7);
+    if (twoSizesSameFamily) return tilesBeatty(b, fam, true);
+    if (singleSize) return tilesEuclid(b, rBox);
+
+    const bands = tilesEuclid(b, rBox, 'euclid-band');
+    const out = [];
+    for (const band of bands){
+      const inner = { x: band.x, y: band.y, w: band.w, h: band.h };
+      out.push(...tilesBeatty(inner, fam, true, 'beatty-in-band'));
+    }
+    return out;
+  }
+
+  /* expone en global */
+  window.Tilers = { PHI, ROOT2, ROOT3, ROOT5, assemble };
+  </script>
   <style>
   body {
     margin: 0;
@@ -478,6 +637,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
+    const EPS = 1e-6;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
@@ -4053,130 +4213,138 @@ void main(){
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
     // ──────────────────────────────
-    // R5X10 · Root-Five reciprocal grid (5×2, sin movimiento)
+    // R5X10 · Root-Five reciprocal grid (tilers-integrated)
     // ──────────────────────────────
-    let isR5X10   = false;
+    let isR5X10    = false;
     let groupR5X10 = null;
 
     function disposeGroupR5X10(){
       if (!groupR5X10) return;
-      disposeGroup(groupR5X10);
+      groupR5X10.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
+      scene.remove(groupR5X10);
       groupR5X10 = null;
     }
 
-    /* Color determinista para la celda (offset +1 en fila superior) */
-    function colorR5For(pa, isTop){
+    /* pequeño inset/gutter para respirar visualmente (en unidades del cubo 30×30) */
+    function insetRect(r, g){
+      return {
+        x: r.x + g,
+        y: r.y + g,
+        w: Math.max(0, r.w - 2*g),
+        h: Math.max(0, r.h - 2*g),
+        tag: r.tag
+      };
+    }
+
+    /* Color determinista por celda; offset cromático opcional (según tag) */
+    function colorR5For(pa, offset=0){
       const sig  = computeSignature(pa);
       const r    = lehmerRank(pa);
-      const slot = (r % 12) + (isTop ? 1 : 0);
+      const slot = (r % 12) + offset;
 
       let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
       sI = (sI * PHI_S) % 12;
       vI = (vI * PHI_V) % 12;
 
       const {h,s,v} = idxToHSV(hI, sI, vI);
-      let  rgb = hsvToRgb(h,s,v);
+      let rgb = hsvToRgb(h,s,v);
       rgb = ensureContrastRGB(rgb);
 
+      // “vibrance BUILD” para superficies (evita lavado y mantiene ΔE contra fondo)
       const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
       return applyBuildVibranceToColor(col);
     }
 
-    /* Construye/rehace toda la retícula R5×10 dentro del cubo 30×30×30 */
+    /* Construye la composición R5×10 sobre el plano frontal del cubo (30×30) */
     function buildR5X10(){
       disposeGroupR5X10();
       groupR5X10 = new THREE.Group();
 
-      // Fondo sincronizado con BUILD (no manual)
+      // Fondo sincronizado (no manual) como en BUILD/RAUM
       updateBackground(false);
 
-      // Constantes exactas (root-five)
-      const W  = cubeSize;               // 30
-      const H  = W / Math.sqrt(5);       // ≈ 13.4164
-      const COL_W = W / 5;               // 6
-      const INV_SQRT5 = 1/Math.sqrt(5);  // ≈ 0.4472135955
+      // 1) BBox en unidades del cubo 30×30, con (0,0) arriba-izquierda del plano frontal
+      const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
 
-      const H_BOT = H * INV_SQRT5;       // ≈  5.9999
-      const H_TOP = H * (1 - INV_SQRT5); // ≈  7.4164
+      // 2) Inventario: sesgamos √5 (familia r5)
+      const inv = { ratios: [{ r: window.Tilers.ROOT5, area: 1 }] };
 
-      const Y_TOP = ( H/2 - H_TOP/2);    // centro fila superior
-      const Y_BOT = -(H/2 - H_BOT/2);    // centro fila inferior
-      const T     = 0.5;                 // espesor plano (Z)
+      // 3) Ensamblamos determinísticamente (sin espiral)
+      const rawRects = window.Tilers.assemble(bbox, inv, { wantSpiral: false });
 
-      // Centros X de las 5 columnas
-      const Xs = [...Array(5)].map((_,j)=> -W/2 + COL_W/2 + j*COL_W);
+      // 4) Inset (gutter) para cada celda — respira sin romper conectividad
+      const G = 0.20; // 0.2u en un cubo de 30u
+      const rects = rawRects.map(r => insetRect(r, G));
 
-      // Asignación determinista de permutaciones a 10 celdas con open-addressing
+      // 5) Permutaciones activas (ciclamos si hay más celdas que perms)
       const perms = getSelectedPerms();
-      const occ   = Array(10).fill(false);
-      const STEP  = 7;                   // coprimo con 10
+      const N = rects.length;
+      const depth = 0.60;   // espesor fijo de las “lajas”
 
-      // Base geométrica por fila (evita crear 10 geometrías distintas)
-      const geoTop = new THREE.BoxGeometry(COL_W, H_TOP, T);
-      const geoBot = new THREE.BoxGeometry(COL_W, H_BOT, T);
+      for (let i=0;i<N;i++){
+        const r = rects[i];
+        if (r.w <= EPS || r.h <= EPS) continue;
 
-      // Rellena hasta 10 celdas (si hay >10 permutaciones, ignora el resto)
-      for (let p = 0; p < Math.min(perms.length, 10); p++){
-        const pa = perms[p];
-        let idx  = lehmerRank(pa) % 10;
-        let tries= 0;
-        while (occ[idx] && tries < 10){ idx = (idx + STEP) % 10; tries++; }
-        if (occ[idx]) continue;
-        occ[idx] = true;
+        // mapeo 2D→3D (centro de la celda). Y de tilers es hacia abajo; Three es hacia arriba.
+        const cx = (r.x + r.w/2) - halfCube;
+        const cy = halfCube - (r.y + r.h/2);
+        const cz = 0.0;
 
-        const row = Math.floor(idx / 5);   // 0: top, 1: bottom
-        const col = idx % 5;
+        // offset de color por tipo de tesela
+        let off = 0;
+        if (r.tag === 'beatty' || r.tag === 'beatty-in-band') off = 1;
+        if (r.tag === 'subst') off = 2;
 
-        const x = Xs[col];
-        const y = (row === 0) ? Y_TOP : Y_BOT;
-        const isTop = (row === 0);
+        const pa = perms.length ? perms[i % perms.length] : [1,2,3,4,5];
+        const col = colorR5For(pa, off);
 
-        const color = colorR5For(pa, isTop);
-        const mat   = lambertRaumColor(color);
+        const geo = new THREE.BoxGeometry(r.w, r.h, depth);
+        const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
+        mat.emissive = col.clone();
+        mat.emissiveIntensity = 0.06;
 
-        const mesh  = new THREE.Mesh(isTop ? geoTop : geoBot, mat);
-        mesh.position.set(x, y, 0);
-        // SIN movimiento → no asignamos rotationSpeed
-        mesh.userData = {
+        const tile = new THREE.Mesh(geo, mat);
+        tile.position.set(cx, cy, cz);
+        tile.userData = {
+          source: 'R5X10',
           permStr: pa.join(','),
-          signature: computeSignature(pa),
-          range: computeRange(computeSignature(pa))
+          tag: r.tag
         };
-        groupR5X10.add(mesh);
+
+        groupR5X10.add(tile);
       }
 
       scene.add(groupR5X10);
     }
 
-    /* rebuild si hay cambios de escena */
     function rebuildR5X10IfActive(){ if (isR5X10) buildR5X10(); }
 
-    /* Exclusivo (como RAUM/13245). Usa el “crispness boost” de RAUM. */
+    /* Exclusivo (como RAUM/13245). Mantiene verticales “gerade” y yaw/pan/zoom. */
     function toggleR5X10(){
       isR5X10 = !isR5X10;
 
       if (isR5X10){
         // exclusividad
-        if (isFRBN)   toggleFRBN();
-        if (isLCHT)   toggleLCHT();
-        if (isOFFNNG) toggleOFFNNG();
-        if (isTMSL)   toggleTMSL();
-        if (isRAUM)   toggleRAUM();
-        if (is13245)  toggle13245();
+        if (isFRBN)  toggleFRBN();
+        if (isLCHT)  toggleLCHT();
+        if (isOFFNNG)toggleOFFNNG();
+        if (isTMSL)  toggleTMSL();
+        if (isRAUM)  toggleRAUM();
+        if (is13245) toggle13245();
 
-        leaveBuildRenderBoost();
-        enterRaumRenderBoost();       // nitidez tipo RAUM
+        leaveBuildRenderBoost();        // sal de boost de BUILD
+
         buildR5X10();
 
-        // Cámara nivelada por defecto
+        // Cámara nivelada (verticales rectas), yaw/pan/zoom; pitch bloqueado
+        const eyeY = (controls && controls.target) ? controls.target.y : 0;
         camera.up.set(0,1,0);
         camera.fov = 55;
-        camera.updateProjectionMatrix();
-        camera.position.set(0, 0, 32);
-        controls.target.set(0, 0, 0);
+        camera.position.set(0, eyeY, 32);
+        controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
-        controls.enableRotate       = true;
+        controls.enableRotate       = true;   // yaw
         controls.enablePan          = true;
         controls.enableZoom         = true;
         controls.minDistance        = 10;
@@ -4186,15 +4354,15 @@ void main(){
         controls.maxPolarAngle = Math.PI / 2;
         controls.update();
 
+        // visibilidades
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
 
       } else {
-        leaveRaumRenderBoost();
         disposeGroupR5X10();
 
-        // Restaurar ajustes por defecto al salir de R5X10
+        // restaurar escena base
         camera.fov = 75;
         camera.updateProjectionMatrix();
         controls.minPolarAngle      = 0;
