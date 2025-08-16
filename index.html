@@ -8,164 +8,200 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
-  <script type="module">
-  /* ───────── tilers (sin TypeScript) ───────── */
-  const PHI   = (1 + Math.sqrt(5)) / 2;
-  const ROOT2 = Math.SQRT2;
-  const ROOT3 = Math.sqrt(3);
-  const ROOT5 = Math.sqrt(5);
-  const EPS   = 1e-6;
+    <script type="module">
+    /* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
+    const PHI   = (1 + Math.sqrt(5)) / 2;
+    const ROOT2 = Math.SQRT2;
+    const ROOT3 = Math.sqrt(3);
+    const ROOT5 = Math.sqrt(5);
+    const EPS   = 1e-6;
 
-  /** Rect y BBox en JS simple */
-  function near(a,b, eps=EPS){ return Math.abs(a-b) <= eps; }
+    /* util mínimo */
+    function near(a,b,eps=EPS){ return Math.abs(a-b) <= eps; }
 
-  const families = [
-    { id:'phi', r:PHI,   aliases:[1/PHI, 1-PHI**-1, PHI**2-PHI] },     // .618, .382, 1
-    { id:'r2',  r:ROOT2, aliases:[1/ROOT2, 2-ROOT2] },                 // .7071, .5858
-    { id:'r3',  r:ROOT3, aliases:[ROOT3-1, 1-(ROOT3-1)] },             // .732, .268
-    { id:'r5',  r:ROOT5, aliases:[1/ROOT5, (ROOT5-2)] }                // .4472, .236
-  ];
+    /* Catálogo de familias + alias proporcionales útiles para matching */
+    const families = [
+      { id:'phi', r:PHI,   aliases:[1/PHI, 1-PHI**-1, PHI**2-PHI] },          // .618, .382, 1
+      { id:'r2',  r:ROOT2, aliases:[1/ROOT2, 2-ROOT2] },                      // .7071, .5858
+      { id:'r3',  r:ROOT3, aliases:[ROOT3-1, 1-(ROOT3-1)] },                  // .732, .268
+      { id:'r5',  r:ROOT5, aliases:[1/ROOT5, (ROOT5-2)] }                     // .4472, .236
+    ];
 
-  function whichFamily(r, eps=EPS){
-    let best = null;
-    for (const f of families){
-      const cands = [f.r, ...f.aliases];
-      for (const c of cands){
-        const d = Math.abs(r - c);
-        if (best===null || d < best.d) best = { f:f.id, d };
+    /* identifica familia por proximidad (tolerancia holgada para ratios derivados) */
+    function whichFamily(r, eps=1e-3){
+      let best = null;
+      for (const f of families){
+        for (const c of [f.r, ...f.aliases]){
+          const d = Math.abs(r - c);
+          if (!best || d < best.d) best = { f:f.id, d };
+        }
       }
+      return (best && best.d <= 5e-3) ? best.f : null;
     }
-    return (best && best.d <= 5e-3) ? best.f : null;  // tolerancia holgada
-  }
 
-  function dominantFamily(inv){
-    const acc = {phi:0,r2:0,r3:0,r5:0};
-    for (const it of (inv?.ratios||[])){
-      const fam = whichFamily(it.r) ?? 'phi';
-      acc[fam] += it.area || 0;
+    /* familia dominante por “área” en el inventario; fallback φ */
+    function dominantFamily(inv){
+      const acc = {phi:0,r2:0,r3:0,r5:0};
+      (inv?.ratios||[]).forEach(it=>{
+        const fam = whichFamily(it.r) ?? 'phi';
+        acc[fam] += it.area || 0;
+      });
+      return ['phi','r2','r3','r5'].reduce((best,f)=> acc[f]>acc[best]?f:best,'phi');
     }
-    return ['phi','r2','r3','r5'].reduce((best,f)=> (acc[f] > acc[best] + 1e-9) ? f : best, 'phi');
-  }
 
-  /* ---------- 1) Euclid / Continued Fraction tiler ---------- */
-  function tilesEuclid(b, r, tag='euclid'){
-    const out = [];
-    let x=b.x, y=b.y, w=b.w, h=b.h;
+    /* ---------- 1) Euclid / Continued Fraction → mosaico de cuadrados ---------- */
+    function tilesEuclid(b, r, tag='euclid'){
+      const out=[];
+      let x=b.x, y=b.y, w=b.w, h=b.h;
 
-    const orient = (w>=h) ? 1 : -1;   // 1 ⇒ bandas verticales, -1 ⇒ horizontales
-    if (orient<0){ [w,h] = [h,w]; }
+      const orient = (w>=h) ? 1 : -1;     // 1 vertical; -1 horizontal
+      if (orient<0){ [w,h] = [h,w]; }
 
-    let W=w, H=h;
-    let baseX=0, baseY=0;
-    while (W > EPS && H > EPS){
-      const q = Math.floor(W / H + EPS);
-      for (let i=0;i<q;i++){
-        const rect = orient>0
-          ? { x: b.x + baseX + i*H, y: b.y + baseY, w: H, h: H, tag }
-          : { x: b.x + baseY,       y: b.y + baseX + i*H, w: H, h: H, tag };
-        out.push(rect);
+      let W=w, H=h;
+      let baseX=0, baseY=0;
+      while (W > EPS && H > EPS){
+        const q = Math.floor(W / H + EPS);
+        for (let i=0;i<q;i++){
+          const rect = orient>0
+            ? { x: b.x + baseX + i*H, y: b.y + baseY, w: H, h: H, tag }
+            : { x: b.x + baseY,       y: b.y + baseX + i*H, w: H, h: H, tag };
+          out.push(rect);
+        }
+        const rem = W - q*H;
+        if (rem <= EPS) break;
+        if (orient>0){ baseX += q*H; } else { baseY += q*H; }
+        W = H; H = rem;
       }
-      const rem = W - q*H;
-      if (rem <= EPS) break;
-      if (orient>0){ baseX += q*H; } else { baseY += q*H; }
-      W = H; H = rem;
+      return out;
     }
-    return out;
-  }
 
-  /* ---------- 2) Beatty / Sturmian tiler (dos tamaños) ---------- */
-  function beattyPairFor(f){
-    if (f==='phi'){ const a = PHI*PHI;     return [a, a/(a-1)]; }
-    if (f==='r2'){  const a = 1+ROOT2;     return [a, a/(a-1)]; }
-    if (f==='r3'){  const a = 1+ROOT3;     return [a, a/(a-1)]; }
-    const a = 1+ROOT5; return [a, a/(a-1)];
-  }
-  function tilesBeatty(b, f, majorFirst=true, tag='beatty'){
-    const [alpha] = beattyPairFor(f);
-    const N = Math.max(2, Math.round(b.w / (b.h*0.25)));
-    const seq = [];
-    for (let k=1;k<=N;k++){
-      const LA = Math.floor(k*alpha) - Math.floor((k-1)*alpha);
-      seq.push(LA===2); // true=L, false=S
+    /* ---------- 2) Beatty / Sturmian (dos tamaños L/S) ---------- */
+    function beattyPairFor(f){
+      if (f==='phi'){ const a = PHI*PHI; return [a, a/(a-1)]; }
+      if (f==='r2'){  const a = 1+ROOT2; return [a, a/(a-1)]; }
+      if (f==='r3'){  const a = 1+ROOT3; return [a, a/(a-1)]; }
+      const a = 1+ROOT5; return [a, a/(a-1)];
     }
-    const L = majorFirst ? b.h : b.h*0.618;
-    const S = majorFirst ? b.h*0.618 : b.h;
-
-    const wL = 1.0, wS = 1/( (alpha-1) );
-    const widths = seq.map(s => s ? wL : wS);
-    const sum = widths.reduce((a,c)=>a+c,0);
-    const kscale = b.w / sum;
-
-    let x = b.x;
-    const out = [];
-    for (let i=0;i<widths.length;i++){
-      const cw = widths[i]*kscale;
-      const ch = seq[i] ? L : S;
-      out.push({x, y:b.y, w:cw, h:ch, tag});
-      if (ch < b.h - EPS){
-        out.push({x, y:b.y+ch, w:cw, h:b.h-ch, tag});
+    function tilesBeatty(b, f, majorFirst=true, tag='beatty'){
+      const [alpha] = beattyPairFor(f);
+      const N = Math.max(2, Math.round(b.w / (b.h*0.25)));
+      const seq = [];
+      for (let k=1;k<=N;k++){
+        const LA = Math.floor(k*alpha) - Math.floor((k-1)*alpha);
+        seq.push(LA===2); // true=L, false=S
       }
-      x += cw;
-      if (x > b.x + b.w - EPS) break;
+      const L = majorFirst ? b.h : b.h*0.618;
+      const S = majorFirst ? b.h*0.618 : b.h;
+
+      const wL = 1.0, wS = 1/(alpha-1);
+      const widths = seq.map(s => s ? wL : wS);
+      const sum = widths.reduce((a,c)=>a+c,0);
+      const kscale = b.w / sum;
+
+      let x = b.x;
+      const out = [];
+      for (let i=0;i<widths.length;i++){
+        const cw = widths[i]*kscale;
+        const ch = seq[i] ? L : S;
+        out.push({x, y:b.y, w:cw, h:ch, tag});
+        if (ch < b.h - EPS){
+          out.push({x, y:b.y+ch, w:cw, h:b.h-ch, tag});
+        }
+        x += cw;
+        if (x > b.x + b.w - EPS) break;
+      }
+      return out;
     }
-    return out;
-  }
 
-  /* ---------- 3) Sustitución inflacionaria ---------- */
-  function substRules(f){
-    if (f==='phi') return ['LS','L'];   // Fibonacci
-    if (f==='r2')  return ['LSS','L'];  // Pell-like
-    return ['LLS','L'];                 // √3 genérica
-  }
-  function tilesSubstitution(b, f, iters=6, tag='subst'){
-    let word = 'L';
-    const [RL,RS] = substRules(f);
-    for (let i=0;i<iters;i++){
-      let next = '';
-      for (const ch of word) next += (ch==='L'?RL:RS);
-      word = next;
+    /* ---------- 3) Sustitución inflacionaria (Fibo/Pell/√3) ---------- */
+    function substRules(f){
+      if (f==='phi') return ['LS','L'];   // Fibonacci
+      if (f==='r2')  return ['LSS','L'];  // tipo Pell
+      return ['LLS','L'];                 // √3 genérica
     }
-    const wL = 1, wS = 1/(f==='phi'?PHI: (f==='r2'?(1+ROOT2-1):(ROOT3-1)) );
-    const widths = [...word].map(ch => ch==='L'?wL:wS);
-    const sum = widths.reduce((a,c)=>a+c,0);
-    const kscale = b.w / sum;
-    let x = b.x;
-    const out = [];
-    for (const ch of word){
-      const cw = (ch==='L'?wL:wS)*kscale;
-      out.push({x, y:b.y, w:cw, h:b.h, tag});
-      x += cw;
-      if (x > b.x + b.w - EPS) break;
+    function tilesSubstitution(b, f, iters=6, tag='subst'){
+      let word = 'L';
+      const [RL,RS] = substRules(f);
+      for (let i=0;i<iters;i++){
+        let next=''; for (const ch of word) next += (ch==='L'?RL:RS);
+        word = next;
+      }
+      const wL = 1, wS = 1/(f==='phi'?PHI: (f==='r2'?(1+ROOT2-1):(ROOT3-1)) );
+      const widths = [...word].map(ch => ch==='L'?wL:wS);
+      const sum = widths.reduce((a,c)=>a+c,0);
+      const kscale = b.w / sum;
+      let x = b.x;
+      const out = [];
+      for (const ch of word){
+        const cw = (ch==='L'?wL:wS)*kscale;
+        out.push({x, y:b.y, w:cw, h:b.h, tag});
+        x += cw;
+        if (x > b.x + b.w - EPS) break;
+      }
+      return out;
     }
-    return out;
-  }
 
-  /* ---------- Orquestador ---------- */
-  function assemble(b, inv, opt={}){
-    const fam = dominantFamily(inv||{ratios:[]});
-    const rBox = Math.max(b.w,b.h)/Math.min(b.w,b.h);
-
-    const ratios = inv?.ratios || [];
-    const famOf = r => whichFamily(r) ?? 'phi';
-    const singleSize = ratios.length<=1 || ratios.every(x=>famOf(x.r)===fam);
-    const twoSizesSameFamily = ratios.length===2 && ratios.every(x=>famOf(x.r)===fam);
-
-    if (opt.wantSpiral) return tilesSubstitution(b, fam, 7);
-    if (twoSizesSameFamily) return tilesBeatty(b, fam, true);
-    if (singleSize) return tilesEuclid(b, rBox);
-
-    const bands = tilesEuclid(b, rBox, 'euclid-band');
-    const out = [];
-    for (const band of bands){
-      const inner = { x: band.x, y: band.y, w: band.w, h: band.h };
-      out.push(...tilesBeatty(inner, fam, true, 'beatty-in-band'));
+    /* ---------- 4) Orquestador con alternancia de estrategias ---------- */
+    /*
+       assemble(bbox, inv, opt)
+       opt = {
+         familyId: 'phi'|'r2'|'r3'|'r5'   // fuerza familia (si se omite, usa dominante)
+         wantSpiral: boolean               // si true → Sustitución en espiral (toda la caja)
+         strategyCycle: ['beatty','euclid','subst'] // alterna por “bandas” euclidianas
+       }
+    */
+    function fillByStrategy(rect, fam, strategy){
+      if (strategy==='beatty') return tilesBeatty(rect, fam, true, 'beatty');
+      if (strategy==='subst')  return tilesSubstitution(rect, fam, 7, 'subst');
+      // 'euclid' (o cualquier otro) → cuadrícula euclidiana dentro de la banda
+      return tilesEuclid(rect, rect.w/rect.h, 'euclid-in-band');
     }
-    return out;
-  }
 
-  /* expone en global */
-  window.Tilers = { PHI, ROOT2, ROOT3, ROOT5, assemble };
-  </script>
+    function assemble(b, inv, opt={}){
+      const fam = (opt.familyId && ['phi','r2','r3','r5'].includes(opt.familyId))
+        ? opt.familyId
+        : dominantFamily(inv || {ratios:[]});
+
+      const rBox = Math.max(b.w,b.h) / Math.min(b.w,b.h);
+      const ratios = inv?.ratios || [];
+      const famOf  = r => whichFamily(r) ?? 'phi';
+
+      const singleSize = ratios.length<=1 || ratios.every(x=>famOf(x.r)===fam);
+      const twoSizesSameFamily = ratios.length===2 && ratios.every(x=>famOf(x.r)===fam);
+
+      // Modo espiral “global”
+      if (opt.wantSpiral) return tilesSubstitution(b, fam, 7, 'subst');
+
+      // Alternancia explícita (por bandas euclidianas)
+      if (Array.isArray(opt.strategyCycle) && opt.strategyCycle.length){
+        const bands = tilesEuclid(b, rBox, 'euclid-band');
+        const cycle = opt.strategyCycle;
+        const out   = [];
+        for (let i=0;i<bands.length;i++){
+          const strat = cycle[i % cycle.length];
+          out.push(...fillByStrategy(bands[i], fam, strat));
+        }
+        return out;
+      }
+
+      // Heurística por inventario (retro-compatible)
+      if (twoSizesSameFamily) return tilesBeatty(b, fam, true, 'beatty');
+      if (singleSize)         return tilesEuclid(b, rBox, 'euclid');
+
+      // Híbrido: bandas euclidianas + Beatty dentro de cada una
+      const bands = tilesEuclid(b, rBox, 'euclid-band');
+      const out   = [];
+      for (const band of bands){
+        out.push(...tilesBeatty(
+          { x:band.x, y:band.y, w:band.w, h:band.h }, fam, true, 'beatty-in-band'
+        ));
+      }
+      return out;
+    }
+
+    /* exporta en global */
+    window.Tilers = { PHI, ROOT2, ROOT3, ROOT5, families, whichFamily, assemble };
+    </script>
   <style>
   body {
     margin: 0;
@@ -4256,74 +4292,93 @@ void main(){
     }
 
     /* Construye la composición R5×10 sobre el plano frontal del cubo (30×30) */
-    function buildR5X10(){
-      disposeGroupR5X10();
-      groupR5X10 = new THREE.Group();
+      function buildR5X10(){
+        disposeGroupR5X10();
+        groupR5X10 = new THREE.Group();
 
-      // Fondo sincronizado (no manual) como en BUILD/RAUM
-      updateBackground(false);
+        // Fondo sincronizado (no manual) como en BUILD/RAUM
+        updateBackground(false);
 
-      // 1) BBox en unidades del cubo 30×30, con (0,0) arriba-izquierda del plano frontal
-      const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
+        // 1) BBox en unidades del cubo 30×30 (origen arriba-izquierda del plano frontal)
+        const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
 
-      // 2) Inventario: dos tamaños de la MISMA familia (√5)
-      // Con UN solo ratio y caja cuadrada, Euclid devuelve 1 cuadrado grande (q=1).
-      // Con DOS ratios de la misma familia, forzamos el caso "twoSizesSameFamily"
-      // y assemble(...) usa tilesBeatty(...) → columnas L/S bien distribuidas.
-      const inv = {
-        ratios: [
-          { r: window.Tilers.ROOT5,     area: 0.618 }, // L
-          { r: 1 / window.Tilers.ROOT5, area: 0.382 }  // S (alias admitido por whichFamily)
-        ]
-      };
+        // 2) Familia determinista (φ, √2, √3) a partir de invariantes globales
+        const fams = ['phi','r2','r3'];
+        const fam  = fams[(sceneSeed + S_global + (getSelectedPerms().length||1)) % fams.length];
 
-      // 3) Ensamblamos determinísticamente (sin espiral)
-      const rawRects = window.Tilers.assemble(bbox, inv, { wantSpiral: false });
+        // 3) Inventario: dos tamaños de la MISMA familia para habilitar Beatty cuando toque
+        // (los ratios se expresan con las constantes del tiler; las áreas sólo sesgan la elección dominante)
+        let inv;
+        if (fam==='phi'){
+          inv = { ratios:[ { r: window.Tilers.PHI,    area: 0.618 },
+                           { r: 1/window.Tilers.PHI,  area: 0.382 } ] };
+        } else if (fam==='r2'){
+          inv = { ratios:[ { r: window.Tilers.ROOT2,  area: 0.60  },
+                           { r: 1/window.Tilers.ROOT2,area: 0.40  } ] };
+        } else { // 'r3'
+          inv = { ratios:[ { r: window.Tilers.ROOT3,               area: 0.66  },
+                           { r: (window.Tilers.ROOT3-1),           area: 0.34  } ] };
+        }
 
-      // 4) Inset (gutter) para cada celda — respira sin romper conectividad
-      const G = 0.20; // 0.2u en un cubo de 30u
-      const rects = rawRects.map(r => insetRect(r, G));
+        // 4) Ensamble con alternancia de estrategias por “bandas” euclidianas
+        //    – ciclo fijo y determinista; se puede rotar con sceneSeed si deseas variar el arranque
+        const stratCycle = ['beatty','euclid','subst'];
+        const rawRects = window.Tilers.assemble(bbox, inv, {
+          familyId: fam,
+          strategyCycle: stratCycle,
+          wantSpiral: false
+        });
 
-      // 5) Permutaciones activas (ciclamos si hay más celdas que perms)
-      const perms = getSelectedPerms();
-      const N = rects.length;
-      const depth = 0.60;   // espesor fijo de las “lajas”
-
-      for (let i=0;i<N;i++){
-        const r = rects[i];
-        if (r.w <= EPS || r.h <= EPS) continue;
-
-        // mapeo 2D→3D (centro de la celda). Y de tilers es hacia abajo; Three es hacia arriba.
-        const cx = (r.x + r.w/2) - halfCube;
-        const cy = halfCube - (r.y + r.h/2);
-        const cz = 0.0;
-
-        // offset de color por tipo de tesela
-        let off = 0;
-        if (r.tag === 'beatty' || r.tag === 'beatty-in-band') off = 1;
-        if (r.tag === 'subst') off = 2;
-
-        const pa = perms.length ? perms[i % perms.length] : [1,2,3,4,5];
-        const col = colorR5For(pa, off);
-
-        const geo = new THREE.BoxGeometry(r.w, r.h, depth);
-        const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
-        mat.emissive = col.clone();
-        mat.emissiveIntensity = 0.06;
-
-        const tile = new THREE.Mesh(geo, mat);
-        tile.position.set(cx, cy, cz);
-        tile.userData = {
-          source: 'R5X10',
-          permStr: pa.join(','),
+        // 5) Inset (gutter) – respira sin romper conectividad
+        const G = 0.20;
+        const rects = rawRects.map(r => ({
+          x: r.x + G,
+          y: r.y + G,
+          w: Math.max(0, r.w - 2*G),
+          h: Math.max(0, r.h - 2*G),
           tag: r.tag
-        };
+        }));
 
-        groupR5X10.add(tile);
+        // 6) Permutaciones activas (ciclaje si hay más celdas que perms)
+        const perms  = getSelectedPerms();
+        const N      = rects.length;
+        const depth  = 0.60;
+
+        for (let i=0;i<N;i++){
+          const r = rects[i];
+          if (r.w <= EPS || r.h <= EPS) continue;
+
+          // mapeo 2D→3D (centro de la celda). Y de tilers baja; Three sube.
+          const cx = (r.x + r.w/2) - halfCube;
+          const cy = halfCube - (r.y + r.h/2);
+          const cz = 0.0;
+
+          // offset cromático (conserva tu lógica previa)
+          let off = 0;
+          if (r.tag === 'beatty' || r.tag === 'beatty-in-band') off = 1;
+          if (r.tag === 'subst') off = 2;
+
+          const pa  = perms.length ? perms[i % perms.length] : [1,2,3,4,5];
+          const col = colorR5For(pa, off);
+
+          const geo = new THREE.BoxGeometry(r.w, r.h, depth);
+          const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
+          mat.emissive = col.clone();
+          mat.emissiveIntensity = 0.06;
+
+          const tile = new THREE.Mesh(geo, mat);
+          tile.position.set(cx, cy, cz);
+          tile.userData = {
+            source: 'R5X10',
+            permStr: pa.join(','),
+            tag: r.tag,
+            family: fam
+          };
+          groupR5X10.add(tile);
+        }
+
+        scene.add(groupR5X10);
       }
-
-      scene.add(groupR5X10);
-    }
 
     function rebuildR5X10IfActive(){ if (isR5X10) buildR5X10(); }
 
