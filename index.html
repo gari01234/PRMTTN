@@ -4477,6 +4477,39 @@ void main(){
     const R5_DEPTH = 1.50;       // espesor de los volúmenes (extrusión hacia la cámara)
     const R5_GAP   = 0.20;       // ← separación mínima (x2)
 
+    // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
+    const R5N_MAX_TILES = 8;        // máximo de volúmenes a instanciar
+    const R5N_MIN_CELL  = 6.0;      // tamaño mínimo de celda del BSP (menos particiones)
+    const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
+    const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
+
+    // ——— R5NOVA · ensamblado BSP con ratios 0.42–0.58 y recorte determinista ———
+    function r5novaAssembleRects(){
+      const bbox = { x: -R5_W/2, y: -R5_H/2, w: R5_W, h: R5_H };
+      const seed = computeLayoutSeed();  // ya existe en el código
+
+      const rects = window.Tilers.assemble(bbox, null, {
+        engine    : 'bsp',
+        rndSeed   : seed,
+        minCell   : R5N_MIN_CELL,
+        ratioMin  : 0.42,
+        ratioMax  : 0.58,
+        targetN   : R5N_TARGETN,
+        mergeProb : R5N_MERGE
+      });
+
+      // Recorte determinista: área desc → x asc → y asc, luego tope a R5N_MAX_TILES
+      return rects
+        .slice()
+        .sort((a, b) => {
+          const dA = (b.w * b.h) - (a.w * a.h);
+          if (Math.abs(dA) > 1e-9) return dA;
+          if (a.x !== b.x) return a.x - b.x;
+          return a.y - b.y;
+        })
+        .slice(0, R5N_MAX_TILES);
+    }
+
     /* Construye la escena R5NOVA:
        - Pared izquierda, derecha, piso y techo (como RAUM, deterministas)
        - Sin pared del fondo
@@ -4487,10 +4520,6 @@ void main(){
 
       // Fondo acoplado (no manual), igual que RAUM/BUILD
       updateBackground(false);
-
-      const Wi = R5_W - 2*R5_G;
-      const Hi = R5_H - 2*R5_G;
-      const Di = R5_D - 2*R5_G;
 
       // ====== Colores deterministas para las paredes (reusa RAUM) ======
       const colCeil  = raumColorFor(1);
@@ -4520,24 +4549,7 @@ void main(){
       const zBack = -R5_D/2 + R5_G;
 
       // --- Layout determinista con tilers ---
-      const seedU32 = computeLayoutSeed();     // acoplado a sceneSeed, S_global, mapping, etc.
-      const b = { x: -Wi/2, y: -Hi/2, w: Wi, h: Hi };
-
-      // Familia raíz √5 por defecto; motor BSP con fusión (igual que integración previa)
-      const rects = window.Tilers.assemble(
-        b,
-        { ratios: [] },
-        {
-          rndSeed  : seedU32,
-          familyId : 'r5',
-          engine   : 'bsp',
-          minCell  : 3.0,
-          ratioMin : 0.35,
-          ratioMax : 0.65,
-          targetN  : [24, 40],
-          mergeProb: 0.30
-        }
-      );
+      const rects = r5novaAssembleRects();
 
       // Permutaciones activas (para coloreo determinista)
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
