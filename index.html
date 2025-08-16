@@ -13,24 +13,44 @@
 const PHI   = (1 + Math.sqrt(5)) / 2;
 const ROOT2 = Math.SQRT2;
 const ROOT3 = Math.sqrt(3);
-const ROOT4 = Math.sqrt(4);   // = 2   ← NUEVO
+const ROOT4 = Math.sqrt(4);   // = 2
 const ROOT5 = Math.sqrt(5);
 const EPS   = 1e-6;
 
 /* util mínimo */
 function near(a,b,eps=EPS){ return Math.abs(a-b) <= eps; }
 
+/* ───────────── PRNG con SEED (mulberry32) ───────────── */
+let __rng = Math.random;       // por defecto
+let __seedU32 = 0;
+
+function mulberry32(a){
+  return function(){
+    let t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function setSeed(u32){
+  __seedU32 = (u32 >>> 0) || 1;
+  __rng = mulberry32(__seedU32);
+}
+function rand(){ return __rng(); }
+function randRange(a,b){ return a + (b-a) * rand(); }
+function randBool(p=0.5){ return rand() < p; }
+
 /* Catálogo de familias + alias proporcionales útiles para matching */
 const families = [
-  { id:'phi', r:PHI,   aliases:[1/PHI, 1-PHI**-1, PHI**2-PHI] },         // .618, .382, 1
-  { id:'r2',  r:ROOT2, aliases:[1/ROOT2, 2-ROOT2] },                     // .7071, .5858
-  { id:'r3',  r:ROOT3, aliases:[1/ROOT3, ROOT3-1, 1-(ROOT3-1)] },        // .577, .732, .268
-  { id:'r4',  r:ROOT4, aliases:[1/ROOT4, 1] },                           // .50, 1   ← NUEVO
-  { id:'r5',  r:ROOT5, aliases:[1/ROOT5, (ROOT5-2)] }                    // .4472, .236
+  { id:'phi', r:PHI,   aliases:[1/PHI, 1-PHI**-1, PHI**2-PHI] },
+  { id:'r2',  r:ROOT2, aliases:[1/ROOT2, 2-ROOT2] },
+  { id:'r3',  r:ROOT3, aliases:[1/ROOT3, ROOT3-1, 1-(ROOT3-1)] },
+  { id:'r4',  r:ROOT4, aliases:[1/ROOT4, 1] },
+  { id:'r5',  r:ROOT5, aliases:[1/ROOT5, (ROOT5-2)] }
 ];
 
 /* identifica familia por proximidad (tolerancia holgada para ratios derivados) */
-function whichFamily(r, eps=2e-2){                 // ← tolerancia más realista
+function whichFamily(r, eps=2e-2){
   let best = null;
   for (const f of families){
     for (const c of [f.r, ...f.aliases]){
@@ -43,7 +63,7 @@ function whichFamily(r, eps=2e-2){                 // ← tolerancia más realis
 
 /* familia dominante por “área” en el inventario; fallback φ */
 function dominantFamily(inv){
-  const acc = {phi:0,r2:0,r3:0,r4:0,r5:0};        // ← incluye r4
+  const acc = {phi:0,r2:0,r3:0,r4:0,r5:0};
   (inv?.ratios||[]).forEach(it=>{
     const fam = whichFamily(it.r) ?? 'phi';
     acc[fam] += it.area || 0;
@@ -82,8 +102,8 @@ function beattyPairFor(f){
   if (f==='phi'){ return [PHI*PHI, (PHI*PHI)/(PHI*PHI-1)]; }
   if (f==='r2'){  const a=1+ROOT2; return [a, a/(a-1)]; }
   if (f==='r3'){  const a=1+ROOT3; return [a, a/(a-1)]; }
-  if (f==='r4'){  const a=1+ROOT4; return [a, a/(a-1)]; }   // ← NUEVO
-  const a=1+ROOT5; return [a, a/(a-1)];                     // r5
+  if (f==='r4'){  const a=1+ROOT4; return [a, a/(a-1)]; }
+  const a=1+ROOT5; return [a, a/(a-1)];
 }
 function tilesBeatty(b, f, majorFirst=true, tag='beatty'){
   const [alpha] = beattyPairFor(f);
@@ -94,12 +114,11 @@ function tilesBeatty(b, f, majorFirst=true, tag='beatty'){
     seq.push(LA===2); // true=L, false=S
   }
 
-  // alturas L/S generalizadas (sin “0.618” fijo)
   const rVal = (f==='phi'?PHI : f==='r2'?ROOT2 : f==='r3'?ROOT3 : f==='r4'?ROOT4 : ROOT5);
   const L =  majorFirst ? b.h           : b.h / rVal;
   const S =  majorFirst ? b.h / rVal    : b.h;
 
-  const wL = 1.0, wS = 1/(alpha-1);      // anchos relativos
+  const wL = 1.0, wS = 1/(alpha-1);
   const widths = seq.map(s => s ? wL : wS);
   const sum = widths.reduce((a,c)=>a+c,0);
   const kscale = b.w / sum;
@@ -129,7 +148,6 @@ function substRules(f){
 function tilesSubstitution(b, f, iters=6, tag='subst'){
   const rules = substRules(f);
   if (!rules){
-    // Hasta definir reglas de sustitución para r4/r5, usar Beatty (misma familia)
     return tilesBeatty(b, f, true, 'beatty');
   }
   let word = 'L';
@@ -139,7 +157,7 @@ function tilesSubstitution(b, f, iters=6, tag='subst'){
     word = next;
   }
   const rVal = (f==='phi'?PHI : f==='r2'?ROOT2 : ROOT3);
-  const wL = 1, wS = 1 / rVal;           // ← corrección: S = 1/√n (o 1/φ)
+  const wL = 1, wS = 1 / rVal;
   const widths = [...word].map(ch => ch==='L'?wL:wS);
   const sum = widths.reduce((a,c)=>a+c,0);
   const kscale = b.w / sum;
@@ -154,58 +172,178 @@ function tilesSubstitution(b, f, iters=6, tag='subst'){
   return out;
 }
 
-/* ---------- 4) Orquestador con alternancia de estrategias ---------- */
+/* ---------- 4) NUEVO: BSP “split-rect” con alternancia H/V, ratio 0.35–0.65,
+                        tamaño mínimo de celda y fusión de adyacentes ---------- */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+function tilesBSP(b, opt={}){
+  const minCell   = Math.max(0, opt.minCell || 3.0);
+  const rMin      = clamp(opt.ratioMin ?? 0.35, 0.05, 0.95);
+  const rMax      = clamp(opt.ratioMax ?? 0.65, rMin, 0.95);
+  const targetN   = Array.isArray(opt.targetN) ? Math.round(
+                      clamp(Math.floor(randRange(opt.targetN[0], opt.targetN[1]+1)), 2, 64)
+                    ) : Math.round(clamp(opt.targetN || 10, 2, 64));
+  const mergeProb = clamp(opt.mergeProb ?? 0.25, 0, 1);
+
+  const out = [];
+
+  function splitRect(R, lastOrient){
+    // condición de parada: objetivo de celdas y tamaño mínimo
+    const canV = (R.w >= 2*minCell + EPS);
+    const canH = (R.h >= 2*minCell + EPS);
+
+    if (out.length >= targetN || (!canV && !canH)){
+      out.push({ x:R.x, y:R.y, w:R.w, h:R.h, tag:'bsp' });
+      return;
+    }
+
+    // alternancia “suave”: 70% alterna respecto a la anterior; si no, decide por aspecto
+    let orient;
+    if (lastOrient && rand() < 0.70){
+      orient = (lastOrient==='H' ? 'V' : 'H');
+    } else {
+      if (R.w / Math.max(R.h, EPS) > 1.25) orient = 'V';
+      else if (R.h / Math.max(R.w, EPS) > 1.25) orient = 'H';
+      else orient = randBool() ? 'V' : 'H';
+    }
+
+    if (orient==='V' && !canV) orient='H';
+    if (orient==='H' && !canH) orient='V';
+
+    if (orient==='V'){
+      // ratio limitado por minCell
+      let r = clamp(randRange(rMin, rMax), minCell / R.w, 1 - (minCell / R.w));
+      const w1 = Math.max(minCell, R.w * r);
+      const w2 = R.w - w1;
+      const L = { x:R.x,       y:R.y, w:w1, h:R.h };
+      const Rr= { x:R.x + w1, y:R.y, w:w2, h:R.h };
+      splitRect(L, 'V'); splitRect(Rr, 'V');
+    } else {
+      let r = clamp(randRange(rMin, rMax), minCell / R.h, 1 - (minCell / R.h));
+      const h1 = Math.max(minCell, R.h * r);
+      const h2 = R.h - h1;
+      const T = { x:R.x, y:R.y,        w:R.w, h:h1 };
+      const B = { x:R.x, y:R.y + h1,   w:R.w, h:h2 };
+      splitRect(T, 'H'); splitRect(B, 'H');
+    }
+  }
+
+  splitRect(b, null);
+
+  // — FUSIÓN DE CELDAS ADYACENTES (25% por defecto) —
+  function tryMerge(a,b){
+    // horizontal: misma y, misma h, tocan por x
+    if (near(a.y,b.y) && near(a.h,b.h) && (near(a.x + a.w, b.x) || near(b.x + b.w, a.x))){
+      const x = Math.min(a.x,b.x);
+      const w = a.w + b.w;
+      return { x, y:a.y, w, h:a.h, tag:'bsp-merged' };
+    }
+    // vertical: misma x, misma w, tocan por y
+    if (near(a.x,b.x) && near(a.w,b.w) && (near(a.y + a.h, b.y) || near(b.y + b.h, a.y))){
+      const y = Math.min(a.y,b.y);
+      const h = a.h + b.h;
+      return { x:a.x, y, w:a.w, h, tag:'bsp-merged' };
+    }
+    return null;
+  }
+
+  if (out.length > 2 && mergeProb > 0){
+    // intentos acotados para no ciclar
+    for (let pass=0; pass<3; pass++){
+      let merged = false;
+      for (let i=0; i<out.length && !merged; i++){
+        for (let j=i+1; j<out.length && !merged; j++){
+          if (randBool(mergeProb)){
+            const m = tryMerge(out[i], out[j]);
+            if (m){
+              const a = out[i], b = out[j];
+              out.splice(j,1); out.splice(i,1); // quita b luego a
+              out.push(m);
+              merged = true;
+            }
+          }
+        }
+      }
+      if (!merged) break;
+    }
+  }
+
+  return out;
+}
+
+/* ---------- 5) Orquestador con alternancia de estrategias + BSP ---------- */
 function fillByStrategy(rect, fam, strategy){
   if (strategy==='beatty') return tilesBeatty(rect, fam, true, 'beatty');
   if (strategy==='subst')  return tilesSubstitution(rect, fam, 7, 'subst'); // r4/r5 → Beatty
-  // 'euclid' (o cualquier otro) → cuadrícula euclidiana dentro de la banda
   return tilesEuclid(rect, rect.w/rect.h, 'euclid-in-band');
 }
 
 function assemble(b, inv, opt={}){
+  // Semilla del motor (si viene) — mismo PRNG para todo
+  if (typeof opt.rndSeed === 'number') setSeed(opt.rndSeed);
+
   const fam = (opt.familyId && ['phi','r2','r3','r4','r5'].includes(opt.familyId))
     ? opt.familyId
     : dominantFamily(inv || {ratios:[]});
 
   const rBox = Math.max(b.w,b.h) / Math.min(b.w,b.h);
-  const ratios = inv?.ratios || [];
-  const famOf  = r => whichFamily(r) ?? 'phi';
 
-  const singleSize = ratios.length<=1 || ratios.every(x=>famOf(x.r)===fam);
-  const twoSizesSameFamily = ratios.length===2 && ratios.every(x=>famOf(x.r)===fam);
+  // ——— Picker de “plantilla” ponderado (si no nos forzan un engine)
+  let engine = opt.engine || (()=>{
+    const roll = rand();
+    if (roll < 0.50) return 'bsp';
+    if (roll < 0.85) return 'bands';
+    if (roll < 0.95) return 'beatty';
+    return 'spiral';
+  })();
 
-  // Modo espiral “global”
-  if (opt.wantSpiral) return tilesSubstitution(b, fam, 7, 'subst');
+  // ——— Ejecuta el motor elegido (sin returns tempranos que anulen ramas) ———
+  let rects = [];
 
-  // Alternancia explícita (por bandas euclidianas)
-  if (Array.isArray(opt.strategyCycle) && opt.strategyCycle.length){
+  if (engine === 'bsp'){
+    rects = tilesBSP(b, {
+      minCell   : opt.minCell ?? 3.0,
+      ratioMin  : opt.ratioMin ?? 0.35,
+      ratioMax  : opt.ratioMax ?? 0.65,
+      targetN   : opt.targetN  ?? [6,14],
+      mergeProb : opt.mergeProb ?? 0.25
+    });
+  } else if (engine === 'bands'){
+    // bandas euclidianas + ciclo de estrategias (ponderado si no nos dan uno)
+    const cycle = Array.isArray(opt.strategyCycle) && opt.strategyCycle.length
+      ? opt.strategyCycle
+      : (rand()<0.5 ? ['beatty','euclid','subst'] : ['euclid','beatty','subst']);
     const bands = tilesEuclid(b, rBox, 'euclid-band');
-    const cycle = opt.strategyCycle;
-    const out   = [];
     for (let i=0;i<bands.length;i++){
       const strat = cycle[i % cycle.length];
-      out.push(...fillByStrategy(bands[i], fam, strat));
+      rects.push(...fillByStrategy(bands[i], fam, strat));
     }
-    return out;
+  } else if (engine === 'beatty'){
+    rects = tilesBeatty(b, fam, true, 'beatty');
+  } else if (engine === 'spiral'){
+    rects = tilesSubstitution(b, fam, 7, 'subst');
+  } else {
+    // fallback robusto → bands
+    const bands = tilesEuclid(b, rBox, 'euclid-band');
+    for (const band of bands){
+      rects.push(...tilesBeatty(
+        { x:band.x, y:band.y, w:band.w, h:band.h }, fam, true, 'beatty-in-band'
+      ));
+    }
   }
 
-  // Heurística por inventario (retro-compatible)
-  if (twoSizesSameFamily) return tilesBeatty(b, fam, true, 'beatty');
-  if (singleSize)         return tilesEuclid(b, rBox, 'euclid');
-
-  // Híbrido: bandas euclidianas + Beatty dentro de cada una
-  const bands = tilesEuclid(b, rBox, 'euclid-band');
-  const out   = [];
-  for (const band of bands){
-    out.push(...tilesBeatty(
-      { x:band.x, y:band.y, w:band.w, h:band.h }, fam, true, 'beatty-in-band'
-    ));
-  }
-  return out;
+  return rects;
 }
 
 /* exporta en global */
-window.Tilers = { PHI, ROOT2, ROOT3, ROOT4, ROOT5, families, whichFamily, assemble };
+window.Tilers = {
+  PHI, ROOT2, ROOT3, ROOT4, ROOT5,
+  families, whichFamily,
+  assemble,
+  // PRNG público para trazabilidad / tests
+  setSeed,
+  get seed(){ return __seedU32; }
+};
     </script>
   <style>
   body {
@@ -1563,6 +1701,34 @@ function evalProp(prop, args = [], fallback = 0){
         S += p[mx] + p[my] + p[mz];
       });
       return S % 125;
+    }
+
+    /* ===== Seed determinista para el LAYOUT (R5NOVA · tilers) =====
+       Usa exactamente las mismas invariantes globales que ya gobiernan color/posiciones
+       (sceneSeed, S_global, mappingRank) + stats del set (sumR, sumSig, n).
+       Devuelve un entero U32 para el PRNG del motor de layout. */
+    function computeLayoutSeed(){
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                         .map(o => o.value.split(',').map(Number));
+      const mRank = mappingRank(attributeMapping.slice(0,5));
+
+      let sumR = 0, sumSig = 0;
+      perms.forEach(p=>{
+        const r = lehmerRank(p);
+        sumR += r;
+        const s = computeSignature(p);
+        sumSig += s.reduce((a,b)=>a+b,0);
+      });
+
+      // mezcla (sin colisiones obvias) → U32
+      let x = 0 >>> 0;
+      x = (x ^ (sceneSeed * 1315423911)) >>> 0;
+      x = (x ^ ((S_global   *  374761393) >>> 0)) >>> 0;
+      x = (x ^ ((perms.length * 668265263) >>> 0)) >>> 0;
+      x = (x ^ ((mRank      *     362437) >>> 0)) >>> 0;
+      x = (x ^ ((sumR       * 1013904223) >>> 0)) >>> 0;
+      x = (x ^ ((sumSig     *  224682251) >>> 0)) >>> 0;
+      return x >>> 0;
     }
     function computeShiftRankXYZ(p){
       const r = lehmerRank(p);
@@ -4301,17 +4467,17 @@ void main(){
     function buildR5NOVA(){
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
-    
+
       // Fondo sincronizado (no manual) como en BUILD/RAUM
       updateBackground(false);
-    
+
       // 1) BBox en unidades del cubo 30×30 (origen arriba-izquierda del plano frontal)
       const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
-    
+
       // 2) Familia determinista: φ, √2, √3, √4, √5
       const fams = ['phi','r2','r3','r4','r5'];
       const fam  = fams[(sceneSeed + S_global + (getSelectedPerms().length||1)) % fams.length];
-    
+
       // 3) Inventario: dos tamaños de la MISMA familia (rho y 1/rho)
       const T = window.Tilers;
       function rhoOf(f){
@@ -4326,19 +4492,26 @@ void main(){
         inv = { ratios:[ { r:  rho,   area: 0.60  },
                          { r: 1/rho, area: 0.40  } ] };
       } else {
-        inv = { ratios:[ { r:  rho,   area: 0.66  },                // r3, r4, r5
+        inv = { ratios:[ { r:  rho,   area: 0.66  },
                          { r: 1/rho, area: 0.34  } ] };
       }
-    
-      // 4) Ensamble con alternancia de estrategias por “bandas” euclidianas
-      const stratCycle = ['beatty','euclid','subst']; // ‘subst’ hace fallback a Beatty en r4/r5
+
+      // 4) Seed de layout = mismas invariantes globales del sistema
+      const layoutSeed = computeLayoutSeed();
+
+      // 5) Ensamble BSP con PRNG sembrado + parámetros solicitados
       const rawRects = window.Tilers.assemble(bbox, inv, {
-        familyId: fam,
-        strategyCycle: stratCycle,
-        wantSpiral: false
+        familyId   : fam,
+        engine     : 'bsp',           // ← forzamos BSP real (no “grid-safe”)
+        rndSeed    : layoutSeed,      // ← mismo PRNG que el resto (semilla coherente)
+        minCell    : 3.0,             // tamaño mínimo de celda (u. del cubo)
+        ratioMin   : 0.35,            // rango de corte 0.35–0.65
+        ratioMax   : 0.65,
+        targetN    : [6,14],          // número objetivo de rectángulos (no fijo)
+        mergeProb  : 0.25             // probabilidad de fusionar celdas adyacentes
       });
-    
-      // 5) Inset (gutter) – respira sin romper conectividad
+
+      // 6) Inset (gutter) – respira sin romper conectividad
       const G = 0.20;
       const rects = rawRects
         .filter(r => r.w > EPS && r.h > EPS)
@@ -4349,48 +4522,49 @@ void main(){
           h: Math.max(0, r.h - 2*G),
           tag: r.tag
         }));
-    
-      // 6) Permutaciones activas (ciclaje si hay más celdas que perms)
+
+      // 7) Permutaciones activas (ciclaje si hay más celdas que perms)
       const perms  = getSelectedPerms();
       const N      = rects.length;
-    
+
       for (let i=0;i<N;i++){
         const r = rects[i];
         if (r.w <= EPS || r.h <= EPS) continue;
-    
+
         // mapeo 2D→3D (centro de la celda). Y de tilers baja; Three sube.
         const cx = (r.x + r.w/2) - halfCube;
         const cy = halfCube - (r.y + r.h/2);
         const cz = 0.0 + i * 0.0008;   // micro-separación para evitar z-fighting
-    
-        // offset cromático por estrategia
+
+        // offset cromático por tipo (bsp/bsp-merged ~ offsets distintos)
         let off = 0;
-        if (r.tag === 'beatty' || r.tag === 'beatty-in-band') off = 1;
-        else if (r.tag === 'subst') off = 2;
-    
+        if (r.tag === 'bsp')        off = 1;
+        else if (r.tag === 'bsp-merged') off = 2;
+
         const pa  = perms.length ? perms[i % perms.length] : [1,2,3,4,5];
         const col = colorR5NFor(pa, off);
-    
+
         // profundidad adaptativa (0.45 – 1.00) según el lado menor
         const minSide = Math.min(r.w, r.h);
         const depth   = 0.45 + 0.55 * Math.min(1, minSide / (cubeSize/3));
-    
+
         const geo = new THREE.BoxGeometry(r.w, r.h, depth);
         const mat = new THREE.MeshLambertMaterial({ color: col, dithering: true });
         mat.emissive = col.clone();
         mat.emissiveIntensity = 0.06;
-    
+
         const tile = new THREE.Mesh(geo, mat);
         tile.position.set(cx, cy, cz);
         tile.userData = {
           source: 'R5NOVA',
           permStr: pa.join(','),
           tag: r.tag,
-          family: fam
+          family: fam,
+          layoutSeed
         };
         groupR5NOVA.add(tile);
       }
-    
+
       scene.add(groupR5NOVA);
     }
     
