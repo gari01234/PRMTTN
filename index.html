@@ -4266,8 +4266,16 @@ void main(){
       // 1) BBox en unidades del cubo 30×30, con (0,0) arriba-izquierda del plano frontal
       const bbox = { x:0, y:0, w:cubeSize, h:cubeSize };
 
-      // 2) Inventario: sesgamos √5 (familia r5)
-      const inv = { ratios: [{ r: window.Tilers.ROOT5, area: 1 }] };
+      // 2) Inventario: dos tamaños de la MISMA familia (√5)
+      // Con UN solo ratio y caja cuadrada, Euclid devuelve 1 cuadrado grande (q=1).
+      // Con DOS ratios de la misma familia, forzamos el caso "twoSizesSameFamily"
+      // y assemble(...) usa tilesBeatty(...) → columnas L/S bien distribuidas.
+      const inv = {
+        ratios: [
+          { r: window.Tilers.ROOT5,     area: 0.618 }, // L
+          { r: 1 / window.Tilers.ROOT5, area: 0.382 }  // S (alias admitido por whichFamily)
+        ]
+      };
 
       // 3) Ensamblamos determinísticamente (sin espiral)
       const rawRects = window.Tilers.assemble(bbox, inv, { wantSpiral: false });
