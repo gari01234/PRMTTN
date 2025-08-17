@@ -817,9 +817,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
 
-    // === R5NOVA — parámetros de raíz (sin parches) ===
-    const R5NOVA_MIN_WORLD_THICKNESS = 0.01; // grosor deseado (unidades de MUNDO) para la fila del fondo
-    const R5NOVA_BACK_BAND           = 1.6;  // banda alrededor de z_min para capturar la fila del fondo (step=6)
+    // === R5NOVA — constantes SOLO para este motor ===
+    // Grosor real (en unidades de mundo) que deben tener las piezas de la fila del fondo
+    const R5NOVA_MIN_BACK_THICKNESS = 0.012;   // estable y muy fino
+    // Banda alrededor del z_min para capturar TODA la fila del fondo (permanece igual)
+    const R5NOVA_BACK_BAND           = 1.6;    // ≈ una “rebanada” de 1.6u detrás
 
     const EPS = 1e-6;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
@@ -2385,19 +2387,24 @@ function makePalette(){
       }
 
             /* ──────────────────────────────────────────────────────────────
- *  R5NOVA · pasada final (fondo por minZ, grosor mundo, colores únicos)
+ *  R5NOVA · pasada final
+ *    • ancla la fila del fondo al plano z_min (grosor fijo en mundo)
+ *    • colores deterministas con "golden angle" para unicidad
+ *    • contraste mínimo ΔE≥22 con el fondo + vibrance BUILD
+ *  SOLO se aplica cuando isR5NOVA === true
  * ────────────────────────────────────────────────────────────── */
 function adjustR5NovaAfterBuild(){
   if (typeof isR5NOVA === 'undefined' || !isR5NOVA) return;
+  if (!permutationGroup) return;
 
-  // Trabajamos sobre el grupo de permutaciones (no tocamos el cubo contenedor)
-  const root = (typeof permutationGroup !== 'undefined' && permutationGroup) ? permutationGroup : scene;
+  const root = permutationGroup;
   const wp   = new THREE.Vector3();
 
-  // 1) z mínimo real en mundo (fila del fondo)
-  let zMin = Infinity;
+  // 1) z mínimo (mundo)
+  let zMin = +Infinity;
   root.traverse(o=>{
     if (!o.isMesh || o === cubeUniverse) return;
+    o.updateWorldMatrix(true, false);
     o.getWorldPosition(wp);
     if (wp.z < zMin) zMin = wp.z;
   });
@@ -2405,7 +2412,34 @@ function adjustR5NovaAfterBuild(){
 
   const bandMax = zMin + R5NOVA_BACK_BAND;
 
-  // Helper: cada mesh con su propio material (no compartido)
+  // 2) recopila SOLO la fila del fondo (con orden determinista)
+  const backRow = [];
+  root.traverse(o=>{
+    if (!o.isMesh || o === cubeUniverse) return;
+    o.updateWorldMatrix(true, false);
+    o.getWorldPosition(wp);
+    if (wp.z <= bandMax + 1e-6){
+      backRow.push({
+        mesh: o,
+        // orden estable: primero Y asc, luego X asc (ambos en mundo)
+        x: wp.x,
+        y: wp.y,
+        z: wp.z
+      });
+    }
+  });
+
+  backRow.sort((a,b)=> (a.y-b.y) || (a.x-b.x) || (a.z-b.z));
+
+  // 3) base de color (hue) ligada a escena pero espaciada por ángulo áureo
+  //    hue_i = (sceneSeed + i * GOLD) % 360 — “unicidad” sin ciclos cortos
+  const baseHue = (sceneSeed % 360 + 360) % 360;
+
+  // util local: AABB en mundo
+  const tmpBox = new THREE.Box3();
+  const tmpV3  = new THREE.Vector3();
+
+  // helper: garantiza material propio (no compartido)
   function ensureOwnMaterial(mesh){
     if (!mesh.material) return;
     if (mesh.userData._r5novaOwnMat) return;
@@ -2414,58 +2448,76 @@ function adjustR5NovaAfterBuild(){
     mesh.userData._r5novaOwnMat = true;
   }
 
-  // 2) Fila del fondo = objetos con z ≤ zMin + banda
-  root.traverse(o=>{
-    if (!o.isMesh || o === cubeUniverse) return;
-    o.getWorldPosition(wp);
-    if (wp.z <= bandMax + 1e-6){
+  // 4) procesa fila del fondo
+  backRow.forEach((item, idx)=>{
+    const o = item.mesh;
 
-      // a) Fijar orientación y detener giro
-      o.userData.rotationSpeed = 0;
-      o.rotation.set(0,0,0);
+    // a) Detener y fijar orientación (para escalado coherente sobre Z local)
+    o.userData.rotationSpeed = 0;
+    o.rotation.set(0,0,0);
+    o.updateWorldMatrix(true, false);
 
-      // b) Grosor mínimo en unidades de mundo (escala sobre depth del BoxGeometry)
-      const depthParam = (o.geometry && o.geometry.parameters && typeof o.geometry.parameters.depth === 'number')
-        ? o.geometry.parameters.depth : 0.5;
-      const targetScaleZ = Math.max(0.0002, R5NOVA_MIN_WORLD_THICKNESS / Math.max(1e-6, depthParam));
-      o.scale.z = targetScaleZ;
+    // b) Calcular espesor actual en mundo y escalar SOLO Z para lograr grosor fijo
+    tmpBox.setFromObject(o);
+    const thick0 = Math.max(1e-6, tmpBox.max.z - tmpBox.min.z);
+    const s      = R5NOVA_MIN_BACK_THICKNESS / thick0;
+    o.scale.z *= s;
+    o.updateWorldMatrix(true, false);
 
-      // c) Material propio + color único con contraste ΔE ≥ 22
-      ensureOwnMaterial(o);
+    // c) Re-anclar al plano de fondo: minZ → zMin
+    tmpBox.setFromObject(o);
+    const minZ1 = tmpBox.min.z;
+    const dz    = zMin - minZ1;
+    o.position.z += dz;              // desplaza en Z local
+    o.updateWorldMatrix(true, false);
 
-      // Base determinista (si proviene de una permutación)
-      let sig = [0,0,0,0,0], r = 0;
-      if (o.userData && typeof o.userData.permStr === 'string'){
-        const arr = o.userData.permStr.split(',').map(Number);
-        if (Array.isArray(arr) && arr.length === 5){
-          sig = computeSignature(arr);
-          r   = lehmerRank(arr);
-        }
+    // d) Color propio + contraste + vibrance
+    ensureOwnMaterial(o);
+
+    // Firma/slot determinista por si lo quieres como semilla secundaria
+    let sig = [0,0,0,0,0], r = 0;
+    if (o.userData && typeof o.userData.permStr === 'string'){
+      const arr = o.userData.permStr.split(',').map(Number);
+      if (Array.isArray(arr) && arr.length === 5){
+        sig = computeSignature(arr);
+        r   = lehmerRank(arr);
       }
-      const slot = (r + sceneSeed) % 12;
-
-      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-      sI = (sI * PHI_S) % 12;
-      vI = (vI * PHI_V) % 12;
-
-      const {h,s,v} = idxToHSV(hI, sI, vI);
-      let  rgb      = hsvToRgb(h, s, v);
-      rgb = ensureContrastRGB(rgb);
-
-      // “Vibrance BUILD” coherente con el resto
-      let [h0,s0,v0] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
-      const zNorm    = (o.position.z + halfCube) / cubeSize;
-      const vib      = 0.22 + 0.10 * zNorm;
-      const s1       = Math.min(1, s0 + vib * (1 - s0));
-      const v1       = Math.min(0.93, v0 * (1.02 + 0.06 * zNorm));
-      const rgbBoost = hsvToRgb(h0, s1, v1);
-
-      if (!o.material.emissive) o.material.emissive = new THREE.Color();
-      o.material.color.setRGB(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
-      o.material.emissive.setRGB(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
-      o.material.emissiveIntensity = 0.03 + 0.12 * zNorm;
-      o.material.needsUpdate = true;
     }
+
+    // — modo "golden": h_i bien espaciados y reproducibles
+    const hGolden = (baseHue + idx * GOLD) % 360;
+
+    // S,V: derivadas de patrón, pero con dispersión coprima (PHI_S/PHI_V)
+    const slot  = (r + sceneSeed + idx) % 12;
+    let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+    sI = (sI * PHI_S) % 12;
+    vI = (vI * PHI_V) % 12;
+
+    const sv    = idxToHSV(0, sI, vI);  // usamos S,V de cuadrícula
+    let  rgb    = hsvToRgb(hGolden, sv.s, sv.v);
+
+    // contraste mínimo contra el fondo actual
+    rgb = ensureContrastRGB(rgb);
+
+    // Vibrance BUILD coherente (en función de frontalidad relativa)
+    let [h0,s0,v0] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+    // zNorm usa posición local; tras el re-anclaje, la cara trasera está en zMin.
+    // Para mantener el “gesto” de vibrance, usamos la Z del centro del AABB:
+    tmpBox.setFromObject(o);
+    const zCenter = 0.5*(tmpBox.min.z + tmpBox.max.z);
+    const zNorm   = (zCenter + halfCube) / cubeSize;   // 0..1 relativo al cubo
+    const vib     = 0.22 + 0.10 * zNorm;
+    const s1      = Math.min(1, s0 + vib * (1 - s0));
+    const v1      = Math.min(0.93, v0 * (1.02 + 0.06 * zNorm));
+    const rgb2    = hsvToRgb(h0, s1, v1);
+
+    o.material.color.setRGB(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
+
+    // energía suave (sin “quemados”)
+    if (!o.material.emissive) o.material.emissive = new THREE.Color();
+    o.material.emissive.setRGB(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
+    o.material.emissiveIntensity = 0.03 + 0.12 * zNorm;
+    o.material.needsUpdate = true;
   });
 }
 
