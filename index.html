@@ -5178,7 +5178,62 @@ openssl dgst -sha256 prmttn_config.json</pre>
       }
     }
 
-  </script>
+ 
+// ── R5NOVA · hook + watchdog para asegurar la ejecución ─────────────────────
+(function R5NovaHook(){
+  // 1) Detección robusta de motor activo
+  const isR5Active = () => {
+    const id =
+      (window.activeEngineId || window.activeEngine || window.engineName || "")
+      .toString().toUpperCase();
+    return id.includes("R5NOVA") || window.isR5NOVA === true || window.isR5Nova === true;
+  };
+
+  // 2) Runner seguro (intenta varias rutas de scope)
+  function runR5Adjust(){
+    if (!isR5Active()) return;
+    const fn = window.adjustR5NovaAfterBuild || (typeof adjustR5NovaAfterBuild === "function" ? adjustR5NovaAfterBuild : null);
+    if (!fn) return;
+    // Expón global si venimos de módulos
+    if (!window.adjustR5NovaAfterBuild) window.adjustR5NovaAfterBuild = fn;
+    try {
+      fn();
+    } catch (e) {
+      console.warn("[R5NOVA] adjust error:", e);
+    }
+  }
+
+  // 3) Pinchar funciones típicas de rebuild/render para llamar después
+  ["refreshAll","rebuildUniverse","buildUniverse","buildScene","switchEngine","render"].forEach(name=>{
+    const orig = window[name];
+    if (typeof orig === "function" && !orig.__r5hooked){
+      window[name] = function(...args){
+        const res = orig.apply(this, args);
+        // Ejecuta justo después y en el próximo frame
+        setTimeout(runR5Adjust, 0);
+        requestAnimationFrame(runR5Adjust);
+        return res;
+      };
+      window[name].__r5hooked = true;
+    }
+  });
+
+  // 4) Watchdog: reintenta durante ~1 seg cada vez que entras a R5NOVA
+  let frames = 0;
+  function tick(){
+    if (isR5Active() && frames < 60){
+      runR5Adjust(); frames++;
+    } else if (!isR5Active()){
+      frames = 0;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // 5) Reintenta tras resize (suele regenerar el layout)
+  window.addEventListener("resize", ()=>{ frames = 0; });
+})();
+ </script>
 <script>
 /* ══════════════════════════════════════════════════════════════
  *  Pattern Information Panel  –  English version (11 patterns)
