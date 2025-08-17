@@ -818,11 +818,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
 
     // === Ajustes específicos de R5NOVA (solo aplican cuando R5NOVA está activo) ===
-    const R5NOVA_BACK_DEPTH   = 0.01;   // (antes 0.12) casi plano
-    const R5NOVA_BACK_EPS_Z   = 0.002;  // empuje sutil para pegar al fondo sin z-fighting
-    const R5NOVA_MIN_VOLUMES  = 4;     // mínimo de volúmenes visibles en pared del fondo
-    const R5NOVA_MAX_VOLUMES  = 10;    // máximo de volúmenes visibles en pared del fondo
-    const R5NOVA_DISABLE_CEILING = true; // apagar volumen de techo (no borrar → visible=false)
+    const R5NOVA_BACK_DEPTH   = 0.0006; // antes 0.01  → plano casi “papel”
+    const R5NOVA_BACK_EPS_Z   = 0.0005; // antes 0.002 → micro separación anti z-fighting
+    const R5NOVA_MIN_VOLUMES  = 4;
+    const R5NOVA_MAX_VOLUMES  = 10;
+    const R5NOVA_DISABLE_CEILING = true;
 
     const EPS = 1e-6;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
@@ -2387,101 +2387,142 @@ function makePalette(){
         });
       }
 
-      /* ──────────────────────────────────────────────────────────────
-       *  R5NOVA · post-ajustes no invasivos
-       *  – Reduce espesor de volúmenes de la pared del fondo
-       *  – Limita el nº de volúmenes en pared del fondo (min 4, máx 10)
-       *  – Apaga (visible=false) el/los volúmenes del techo
-       *  Nota: sólo actúa si isR5NOVA === true. No interfiere con otros motores.
+            /* ──────────────────────────────────────────────────────────────
+       *  R5NOVA · post-ajustes no invasivos (versión final)
        * ────────────────────────────────────────────────────────────── */
-      function __near(v, t, eps){ return Math.abs(v - t) <= (eps ?? 0.75); }
-
       function adjustR5NovaAfterBuild(){
   if (typeof isR5NOVA === 'undefined' || !isR5NOVA) return;
 
-  // Usar el grupo propio si existe; si no, recorrer la escena
-  const root  = (typeof r5novaGroup !== 'undefined' && r5novaGroup) ? r5novaGroup : scene;
-  const backZ = -halfCube;   // plano del fondo del cubo (z = -15)
-  const ceilY = +halfCube;   // techo (y = +15)
+  // Preferimos trabajar SOLO sobre las permutaciones
+  const root =
+    (typeof permutationGroup !== 'undefined' && permutationGroup) ? permutationGroup :
+    (typeof r5novaGroup !== 'undefined' && r5novaGroup)          ? r5novaGroup :
+    scene;
+
+  const backZ = -halfCube;   // z = -15
+  const ceilY = +halfCube;   // y = +15
+  const wp    = new THREE.Vector3();
 
   const backVolumes = [];
-  const wp = new THREE.Vector3();
 
-  // 1) Detectar volúmenes en el fondo, aplanarlos y pegarlos al plano trasero
+  // Helper: cada mesh DEBE tener su propio material (sin compartir)
+  function ensureOwnMaterial(mesh){
+    if (!mesh.material) return;
+    // Si ya lo hicimos, salimos
+    if (mesh.userData._r5novaOwnMat) return;
+
+    mesh.material = mesh.material.clone();
+    mesh.material.dithering = true;
+
+    // Empújalo un pelín “hacia delante” del BackSide del cubo
+    mesh.material.polygonOffset       = true;
+    mesh.material.polygonOffsetFactor = -2;  // negativo → más cercano a cámara
+    mesh.material.polygonOffsetUnits  = -2;
+
+    // Asegurar que renderiza después de las paredes del cubo
+    mesh.renderOrder = 10;
+
+    mesh.userData._r5novaOwnMat = true;
+  }
+
+  // 1) Detectar volúmenes en el fondo, **achatar**, **pegar** y **fijar** orientación
   root.traverse(o=>{
     if (!o.isMesh || o === cubeUniverse) return;
 
     o.getWorldPosition(wp);
-    if (__near(wp.z, backZ, 2.0)) {
-      // 1.a) Grosor casi plano
-      o.scale.z = Math.max(0.0005, R5NOVA_BACK_DEPTH);
+    // Cerca del plano trasero (tolerancia estricta)
+    if (Math.abs(wp.z - backZ) <= 1.2){
+      // Material independiente + bias de profundidad
+      ensureOwnMaterial(o);
 
-      // 1.b) Pegar al plano trasero (sin z-fighting)
-      const baseDepth = (o.geometry && o.geometry.parameters && o.geometry.parameters.depth)
-        ? o.geometry.parameters.depth        // BoxGeometry(..., depth=t) → t
-        : 0.5;                               // t por defecto en createPermutationObjectWithMapping
-      const d = baseDepth * o.scale.z;       // espesor real en unidades mundo
-      o.position.z = backZ + d/2 + R5NOVA_BACK_EPS_Z;
+      // Detener animación de giro y resetear rotación para que NO “recupere” grosor
+      o.userData.rotationSpeed = 0;
+      o.rotation.set(0,0,0);
+
+      // Achatar Z (profundidad real = depthParam * scale.z)
+      const depthParam = (o.geometry && o.geometry.parameters && o.geometry.parameters.depth)
+        ? o.geometry.parameters.depth : 0.5;
+      o.scale.z = Math.max(0.0002, R5NOVA_BACK_DEPTH);
+
+      // Colocar el **plano trasero** exactamente en z = backZ + EPS
+      const d = depthParam * o.scale.z;                // grosor final en mundo
+      o.position.z = backZ + (d*0.5) + R5NOVA_BACK_EPS_Z;
+
+      // Asegurar matrices actualizadas
+      o.updateMatrix();
+      o.updateMatrixWorld(true);
 
       backVolumes.push(o);
     }
   });
 
-  // 2) Límite de cantidad en pared del fondo → [min … max]
-  backVolumes.sort((a,b)=> (a.position.x - b.position.x) || (a.position.y - b.position.y) || a.uuid.localeCompare(b.uuid));
+  // 2) Límite de cantidad (mantener determinismo del orden)
+  backVolumes.sort((a,b)=>
+    (a.position.x - b.position.x) ||
+    (a.position.y - b.position.y) ||
+    a.id - b.id
+  );
 
   for (let i = R5NOVA_MAX_VOLUMES; i < backVolumes.length; i++){
     backVolumes[i].visible = false;
   }
 
-  if (backVolumes.length < R5NOVA_MIN_VOLUMES && backVolumes.length > 0){
+  // 3) Si faltan, clonar desde los últimos y darles material propio
+  if (backVolumes.length && backVolumes.length < R5NOVA_MIN_VOLUMES){
     const need = R5NOVA_MIN_VOLUMES - backVolumes.length;
     for (let k = 0; k < need; k++){
       const src   = backVolumes[ backVolumes.length - 1 - (k % backVolumes.length) ];
       const clone = src.clone();
-      // micro-desplazamiento para evitar z-fighting entre ellos
-      clone.position.x += (k+1) * 0.15;
-      clone.position.y += (k % 2 ? -1 : 1) * 0.15;
+      // Material **independiente** también en el clon
+      ensureOwnMaterial(clone);
+
+      // Micro-offset para no coplanear clones entre sí
+      clone.position.x += (k+1) * 0.12;
+      clone.position.y += (k % 2 ? -1 : 1) * 0.12;
+
+      clone.userData.rotationSpeed = 0;
+      clone.rotation.set(0,0,0);
       clone.visible = true;
+
       (src.parent || root).add(clone);
+      clone.updateMatrixWorld(true);
       backVolumes.push(clone);
     }
   }
 
-  // 3) Apagar techo (no borrar) si está activado
+  // 4) Apagar techo si está activo
   if (R5NOVA_DISABLE_CEILING){
     root.traverse(o=>{
       if (!o.isMesh) return;
       o.getWorldPosition(wp);
-      if (__near(wp.y, ceilY, 1.5)) o.visible = false;
+      if (Math.abs(wp.y - ceilY) <= 1.5) o.visible = false;
     });
   }
 
-  // 4) Color único y determinista para CADA volumen del fondo
-  //    (apoyado en las fórmulas ya usadas: PATTERNS + lehmerRank + sceneSeed)
+  // 5) Colores **únicos** (deterministas, sin compartir material)
   backVolumes.forEach((o, idx)=>{
-    // Datos deterministas si vienen de una permutación; fallback neutro si no
-    let pa  = null, sig = [idx,idx,idx,idx,idx], r = idx;
+    // Base determinista (si viene de una permutación)
+    let sig = [idx,idx,idx,idx,idx], r = idx;
     if (o.userData && typeof o.userData.permStr === 'string'){
       const arr = o.userData.permStr.split(',').map(Number);
       if (Array.isArray(arr) && arr.length === 5){
-        pa  = arr;
-        sig = computeSignature(pa);
-        r   = lehmerRank(pa);
+        sig = computeSignature(arr);
+        r   = lehmerRank(arr);
       }
     }
 
-    // Distribución: slot = (r + idx) mod 12 para asegurar “todos distintos”
-    const slot = (r + idx) % 12;
+    // Slot único estable por pieza del fondo
+    const slot = (r + sceneSeed + idx) % 12;
+
     let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
     sI = (sI * PHI_S) % 12;
     vI = (vI * PHI_V) % 12;
 
     const {h,s,v} = idxToHSV(hI, sI, vI);
     let  rgb      = hsvToRgb(h, s, v);
-    rgb = ensureContrastRGB(rgb);                // ΔE fondo ≥ 22
+    rgb = ensureContrastRGB(rgb); // ΔE fondo ≥ 22
 
-    // “Vibrance BUILD” coherente con el resto del sistema
+    // “Vibrance BUILD” coherente con el resto
     let [h0, s0, v0] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
     const zNorm      = (o.position.z + halfCube) / cubeSize;
     const vib        = 0.22 + 0.10 * zNorm;
@@ -2489,13 +2530,19 @@ function makePalette(){
     const v1         = Math.min(0.93, v0 * (1.02 + 0.06 * zNorm));
     const rgbBoost   = hsvToRgb(h0, s1, v1);
 
-    // Aplicar color (Lambert) + leve emisivo como en BUILD
+    // Color final
+    ensureOwnMaterial(o); // (por si entra aquí sin pasar antes)
     o.material.color.setRGB(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
+
+    // Emisivo suave (igual que BUILD)
     if (!o.material.emissive) o.material.emissive = new THREE.Color();
     o.material.emissive.setRGB(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
     o.material.emissiveIntensity = 0.03 + 0.12 * zNorm;
+
+    o.material.needsUpdate = true;
   });
 }
+
 
       function refreshAll(opts = {rebuild:false}){
       if(!opts.keepManual){            // por defecto se limpian colores manuales
