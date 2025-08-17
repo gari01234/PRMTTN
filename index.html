@@ -4810,97 +4810,109 @@ void main(){
     function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
 */
 
-    // ——— R5NOVA: activar/desactivar & rebuild ———
-    function rebuildR5NOVAIfActive(){
-      if (isR5NOVA){
-        // cede 1 frame para asegurar world matrices y AABBs correctos
-        setTimeout(adjustR5NovaAfterBuild, 0);
-        requestAnimationFrame(adjustR5NovaAfterBuild);
-      }
+    /* === ENGINE MENU · glue seguro para BUILD/FRBN/LCHT/OFFNNG/TMSL/RAUM/13245/R5NOVA === */
+    function currentEngine(){
+      if (typeof isR5NOVA !== 'undefined' && isR5NOVA) return 'R5NOVA';
+      if (typeof isFRBN   !== 'undefined' && isFRBN)   return 'FRBN';
+      if (typeof isLCHT   !== 'undefined' && isLCHT)   return 'LCHT';
+      if (typeof isOFFNNG !== 'undefined' && isOFFNNG) return 'OFFNNG';
+      if (typeof isTMSL   !== 'undefined' && isTMSL)   return 'TMSL';
+      if (typeof isRAUM   !== 'undefined' && isRAUM)   return 'RAUM';
+      if (typeof is13245  !== 'undefined' && is13245)  return '13245';
+      return 'BUILD';
     }
 
-    function toggleR5NOVA(){
-      if (!isR5NOVA){
-        // ENTRAR (exclusivo)
-        leaveBuildRenderBoost();
-        if (isFRBN)  toggleFRBN();
-        if (isLCHT)  toggleLCHT();
-        if (isOFFNNG)toggleOFFNNG();
-        if (isTMSL)  toggleTMSL();
-        if (isRAUM)  toggleRAUM();
-        if (is13245) toggle13245();
-
-        isR5NOVA = true;
-
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (lichtGroup) lichtGroup.visible = false;
-
-        // cámara/controles como en applyStandardView (R5NOVA)
-        applyStandardView();
-
-        // pasada final: grosor + colores únicos fila de fondo
-        setTimeout(adjustR5NovaAfterBuild, 0);
-        requestAnimationFrame(adjustR5NovaAfterBuild);
-      } else {
-        // SALIR → reconstruye escena “normal” (restaura materiales y colores)
-        isR5NOVA = false;
-        refreshAll({rebuild:true});
-      }
-      if (typeof updateEngineSelectUI === 'function') updateEngineSelectUI();
-    }
-
-    function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
-
-    /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
       const sel = document.getElementById('engineSelect');
       if (!sel) return;
-      let v = 'BUILD';
-      if (isFRBN)   v = 'FRBN';
-      else if (isLCHT)  v = 'LCHT';
-      else if (isOFFNNG) v = 'OFFNNG';
-      else if (isTMSL)   v = 'TMSL';
-      else if (isRAUM)   v = 'RAUM';
-      else if (is13245)  v = '13245';
-      else if (isR5NOVA)  v = 'R5NOVA';
-      sel.value = v;
+      const val = currentEngine();
+      if (sel.value !== val) sel.value = val;
     }
 
-    /* === Rueda de motores del botón “4” (sincroniza el menú) === */
-    function cycleEngine(){
-      if (isFRBN){  toggleFRBN(); toggleLCHT(); updateEngineSelectUI(); return; }   // FRBN → LCHT
-      if (isLCHT){  ensureOnlyOFFNNG();        updateEngineSelectUI(); return; }   // LCHT → OFFNNG
-      if (isOFFNNG){ensureOnlyTMSL();          updateEngineSelectUI(); return; }   // OFFNNG → TMSL
-      if (isTMSL){  ensureOnlyRAUM();          updateEngineSelectUI(); return; }   // TMSL  → RAUM
-      if (isRAUM){  ensureOnly13245();         updateEngineSelectUI(); return; }   // RAUM  → 13245
-      if (is13245){ ensureOnlyR5NOVA();        updateEngineSelectUI(); return; }   // 13245 → R5NOVA
-      if (isR5NOVA){ switchToBuild();          updateEngineSelectUI(); return; }   // R5NOVA → BUILD
-      toggleFRBN();                             // BUILD → FRBN
+    function rebuildR5NOVAIfActive(){
+      if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
+        adjustR5NovaAfterBuild();
+      }
+    }
+
+    function applyEngineFromSelect(id){
+      const cur = currentEngine();
+      if (id === cur) { updateEngineSelectUI(); return; }
+
+      switch (id){
+        case 'BUILD':
+          switchToBuild();
+          break;
+        case 'FRBN':
+          if (!isFRBN) toggleFRBN();
+          break;
+        case 'LCHT':
+          if (!isLCHT) toggleLCHT();
+          break;
+        case 'OFFNNG':
+          if (!isOFFNNG) toggleOFFNNG();
+          break;
+        case 'TMSL':
+          if (typeof ensureOnlyTMSL === 'function') ensureOnlyTMSL();
+          else if (!isTMSL) toggleTMSL();
+          break;
+        case 'RAUM':
+          if (typeof ensureOnlyRAUM === 'function') ensureOnlyRAUM();
+          else if (!isRAUM) toggleRAUM();
+          break;
+        case '13245':
+          if (typeof toggle13245 === 'function' && !is13245) toggle13245();
+          break;
+        case 'R5NOVA':
+          if (!isR5NOVA) toggleR5NOVA();
+          break;
+        default:
+          switchToBuild();
+      }
       updateEngineSelectUI();
     }
 
-    // ——— Menú Engine: soporte para R5NOVA ———
-    (function(){
-      if (typeof applyEngineFromSelect === 'function'){
-        const __old = applyEngineFromSelect;
-        window.applyEngineFromSelect = function(v){
-          if (v === 'R5NOVA'){ ensureOnlyR5NOVA(); return; }
-          __old(v);
-        };
+    function cycleEngine(){
+      const order = ['BUILD','FRBN','LCHT','OFFNNG','TMSL','RAUM','13245','R5NOVA'];
+      const idx = order.indexOf(currentEngine());
+      const next = order[(idx + 1) % order.length];
+      applyEngineFromSelect(next);
+    }
+
+    /* Encendido/apagado de R5NOVA con exclusividad y vista adecuada */
+    function toggleR5NOVA(){
+      isR5NOVA = !isR5NOVA;
+
+      if (isR5NOVA){
+        // Exclusividad
+        if (typeof isFRBN !== 'undefined' && isFRBN)   toggleFRBN();
+        if (typeof isLCHT !== 'undefined' && isLCHT)   toggleLCHT();
+        if (typeof isOFFNNG !== 'undefined' && isOFFNNG) toggleOFFNNG();
+        if (typeof isTMSL !== 'undefined' && isTMSL)   toggleTMSL();
+        if (typeof isRAUM !== 'undefined' && isRAUM)   toggleRAUM();
+        if (typeof is13245 !== 'undefined' && is13245 && typeof toggle13245 === 'function') toggle13245();
+
+        // Sal del boost de BUILD; R5NOVA usa material propio/basic
+        if (typeof leaveBuildRenderBoost === 'function') leaveBuildRenderBoost();
+
+        // Mostrar escena base
+        if (cubeUniverse)         cubeUniverse.visible = true;
+        if (permutationGroup)     permutationGroup.visible = true;
+        if (typeof lichtGroup !== 'undefined' && lichtGroup) lichtGroup.visible = false;
+
+        // Cámara/controles nivelados (tu applyStandardView ya tiene rama para isR5NOVA)
+        if (typeof applyStandardView === 'function') applyStandardView();
+
+        // Ajuste de banda del fondo + color flat dorado
+        adjustR5NovaAfterBuild();
+
       } else {
-        window.applyEngineFromSelect = function(v){
-          if (v === 'R5NOVA'){ ensureOnlyR5NOVA(); return; }
-          if (v === 'BUILD'){ switchToBuild(); return; }
-          if (v === 'FRBN'){ toggleFRBN(); return; }
-          if (v === 'LCHT'){ toggleLCHT(); return; }
-          if (v === 'OFFNNG'){ ensureOnlyOFFNNG(); return; }
-          if (v === 'TMSL'){ ensureOnlyTMSL(); return; }
-          if (v === 'RAUM'){ ensureOnlyRAUM(); return; }
-          if (v === '13245'){ toggle13245(); return; }
-        };
+        // Al salir, reconstruye para restaurar materiales/colores originales
+        if (typeof refreshAll === 'function') refreshAll({ rebuild:true, keepManual:true });
       }
-    })();
+
+      updateEngineSelectUI();
+    }
 
     init();
 
