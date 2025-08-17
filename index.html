@@ -824,7 +824,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       BACK_BAND     : 1.8,          // ancho de la rebanada desde zMin (en unidades de mundo)
 
       // Grosor objetivo de TODAS las piezas de esa fila (en unidades de mundo, no relativas)
-      BACK_THICKNESS: 0.36,         // ⟵ pon aquí el grosor deseado (ej. 0.36)
+      BACK_THICKNESS: 0.18,         // pon 0.10–0.40 para probar cambios visibles
 
       // Material ‘flat’ por defecto (sin luces) para aislar color de la iluminación global
       MATERIAL      : 'basic',      // 'basic' (flat) o 'lambert' si prefieres difuso
@@ -865,9 +865,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let skySphere = null;
     let isFRBN    = false;
     const SKY_R = 250;
-
-    // ——— R5NOVA ———
-    let isR5NOVA = false;
 
 
 /* ──────────────────────────────────────────────────────────────
@@ -2365,9 +2362,6 @@ function makePalette(){
       }
 
       permutationGroup.children.forEach(o=>{
-        // ⛔️ No tocar las piezas que R5NOVA controla (material propio)
-        if (isR5NOVA && o.userData && o.userData._r5novaOwnMat) return;
-
         const pa   = o.userData.permStr.split(',').map(Number);
         const idx  = pa[attributeMapping[1]];          // 1-5
         let hex;
@@ -2380,6 +2374,7 @@ function makePalette(){
           const sig  = computeSignature(pa);
           const slot = lehmerRank(pa) % 12;
           let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
+          /* dispersión coprima en S y V */
           sIdx = (sIdx * PHI_S) % 12;
           vIdx = (vIdx * PHI_V) % 12;
           const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
@@ -2388,7 +2383,6 @@ function makePalette(){
         }
         o.material.color.setStyle(hex);
       });
-
       updateColorPickersFromScene();
     }
 
@@ -2544,6 +2538,12 @@ function adjustR5NovaAfterBuild(){
         rebuildRAUMIfActive();
         rebuild13245IfActive();                     // ← NUEVO
         rebuildR5NOVAIfActive();                    // ← NUEVO
+        // Post-ajustes específicos de R5NOVA (grosor y color del fondo)
+        if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
+          // cede un frame para asegurar que el build terminó y hay world matrices
+          setTimeout(adjustR5NovaAfterBuild, 0);
+          requestAnimationFrame(adjustR5NovaAfterBuild);
+        }
       }
     function onColourPick(idx,hex){
       manualOverride[idx]=hex;
@@ -4562,7 +4562,6 @@ void main(){
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
 
-    /*
     // ──────────────────────────────
     // R5NOVA · Proportional tiling engine (tilers-integrated)
     // (v2) · gap mínimo + cuarto tipo RAUM (sin pared del fondo)
@@ -4808,50 +4807,7 @@ void main(){
     
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
-*/
-
-    // ——— R5NOVA: activar/desactivar & rebuild ———
-    function rebuildR5NOVAIfActive(){
-      if (isR5NOVA){
-        // cede 1 frame para asegurar world matrices y AABBs correctos
-        setTimeout(adjustR5NovaAfterBuild, 0);
-        requestAnimationFrame(adjustR5NovaAfterBuild);
-      }
-    }
-
-    function toggleR5NOVA(){
-      if (!isR5NOVA){
-        // ENTRAR (exclusivo)
-        leaveBuildRenderBoost();
-        if (isFRBN)  toggleFRBN();
-        if (isLCHT)  toggleLCHT();
-        if (isOFFNNG)toggleOFFNNG();
-        if (isTMSL)  toggleTMSL();
-        if (isRAUM)  toggleRAUM();
-        if (is13245) toggle13245();
-
-        isR5NOVA = true;
-
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (lichtGroup) lichtGroup.visible = false;
-
-        // cámara/controles como en applyStandardView (R5NOVA)
-        applyStandardView();
-
-        // pasada final: grosor + colores únicos fila de fondo
-        setTimeout(adjustR5NovaAfterBuild, 0);
-        requestAnimationFrame(adjustR5NovaAfterBuild);
-      } else {
-        // SALIR → reconstruye escena “normal” (restaura materiales y colores)
-        isR5NOVA = false;
-        refreshAll({rebuild:true});
-      }
-      if (typeof updateEngineSelectUI === 'function') updateEngineSelectUI();
-    }
-
-    function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
-
+    
     /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
       const sel = document.getElementById('engineSelect');
@@ -4867,6 +4823,19 @@ void main(){
       sel.value = v;
     }
 
+    /* === Cambia de motor cuando el usuario selecciona en el menú === */
+    function applyEngineFromSelect(val){
+      // apaga todo y enciende el seleccionado
+      if (val === 'BUILD') { switchToBuild(); return; }
+      if (val === 'FRBN')  { if (!isFRBN)  toggleFRBN();  return; }
+      if (val === 'LCHT')  { if (!isLCHT)  toggleLCHT();  return; }
+      if (val === 'OFFNNG'){ if (!isOFFNNG)toggleOFFNNG();return; }
+      if (val === 'TMSL')  { if (!isTMSL)  toggleTMSL();  return; }
+      if (val === 'RAUM')  { if (!isRAUM)  toggleRAUM();  return; }
+      if (val === '13245') { if (!is13245) toggle13245(); return; }
+      if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
+    }
+
     /* === Rueda de motores del botón “4” (sincroniza el menú) === */
     function cycleEngine(){
       if (isFRBN){  toggleFRBN(); toggleLCHT(); updateEngineSelectUI(); return; }   // FRBN → LCHT
@@ -4879,28 +4848,6 @@ void main(){
       toggleFRBN();                             // BUILD → FRBN
       updateEngineSelectUI();
     }
-
-    // ——— Menú Engine: soporte para R5NOVA ———
-    (function(){
-      if (typeof applyEngineFromSelect === 'function'){
-        const __old = applyEngineFromSelect;
-        window.applyEngineFromSelect = function(v){
-          if (v === 'R5NOVA'){ ensureOnlyR5NOVA(); return; }
-          __old(v);
-        };
-      } else {
-        window.applyEngineFromSelect = function(v){
-          if (v === 'R5NOVA'){ ensureOnlyR5NOVA(); return; }
-          if (v === 'BUILD'){ switchToBuild(); return; }
-          if (v === 'FRBN'){ toggleFRBN(); return; }
-          if (v === 'LCHT'){ toggleLCHT(); return; }
-          if (v === 'OFFNNG'){ ensureOnlyOFFNNG(); return; }
-          if (v === 'TMSL'){ ensureOnlyTMSL(); return; }
-          if (v === 'RAUM'){ ensureOnlyRAUM(); return; }
-          if (v === '13245'){ toggle13245(); return; }
-        };
-      }
-    })();
 
     init();
 
@@ -5204,6 +5151,62 @@ openssl dgst -sha256 prmttn_config.json</pre>
     }
 
  
+// ── R5NOVA · hook + watchdog para asegurar la ejecución ─────────────────────
+(function R5NovaHook(){
+  // 1) Detección robusta de motor activo
+  const isR5Active = () => {
+    const id =
+      (window.activeEngineId || window.activeEngine || window.engineName || "")
+      .toString().toUpperCase();
+    return id.includes("R5NOVA") || window.isR5NOVA === true || window.isR5Nova === true;
+  };
+
+  // 2) Runner seguro (intenta varias rutas de scope)
+  function runR5Adjust(){
+    if (!isR5Active()) return;
+    const fn = window.adjustR5NovaAfterBuild || (typeof adjustR5NovaAfterBuild === "function" ? adjustR5NovaAfterBuild : null);
+    if (!fn) return;
+    // Expón global si venimos de módulos
+    if (!window.adjustR5NovaAfterBuild) window.adjustR5NovaAfterBuild = fn;
+    try {
+      fn();
+    } catch (e) {
+      console.warn("[R5NOVA] adjust error:", e);
+    }
+  }
+
+  // 3) Pinchar funciones típicas de rebuild/render para llamar después
+  ["refreshAll","rebuildUniverse","buildUniverse","buildScene","switchEngine","render"].forEach(name=>{
+    const orig = window[name];
+    if (typeof orig === "function" && !orig.__r5hooked){
+      window[name] = function(...args){
+        const res = orig.apply(this, args);
+        // Ejecuta justo después y en el próximo frame
+        setTimeout(runR5Adjust, 0);
+        requestAnimationFrame(runR5Adjust);
+        return res;
+      };
+      window[name].__r5hooked = true;
+    }
+  });
+
+  // 4) Watchdog: reintenta durante ~1 seg cada vez que entras a R5NOVA
+  let frames = 0;
+  function tick(){
+    if (isR5Active() && frames < 60){
+      runR5Adjust(); frames++;
+    } else if (!isR5Active()){
+      frames = 0;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // 5) Reintenta tras resize (suele regenerar el layout)
+  window.addEventListener("resize", ()=>{ frames = 0; });
+})();
+ </script>
+<script>
 /* ══════════════════════════════════════════════════════════════
  *  Pattern Information Panel  –  English version (11 patterns)
  *  ⇒ called from the button  <button id="patternInfoButton">
@@ -5217,6 +5220,80 @@ async function showPatternInfo(){
     console.error(err);
   }
 }
+</script>
+<script>
+(function(){
+  // 1) Estado global si no existe
+  if (typeof window.isR5NOVA === 'undefined') window.isR5NOVA = false;
+
+  // 2) Reconstrucción segura: re-aplica los ajustes del fondo/techo cuando R5NOVA está ON
+  if (typeof window.rebuildR5NOVAIfActive !== 'function') {
+    window.rebuildR5NOVAIfActive = function(){
+      if (!window.isR5NOVA) return;
+      // cede un frame para garantizar world matrices actualizadas
+      setTimeout(() => { try { adjustR5NovaAfterBuild(); } catch(e) { console.error(e); } }, 0);
+      requestAnimationFrame(() => { try { adjustR5NovaAfterBuild(); } catch(e) { console.error(e); } });
+    };
+  }
+
+  // 3) Arranque de R5NOVA (exclusivo frente a otros motores)
+  function _enterR5NOVA(){
+    // apaga motores excluyentes si están activos
+    try { if (window.isFRBN)  toggleFRBN();  } catch(_){}
+    try { if (window.isLCHT)  toggleLCHT();  } catch(_){}
+    try { if (window.isOFFNNG)toggleOFFNNG();} catch(_){}
+    try { if (window.isTMSL)  toggleTMSL();  } catch(_){}
+    try { if (window.isRAUM)  toggleRAUM();  } catch(_){}
+    try { if (window.is13245) toggle13245(); } catch(_){}
+
+    window.isR5NOVA = true;
+
+    // Mantén cubo + permutaciones visibles (R5NOVA trabaja sobre ellos)
+    try { if (window.cubeUniverse)      cubeUniverse.visible = true; } catch(_){}
+    try { if (window.permutationGroup)  permutationGroup.visible = true; } catch(_){}
+
+    // Vista nivelada para R5NOVA (ya contemplada en applyStandardView)
+    try { applyStandardView(); } catch(_){}
+
+    // Fuerza reconstrucción + post-ajuste del fondo
+    try { refreshAll({rebuild:true}); } catch(_){}
+    window.rebuildR5NOVAIfActive();
+  }
+
+  // 4) Salida de R5NOVA → reconstruye limpio
+  function _leaveR5NOVA(){
+    window.isR5NOVA = false;
+    try { refreshAll({rebuild:true}); } catch(_){}
+    try { applyStandardView(); } catch(_){}
+  }
+
+  // 5) toggle / build públicos (solo si no existen)
+  if (typeof window.toggleR5NOVA !== 'function') {
+    window.toggleR5NOVA = function(){
+      if (!window.isR5NOVA) _enterR5NOVA(); else _leaveR5NOVA();
+    };
+  }
+  if (typeof window.buildR5NOVA !== 'function') {
+    window.buildR5NOVA = function(){ if (!window.isR5NOVA) _enterR5NOVA(); else window.rebuildR5NOVAIfActive(); };
+  }
+
+  // 6) Hook del <select id="engineSelect"> sin romper tu lógica existente
+  (function hookEngineSelect(){
+    var prev = window.applyEngineFromSelect;
+    window.applyEngineFromSelect = function(val){
+      if (val === 'R5NOVA') {
+        if (!window.isR5NOVA) window.toggleR5NOVA();
+        else window.rebuildR5NOVAIfActive();
+        return;
+      }
+      if (window.isR5NOVA) _leaveR5NOVA();
+      if (typeof prev === 'function') return prev(val);
+    };
+  })();
+
+  // 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
+  if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
+})();
 </script>
 </body>
 </html>
