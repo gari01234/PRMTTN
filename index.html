@@ -818,11 +818,11 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
 
     // === Ajustes específicos de R5NOVA (solo aplican cuando R5NOVA está activo) ===
-    const R5NOVA_BACK_DEPTH   = 0.0006; // antes 0.01  → plano casi “papel”
-    const R5NOVA_BACK_EPS_Z   = 0.0005; // antes 0.002 → micro separación anti z-fighting
-    const R5NOVA_MIN_VOLUMES  = 4;
-    const R5NOVA_MAX_VOLUMES  = 10;
-    const R5NOVA_DISABLE_CEILING = true;
+    const R5NOVA_BACK_DEPTH   = 0.12;   // espesor mínimo en Z (factor de escala). Con BoxGeometry depth=0.5 → ~0.06u visibles
+    const R5NOVA_BACK_EPS_Z   = 0.0005; // micro-separación anti z-fighting
+    const R5NOVA_MIN_VOLUMES  = 4;      // garantiza al menos 4 volúmenes en el fondo (si hay menos, clona)
+    const R5NOVA_MAX_VOLUMES  = 10;     // opcional: oculta el resto para que no “sature” el fondo
+    const R5NOVA_DISABLE_CEILING = true; // apaga el techo (queda en escena, solo invisible)
 
     const EPS = 1e-6;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
@@ -5248,6 +5248,80 @@ async function showPatternInfo(){
     console.error(err);
   }
 }
+</script>
+<script>
+(function(){
+  // 1) Estado global si no existe
+  if (typeof window.isR5NOVA === 'undefined') window.isR5NOVA = false;
+
+  // 2) Reconstrucción segura: re-aplica los ajustes del fondo/techo cuando R5NOVA está ON
+  if (typeof window.rebuildR5NOVAIfActive !== 'function') {
+    window.rebuildR5NOVAIfActive = function(){
+      if (!window.isR5NOVA) return;
+      // cede un frame para garantizar world matrices actualizadas
+      setTimeout(() => { try { adjustR5NovaAfterBuild(); } catch(e) { console.error(e); } }, 0);
+      requestAnimationFrame(() => { try { adjustR5NovaAfterBuild(); } catch(e) { console.error(e); } });
+    };
+  }
+
+  // 3) Arranque de R5NOVA (exclusivo frente a otros motores)
+  function _enterR5NOVA(){
+    // apaga motores excluyentes si están activos
+    try { if (window.isFRBN)  toggleFRBN();  } catch(_){}
+    try { if (window.isLCHT)  toggleLCHT();  } catch(_){}
+    try { if (window.isOFFNNG)toggleOFFNNG();} catch(_){}
+    try { if (window.isTMSL)  toggleTMSL();  } catch(_){}
+    try { if (window.isRAUM)  toggleRAUM();  } catch(_){}
+    try { if (window.is13245) toggle13245(); } catch(_){}
+
+    window.isR5NOVA = true;
+
+    // Mantén cubo + permutaciones visibles (R5NOVA trabaja sobre ellos)
+    try { if (window.cubeUniverse)      cubeUniverse.visible = true; } catch(_){}
+    try { if (window.permutationGroup)  permutationGroup.visible = true; } catch(_){}
+
+    // Vista nivelada para R5NOVA (ya contemplada en applyStandardView)
+    try { applyStandardView(); } catch(_){}
+
+    // Fuerza reconstrucción + post-ajuste del fondo
+    try { refreshAll({rebuild:true}); } catch(_){}
+    window.rebuildR5NOVAIfActive();
+  }
+
+  // 4) Salida de R5NOVA → reconstruye limpio
+  function _leaveR5NOVA(){
+    window.isR5NOVA = false;
+    try { refreshAll({rebuild:true}); } catch(_){}
+    try { applyStandardView(); } catch(_){}
+  }
+
+  // 5) toggle / build públicos (solo si no existen)
+  if (typeof window.toggleR5NOVA !== 'function') {
+    window.toggleR5NOVA = function(){
+      if (!window.isR5NOVA) _enterR5NOVA(); else _leaveR5NOVA();
+    };
+  }
+  if (typeof window.buildR5NOVA !== 'function') {
+    window.buildR5NOVA = function(){ if (!window.isR5NOVA) _enterR5NOVA(); else window.rebuildR5NOVAIfActive(); };
+  }
+
+  // 6) Hook del <select id="engineSelect"> sin romper tu lógica existente
+  (function hookEngineSelect(){
+    var prev = window.applyEngineFromSelect;
+    window.applyEngineFromSelect = function(val){
+      if (val === 'R5NOVA') {
+        if (!window.isR5NOVA) window.toggleR5NOVA();
+        else window.rebuildR5NOVAIfActive();
+        return;
+      }
+      if (window.isR5NOVA) _leaveR5NOVA();
+      if (typeof prev === 'function') return prev(val);
+    };
+  })();
+
+  // 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
+  if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
+})();
 </script>
 </body>
 </html>
