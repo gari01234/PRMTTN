@@ -4750,37 +4750,47 @@ void main(){
         mesh.position.set(cx, cy, zBackEdge + R5_DEPTH/2); // pegado al canto posterior
         groupR5NOVA.add(mesh);
 
-        // === Rahmen (marco) determinista alrededor de cada volumen ===
-        const FRAME_Z_EPS = 0.02;                            // evita z-fighting
-        const t = Math.min(R5_GAP * 2, Math.min(w, h) * 0.2); // grosor ≈ 2× gap, sin exagerar
+        // === Rahmen (marco) INTERNO y de color único/determinista ===
+        // grosor base ≈ 2× gap, con límites para no cerrar el hueco interior
+        const FRAME_Z_EPS = 0.03; // pequeño offset hacia ADENTRO para evitar z-fighting
+        const tRaw = Math.min(R5_GAP * 2, Math.min(w, h) * 0.20);
+        const t    = Math.max(0.001, Math.min(tRaw, w / 3, h / 3)); // asegura w-2t y h-2t positivos
 
-        // color tomado de OTRO volumen de forma determinista (el siguiente en la lista)
-        const j     = (i + 1) % rects.length;
-        const paF   = permsSafe[j % permsSafe.length];
-        const offsF = offsetFromTag(rects[j].tag);
-        const colF  = colorR5NFor(paF, offsF);
+        // dimensiones "inset" (el marco va DENTRO del rectángulo)
+        const wIn = Math.max(0.001, w - 2 * t);
+        const hIn = Math.max(0.001, h - 2 * t);
+
+        // color del marco: distinto al del cuerpo y todos distintos entre sí (determinista)
+        // usamos el mismo 'pa' del volumen, pero con un offset de ranura que rota en el círculo de 12
+        //  - offs  : offset del cuerpo (según tag)
+        //  - offsF : offset adicional (ciclo de paso 5, coprimo con 12) + 6 (opuesto) → muy distinto
+        const offsF = (offs + 6 + (5 * i) % 12) % 12;
+        const colF  = colorR5NFor(pa, offsF);
 
         const matF = new THREE.MeshLambertMaterial({ color: colF, dithering: true });
         matF.emissive = colF.clone();
         matF.emissiveIntensity = 0.12;
 
-        // 4 barras: arriba/abajo/izq/der
-        const topGeo = new THREE.BoxGeometry(w + 2*t, t, R5_DEPTH);
-        const botGeo = new THREE.BoxGeometry(w + 2*t, t, R5_DEPTH);
-        const lefGeo = new THREE.BoxGeometry(t, h, R5_DEPTH);
-        const rigGeo = new THREE.BoxGeometry(t, h, R5_DEPTH);
+        // colocamos el marco un pelín HACIA ADENTRO del volumen (no hacia afuera)
+        const zFrame = zBackEdge + R5_DEPTH/2 - FRAME_Z_EPS;
+
+        // 4 barras internas: arriba/abajo/izq/der
+        const topGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
+        const botGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
+        const lefGeo = new THREE.BoxGeometry(t, hIn, R5_DEPTH);
+        const rigGeo = new THREE.BoxGeometry(t, hIn, R5_DEPTH);
 
         const top = new THREE.Mesh(topGeo, matF);
-        top.position.set(cx, cy + h/2 + t/2, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+        top.position.set(cx, cy + (h/2 - t/2), zFrame);
 
         const bot = new THREE.Mesh(botGeo, matF);
-        bot.position.set(cx, cy - h/2 - t/2, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+        bot.position.set(cx, cy - (h/2 - t/2), zFrame);
 
         const lef = new THREE.Mesh(lefGeo, matF);
-        lef.position.set(cx - w/2 - t/2, cy, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+        lef.position.set(cx - (w/2 - t/2), cy, zFrame);
 
         const rig = new THREE.Mesh(rigGeo, matF);
-        rig.position.set(cx + w/2 + t/2, cy, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+        rig.position.set(cx + (w/2 - t/2), cy, zFrame);
 
         groupR5NOVA.add(top, bot, lef, rig);
       });
