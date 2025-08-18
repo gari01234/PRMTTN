@@ -4607,7 +4607,7 @@ void main(){
 
       const base = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
 
-      // Vibrance BUILD + ∆E contra fondo (igual que antes, pero aplicado al nuevo color)
+      // Vibrance fuerte en superficies + ∆E contra fondo
       const boosted = (function applyBuildVibranceToColor(colorTHREE){
         const raw = [
           Math.round(colorTHREE.r * 255),
@@ -4615,8 +4615,9 @@ void main(){
           Math.round(colorTHREE.b * 255)
         ];
         let [hh, ss, vv] = rgbToHsv(raw[0], raw[1], raw[2]);
-        const s1 = Math.min(1, ss + 0.22 * (1 - ss));
-        const v1 = Math.min(0.93, vv * 1.02);
+        // ↑ saturación y brillo de forma agresiva
+        const s1 = Math.min(1, ss + 0.50 * (1 - ss));
+        const v1 = Math.min(0.99, vv * 1.10 + 0.06);
         let rgb2 = hsvToRgb(hh, s1, v1);
         rgb2 = ensureContrastRGB(rgb2);
         return new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
@@ -4675,7 +4676,7 @@ void main(){
       updateBackground(false);
 
       // ====== Colores deterministas para las paredes (reusa RAUM) ======
-      const colCeil  = raumColorFor(1);
+      const colCeil  = scene.background.clone();  // techo = color de fondo
       const colFloor = raumColorFor(2);
       const colLeft  = raumColorFor(3);
       const colRight = raumColorFor(4);
@@ -4685,14 +4686,14 @@ void main(){
       }
 
       // ====== PAREDES (como RAUM) ======
-      const left  = new THREE.Mesh(new THREE.BoxGeometry(R5_G, R5_H, R5_D), lambertWall(colLeft));
+      const left  = new THREE.Mesh(new THREE.BoxGeometry(R5_G, R5_H, R5_D + 30), lambertWall(colLeft));
       left.position.set(-R5_W/2 + R5_G/2, 0, 0);
-      const right = new THREE.Mesh(new THREE.BoxGeometry(R5_G, R5_H, R5_D), lambertWall(colRight));
+      const right = new THREE.Mesh(new THREE.BoxGeometry(R5_G, R5_H, R5_D + 30), lambertWall(colRight));
       right.position.set( R5_W/2 - R5_G/2, 0, 0);
 
-      const floor = new THREE.Mesh(new THREE.BoxGeometry(R5_W, R5_G, R5_D), lambertWall(colFloor));
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(R5_W, R5_G, R5_D + 30), lambertWall(colFloor));
       floor.position.set(0, -R5_H/2 + R5_G/2, 0);
-      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(R5_W, R5_G, R5_D), lambertWall(colCeil));
+      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(R5_W, R5_G, R5_D + 30), lambertWall(colCeil));
       ceil.position.set(0,  R5_H/2 - R5_G/2, 0);
 
       groupR5NOVA.add(left, right, floor, ceil);
@@ -4742,7 +4743,7 @@ void main(){
           side: THREE.DoubleSide
         });
         mat.emissive = col.clone();
-        mat.emissiveIntensity = 0.06;
+        mat.emissiveIntensity = 0.12;
 
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(cx, cy, zBack + R5_DEPTH/2); // extruye desde el fondo hacia la cámara
