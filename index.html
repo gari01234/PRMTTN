@@ -2891,7 +2891,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         const eyeY = (controls && controls.target) ? controls.target.y : 0;
         camera.up.set(0,1,0);
         camera.fov = 55;
-        camera.position.set(0, eyeY, 32);     // distancia cómoda para W=30
+        camera.position.set(0, eyeY, 42);     // distancia cómoda para W=60
         controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
@@ -4626,12 +4626,12 @@ void main(){
     }
 
     /* Parámetros geométricos (idénticos a RAUM) */
-    const R5_W = 30, R5_H = 30, R5_D = 30, R5_G = 2;  // ancho, alto, fondo, grosor pared (pared de fondo 30×30)
+    const R5_W = 60, R5_H = 60, R5_D = 60, R5_G = 4;  // ancho, alto, fondo, grosor pared (pared de fondo 60×60)
     const R5_DEPTH = 0.06;       // antes: 1.50  → lámina fina tipo “hoja”
-    const R5_GAP   = 0.20;       // ← separación mínima (x2)
+    const R5_GAP   = 0.40;       // antes: 0.20  → misma proporción con el nuevo tamaño
 
     // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
-    const R5N_MAX_TILES = 8;        // máximo de volúmenes a instanciar
+    const R5N_MAX_TILES = 12;        // máximo de volúmenes a instanciar
     const R5N_MIN_CELL  = 6.0;      // tamaño mínimo de celda del BSP (menos particiones)
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
@@ -4779,7 +4779,7 @@ void main(){
         camera.updateProjectionMatrix();
 
         const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.position.set(0, eyeY, 32);
+        camera.position.set(0, eyeY, 42);
         controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
