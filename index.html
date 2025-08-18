@@ -4583,28 +4583,38 @@ void main(){
     }
 
     /* Color determinista por celda (offset cromático opcional según tag) */
-    function colorR5NFor(pa, offset=0){
+    /* Color determinista por celda — garantiza colores ÚNICOS por rectángulo (hasta 12) */
+    function colorR5NFor(pa, offset = 0, uniq = 0){
       const sig  = computeSignature(pa);
       const r    = lehmerRank(pa);
-      const slot = (r % 12) + offset;
 
-      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      // 12 slots posibles; usamos uniq para evitar repeticiones entre rectángulos
+      let slot = (r + uniq) % 12;
+
+      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+
+      // Ajustes deterministas + leve “twist” por tag SIN tocar la unicidad del hue
       sI = (sI * PHI_S) % 12;
       vI = (vI * PHI_V) % 12;
+      if (offset){
+        sI = (sI + (offset * 3)) % 12;
+        vI = (vI + (offset * 2)) % 12;
+      }
 
       const {h,s,v} = idxToHSV(hI, sI, vI);
-      let rgb = hsvToRgb(h,s,v);
+      let rgb = hsvToRgb(h, s, v);
       rgb = ensureContrastRGB(rgb);
 
-      // Vibrance BUILD en superficies + ∆E contra fondo
       const base = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+
+      // Vibrance BUILD + ∆E contra fondo (igual que antes, pero aplicado al nuevo color)
       const boosted = (function applyBuildVibranceToColor(colorTHREE){
         const raw = [
           Math.round(colorTHREE.r * 255),
           Math.round(colorTHREE.g * 255),
           Math.round(colorTHREE.b * 255)
         ];
-        let [hh,ss,vv] = rgbToHsv(raw[0], raw[1], raw[2]);
+        let [hh, ss, vv] = rgbToHsv(raw[0], raw[1], raw[2]);
         const s1 = Math.min(1, ss + 0.22 * (1 - ss));
         const v1 = Math.min(0.93, vv * 1.02);
         let rgb2 = hsvToRgb(hh, s1, v1);
@@ -4617,7 +4627,7 @@ void main(){
 
     /* Parámetros geométricos (idénticos a RAUM) */
     const R5_W = 30, R5_H = 30, R5_D = 30, R5_G = 2;  // ancho, alto, fondo, grosor pared (pared de fondo 30×30)
-    const R5_DEPTH = 1.50;       // espesor de los volúmenes (extrusión hacia la cámara)
+    const R5_DEPTH = 0.06;       // antes: 1.50  → lámina fina tipo “hoja”
     const R5_GAP   = 0.20;       // ← separación mínima (x2)
 
     // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
@@ -4724,11 +4734,12 @@ void main(){
         // Color determinista ciclando permutaciones + offset por tag
         const pa   = permsSafe[i % permsSafe.length];
         const offs = offsetFromTag(r.tag);
-        const col  = colorR5NFor(pa, offs);
+        const col  = colorR5NFor(pa, offs, i);
 
         const mat = new THREE.MeshLambertMaterial({
           color: col,
-          dithering: true
+          dithering: true,
+          side: THREE.DoubleSide
         });
         mat.emissive = col.clone();
         mat.emissiveIntensity = 0.06;
