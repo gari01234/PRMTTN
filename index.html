@@ -4637,19 +4637,25 @@ void main(){
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-    // ——— R5NOVA · ensamblado BSP con ratios 0.42–0.58 y recorte determinista ———
+    // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
     function r5novaAssembleRects(){
-      // Borde perimetral para que la separación contra paredes/techo/piso
-      // sea IGUAL al gap entre volúmenes:
-      //  - reducimos el bbox del tiler en R5_GAP/2 por lado
+      // Interior visible: restamos el grosor de muros/piso/techo (R5_G)
+      const INS_X0 = -R5_W/2 + R5_G;
+      const INS_Y0 = -R5_H/2 + R5_G;
+      const INS_W  = R5_W - 2 * R5_G;
+      const INS_H  = R5_H - 2 * R5_G;
+
+      // Margen perimetral: R5_GAP/2 por lado → Füge final = R5_GAP
       const BORDER = R5_GAP / 2;
+
       const bbox = {
-        x: -R5_W/2 + BORDER,
-        y: -R5_H/2 + BORDER,
-        w: R5_W - 2 * BORDER,
-        h: R5_H - 2 * BORDER
+        x: INS_X0 + BORDER,
+        y: INS_Y0 + BORDER,
+        w: Math.max(0.001, INS_W - 2 * BORDER),
+        h: Math.max(0.001, INS_H - 2 * BORDER)
       };
-      const seed = computeLayoutSeed();  // ya existe en el código
+
+      const seed = computeLayoutSeed();
 
       const rects = window.Tilers.assemble(bbox, null, {
         engine    : 'bsp',
@@ -4661,7 +4667,7 @@ void main(){
         mergeProb : R5N_MERGE
       });
 
-      // Recorte determinista: área desc → x asc → y asc, luego tope a R5N_MAX_TILES
+      // Recorte determinista: área desc → x asc → y asc, tope R5N_MAX_TILES
       return rects
         .slice()
         .sort((a, b) => {
