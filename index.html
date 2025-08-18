@@ -4632,7 +4632,7 @@ void main(){
     const R5_GAP   = 0.40;       // antes: 0.20  → misma proporción con el nuevo tamaño
 
     // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
-    const R5N_MAX_TILES = 12;        // máximo de volúmenes a instanciar
+    const R5N_MAX_TILES = 10;        // máximo de volúmenes a instanciar
     const R5N_MIN_CELL  = 6.0;      // tamaño mínimo de celda del BSP (menos particiones)
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
@@ -4699,8 +4699,9 @@ void main(){
       groupR5NOVA.add(left, right, floor, ceil);
 
       // ====== PLANO DEL FONDO (sin pared): mosaico R5Nova ======
-      // Cara interior del fondo (zBack int.)
-      const zBack = -R5_D/2 + R5_G;
+      // Plano extremo posterior (alineado con el canto trasero de techo/muros/piso)
+      const backDepth = R5_D + 30;
+      const zBackEdge = -backDepth / 2;
 
       // --- Layout determinista con tilers ---
       const rects = r5novaAssembleRects();
@@ -4746,8 +4747,42 @@ void main(){
         mat.emissiveIntensity = 0.12;
 
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(cx, cy, zBack + R5_DEPTH/2); // extruye desde el fondo hacia la cámara
+        mesh.position.set(cx, cy, zBackEdge + R5_DEPTH/2); // pegado al canto posterior
         groupR5NOVA.add(mesh);
+
+        // === Rahmen (marco) determinista alrededor de cada volumen ===
+        const FRAME_Z_EPS = 0.02;                            // evita z-fighting
+        const t = Math.min(R5_GAP * 2, Math.min(w, h) * 0.2); // grosor ≈ 2× gap, sin exagerar
+
+        // color tomado de OTRO volumen de forma determinista (el siguiente en la lista)
+        const j     = (i + 1) % rects.length;
+        const paF   = permsSafe[j % permsSafe.length];
+        const offsF = offsetFromTag(rects[j].tag);
+        const colF  = colorR5NFor(paF, offsF);
+
+        const matF = new THREE.MeshLambertMaterial({ color: colF, dithering: true });
+        matF.emissive = colF.clone();
+        matF.emissiveIntensity = 0.12;
+
+        // 4 barras: arriba/abajo/izq/der
+        const topGeo = new THREE.BoxGeometry(w + 2*t, t, R5_DEPTH);
+        const botGeo = new THREE.BoxGeometry(w + 2*t, t, R5_DEPTH);
+        const lefGeo = new THREE.BoxGeometry(t, h, R5_DEPTH);
+        const rigGeo = new THREE.BoxGeometry(t, h, R5_DEPTH);
+
+        const top = new THREE.Mesh(topGeo, matF);
+        top.position.set(cx, cy + h/2 + t/2, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+
+        const bot = new THREE.Mesh(botGeo, matF);
+        bot.position.set(cx, cy - h/2 - t/2, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+
+        const lef = new THREE.Mesh(lefGeo, matF);
+        lef.position.set(cx - w/2 - t/2, cy, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+
+        const rig = new THREE.Mesh(rigGeo, matF);
+        rig.position.set(cx + w/2 + t/2, cy, zBackEdge + R5_DEPTH/2 + FRAME_Z_EPS);
+
+        groupR5NOVA.add(top, bot, lef, rig);
       });
 
       scene.add(groupR5NOVA);
