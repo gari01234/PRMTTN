@@ -3403,8 +3403,9 @@ function renderArchPanel(html){
       }
         if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
         if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
+        const t = performance.now() * 0.001;
+        if (isTMSL && tmslHaloGroup) updateTMSLHalos(t);
         if (isLCHT && lichtGroup) {
-          const t   = performance.now() * 0.001;
           const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
 
           lichtGroup.children.forEach(o => {
@@ -3922,6 +3923,27 @@ void main(){
     let tmslGroup = null;
     let tmslPrevBg = null;
 
+    // TMSL — estado del efecto Tomasello/Staudt
+    let tmslHaloTex = null;
+    let tmslHaloGroup = null;
+
+    // Radial halo texture (blanco → transparente) para blending aditivo
+    function makeHaloTexture(size=256){
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      const g = c.getContext('2d').createRadialGradient(size/2,size/2,0, size/2,size/2,size/2);
+      g.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+      g.addColorStop(0.60, 'rgba(255,255,255,0.35)');
+      g.addColorStop(1.00, 'rgba(255,255,255,0.0)');
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = g; ctx.fillRect(0,0,size,size);
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      return tex;
+    }
+
     /* ───────────────  RAUM  ·  fixed room 60×30×30  ─────────────── */
     let isRAUM = false;
     let raumGroup = null;
@@ -3969,6 +3991,91 @@ void main(){
       scene.add(tmslGroup);
     }
 
+    function buildTMSL_TomaselloStaudt(){
+      if (!tmslGroup) return;
+
+      // limpia versión previa
+      if (tmslHaloGroup){
+        tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
+        tmslGroup.remove(tmslHaloGroup);
+        tmslHaloGroup = null;
+      }
+      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(256);
+
+      tmslHaloGroup = new THREE.Group();
+      tmslGroup.add(tmslHaloGroup);
+
+      // la primera malla de tmslGroup es la pared blanca
+      const wall = tmslGroup.children.find(o=>o.isMesh);
+      if (!wall || !wall.geometry?.parameters) return;
+
+      const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
+
+      // grilla centrada en el cubo 30×30 (no cubre todo el mural gigante)
+      const GRID = 9;
+      const PAD  = cubeSize * 0.10;            // margen
+      const span = cubeSize - PAD*2;           // ancho útil
+      const step = span / (GRID-1);
+
+      const MOD  = 2.2;    // tamaño de cara visible (módulo)
+      const DEP  = 0.8;    // salida hacia el espectador
+
+      for (let iy=0; iy<GRID; iy++){
+        for (let ix=0; ix<GRID; ix++){
+          const x = -halfCube + PAD + ix*step;
+          const y = -halfCube + PAD + iy*step;
+
+          // color determinista “oculto” (rebote) aprovechando tu pipeline
+          const k     = 1 + ((ix + iy*GRID) % 7);
+          const base  = raumColorFor(k);                         // THREE.Color
+          const color = applyBuildVibranceToColor(base);         // vibrance + ΔE≥22
+
+          // relieve: caja con 6 materiales (frente y dorso blancos; laterales color)
+          const mats = [
+            new THREE.MeshLambertMaterial({color}),              // +X (oculto)
+            new THREE.MeshLambertMaterial({color}),              // -X (oculto)
+            new THREE.MeshLambertMaterial({color}),              // +Y (oculto)
+            new THREE.MeshLambertMaterial({color}),              // -Y (oculto)
+            new THREE.MeshLambertMaterial({color:0xffffff}),     // +Z (frente blanco)
+            new THREE.MeshLambertMaterial({color:0xffffff})      // -Z (dorso blanco)
+          ];
+          const geo  = new THREE.BoxGeometry(MOD, MOD, DEP);
+          const cube = new THREE.Mesh(geo, mats);
+          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
+          tmslGroup.add(cube);
+
+          // halo aditivo “simulando rebote” (pegado a la pared, sin z-fight)
+          const PL   = MOD * 1.7;
+          const pgeo = new THREE.PlaneGeometry(PL, PL);
+          const pmat = new THREE.MeshBasicMaterial({
+            color, map: tmslHaloTex, transparent:true,
+            depthWrite:false, blending:THREE.AdditiveBlending, opacity:0.6
+          });
+          const halo = new THREE.Mesh(pgeo, pmat);
+          halo.position.set(x, y, wallFrontZ + 0.005);
+          halo.userData.baseOpacity = 0.55;
+          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015; // desfase determinista
+          tmslHaloGroup.add(halo);
+        }
+      }
+    }
+
+    function updateTMSLHalos(t){
+      if (!tmslHaloGroup) return;
+      const mx = (typeof mouse?.x==='number') ? mouse.x*0.5 : 0; // -1..1 → -0.5..0.5
+      const my = (typeof mouse?.y==='number') ? mouse.y*0.5 : 0;
+
+      tmslHaloGroup.children.forEach(h=>{
+        const wobble = 0.20 + 0.15*Math.sin(t*0.8 + (h.userData.phase||0));
+        const scale  = 1.0 + 0.18*Math.sin(t*0.5 + (h.userData.phase||0)*1.7);
+        h.scale.setScalar(scale);
+        h.material.opacity = THREE.MathUtils.clamp(
+          (h.userData.baseOpacity||0.55) + wobble + mx*0.2 - my*0.1,
+          0.05, 1.0
+        );
+      });
+    }
+
     function toggleTMSL(){
       if (!isTMSL){ // ENTRAR
         leaveBuildRenderBoost();
@@ -3977,6 +4084,7 @@ void main(){
         if (isOFFNNG)toggleOFFNNG();
 
         buildTMSL();
+        buildTMSL_TomaselloStaudt();
 
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
@@ -3999,6 +4107,11 @@ void main(){
         isTMSL = true;
 
       } else { // SALIR
+        if (tmslHaloGroup){
+          tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
+          if (tmslGroup) tmslGroup.remove(tmslHaloGroup);
+          tmslHaloGroup = null;
+        }
         if (tmslGroup){
           tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
           scene.remove(tmslGroup);
