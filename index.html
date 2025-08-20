@@ -3931,12 +3931,12 @@ void main(){
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
 
+    // —— HALO RECTANGULAR con caída amplia (mezcla mejor entre celdas) ——
     function makeHaloTexture(size = 256){
       const c = document.createElement('canvas');
       c.width = size; c.height = size;
       const ctx = c.getContext('2d');
 
-      // Utilidades SDF + smoothstep
       const smoothstep = (a,b,x)=>{
         const t = Math.min(1, Math.max(0, (x-a)/(b-a)));
         return t*t*(3-2*t);
@@ -3948,43 +3948,34 @@ void main(){
         const oy = Math.max(dy, 0);
         const outside = Math.hypot(ox, oy);
         const inside  = Math.min(Math.max(dx, dy), 0);
-        return outside + inside; // <0 dentro, 0 borde, >0 fuera
+        return outside + inside;
       };
 
-      // Parámetros del “marco” (en coords normalizadas −1..+1)
-      // innerA ≈ borde interior (alineado aprox. con el cubo),
-      // blur controla el grosor/caída, outerA recorta hacia fuera.
-      const innerA = 0.56;  // ~ borde del volumen relativo al plano del halo
-      const blur   = 0.08;  // grosor efectivo del halo
-      const outerA = 0.92;  // límite suave hacia el exterior
+      // Más “gordo” y extendido que antes
+      const innerA = 0.56;
+      const blur   = 0.12;  // ← antes 0.08
+      const outerA = 0.98;  // ← antes 0.92
 
       const img = ctx.createImageData(size, size);
       const data = img.data;
 
       for (let y = 0; y < size; y++){
-        const v = (y/(size-1))*2 - 1;           // −1..+1
+        const v = (y/(size-1))*2 - 1;
         for (let x = 0; x < size; x++){
-          const u = (x/(size-1))*2 - 1;         // −1..+1
+          const u = (x/(size-1))*2 - 1;
 
           const dInner = sdBox(u, v, innerA, innerA);
           const dOuter = sdBox(u, v, outerA, outerA);
 
-          // Pico en el borde interior (dInner≈0) con caída simétrica
           const ring = Math.exp(-(dInner*dInner)/(blur*blur));
-
-          // Recorte suave fuera del outerA
           const cut  = 1.0 - smoothstep(0.0, 0.06, dOuter);
-
           const alpha = Math.max(0, Math.min(1, ring * cut));
 
           const i = (y*size + x)*4;
-          data[i+0] = 255;   // blanco; el color final lo pone el material THREE (tint)
-          data[i+1] = 255;
-          data[i+2] = 255;
+          data[i+0] = 255; data[i+1] = 255; data[i+2] = 255;
           data[i+3] = Math.round(alpha * 255);
         }
       }
-
       ctx.putImageData(img, 0, 0);
 
       const tex = new THREE.CanvasTexture(c);
@@ -4071,7 +4062,7 @@ void main(){
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
       const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.name = 'TMSL_WALL';
+      wall.name = 'TMSL_WALL';   // ← añade esta línea
       wall.renderOrder = -10;                          // la pared se dibuja antes que todo lo demás
       wall.position.set(0, 0, halfCube + DEPTH/2);     // pegada al frontal
       tmslGroup.add(wall);
@@ -4085,35 +4076,39 @@ void main(){
     }
 
     function buildTMSL_TomaselloStaudt(){
+      // Garantiza base
       if (!tmslGroup) buildTMSL();
 
-      // limpia versión previa del halo/volúmenes
+      // Limpieza previa
       if (tmslHaloGroup){
         tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(256); // ← ahora rectangular
+      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(256); // ← textura rectangular ya “amplia”
 
       tmslHaloGroup = new THREE.Group();
       tmslHaloGroup.name = 'TMSL_HALO_GROUP';
       tmslGroup.add(tmslHaloGroup);
 
-      const wall = tmslGroup.getObjectByName('TMSL_WALL');
+      const wall = tmslGroup.getObjectByName('TMSL_WALL') || tmslGroup.children.find(o=>o.isMesh);
       if (!wall || !wall.geometry?.parameters) return;
-
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
-      // grilla centrada en el cubo 30×30
+      // Grilla centrada 9×9 sobre el 30×30
       const GRID = 9;
       const PAD  = cubeSize * 0.10;
       const span = cubeSize - PAD*2;
       const step = span / (GRID-1);
 
-      const MOD  = 2.2;     // tamaño del volumen
-      const DEP  = 0.45;    // ← MENOS profundidad (antes 0.8)
+      // —— Parámetros rectangulares “Staudt” ——
+      const MOD      = 2.2;   // escala base de celda (como antes)
+      const DEP      = 0.65;  // ← un poco MÁS profundidad que la versión previa (antes 0.45/0.60)
+      const RECT_W   = MOD * 0.38; // ancho fijo (Breitenmaß) → barras esbeltas
+      const RATIOS   = [1.0, Math.SQRT2, Math.sqrt(3), Math.sqrt(5)]; // cuadrados + rectángulos de raíz
+      const mRank    = (typeof mappingRank === 'function') ? mappingRank(attributeMapping.slice(0,5)) : 0;
 
-      // Perms deterministas
+      // Permutaciones deterministas (igual que antes)
       const perms = (typeof getSelectedPerms === 'function')
         ? getSelectedPerms()
         : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
@@ -4128,7 +4123,16 @@ void main(){
           const pa      = permsSafe[idxCell % permsSafe.length];
           const color   = tmslColorFor(pa, idxCell);
 
-          // === VOLÚMENES (Basic, sin depender de luces) ===
+          // — Largo determinista usando RATIOS —
+          const ratioIdx = (lehmerRank(pa) + mRank + sceneSeed + idxCell) % RATIOS.length;
+          const ratio    = RATIOS[ratioIdx];
+
+          // Largo nominal y recorte para que quepa cómodo en la celda
+          const hNom = RECT_W * ratio * 2.25;         // factor para dar presencia
+          const hMax = Math.min(step * 0.92, MOD * 3.4);
+          const RECT_H = Math.max(RECT_W * 0.75, Math.min(hNom, hMax));  // evita 0 y mantiene orden
+
+          // === VOLÚMENES RECTANGULARES (Basic, sin depender de luces) ===
           const mats = [
             new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // +X
             new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // -X
@@ -4138,7 +4142,7 @@ void main(){
             new THREE.MeshBasicMaterial({color: 0xffffff})  // -Z
           ];
 
-          const ori = tmslOrientation(pa, idxCell);  // 0..3
+          const ori = tmslOrientation(pa, idxCell);  // 0..3 (orienta la “L” en el canto)
 
           function paintEdge(mat){
             if (color.clone) mat.color = color.clone(); else mat.color = new THREE.Color(color);
@@ -4148,24 +4152,26 @@ void main(){
           if (ori === 2){ paintEdge(mats[1]); paintEdge(mats[3]); }
           if (ori === 3){ paintEdge(mats[0]); paintEdge(mats[3]); }
 
-          const geo  = new THREE.BoxGeometry(MOD, MOD, DEP);
-          const cube = new THREE.Mesh(geo, mats);
+          // Caja rectangular: ancho fijo (X), alto variable (Y), salida DEP (Z)
+          const geo  = new THREE.BoxGeometry(RECT_W, RECT_H, DEP);
+          const cubo = new THREE.Mesh(geo, mats);
+          // un pequeño offset para evitar z-fighting con el halo
+          cubo.position.set(x, y, wallFrontZ + DEP/2 + 0.25);
+          cubo.renderOrder = 0;
+          tmslGroup.add(cubo);
 
-          // Offset Z para evitar z-fighting
-          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.25);
-          cube.renderOrder = 0;
-          tmslGroup.add(cube);
-
-          // === HALO RECTANGULAR (delante de la pared, detrás del cubo) ===
-          const PL   = MOD * 1.7;
-          const pgeo = new THREE.PlaneGeometry(PL, PL);
+          // === HALO RECTANGULAR “grande” (aditivo, se mezcla con los vecinos) ===
+          const HALO_SX = 2.6;   // ← multiplicador en X (más grande)
+          const HALO_SY = 2.6;   // ← multiplicador en Y (más grande)
+          const pgeo = new THREE.PlaneGeometry(RECT_W * HALO_SX, RECT_H * HALO_SY);
           const pmat = new THREE.MeshBasicMaterial({
-            color,                 // tint del halo
-            map: tmslHaloTex,      // ← textura rectangular
+            color,                    // tint
+            map: tmslHaloTex,
             transparent: true,
+            blending: THREE.AdditiveBlending,  // ← se mezcla con otros halos
             depthTest: true,
             depthWrite: false,
-            opacity: 0.90,
+            opacity: 0.60,
             polygonOffset: true,
             polygonOffsetFactor: -1,
             polygonOffsetUnits: -1
@@ -4173,7 +4179,7 @@ void main(){
           const halo = new THREE.Mesh(pgeo, pmat);
           halo.position.set(x, y, wallFrontZ + 0.15);
           halo.renderOrder = 5;
-          halo.userData.baseOpacity = 0.65;
+          halo.userData.baseOpacity = 0.60; // base para el wobble
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
           tmslHaloGroup.add(halo);
         }
