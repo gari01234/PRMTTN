@@ -5134,6 +5134,7 @@ void main(){
       if (val === 'OFFNNG'){ if (!isOFFNNG)toggleOFFNNG();return; }
       if (val === 'TMSL')  {
         if (!isTMSL) toggleTMSL();
+        if (typeof window.ensureBaseVisibilityForTMSL === 'function') ensureBaseVisibilityForTMSL();
         if (typeof window.requestTMSLRebuild === 'function'){
           requestTMSLRebuild();
           requestAnimationFrame(requestTMSLRebuild);
@@ -5625,6 +5626,101 @@ async function showPatternInfo(){
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
 })();
 
+// === TMSL · base visible + cámara segura + luz de cortesía + watchdog ===
+(function(){
+  // Luz de cortesía SOLO cuando TMSL está ON (evita negros en iOS si los materiales no son Basic)
+  function ensureTMSLLighting(on){
+    try{
+      if (on){
+        if (!window.__tmslAmbient){
+          const amb = new THREE.AmbientLight(0xffffff, 0.55);
+          amb.name = '__tmslAmbient';
+          scene.add(amb);
+          window.__tmslAmbient = amb;
+        }
+      } else {
+        if (window.__tmslAmbient){
+          scene.remove(window.__tmslAmbient);
+          window.__tmslAmbient = null;
+        }
+      }
+    }catch(_){ }
+  }
+
+  // Cámara “segura” que siempre ve la pared frontal
+  window.applyTMSLSafeCamera = function(){
+    try{
+      camera.up.set(0,1,0);
+      camera.fov = 60;
+      camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0,0,0);
+      camera.position.set(0, 0, 42);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan = true;
+        controls.enableZoom = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.update();
+      }
+    }catch(_){ }
+  };
+
+  // Base mínima visible para que el halo tenga “sustrato”
+  window.ensureBaseVisibilityForTMSL = function(){
+    try{ updateBackground(false); }catch(_){ }
+    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
+    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
+    try{ renderer.autoClear = true; }catch(_){ }
+    ensureTMSLLighting(true);
+    window.applyTMSLSafeCamera();
+  };
+
+  // Parchea toggleTMSL para aplicar la base al entrar y limpiar al salir
+  (function patchToggleTMSL(){
+    const orig = window.toggleTMSL;
+    if (typeof orig === 'function' && !orig.__tmsl_base_patched){
+      window.toggleTMSL = function(...args){
+        const wasOn = !!window.isTMSL;
+        const res = orig.apply(this, args);
+        const nowOn = !!window.isTMSL;
+        if (!wasOn && nowOn){
+          // Entramos a TMSL
+          try{ window.ensureBaseVisibilityForTMSL(); }catch(_){ }
+          if (typeof window.requestTMSLRebuild === 'function'){
+            requestTMSLRebuild();
+            requestAnimationFrame(requestTMSLRebuild);
+          }
+        } else if (wasOn && !nowOn){
+          // Salimos de TMSL
+          try{ ensureTMSLLighting(false); }catch(_){ }
+        }
+        return res;
+      };
+      window.toggleTMSL.__tmsl_base_patched = true;
+    }
+  })();
+
+  // Watchdog: durante ~¾ s tras entrar, refuerza base + rebuild (iOS tarda en “arrancar”)
+  (function tmslWatchdog(){
+    let frames = 0;
+    function tick(){
+      if (window.isTMSL){
+        if (frames < 45){
+          try{ window.ensureBaseVisibilityForTMSL(); }catch(_){ }
+          if (typeof window.requestTMSLRebuild === 'function') requestTMSLRebuild();
+          frames++;
+        }
+      } else {
+        frames = 0;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
+})();
+
   /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
   (function(){
     if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
@@ -5654,7 +5750,8 @@ async function showPatternInfo(){
       // Función de rebuild única (halo-only)
       window.rebuildTMSLIfActive = function(){
         if (!window.isTMSL) return;
-        try { if (typeof window.buildTMSL_TomaselloStaudt === 'function') buildTMSL_TomaselloStaudt(); } catch(_){ }
+        try { if (typeof window.ensureBaseVisibilityForTMSL === 'function') ensureBaseVisibilityForTMSL(); } catch(_){ }
+        try { buildTMSL_TomaselloStaudt(); } catch(_){ }
       };
 
       const run = () => { try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } };
