@@ -4215,12 +4215,6 @@ void main(){
         isTMSL = false;
       }
     }
-
-    /* botón selector – sólo enciende, nunca apaga */
-    function ensureOnlyTMSL(){
-      if (!isTMSL) toggleTMSL();
-    }
-
     function clearGroup(g){
       if (!g) return;
       g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
@@ -5096,6 +5090,25 @@ void main(){
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
     }
+
+    // Enciende SOLO TMSL (y fuerza un rebuild coalescido)
+    function ensureOnlyTMSL(){
+      try{ if (isFRBN)   toggleFRBN();   }catch(_){}
+      try{ if (isLCHT)   toggleLCHT();   }catch(_){}
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){}
+      try{ if (is13245)  toggle13245();  }catch(_){}
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+
+      try{
+        if (!isTMSL) toggleTMSL();
+        // solicita el rebuild del halo en el próximo frame
+        if (typeof window.requestTMSLRebuild === 'function'){
+          requestTMSLRebuild();
+          requestAnimationFrame(requestTMSLRebuild);
+        }
+      }catch(_){ }
+    }
     
     /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
@@ -5119,7 +5132,14 @@ void main(){
       if (val === 'FRBN')  { if (!isFRBN)  toggleFRBN();  return; }
       if (val === 'LCHT')  { if (!isLCHT)  toggleLCHT();  return; }
       if (val === 'OFFNNG'){ if (!isOFFNNG)toggleOFFNNG();return; }
-      if (val === 'TMSL')  { if (!isTMSL)  toggleTMSL();  return; }
+      if (val === 'TMSL')  {
+        if (!isTMSL) toggleTMSL();
+        if (typeof window.requestTMSLRebuild === 'function'){
+          requestTMSLRebuild();
+          requestAnimationFrame(requestTMSLRebuild);
+        }
+        return;
+      }
       if (val === 'RAUM')  { if (!isRAUM)  toggleRAUM();  return; }
       if (val === '13245') { if (!is13245) toggle13245(); return; }
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
@@ -5605,58 +5625,61 @@ async function showPatternInfo(){
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
 })();
 
-/* === TMSL · coalescer: 1 rebuild por frame === */
-(function(){
-  let tmslPending = false;
-  window.requestTMSLRebuild = function(){
-    if (!window.isTMSL || tmslPending) return;
-    tmslPending = true;
-    requestAnimationFrame(() => {
-      tmslPending = false;
-      try { window.rebuildTMSLIfActive(); } catch(e){ console.warn('[TMSL] rebuild:', e); }
-    });
-  };
-})();
+  /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
+  (function(){
+    if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
 
-// Unifica la entrada a TMSL: si alguien llama buildTMSL(), redirige a la versión con halo
-(function unifyTMSLBuild(){
-  if (typeof window.buildTMSL_TomaselloStaudt === 'function'){
-    window.buildTMSL = window.buildTMSL_TomaselloStaudt;
-  }
-})();
+    // 2.1) Unificar el entry point: siempre construir la variante con halo
+    (function unifyTMSLBuild(){
+      if (typeof window.buildTMSL_TomaselloStaudt === 'function'){
+        window.buildTMSL = window.buildTMSL_TomaselloStaudt;
+      }
+    })();
 
-// ── TMSL · Hook de rebuild determinista (HALO-ONLY) ────────────────────────
-(function TMSLHook(){
-  // Siempre reconstruye SOLO la variante con halo
-  window.rebuildTMSLIfActive = function(){
-    if (!window.isTMSL) return;
-    try { buildTMSL_TomaselloStaudt(); } catch(_){ }
-  };
-
-  function run(){ try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } }
-
-  // Pincha funciones típicas que tu UI ya usa
-  [
-    'refreshAll','rebuildUniverse','buildUniverse','buildScene',
-    'applyPatternFromSelect','cyclePattern','setChromaticPattern',
-    'applyAttributeMapping','cycleAttributeMapping',
-    'randomizePermutationCenterClick','applyPermutationSet','shufflePermutations'
-  ].forEach(name=>{
-    const orig = window[name];
-    if (typeof orig === 'function' && !orig.__tmsl_hooked){
-      window[name] = function(...args){
-        const res = orig.apply(this, args);
-        setTimeout(run, 0);
-        requestAnimationFrame(run);
-        return res;
+    // 2.2) Rebuild coalescido (evita tormenta de renders)
+    if (typeof window.requestTMSLRebuild !== 'function'){
+      let tmslPending = false;
+      window.requestTMSLRebuild = function(){
+        if (!window.isTMSL || tmslPending) return;
+        tmslPending = true;
+        requestAnimationFrame(() => {
+          tmslPending = false;
+          try { if (window.isTMSL && typeof window.rebuildTMSLIfActive === 'function') window.rebuildTMSLIfActive(); } catch(e){ console.warn('[TMSL] rebuild:', e); }
+        });
       };
-      window[name].__tmsl_hooked = true;
     }
-  });
 
-  // También tras resize
-  window.addEventListener('resize', ()=>{ setTimeout(run,0); });
-})();
+    // 2.3) Hook: reconstruir SIEMPRE la variante con halo tras acciones típicas
+    (function TMSLHook(){
+      // Función de rebuild única (halo-only)
+      window.rebuildTMSLIfActive = function(){
+        if (!window.isTMSL) return;
+        try { if (typeof window.buildTMSL_TomaselloStaudt === 'function') buildTMSL_TomaselloStaudt(); } catch(_){ }
+      };
+
+      const run = () => { try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } };
+
+      [
+        'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+        'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+        'applyAttributeMapping','cycleAttributeMapping',
+        'randomizePermutationCenterClick','applyPermutationSet','shufflePermutations'
+      ].forEach(name=>{
+        const orig = window[name];
+        if (typeof orig === 'function' && !orig.__tmsl_hooked){
+          window[name] = function(...args){
+            const res = orig.apply(this, args);
+            setTimeout(run, 0);
+            requestAnimationFrame(run);
+            return res;
+          };
+          window[name].__tmsl_hooked = true;
+        }
+      });
+
+      window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+    })();
+  })();
 </script>
 </body>
 </html>
