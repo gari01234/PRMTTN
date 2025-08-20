@@ -4007,43 +4007,45 @@ void main(){
       return (r + mRank + sceneSeed + cellIndex) % 4;           // 0..3
     }
 
-    /* HALO-ONLY · compat layer: delega en la versión unificada */
     function rebuildTMSLIfActive(){
-      if (!window.isTMSL) return;
-      try { buildTMSL_TomaselloStaudt(); } catch(_){ }
+      if (!isTMSL) return;
+      try{
+        if (!tmslGroup) buildTMSL();
+        buildTMSL_TomaselloStaudt();   // HALO-ONLY, sobre pared básica
+      }catch(_){ }
     }
 
     function buildTMSL(){
       // limpia versión previa
       if (tmslGroup){
-        tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose?.();o.material.dispose?.();}});
         scene.remove(tmslGroup);
       }
       tmslGroup = new THREE.Group();
+      tmslGroup.name = 'TMSL_GROUP';
 
-      // Luz local de cortesía (por si lichtGroup está oculto)
-      let amb = tmslGroup.getObjectByName('__tmslAmbient');
-      if (!amb){
-        amb = new THREE.AmbientLight(0xffffff, 0.55);
-        amb.name = '__tmslAmbient';
-        tmslGroup.add(amb);
-      }
-
-      // Pared blanca "autoiluminada" (no depende de luces)
+      // PARED FRONTAL: Basic (no necesita luces) + orden bajo
       const DEPTH = 2;
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // ← antes: Lambert
+      const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+      wall.name = 'TMSL_WALL';
+      wall.renderOrder = -10;                          // la pared se dibuja antes que todo lo demás
+      wall.position.set(0, 0, halfCube + DEPTH/2);     // pegada al frontal
       tmslGroup.add(wall);
+
+      // Luz suave local (por si en algún sitio vuelves a Lambert); va dentro del grupo
+      const amb = new THREE.AmbientLight(0xffffff, 0.20);
+      amb.name = 'TMSL_AMB';
+      tmslGroup.add(amb);
 
       scene.add(tmslGroup);
     }
 
     function buildTMSL_TomaselloStaudt(){
-      if (!tmslGroup) return;
+      if (!tmslGroup) buildTMSL();
 
-      // limpia versión previa
+      // limpia versión previa del halo/volúmenes
       if (tmslHaloGroup){
         tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
@@ -4052,87 +4054,86 @@ void main(){
       if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(256);
 
       tmslHaloGroup = new THREE.Group();
+      tmslHaloGroup.name = 'TMSL_HALO_GROUP';
       tmslGroup.add(tmslHaloGroup);
 
-      // pared frontal (primer mesh del grupo TMSL)
-      const wall = tmslGroup.children.find(o=>o.isMesh);
+      const wall = tmslGroup.getObjectByName('TMSL_WALL');
       if (!wall || !wall.geometry?.parameters) return;
 
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
-      // grilla centrada en el cubo 30×30 (no cubre todo el mural gigante)
+      // grilla centrada en el cubo 30×30
       const GRID = 9;
-      const PAD  = cubeSize * 0.10;            // margen
-      const span = cubeSize - PAD*2;           // ancho útil
+      const PAD  = cubeSize * 0.10;                // margen
+      const span = cubeSize - PAD*2;               // ancho útil
       const step = span / (GRID-1);
 
       const MOD  = 2.2;    // tamaño de cara visible (módulo)
       const DEP  = 0.8;    // salida hacia el espectador
+
+      // Perms deterministas
+      const perms = (typeof getSelectedPerms === 'function')
+        ? getSelectedPerms()
+        : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
+      const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
 
       for (let iy=0; iy<GRID; iy++){
         for (let ix=0; ix<GRID; ix++){
           const x = -halfCube + PAD + ix*step;
           const y = -halfCube + PAD + iy*step;
 
-          // Colores atados a las permutaciones + patrón (determinista)
-          const perms = (typeof getSelectedPerms === 'function')
-            ? getSelectedPerms()
-            : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
+          const idxCell = iy*GRID + ix;
+          const pa      = permsSafe[idxCell % permsSafe.length];
+          const color   = tmslColorFor(pa, idxCell);
 
-          const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
-          const idxCell   = iy*GRID + ix;
-          const pa        = permsSafe[idxCell % permsSafe.length];
-
-          // color determinista
-          const color = tmslColorFor(pa, idxCell);
-
-          // --- materiales base (blancos suaves) ---
-          const cEdge = color;
-          const cFace = 0xf2f2f2; // blanco menos “crudo”
-
-          // orden three.js: +X, -X, +Y, -Y, +Z, -Z
+          // === VOLÚMENES ===
+          // Todo en MeshBasicMaterial para que NO dependan de luces
           const mats = [
-            new THREE.MeshLambertMaterial({color: cFace}), // +X
-            new THREE.MeshLambertMaterial({color: cFace}), // -X
-            new THREE.MeshLambertMaterial({color: cFace}), // +Y
-            new THREE.MeshLambertMaterial({color: cFace}), // -Y
-            new THREE.MeshLambertMaterial({color: 0xffffff}), // +Z
-            new THREE.MeshLambertMaterial({color: 0xffffff})  // -Z
+            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // +X
+            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // -X
+            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // +Y
+            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // -Y
+            new THREE.MeshBasicMaterial({color: 0xffffff}), // +Z (frente)
+            new THREE.MeshBasicMaterial({color: 0xffffff})  // -Z (fondo)
           ];
 
           // orientación L determinista
-          const ori = tmslOrientation(pa, idxCell);  // 0..3 (gira la “L”)
+          const ori = tmslOrientation(pa, idxCell);  // 0..3
 
           // pinta dos cantos (una “L”) con el color
-          const EDGE_EMI = 0.08;
           function paintEdge(mat){
-            mat.color = cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge);
-            mat.emissive = (cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge));
-            mat.emissiveIntensity = EDGE_EMI;
+            if (color.clone) mat.color = color.clone(); else mat.color = new THREE.Color(color);
           }
           if (ori === 0){ paintEdge(mats[0]); paintEdge(mats[2]); }  // +X & +Y
           if (ori === 1){ paintEdge(mats[1]); paintEdge(mats[2]); }  // -X & +Y
           if (ori === 2){ paintEdge(mats[1]); paintEdge(mats[3]); }  // -X & -Y
           if (ori === 3){ paintEdge(mats[0]); paintEdge(mats[3]); }  // +X & -Y
+
           const geo  = new THREE.BoxGeometry(MOD, MOD, DEP);
           const cube = new THREE.Mesh(geo, mats);
-          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
+
+          // Offset Z generoso para evitar z-fighting en iOS
+          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.25);
+          cube.renderOrder = 0;                   // por delante de la pared
           tmslGroup.add(cube);
 
-          // halo “simulando rebote” (pegado a la pared, sin z-fight)
+          // === HALO (siempre delante de la pared, detrás del cubo) ===
           const PL   = MOD * 1.7;
           const pgeo = new THREE.PlaneGeometry(PL, PL);
           const pmat = new THREE.MeshBasicMaterial({
-            color,                   // ← color del patrón manda
+            color,                      // color del patrón
             map: tmslHaloTex,
             transparent: true,
+            depthTest: true,
             depthWrite: false,
-            blending: THREE.NormalBlending, // ← no aditivo
-            premultipliedAlpha: false,
-            opacity: 0.90
+            opacity: 0.90,
+            polygonOffset: true,        // evita cualquier z-fighting con la pared
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1
           });
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ + 0.005);
+          halo.position.set(x, y, wallFrontZ + 0.15); // delante de la pared, detrás del cubo
+          halo.renderOrder = 5;                       // se dibuja después del cubo si coincide Z
           halo.userData.baseOpacity = 0.65;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
           tmslHaloGroup.add(halo);
@@ -5685,18 +5686,33 @@ async function showPatternInfo(){
 
   // Base mínima para TMSL: NO toca background ni visibilidad de otros grupos
   window.ensureBaseVisibilityForTMSL = function(){
-    try{ renderer.autoClear = true; }catch(_){ }
-    // Mantén el fondo que fijó toggleTMSL (negro) y deja ocultos cubeUniverse/permutationGroup.
-    // Solo añadimos luz de cortesía y cámara segura.
+    // Nada de updateBackground() ni de re-mostrar cubeUniverse/permutationGroup aquí.
+    // Solo cámara segura y una luz suave por si algún material no es Basic.
     try{
-      if (!window.__tmslAmbient){
-        const amb = new THREE.AmbientLight(0xffffff, 0.55);
-        amb.name = '__tmslAmbient';
-        scene.add(amb);
-        window.__tmslAmbient = amb;
+      if (renderer) renderer.autoClear = true;
+      if (camera){
+        camera.up.set(0,1,0);
+        camera.fov = 60;
+        camera.updateProjectionMatrix();
+        if (controls && controls.target) controls.target.set(0,0,0);
+        camera.position.set(0, 0, 42);
+        if (controls){
+          controls.enabled = true;
+          controls.enableRotate = true;
+          controls.enablePan = true;
+          controls.enableZoom = true;
+          controls.minPolarAngle = 0;
+          controls.maxPolarAngle = Math.PI;
+          controls.update();
+        }
+      }
+      // Luz suave local si no existe (la de buildTMSL ya la crea dentro del grupo)
+      if (!tmslGroup || !tmslGroup.getObjectByName('TMSL_AMB')){
+        try{
+          if (!tmslGroup) buildTMSL();
+        }catch(_){ }
       }
     }catch(_){ }
-    window.applyTMSLSafeCamera();
   };
 
   // Parchea toggleTMSL (post-entrada) — sin reactivar el cubo ni el fondo
@@ -5749,14 +5765,7 @@ async function showPatternInfo(){
   (function(){
     if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
 
-    // 2.1) Unificar el entry point: siempre construir la variante con halo
-    (function unifyTMSLBuild(){
-      if (typeof window.buildTMSL_TomaselloStaudt === 'function'){
-        window.buildTMSL = window.buildTMSL_TomaselloStaudt;
-      }
-    })();
-
-    // 2.2) Rebuild coalescido (evita tormenta de renders)
+    // Rebuild coalescido (evita tormenta de renders)
     if (typeof window.requestTMSLRebuild !== 'function'){
       let tmslPending = false;
       window.requestTMSLRebuild = function(){
@@ -5771,13 +5780,6 @@ async function showPatternInfo(){
 
     // 2.3) Hook: reconstruir SIEMPRE la variante con halo tras acciones típicas
     (function TMSLHook(){
-      // Función de rebuild única (halo-only)
-      window.rebuildTMSLIfActive = function(){
-        if (!window.isTMSL) return;
-        try { if (typeof window.ensureBaseVisibilityForTMSL === 'function') ensureBaseVisibilityForTMSL(); } catch(_){ }
-        try { buildTMSL_TomaselloStaudt(); } catch(_){ }
-      };
-
       const run = () => { try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } };
 
       [
