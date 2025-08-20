@@ -3924,60 +3924,67 @@ void main(){
     let tmslGroup = null;
     let tmslPrevBg = null;
 
-    // ── TMSL · Tomasello/Staudt — estado + textura halo (rectangular/direccional) ──
-    let tmslHaloTexRect = null;
+    // ——— TMSL helpers / sub-grupos ———
+    let tmslBlocksGroup = null;
+
+    function disposeAndRemove(g){
+      if (!g) return;
+      g.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+      if (g.parent) g.parent.remove(g);
+    }
+
+    // ── TMSL · Tomasello/Staudt — estado + textura halo rectangular ──
+    let tmslHaloTex = null;
     let tmslHaloGroup   = null;
 
-    // Dirección "de luz" en el plano (x→derecha, y→arriba)
-    const TMSL_LIGHT_DIR = new THREE.Vector2(0.55, 0.85).normalize();
-
-    /* Halo rectangular direccional: alfa = fx(x)*fy(y), con el centro
-       desplazado en la dirección TMSL_LIGHT_DIR para simular "sombra" */
-    function makeDirectionalRectHaloTexture(size = 256){
+    function makeRectHaloTexture(W=512, H=512){
       const c = document.createElement('canvas');
-      c.width = size; c.height = size;
-      const ctx = c.getContext('2d', { willReadFrequently:true });
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0,0,W,H);
 
-      const img = ctx.createImageData(size, size);
-      const data = img.data;
+      const aMax = 0.92;      // opacidad pico del resplandor
+      const featherX = 0.22;  // pluma lateral (22 %)
+      const featherY = 0.22;  // pluma vertical
 
-      // suavidad por eje (cuanto más pequeño → borde más duro)
-      const sx = 0.58;  // horizontal
-      const sy = 0.42;  // vertical
+      const innerW = Math.floor(W*(1-2*featherX));
+      const innerH = Math.floor(H*(1-2*featherY));
+      const ix = Math.floor((W-innerW)/2);
+      const iy = Math.floor((H-innerH)/2);
 
-      // sesgo del centro en dirección de la “luz”
-      const shift = 0.16; // 0..~0.3
-      const cx = 0.5 - (TMSL_LIGHT_DIR.x * shift);
-      const cy = 0.5 - (TMSL_LIGHT_DIR.y * shift);
+      // Centro (leve) para evitar un “agujero” en el medio
+      ctx.fillStyle = `rgba(255,255,255,${aMax*0.35})`;
+      ctx.fillRect(ix, iy, innerW, innerH);
 
-      // gauss 1D
-      const g1 = (u, s)=>Math.exp(-(u*u)/(2*s*s));
-      // perfil rectangular suave: producto de dos gauss 1D
-      for (let y = 0; y < size; y++){
-        for (let x = 0; x < size; x++){
-          const nx = x/size, ny = y/size;
-          const dx = (nx - cx) / sx;
-          const dy = (ny - cy) / sy;
-          // alfa básico (clamp)
-          let a = g1(dx,1.0) * g1(dy,1.0);
-          // realce suave del “borde” cercano a la pieza
-          a = Math.min(1, a * 1.10);
+      // Lados izquierda/derecha (gradientes lineales)
+      const fx = Math.floor(W*featherX), fy = Math.floor(H*featherY);
 
-          const i = (y*size + x) * 4;
-          // textura en blanco con alfa; el color lo pone el material
-          data[i]   = 255;  // R
-          data[i+1] = 255;  // G
-          data[i+2] = 255;  // B
-          data[i+3] = Math.max(0, Math.min(255, Math.round(a * 255))); // A
-        }
-      }
-      ctx.putImageData(img, 0, 0);
+      const gL = ctx.createLinearGradient(ix-fx, 0, ix, 0);
+      gL.addColorStop(0, `rgba(255,255,255,0)`);
+      gL.addColorStop(1, `rgba(255,255,255,${aMax})`);
+      ctx.fillStyle = gL; ctx.fillRect(ix-fx, iy, fx, innerH);
+
+      const gR = ctx.createLinearGradient(ix+innerW, 0, ix+innerW+fx, 0);
+      gR.addColorStop(0, `rgba(255,255,255,${aMax})`);
+      gR.addColorStop(1, `rgba(255,255,255,0)`);
+      ctx.fillStyle = gR; ctx.fillRect(ix+innerW, iy, fx, innerH);
+
+      // Lados arriba/abajo
+      const gT = ctx.createLinearGradient(0, iy-fy, 0, iy);
+      gT.addColorStop(0, `rgba(255,255,255,0)`);
+      gT.addColorStop(1, `rgba(255,255,255,${aMax})`);
+      ctx.fillStyle = gT; ctx.fillRect(ix, iy-fy, innerW, fy);
+
+      const gB = ctx.createLinearGradient(0, iy+innerH, 0, iy+innerH+fy);
+      gB.addColorStop(0, `rgba(255,255,255,${aMax})`);
+      gB.addColorStop(1, `rgba(255,255,255,0)`);
+      ctx.fillStyle = gB; ctx.fillRect(ix, iy+innerH, innerW, fy);
 
       const tex = new THREE.CanvasTexture(c);
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.needsUpdate = true;
+      tex.anisotropy = (renderer?.capabilities?.getMaxAnisotropy?.() || 4);
       return tex;
     }
 
@@ -4043,33 +4050,28 @@ void main(){
       if (!isTMSL) return;
       try{
         if (!tmslGroup) buildTMSL();
-        buildTMSL_TomaselloStaudt();   // HALO-ONLY, sobre pared básica
+        buildTMSL_TomaselloStaudt();
       }catch(_){ }
     }
 
     function buildTMSL(){
-      // limpia versión previa
-      if (tmslGroup){
-        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose?.();o.material.dispose?.();}});
-        scene.remove(tmslGroup);
-      }
+      // limpia grupo previo si existía
+      disposeAndRemove(tmslGroup);
       tmslGroup = new THREE.Group();
-      tmslGroup.name = 'TMSL_GROUP';
 
-      // PARED FRONTAL: Basic (no necesita luces) + orden bajo
+      // pared frontal (material básico → no depende de la luz)
       const DEPTH = 2;
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
       const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.name = 'TMSL_WALL';   // ← añade esta línea
-      wall.renderOrder = -10;                          // la pared se dibuja antes que todo lo demás
-      wall.position.set(0, 0, halfCube + DEPTH/2);     // pegada al frontal
+      wall.position.set(0, 0, halfCube + DEPTH/2);
+      wall.name = '__tmslWall';
       tmslGroup.add(wall);
 
-      // Luz suave local (por si en algún sitio vuelves a Lambert); va dentro del grupo
-      const amb = new THREE.AmbientLight(0xffffff, 0.20);
-      amb.name = 'TMSL_AMB';
-      tmslGroup.add(amb);
+      // sub-grupo para BLOQUES (podemos vaciarlo sin tocar la pared)
+      tmslBlocksGroup = new THREE.Group();
+      tmslBlocksGroup.name = '__tmslBlocks';
+      tmslGroup.add(tmslBlocksGroup);
 
       scene.add(tmslGroup);
     }
@@ -4077,128 +4079,91 @@ void main(){
     function buildTMSL_TomaselloStaudt(){
       if (!tmslGroup) return;
 
-      // limpia versión previa de halos
-      if (tmslHaloGroup){
-        tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
-        tmslGroup.remove(tmslHaloGroup);
-        tmslHaloGroup = null;
-      }
-      if (!tmslHaloTexRect) tmslHaloTexRect = makeDirectionalRectHaloTexture(256);
+      // LIMPIEZA: elimina halos y bloques previos (evita duplicados/pixelado)
+      disposeAndRemove(tmslHaloGroup); tmslHaloGroup = null;
+      disposeAndRemove(tmslBlocksGroup);
+      tmslBlocksGroup = new THREE.Group();
+      tmslBlocksGroup.name = '__tmslBlocks';
+      tmslGroup.add(tmslBlocksGroup);
 
+      if (!tmslHaloTex) tmslHaloTex = makeRectHaloTexture(512, 512);
       tmslHaloGroup = new THREE.Group();
+      tmslHaloGroup.name = '__tmslHalos';
       tmslGroup.add(tmslHaloGroup);
 
-      // pared frontal (primer mesh del grupo TMSL)
-      const wall = tmslGroup.children.find(o=>o.isMesh);
+      // pared frontal (para posicionar)
+      const wall = tmslGroup.getObjectByName('__tmslWall');
       if (!wall || !wall.geometry?.parameters) return;
-
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
-      // ====== Raster centrado en 30×30 ======
+      // ——— layout (tu grilla original) ———
       const GRID = 9;
-      const PAD  = cubeSize * 0.10;              // margen
+      const PAD  = cubeSize * 0.10;
       const span = cubeSize - PAD*2;
       const step = span / (GRID-1);
 
-      // ====== Geometría de los volúmenes ======
-      const RECT_W   = 0.82;                     // ancho fijo (x)
-      const BASE_H   = 1.15;                     // alto base (y)
-      const DEP      = 0.55;                      // profundidad (z) – un poco más
-      const RATIOS   = [1, Math.SQRT2, Math.sqrt(3), Math.sqrt(5)];   // 1, √2, √3, √5
-      const H_MAX    = step * 0.86;               // evita solapes verticales
-      const H_MIN    = step * 0.38;
+      // ——— módulo: ancho fijo + alto determinista (raíces) ———
+      const W   = 1.25;      // “Breitenbücher” fijo
+      const DEP = 0.40;      // un pelín menos de profundidad
+      const RATIOS = [1.0, Math.SQRT2, Math.sqrt(3), (1+Math.sqrt(5))/2];
 
+      const perms = (typeof getSelectedPerms === 'function')
+        ? getSelectedPerms()
+        : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
+      const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
+
+      let idx = 0;
       for (let iy=0; iy<GRID; iy++){
-        for (let ix=0; ix<GRID; ix++){
+        for (let ix=0; ix<GRID; ix++, idx++){
           const x = -halfCube + PAD + ix*step;
           const y = -halfCube + PAD + iy*step;
 
-          // Permutaciones activas (determinismo cromático)
-          const perms = (typeof getSelectedPerms === 'function')
-            ? getSelectedPerms()
-            : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
+          const pa    = permsSafe[idx % permsSafe.length];
+          const color = tmslColorFor(pa, idx);
 
-          const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
-          const idxCell   = iy*GRID + ix;
-          const pa        = permsSafe[idxCell % permsSafe.length];
+          // alto determinista según raíz
+          const r = (lehmerRank(pa) + idx + sceneSeed) % RATIOS.length;
+          const H = W * RATIOS[r];
 
-          // color determinista “BUILD vib.”
-          const color = tmslColorFor(pa, idxCell);
-
-          // materiales base
-          const cEdge = color;
-          const cFace = 0xf2f2f2;
-
-          // orden three.js: +X, -X, +Y, -Y, +Z, -Z
+          // — caras NO-iluminadas (blanco suave) + cantos con color
+          const faceWhite = new THREE.Color(0xf5f5f5);
           const mats = [
-            new THREE.MeshLambertMaterial({color: cFace}), // +X
-            new THREE.MeshLambertMaterial({color: cFace}), // -X
-            new THREE.MeshLambertMaterial({color: cFace}), // +Y
-            new THREE.MeshLambertMaterial({color: cFace}), // -Y
-            new THREE.MeshLambertMaterial({color: 0xffffff}), // +Z (frente)
-            new THREE.MeshLambertMaterial({color: 0xffffff})  // -Z
+            new THREE.MeshBasicMaterial({color: faceWhite}), // +X
+            new THREE.MeshBasicMaterial({color: faceWhite}), // -X
+            new THREE.MeshBasicMaterial({color: faceWhite}), // +Y
+            new THREE.MeshBasicMaterial({color: faceWhite}), // -Y
+            new THREE.MeshBasicMaterial({color: 0xffffff}),  // +Z
+            new THREE.MeshBasicMaterial({color: 0xffffff})   // -Z
           ];
+          const paint = (m)=>{ m.color = color.clone(); };
+          const ori = tmslOrientation(pa, idx);
+          if (ori === 0){ paint(mats[0]); paint(mats[2]); }
+          if (ori === 1){ paint(mats[1]); paint(mats[2]); }
+          if (ori === 2){ paint(mats[1]); paint(mats[3]); }
+          if (ori === 3){ paint(mats[0]); paint(mats[3]); }
 
-          // orientación L determinista (pinta cantos)
-          const ori = tmslOrientation(pa, idxCell);
-          const EDGE_EMI = 0.10;
-          function paintEdge(mat){
-            const col = cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge);
-            mat.color = col;
-            mat.emissive = col.clone();
-            mat.emissiveIntensity = EDGE_EMI;
-          }
-          if (ori === 0){ paintEdge(mats[0]); paintEdge(mats[2]); }
-          if (ori === 1){ paintEdge(mats[1]); paintEdge(mats[2]); }
-          if (ori === 2){ paintEdge(mats[1]); paintEdge(mats[3]); }
-          if (ori === 3){ paintEdge(mats[0]); paintEdge(mats[3]); }
-
-          // —— largo variable (rectángulos de raíz, escalados al raster)
-          const rIdx   = (lehmerRank(pa) + idxCell + sceneSeed) % RATIOS.length;
-          const rawH   = BASE_H * RATIOS[rIdx];
-          const MOD_H  = Math.max(H_MIN, Math.min(H_MAX, rawH));
-          const MOD_W  = RECT_W;
-
-          // volumen
-          const geo  = new THREE.BoxGeometry(MOD_W, MOD_H, DEP);
+          const geo  = new THREE.BoxGeometry(W, H, DEP);
           const cube = new THREE.Mesh(geo, mats);
           cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
-          tmslGroup.add(cube);
+          tmslBlocksGroup.add(cube);
 
-          // ====== HALO rectangular direccional ======
-          const HALO_SCALE_X = 2.20;
-          const HALO_SCALE_Y = 1.75;
-
-          const PLX  = MOD_W * HALO_SCALE_X;
-          const PLY  = MOD_H * HALO_SCALE_Y;
-
-          const pgeo = new THREE.PlaneGeometry(PLX, PLY);
+          // — halo rectangular, detrás del bloque, sin z-fighting ni “quemar”
+          const pW = W * 2.6, pH = H * 2.6;
+          const pgeo = new THREE.PlaneGeometry(pW, pH);
           const pmat = new THREE.MeshBasicMaterial({
-            color: color,                 // tintado por el color determinista
-            map: tmslHaloTexRect,
+            color,
+            map: tmslHaloTex,
             transparent: true,
+            premultipliedAlpha: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending,   // mezcla tipo “luz”
-            premultipliedAlpha: false,
-            opacity: 0.38                    // bajo para no “quemar”
+            blending: THREE.NormalBlending,
+            opacity: 0.95
           });
-
           const halo = new THREE.Mesh(pgeo, pmat);
-
-          // proyección/“sombra”: desplaza en dir. de la luz en función del largo
-          const CAST = 0.45 * MOD_H; // magnitud base
-          const offX = TMSL_LIGHT_DIR.x * CAST;
-          const offY = TMSL_LIGHT_DIR.y * CAST;
-
-          halo.position.set(x + offX, y + offY, wallFrontZ + 0.005);
-
-          // guarda base para animación lateral/vertical
-          halo.userData.baseX = x;
-          halo.userData.baseY = y;
-          halo.userData.cast  = CAST;
-          halo.userData.baseOpacity = 0.55; // punto medio de respiración
+          halo.position.set(x, y, wallFrontZ + 0.002);
+          halo.renderOrder = -1;
+          halo.userData.baseOpacity = 0.75;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
-
           tmslHaloGroup.add(halo);
         }
       }
@@ -4222,22 +4187,6 @@ void main(){
         h.material.opacity = THREE.MathUtils.clamp(
           (h.userData.baseOpacity||0.55) + wobble + mx*0.12 - my*0.08,
           0.05, 0.95
-        );
-
-        // “corriente” lateral/vertical (como luz que se mueve)
-        const swayX = 0.22*Math.sin(t*0.40 + ph*0.7);
-        const swayY = 0.11*Math.cos(t*0.33 + ph*0.9);
-
-        const offX = TMSL_LIGHT_DIR.x * (h.userData.cast||0) + swayX + mx*0.6;
-        const offY = TMSL_LIGHT_DIR.y * (h.userData.cast||0) + swayY + my*0.6;
-
-        const wall = tmslGroup.children.find(o=>o.isMesh);
-        const wallFrontZ = wall ? (wall.position.z + wall.geometry.parameters.depth/2) : 0;
-
-        h.position.set(
-          (h.userData.baseX||0) + offX,
-          (h.userData.baseY||0) + offY,
-          wallFrontZ + 0.005
         );
       });
     }
@@ -4290,19 +4239,12 @@ void main(){
         window.isTMSL = true;
 
       } else { // SALIR
-        if (tmslHaloGroup){
-          tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
-          if (tmslGroup) tmslGroup.remove(tmslHaloGroup);
-          tmslHaloGroup = null;
-        }
-        if (tmslGroup){
-          tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
-          scene.remove(tmslGroup);
-          tmslGroup = null;
-        }
+        disposeAndRemove(tmslHaloGroup);  tmslHaloGroup  = null;
+        disposeAndRemove(tmslBlocksGroup);tmslBlocksGroup= null;
+        disposeAndRemove(tmslGroup);      tmslGroup      = null;
+
         if (tmslPrevBg) scene.background = tmslPrevBg;
 
-        // Controles “normales”
         controls.enabled      = true;
         controls.enableRotate = true;
         controls.enablePan    = true;
@@ -5886,6 +5828,11 @@ async function showPatternInfo(){
 
       window.addEventListener('resize', ()=>{ setTimeout(run,0); });
     })();
+  })();
+
+  // Rebaja la luz de cortesía para que NO queme los halos
+  (function(){
+    if (window.__tmslAmbient) window.__tmslAmbient.intensity = 0.10; // o 0 para desactivarla
   })();
 </script>
 </body>
