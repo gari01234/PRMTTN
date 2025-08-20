@@ -3931,11 +3931,16 @@ void main(){
       const c = document.createElement('canvas');
       c.width = size; c.height = size;
       const ctx = c.getContext('2d');
+
+      // Anillo suave: centro casi transparente, lomo medio, borde suave
       const g = ctx.createRadialGradient(size/2,size/2,0, size/2,size/2,size/2);
-      g.addColorStop(0.00, 'rgba(255,255,255,1.0)');
-      g.addColorStop(0.60, 'rgba(255,255,255,0.35)');
-      g.addColorStop(1.00, 'rgba(255,255,255,0.0)');
+      g.addColorStop(0.00, 'rgba(255,255,255,0.00)');
+      g.addColorStop(0.35, 'rgba(255,255,255,0.12)');
+      g.addColorStop(0.60, 'rgba(255,255,255,0.28)');
+      g.addColorStop(0.88, 'rgba(255,255,255,0.10)');
+      g.addColorStop(1.00, 'rgba(255,255,255,0.00)');
       ctx.fillStyle = g; ctx.fillRect(0,0,size,size);
+
       const tex = new THREE.CanvasTexture(c);
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
@@ -4024,20 +4029,47 @@ void main(){
           const x = -halfCube + PAD + ix*step;
           const y = -halfCube + PAD + iy*step;
 
-          // color “oculto” determinista (1..5 de tu paleta RAUM)
-          const k     = 1 + ((ix + iy*GRID) % 5);
-          const base  = raumColorFor(k);                         // THREE.Color
-          const color = applyBuildVibranceToColor(base);         // vibrance + ΔE≥22
+          // Colores atados a las permutaciones + patrón (determinista)
+          const perms = (typeof getSelectedPerms === 'function')
+            ? getSelectedPerms()
+            : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
 
-          // relieve: caja con 6 materiales (frente y dorso blancos; laterales color)
+          const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
+          const idxCell   = iy*GRID + ix;
+          const pa        = permsSafe[idxCell % permsSafe.length];
+
+          // reciclamos la misma lógica cromática que 13245 (slot 0..2 para variar por celda)
+          const color = color132For(pa, idxCell % 3);
+
+          // --- materiales base (blancos suaves) ---
+          const cEdge = color;
+          const cFace = 0xf2f2f2; // blanco menos “crudo”
+
+          // orden three.js: +X, -X, +Y, -Y, +Z, -Z
           const mats = [
-            new THREE.MeshLambertMaterial({color}),              // +X (oculto)
-            new THREE.MeshLambertMaterial({color}),              // -X (oculto)
-            new THREE.MeshLambertMaterial({color}),              // +Y (oculto)
-            new THREE.MeshLambertMaterial({color}),              // -Y (oculto)
-            new THREE.MeshLambertMaterial({color:0xffffff}),     // +Z (frente blanco)
-            new THREE.MeshLambertMaterial({color:0xffffff})      // -Z (dorso blanco)
+            new THREE.MeshLambertMaterial({color: cFace}), // +X
+            new THREE.MeshLambertMaterial({color: cFace}), // -X
+            new THREE.MeshLambertMaterial({color: cFace}), // +Y
+            new THREE.MeshLambertMaterial({color: cFace}), // -Y
+            new THREE.MeshLambertMaterial({color: 0xffffff}), // +Z
+            new THREE.MeshLambertMaterial({color: 0xffffff})  // -Z
           ];
+
+          // orientación L: 0..3 determinista desde mapping+perm+seed
+          const mapSig = Array.isArray(attributeMapping) ? attributeMapping.join('|') : String(attributeMapping||'');
+          const ori = (lehmerRank(pa) + idxCell + sceneSeed + mapSig.length) % 4;
+
+          // pinta dos cantos (una “L”) con el color
+          const EDGE_EMI = 0.08;
+          function paintEdge(mat){
+            mat.color = cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge);
+            mat.emissive = (cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge));
+            mat.emissiveIntensity = EDGE_EMI;
+          }
+          if (ori === 0){ paintEdge(mats[0]); paintEdge(mats[2]); }  // +X & +Y
+          if (ori === 1){ paintEdge(mats[1]); paintEdge(mats[2]); }  // -X & +Y
+          if (ori === 2){ paintEdge(mats[1]); paintEdge(mats[3]); }  // -X & -Y
+          if (ori === 3){ paintEdge(mats[0]); paintEdge(mats[3]); }  // +X & -Y
           const geo  = new THREE.BoxGeometry(MOD, MOD, DEP);
           const cube = new THREE.Mesh(geo, mats);
           cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
@@ -4048,7 +4080,10 @@ void main(){
           const pgeo = new THREE.PlaneGeometry(PL, PL);
           const pmat = new THREE.MeshBasicMaterial({
             color, map: tmslHaloTex, transparent:true,
-            depthWrite:false, blending:THREE.AdditiveBlending, opacity:0.6
+            depthWrite:false,
+            blending: THREE.NormalBlending,          // ← antes: Additive → ahora color real
+            premultipliedAlpha: true,
+            opacity: 0.85
           });
           const halo = new THREE.Mesh(pgeo, pmat);
           halo.position.set(x, y, wallFrontZ + 0.005);
@@ -5025,11 +5060,21 @@ void main(){
       if (isFRBN){  toggleFRBN(); toggleLCHT(); updateEngineSelectUI(); return; }   // FRBN → LCHT
       if (isLCHT){  ensureOnlyOFFNNG();        updateEngineSelectUI(); return; }   // LCHT → OFFNNG
       if (isOFFNNG){ensureOnlyTMSL();          updateEngineSelectUI(); return; }   // OFFNNG → TMSL
-      if (isTMSL){  ensureOnlyRAUM();          updateEngineSelectUI(); return; }   // TMSL  → RAUM
+
+      // --- FIX: no quedarse “clavado” en TMSL ---
+      if (isTMSL){
+        try{ if (!isRAUM) toggleRAUM(); }catch(_){ }
+        try{ if (isTMSL)  toggleTMSL(); }catch(_){ }
+        updateEngineSelectUI();
+        return;                                                                      // TMSL → RAUM
+      }
+
       if (isRAUM){  ensureOnly13245();         updateEngineSelectUI(); return; }   // RAUM  → 13245
       if (is13245){ ensureOnlyR5NOVA();        updateEngineSelectUI(); return; }   // 13245 → R5NOVA
       if (isR5NOVA){ switchToBuild();          updateEngineSelectUI(); return; }   // R5NOVA → BUILD
-      toggleFRBN();                             // BUILD → FRBN
+
+      // BUILD → FRBN
+      toggleFRBN();
       updateEngineSelectUI();
     }
 
@@ -5477,6 +5522,41 @@ async function showPatternInfo(){
 
   // 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
+})();
+
+// ── TMSL · Hook de rebuild determinista ─────────────────────────────────────
+(function TMSLHook(){
+  if (typeof window.rebuildTMSLIfActive !== 'function') {
+    window.rebuildTMSLIfActive = function(){
+      if (!window.isTMSL) return;
+      try { buildTMSL(); } catch(_){ }
+      try { buildTMSL_TomaselloStaudt(); } catch(_){ }
+    };
+  }
+
+  function run(){ try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } }
+
+  // Pincha funciones típicas que tu UI ya usa
+  [
+    'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+    'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+    'applyAttributeMapping','cycleAttributeMapping',
+    'randomizePermutationCenterClick','applyPermutationSet','shufflePermutations'
+  ].forEach(name=>{
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__tmsl_hooked){
+      window[name] = function(...args){
+        const res = orig.apply(this, args);
+        setTimeout(run, 0);
+        requestAnimationFrame(run);
+        return res;
+      };
+      window[name].__tmsl_hooked = true;
+    }
+  });
+
+  // También tras resize (como R5NOVA)
+  window.addEventListener('resize', ()=>{ setTimeout(run,0); });
 })();
 </script>
 </body>
