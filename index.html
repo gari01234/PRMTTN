@@ -5140,8 +5140,15 @@ void main(){
       if (isLCHT){   ensureOnlyOFFNNG(); syncUI(); return; }   // LCHT  → OFFNNG
       if (isOFFNNG){ ensureOnlyTMSL();   syncUI(); return; }   // OFFNNG→ TMSL
 
-      // FIX TMSL: sin doble toggle ni rebotes
-      if (isTMSL){   ensureOnlyRAUM();   syncUI(); return; }   // TMSL → RAUM
+      // --- TMSL → RAUM (forzado, sin pasar por otra variante de TMSL)
+      if (isTMSL){
+        try { toggleRAUM(); } catch(_){ }
+        // doble guarda por si algún watcher reenciende TMSL en el siguiente frame
+        setTimeout(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } }, 0);
+        requestAnimationFrame(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } });
+        updateEngineSelectUI();
+        return;
+      }
 
       if (isRAUM){   ensureOnly13245();  syncUI(); return; }   // RAUM  → 13245
       if (is13245){  ensureOnlyR5NOVA(); syncUI(); return; }   // 13245 → R5NOVA
@@ -5594,7 +5601,7 @@ async function showPatternInfo(){
     };
   })();
 
-  // 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
+// 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
 })();
 
@@ -5611,17 +5618,22 @@ async function showPatternInfo(){
   };
 })();
 
-// ── TMSL · Hook de rebuild determinista ─────────────────────────────────────
-(function TMSLHook(){
-  if (typeof window.rebuildTMSLIfActive !== 'function') {
-    window.rebuildTMSLIfActive = function(){
-      if (!window.isTMSL) return;
-      try { buildTMSL(); } catch(_){ }
-      try { buildTMSL_TomaselloStaudt(); } catch(_){ }
-    };
+// Unifica la entrada a TMSL: si alguien llama buildTMSL(), redirige a la versión con halo
+(function unifyTMSLBuild(){
+  if (typeof window.buildTMSL_TomaselloStaudt === 'function'){
+    window.buildTMSL = window.buildTMSL_TomaselloStaudt;
   }
+})();
 
-  function run(){ try{ window.requestTMSLRebuild(); }catch(e){ console.warn('[TMSL] schedule:', e); } }
+// ── TMSL · Hook de rebuild determinista (HALO-ONLY) ────────────────────────
+(function TMSLHook(){
+  // Siempre reconstruye SOLO la variante con halo
+  window.rebuildTMSLIfActive = function(){
+    if (!window.isTMSL) return;
+    try { buildTMSL_TomaselloStaudt(); } catch(_){ }
+  };
+
+  function run(){ try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } }
 
   // Pincha funciones típicas que tu UI ya usa
   [
@@ -5634,15 +5646,16 @@ async function showPatternInfo(){
     if (typeof orig === 'function' && !orig.__tmsl_hooked){
       window[name] = function(...args){
         const res = orig.apply(this, args);
-        run();              // coalesced
+        setTimeout(run, 0);
+        requestAnimationFrame(run);
         return res;
       };
       window[name].__tmsl_hooked = true;
     }
   });
 
-  // También tras resize (como R5NOVA)
-  window.addEventListener('resize', run);
+  // También tras resize
+  window.addEventListener('resize', ()=>{ setTimeout(run,0); });
 })();
 </script>
 </body>
