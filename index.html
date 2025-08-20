@@ -3931,57 +3931,51 @@ void main(){
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
 
-    // —— HALO RECTANGULAR con caída amplia (mezcla mejor entre celdas) ——
-    function makeHaloTexture(size = 256){
+    // ── TMSL · halo rectangular (alphaMap, no RGB blanco) ────────────────────
+    function makeHaloTexture(w = 512, h = 512){
       const c = document.createElement('canvas');
-      c.width = size; c.height = size;
+      c.width = w; c.height = h;
       const ctx = c.getContext('2d');
 
-      const smoothstep = (a,b,x)=>{
-        const t = Math.min(1, Math.max(0, (x-a)/(b-a)));
-        return t*t*(3-2*t);
-      };
-      const sdBox = (u, v, ax, ay)=>{
-        const dx = Math.abs(u) - ax;
-        const dy = Math.abs(v) - ay;
-        const ox = Math.max(dx, 0);
-        const oy = Math.max(dy, 0);
-        const outside = Math.hypot(ox, oy);
-        const inside  = Math.min(Math.max(dx, dy), 0);
-        return outside + inside;
-      };
+      // Fondo negro = 0 (sin halo)
+      ctx.fillStyle = 'rgb(0,0,0)';
+      ctx.fillRect(0, 0, w, h);
 
-      // Más “gordo” y extendido que antes
-      const innerA = 0.56;
-      const blur   = 0.12;  // ← antes 0.08
-      const outerA = 0.98;  // ← antes 0.92
+      // Acumulamos en modo "lighter" cuatro fades + centro
+      ctx.globalCompositeOperation = 'lighter';
 
-      const img = ctx.createImageData(size, size);
-      const data = img.data;
+      // Zona "plena" y anchos de feather en % del tamaño
+      const INSET = 0.22;   // rectángulo interior (22% de margen)
+      const FEATH = 0.40;   // halo/fade hacia afuera (40%)
+      const x0 = Math.round(w * INSET), y0 = Math.round(h * INSET);
+      const x1 = Math.round(w * (1 - INSET)), y1 = Math.round(h * (1 - INSET));
 
-      for (let y = 0; y < size; y++){
-        const v = (y/(size-1))*2 - 1;
-        for (let x = 0; x < size; x++){
-          const u = (x/(size-1))*2 - 1;
+      // centro completamente blanco (α máx en el alphaMap)
+      ctx.fillStyle = 'rgb(255,255,255)';
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
-          const dInner = sdBox(u, v, innerA, innerA);
-          const dOuter = sdBox(u, v, outerA, outerA);
+      // fades laterales (blanco→negro)
+      const gL = ctx.createLinearGradient(x0,0, Math.max(0, x0 - Math.round(w*FEATH)), 0);
+      gL.addColorStop(0,'rgb(255,255,255)'); gL.addColorStop(1,'rgb(0,0,0)');
+      ctx.fillStyle = gL; ctx.fillRect(0, 0, x0, h);
 
-          const ring = Math.exp(-(dInner*dInner)/(blur*blur));
-          const cut  = 1.0 - smoothstep(0.0, 0.06, dOuter);
-          const alpha = Math.max(0, Math.min(1, ring * cut));
+      const gR = ctx.createLinearGradient(x1,0, Math.min(w, x1 + Math.round(w*FEATH)), 0);
+      gR.addColorStop(0,'rgb(255,255,255)'); gR.addColorStop(1,'rgb(0,0,0)');
+      ctx.fillStyle = gR; ctx.fillRect(x1, 0, w - x1, h);
 
-          const i = (y*size + x)*4;
-          data[i+0] = 255; data[i+1] = 255; data[i+2] = 255;
-          data[i+3] = Math.round(alpha * 255);
-        }
-      }
-      ctx.putImageData(img, 0, 0);
+      const gT = ctx.createLinearGradient(0, y0, 0, Math.max(0, y0 - Math.round(h*FEATH)));
+      gT.addColorStop(0,'rgb(255,255,255)'); gT.addColorStop(1,'rgb(0,0,0)');
+      ctx.fillStyle = gT; ctx.fillRect(0, 0, w, y0);
+
+      const gB = ctx.createLinearGradient(0, y1, 0, Math.min(h, y1 + Math.round(h*FEATH)));
+      gB.addColorStop(0,'rgb(255,255,255)'); gB.addColorStop(1,'rgb(0,0,0)');
+      ctx.fillStyle = gB; ctx.fillRect(0, y1, w, h - y1);
 
       const tex = new THREE.CanvasTexture(c);
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
       return tex;
     }
 
@@ -4085,8 +4079,6 @@ void main(){
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(256); // ← textura rectangular ya “amplia”
-
       tmslHaloGroup = new THREE.Group();
       tmslHaloGroup.name = 'TMSL_HALO_GROUP';
       tmslGroup.add(tmslHaloGroup);
@@ -4133,11 +4125,12 @@ void main(){
           const RECT_H = Math.max(RECT_W * 0.75, Math.min(hNom, hMax));  // evita 0 y mantiene orden
 
           // === VOLÚMENES RECTANGULARES (Basic, sin depender de luces) ===
+          const cFace = 0xffffff; // frontal realmente blanco (sin tinte gris)
           const mats = [
-            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // +X
-            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // -X
-            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // +Y
-            new THREE.MeshBasicMaterial({color: 0xf2f2f2}), // -Y
+            new THREE.MeshBasicMaterial({color: cFace}), // +X
+            new THREE.MeshBasicMaterial({color: cFace}), // -X
+            new THREE.MeshBasicMaterial({color: cFace}), // +Y
+            new THREE.MeshBasicMaterial({color: cFace}), // -Y
             new THREE.MeshBasicMaterial({color: 0xffffff}), // +Z
             new THREE.MeshBasicMaterial({color: 0xffffff})  // -Z
           ];
@@ -4160,27 +4153,35 @@ void main(){
           cubo.renderOrder = 0;
           tmslGroup.add(cubo);
 
-          // === HALO RECTANGULAR “grande” (aditivo, se mezcla con los vecinos) ===
-          const HALO_SX = 2.6;   // ← multiplicador en X (más grande)
-          const HALO_SY = 2.6;   // ← multiplicador en Y (más grande)
-          const pgeo = new THREE.PlaneGeometry(RECT_W * HALO_SX, RECT_H * HALO_SY);
+          // halo “rebote” rectangular – alphaMap + mezcla ADITIVA (colores vivos)
+          const HALO_SCALE_X = 2.2;   // ancho relativo del halo respecto a la pieza
+          const HALO_SCALE_Y = 3.0;   // alto  relativo del halo respecto a la pieza
+
+          const baseW = RECT_W;
+          const baseH = RECT_H;
+
+          const haloW = baseW * HALO_SCALE_X;
+          const haloH = baseH * HALO_SCALE_Y;
+
+          const pgeo = new THREE.PlaneGeometry(haloW, haloH);
+
+          // Creamos la textura si hace falta (ahora es un ALPHA MAP rectangular)
+          if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512, 512);
+
           const pmat = new THREE.MeshBasicMaterial({
-            color,                    // tint
-            map: tmslHaloTex,
+            color: color,                  // tinte del halo
             transparent: true,
-            blending: THREE.AdditiveBlending,  // ← se mezcla con otros halos
-            depthTest: true,
-            depthWrite: false,
-            opacity: 0.60,
-            polygonOffset: true,
-            polygonOffsetFactor: -1,
-            polygonOffsetUnits: -1
+            depthWrite: false,             // no escribe en z-buffer
+            depthTest: true,               // queda por detrás de las piezas
+            blending: THREE.AdditiveBlending,
+            opacity: 0.38,                 // menor opacidad para sumar sin “lavar”
+            alphaMap: tmslHaloTex,         // ← usamos alphaMap (no map RGB)
+            toneMapped: false              // evita desaturación por tonemapping
           });
+
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ + 0.15);
-          halo.renderOrder = 5;
-          halo.userData.baseOpacity = 0.60; // base para el wobble
-          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
+          halo.position.set(x, y, wallFrontZ + 0.003); // pegado a la pared, justo detrás
+          halo.userData.baseOpacity = 0.38;
           tmslHaloGroup.add(halo);
         }
       }
