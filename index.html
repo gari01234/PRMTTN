@@ -3937,54 +3937,64 @@ void main(){
     let tmslHaloTex = null;
     let tmslHaloGroup   = null;
 
-    function makeRectHaloTexture(W=512, H=512){
+    // ── TMSL · Halo perimetral rectangular (SDF + smoothstep) ────────────────
+    function makeRectHaloTexture(w = 256, h = 256, innerFracX = 0.60, innerFracY = 0.60, featherOut = 0.28, featherIn = 0.10, gamma = 1.4){
+      // innerFracX/Y = tamaño del rectángulo "sólido" (cara del volumen) respecto al plano del halo
+      // featherOut   = caída fuera del rectángulo (halo hacia afuera)
+      // featherIn    = leve borde hacia adentro (suaviza contacto con la cara)
+      // gamma        = curva para evitar bandas y dar suavidad "fotográfica"
       const c = document.createElement('canvas');
-      c.width = W; c.height = H;
+      c.width = w; c.height = h;
       const ctx = c.getContext('2d');
-      ctx.clearRect(0,0,W,H);
+      const img = ctx.createImageData(w, h);
+      const px = img.data;
 
-      const aMax = 0.92;      // opacidad pico del resplandor
-      const featherX = 0.22;  // pluma lateral (22 %)
-      const featherY = 0.22;  // pluma vertical
+      const clamp01 = v => Math.min(1, Math.max(0, v));
+      const smooth = (a, b, x) => { const t = clamp01((x - a) / Math.max(1e-6, b - a)); return t * t * (3 - 2*t); };
 
-      const innerW = Math.floor(W*(1-2*featherX));
-      const innerH = Math.floor(H*(1-2*featherY));
-      const ix = Math.floor((W-innerW)/2);
-      const iy = Math.floor((H-innerH)/2);
+      // mitad del tamaño del rectángulo interno en NDC [-1,1]
+      const bx = innerFracX;
+      const by = innerFracY;
 
-      // Centro (leve) para evitar un “agujero” en el medio
-      ctx.fillStyle = `rgba(255,255,255,${aMax*0.35})`;
-      ctx.fillRect(ix, iy, innerW, innerH);
+      for (let j = 0; j < h; j++){
+        const v = ((j + 0.5) / h) * 2 - 1;     // [-1,1]
+        for (let i = 0; i < w; i++){
+          const u = ((i + 0.5) / w) * 2 - 1;   // [-1,1]
+          const ax = Math.abs(u), ay = Math.abs(v);
 
-      // Lados izquierda/derecha (gradientes lineales)
-      const fx = Math.floor(W*featherX), fy = Math.floor(H*featherY);
+          // Distancia positiva FUERA del rectángulo (0 justo en el borde)
+          const dx = Math.max(ax - bx, 0);
+          const dy = Math.max(ay - by, 0);
+          const dOut = Math.hypot(dx, dy);                   // >= 0
 
-      const gL = ctx.createLinearGradient(ix-fx, 0, ix, 0);
-      gL.addColorStop(0, `rgba(255,255,255,0)`);
-      gL.addColorStop(1, `rgba(255,255,255,${aMax})`);
-      ctx.fillStyle = gL; ctx.fillRect(ix-fx, iy, fx, innerH);
+          // Banda hacia afuera (principal del halo)
+          let aOut = 1 - smooth(0.0, featherOut, dOut);      // 1 en borde, 0 lejos
 
-      const gR = ctx.createLinearGradient(ix+innerW, 0, ix+innerW+fx, 0);
-      gR.addColorStop(0, `rgba(255,255,255,${aMax})`);
-      gR.addColorStop(1, `rgba(255,255,255,0)`);
-      ctx.fillStyle = gR; ctx.fillRect(ix+innerW, iy, fx, innerH);
+          // Fina banda hacia ADENTRO para que el halo "nazca" del borde
+          const inX = Math.max(bx - ax, 0);
+          const inY = Math.max(by - ay, 0);
+          const dIn = Math.min(inX, inY);                    // 0 en borde, ↑ hacia el centro
+          let aIn = 1 - smooth(0.0, featherIn, dIn);
 
-      // Lados arriba/abajo
-      const gT = ctx.createLinearGradient(0, iy-fy, 0, iy);
-      gT.addColorStop(0, `rgba(255,255,255,0)`);
-      gT.addColorStop(1, `rgba(255,255,255,${aMax})`);
-      ctx.fillStyle = gT; ctx.fillRect(ix, iy-fy, innerW, fy);
+          // Mezcla y curva gamma (evita “cruz” y banding)
+          let a = Math.max(aOut * 0.90, aIn * 0.40);
+          a = Math.pow(clamp01(a), gamma);
 
-      const gB = ctx.createLinearGradient(0, iy+innerH, 0, iy+innerH+fy);
-      gB.addColorStop(0, `rgba(255,255,255,${aMax})`);
-      gB.addColorStop(1, `rgba(255,255,255,0)`);
-      ctx.fillStyle = gB; ctx.fillRect(ix, iy+innerH, innerW, fy);
+          const k = (j * w + i) * 4;
+          // halo blanco con alpha → el color lo da el material
+          px[k+0] = 255;
+          px[k+1] = 255;
+          px[k+2] = 255;
+          px[k+3] = Math.round(255 * a);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
 
       const tex = new THREE.CanvasTexture(c);
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.anisotropy = (renderer?.capabilities?.getMaxAnisotropy?.() || 4);
+      tex.needsUpdate = true;
       return tex;
     }
 
@@ -4086,7 +4096,6 @@ void main(){
       tmslBlocksGroup.name = '__tmslBlocks';
       tmslGroup.add(tmslBlocksGroup);
 
-      if (!tmslHaloTex) tmslHaloTex = makeRectHaloTexture(512, 512);
       tmslHaloGroup = new THREE.Group();
       tmslHaloGroup.name = '__tmslHalos';
       tmslGroup.add(tmslHaloGroup);
@@ -4144,26 +4153,48 @@ void main(){
 
           const geo  = new THREE.BoxGeometry(W, H, DEP);
           const cube = new THREE.Mesh(geo, mats);
-          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
+          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.035);
+          cube.renderOrder = 1;
           tmslBlocksGroup.add(cube);
 
-          // — halo rectangular, detrás del bloque, sin z-fighting ni “quemar”
-          const pW = W * 2.6, pH = H * 2.6;
-          const pgeo = new THREE.PlaneGeometry(pW, pH);
+          // ==== HALO PERIMETRAL RECTANGULAR (suave y sin cruz) ====
+          const PL = W * 2.40;           // plano del halo (más grande → irradia más)
+          const HL = H * 2.40;
+          const pgeo = new THREE.PlaneGeometry(PL, HL);
+
+          // Ajusta el rectángulo interno al tamaño real de la cara vista
+          // (un pelín más pequeño para que el color “nazca” del borde)
+          const innerX = (W / PL) * 0.96;
+          const innerY = (H / HL) * 0.96;
+
+          // Crea la textura SDF una vez por proporción (cache básica opcional)
+          if (!tmslHaloTex || !tmslHaloTex._key || tmslHaloTex._key !== `${innerX.toFixed(3)}x${innerY.toFixed(3)}`){
+            tmslHaloTex = makeRectHaloTexture(384, 384, innerX, innerY, /*featherOut*/0.35, /*featherIn*/0.12, /*gamma*/1.35);
+            tmslHaloTex._key = `${innerX.toFixed(3)}x${innerY.toFixed(3)}`;
+          }
+
           const pmat = new THREE.MeshBasicMaterial({
-            color,
+            color: color,                 // ← el patrón manda
             map: tmslHaloTex,
             transparent: true,
-            premultipliedAlpha: true,
+            opacity: 1.0,
+            depthTest: true,
             depthWrite: false,
-            blending: THREE.NormalBlending,
-            opacity: 0.95
+            blending: THREE.AdditiveBlending,  // suma color sin “lavar” el gris
+            premultipliedAlpha: true,
+            toneMapped: false                 // color “limpio” en post-tonemapping
           });
+
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ + 0.002);
-          halo.renderOrder = -1;
-          halo.userData.baseOpacity = 0.75;
+          // Pequeña separación para evitar z-fighting y pixelado en vista oblicua
+          const HALO_Z = 0.015;                  // antes 0.005
+          halo.position.set(x, y, wallFrontZ + HALO_Z);
+
+          // “respiración” muy sutil (opcional)
+          halo.userData.baseOpacity = 0.70;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
+
+          halo.renderOrder = 0;   // se dibuja antes que el volumen (que va delante)
           tmslHaloGroup.add(halo);
         }
       }
@@ -5676,7 +5707,7 @@ async function showPatternInfo(){
     try{
       if (on){
         if (!window.__tmslAmbient){
-          const amb = new THREE.AmbientLight(0xffffff, 0.28);
+          const amb = new THREE.AmbientLight(0xffffff, 0.35);
           amb.name = '__tmslAmbient';
           scene.add(amb);
           window.__tmslAmbient = amb;
