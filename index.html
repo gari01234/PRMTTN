@@ -5150,7 +5150,7 @@ void main(){
       if (val === 'OFFNNG'){ if (!isOFFNNG)toggleOFFNNG();return; }
       if (val === 'TMSL')  {
         if (!isTMSL) toggleTMSL();
-        if (typeof window.ensureBaseVisibilityForTMSL === 'function') ensureBaseVisibilityForTMSL();
+        // Rebuild coalescido del halo; no tocamos fondo ni mostramos otros grupos
         if (typeof window.requestTMSLRebuild === 'function'){
           requestTMSLRebuild();
           requestAnimationFrame(requestTMSLRebuild);
@@ -5683,34 +5683,42 @@ async function showPatternInfo(){
     }catch(_){ }
   };
 
-  // Base mínima visible para que el halo tenga “sustrato”
+  // Base mínima para TMSL: NO toca background ni visibilidad de otros grupos
   window.ensureBaseVisibilityForTMSL = function(){
-    try{ updateBackground(false); }catch(_){ }
-    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
-    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
     try{ renderer.autoClear = true; }catch(_){ }
-    ensureTMSLLighting(true);
+    // Mantén el fondo que fijó toggleTMSL (negro) y deja ocultos cubeUniverse/permutationGroup.
+    // Solo añadimos luz de cortesía y cámara segura.
+    try{
+      if (!window.__tmslAmbient){
+        const amb = new THREE.AmbientLight(0xffffff, 0.55);
+        amb.name = '__tmslAmbient';
+        scene.add(amb);
+        window.__tmslAmbient = amb;
+      }
+    }catch(_){ }
     window.applyTMSLSafeCamera();
   };
 
-  // Parchea toggleTMSL para aplicar la base al entrar y limpiar al salir
+  // Parchea toggleTMSL (post-entrada) — sin reactivar el cubo ni el fondo
   (function patchToggleTMSL(){
     const orig = window.toggleTMSL;
     if (typeof orig === 'function' && !orig.__tmsl_base_patched){
       window.toggleTMSL = function(...args){
         const wasOn = !!window.isTMSL;
-        const res = orig.apply(this, args);
+        const res   = orig.apply(this, args);
         const nowOn = !!window.isTMSL;
+
         if (!wasOn && nowOn){
-          // Entramos a TMSL
-          try{ window.ensureBaseVisibilityForTMSL(); }catch(_){ }
+          // Entramos a TMSL → solo luz + cámara; NO tocar background ni mostrar otros grupos
+          try{ ensureTMSLLighting(true); }catch(_){}
+          try{ window.applyTMSLSafeCamera(); }catch(_){}
           if (typeof window.requestTMSLRebuild === 'function'){
             requestTMSLRebuild();
             requestAnimationFrame(requestTMSLRebuild);
           }
         } else if (wasOn && !nowOn){
-          // Salimos de TMSL
-          try{ ensureTMSLLighting(false); }catch(_){ }
+          // Salimos de TMSL → limpia luz de cortesía
+          try{ ensureTMSLLighting(false); }catch(_){}
         }
         return res;
       };
