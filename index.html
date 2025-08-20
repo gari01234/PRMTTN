@@ -3931,44 +3931,44 @@ void main(){
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
 
-    // ── TMSL · halo rectangular (alphaMap, no RGB blanco) ────────────────────
+    // ── TMSL · halo rectangular SUAVE (RGBA map, no alphaMap) ────────────────
     function makeHaloTexture(w = 512, h = 512){
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
       const ctx = c.getContext('2d');
 
-      // Fondo negro = 0 (sin halo)
-      ctx.fillStyle = 'rgb(0,0,0)';
-      ctx.fillRect(0, 0, w, h);
+      // Fondo transparente
+      ctx.clearRect(0,0,w,h);
 
-      // Acumulamos en modo "lighter" cuatro fades + centro
+      // Mezcla acumulativa “lighter” para sumar suavemente los fades
       ctx.globalCompositeOperation = 'lighter';
 
-      // Zona "plena" y anchos de feather en % del tamaño
-      const INSET = 0.22;   // rectángulo interior (22% de margen)
-      const FEATH = 0.40;   // halo/fade hacia afuera (40%)
+      // Zona central plena y anchos de feather (en %)
+      const INSET = 0.22;   // margen hacia dentro
+      const FEATH = 0.40;   // pluma hacia fuera
+
       const x0 = Math.round(w * INSET), y0 = Math.round(h * INSET);
       const x1 = Math.round(w * (1 - INSET)), y1 = Math.round(h * (1 - INSET));
 
-      // centro completamente blanco (α máx en el alphaMap)
-      ctx.fillStyle = 'rgb(255,255,255)';
+      // Centro con alfa alta (no totalmente 1 para evitar clip duro)
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
       ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
-      // fades laterales (blanco→negro)
+      // Fades laterales – blanco→transparente
       const gL = ctx.createLinearGradient(x0,0, Math.max(0, x0 - Math.round(w*FEATH)), 0);
-      gL.addColorStop(0,'rgb(255,255,255)'); gL.addColorStop(1,'rgb(0,0,0)');
+      gL.addColorStop(0,'rgba(255,255,255,0.60)'); gL.addColorStop(1,'rgba(255,255,255,0.00)');
       ctx.fillStyle = gL; ctx.fillRect(0, 0, x0, h);
 
       const gR = ctx.createLinearGradient(x1,0, Math.min(w, x1 + Math.round(w*FEATH)), 0);
-      gR.addColorStop(0,'rgb(255,255,255)'); gR.addColorStop(1,'rgb(0,0,0)');
+      gR.addColorStop(0,'rgba(255,255,255,0.60)'); gR.addColorStop(1,'rgba(255,255,255,0.00)');
       ctx.fillStyle = gR; ctx.fillRect(x1, 0, w - x1, h);
 
       const gT = ctx.createLinearGradient(0, y0, 0, Math.max(0, y0 - Math.round(h*FEATH)));
-      gT.addColorStop(0,'rgb(255,255,255)'); gT.addColorStop(1,'rgb(0,0,0)');
+      gT.addColorStop(0,'rgba(255,255,255,0.60)'); gT.addColorStop(1,'rgba(255,255,255,0.00)');
       ctx.fillStyle = gT; ctx.fillRect(0, 0, w, y0);
 
       const gB = ctx.createLinearGradient(0, y1, 0, Math.min(h, y1 + Math.round(h*FEATH)));
-      gB.addColorStop(0,'rgb(255,255,255)'); gB.addColorStop(1,'rgb(0,0,0)');
+      gB.addColorStop(0,'rgba(255,255,255,0.60)'); gB.addColorStop(1,'rgba(255,255,255,0.00)');
       ctx.fillStyle = gB; ctx.fillRect(0, y1, w, h - y1);
 
       const tex = new THREE.CanvasTexture(c);
@@ -4114,6 +4114,7 @@ void main(){
           const idxCell = iy*GRID + ix;
           const pa      = permsSafe[idxCell % permsSafe.length];
           const color   = tmslColorFor(pa, idxCell);
+          const cEdge   = color.clone ? color.clone() : new THREE.Color(color);
 
           // — Largo determinista usando RATIOS —
           const ratioIdx = (lehmerRank(pa) + mRank + sceneSeed + idxCell) % RATIOS.length;
@@ -4138,7 +4139,7 @@ void main(){
           const ori = tmslOrientation(pa, idxCell);  // 0..3 (orienta la “L” en el canto)
 
           function paintEdge(mat){
-            if (color.clone) mat.color = color.clone(); else mat.color = new THREE.Color(color);
+            mat.color = cEdge.clone();
           }
           if (ori === 0){ paintEdge(mats[0]); paintEdge(mats[2]); }
           if (ori === 1){ paintEdge(mats[1]); paintEdge(mats[2]); }
@@ -4153,9 +4154,9 @@ void main(){
           cubo.renderOrder = 0;
           tmslGroup.add(cubo);
 
-          // halo “rebote” rectangular – alphaMap + mezcla ADITIVA (colores vivos)
-          const HALO_SCALE_X = 2.2;   // ancho relativo del halo respecto a la pieza
-          const HALO_SCALE_Y = 3.0;   // alto  relativo del halo respecto a la pieza
+          // halo “rebote” rectangular – mezcla SUAVE tipo overlay normal
+          const HALO_SCALE_X = 2.1;   // ancho relativo del halo
+          const HALO_SCALE_Y = 2.8;   // alto  relativo del halo
 
           const baseW = RECT_W;
           const baseH = RECT_H;
@@ -4165,23 +4166,25 @@ void main(){
 
           const pgeo = new THREE.PlaneGeometry(haloW, haloH);
 
-          // Creamos la textura si hace falta (ahora es un ALPHA MAP rectangular)
+          // Textura del halo (map RGBA)
           if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512, 512);
 
           const pmat = new THREE.MeshBasicMaterial({
-            color: color,                  // tinte del halo
+            color: (cEdge.clone ? cEdge.clone() : new THREE.Color(color)), // tinte del halo
+            map: tmslHaloTex,                 // ← usamos MAP RGBA, no alphaMap
             transparent: true,
-            depthWrite: false,             // no escribe en z-buffer
-            depthTest: true,               // queda por detrás de las piezas
-            blending: THREE.AdditiveBlending,
-            opacity: 0.38,                 // menor opacidad para sumar sin “lavar”
-            alphaMap: tmslHaloTex,         // ← usamos alphaMap (no map RGB)
-            toneMapped: false              // evita desaturación por tonemapping
+            opacity: 0.88,                    // suficiente “cuerpo” sin quemar
+            depthWrite: false,
+            depthTest: true,                  // queda por detrás de las piezas
+            blending: THREE.NormalBlending,   // ← NO aditivo
+            premultipliedAlpha: true,         // compone mejor con map RGBA
+            toneMapped: false                 // evita desaturaciones del renderer
           });
 
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ + 0.003); // pegado a la pared, justo detrás
-          halo.userData.baseOpacity = 0.38;
+          halo.position.set(x, y, wallFrontZ + 0.003); // pegado a la pared, detrás de la pieza
+          halo.userData.baseOpacity = 0.88;
+          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
           tmslHaloGroup.add(halo);
         }
       }
@@ -5696,7 +5699,7 @@ async function showPatternInfo(){
     try{
       if (on){
         if (!window.__tmslAmbient){
-          const amb = new THREE.AmbientLight(0xffffff, 0.55);
+          const amb = new THREE.AmbientLight(0xffffff, 0.28);
           amb.name = '__tmslAmbient';
           scene.add(amb);
           window.__tmslAmbient = amb;
