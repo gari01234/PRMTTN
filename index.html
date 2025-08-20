@@ -2534,12 +2534,13 @@ function adjustR5NovaAfterBuild(){
 
       if (isFRBN && skySphere) buildGanzfeld();   // FRBN sincronizado
       rebuildLCHTIfActive();                      // LCHT sincronizado
-      if (isOFFNNG) syncOFFNNGFromScene();
-        rebuildRAUMIfActive();
-        rebuild13245IfActive();                     // ← NUEVO
-        rebuildR5NOVAIfActive();                    // ← NUEVO
-        // Post-ajustes específicos de R5NOVA (grosor y color del fondo)
-        if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
+        if (isOFFNNG) syncOFFNNGFromScene();
+          rebuildRAUMIfActive();
+          rebuild13245IfActive();                     // ← NUEVO
+          rebuildR5NOVAIfActive();                    // ← NUEVO
+          rebuildTMSLIfActive();                      // TMSL sigue cambios
+          // Post-ajustes específicos de R5NOVA (grosor y color del fondo)
+          if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
           // cede un frame para asegurar que el build terminó y hay world matrices
           setTimeout(adjustR5NovaAfterBuild, 0);
           requestAnimationFrame(adjustR5NovaAfterBuild);
@@ -3932,13 +3933,13 @@ void main(){
       c.width = size; c.height = size;
       const ctx = c.getContext('2d');
 
-      // Anillo suave: centro casi transparente, lomo medio, borde suave
       const g = ctx.createRadialGradient(size/2,size/2,0, size/2,size/2,size/2);
       g.addColorStop(0.00, 'rgba(255,255,255,0.00)');
-      g.addColorStop(0.35, 'rgba(255,255,255,0.12)');
-      g.addColorStop(0.60, 'rgba(255,255,255,0.28)');
-      g.addColorStop(0.88, 'rgba(255,255,255,0.10)');
+      g.addColorStop(0.40, 'rgba(255,255,255,0.08)');
+      g.addColorStop(0.68, 'rgba(255,255,255,0.18)');
+      g.addColorStop(0.92, 'rgba(255,255,255,0.06)');
       g.addColorStop(1.00, 'rgba(255,255,255,0.00)');
+
       ctx.fillStyle = g; ctx.fillRect(0,0,size,size);
 
       const tex = new THREE.CanvasTexture(c);
@@ -3975,6 +3976,40 @@ void main(){
       let rgb2 = hsvToRgb(h, s1, v1);
       rgb2 = ensureContrastRGB(rgb2);
       return new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
+    }
+
+    // === Helpers deterministas para TMSL (color, orientación, rebuild) ===
+    function tmslColorFor(pa, slotIndex){
+      const sig  = computeSignature(pa);
+      const slot = (lehmerRank(pa) + (slotIndex % 3)) % 12;
+
+      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      const sIdx = (sI * PHI_S) % 12;
+      const vIdx = (vI * PHI_V) % 12;
+      const {h,s,v} = idxToHSV(hI, sIdx, vIdx);
+
+      let rgb = hsvToRgb(h, s, v);
+      let [hh, ss, vv] = rgbToHsv(rgb[0], rgb[1], rgb[2]);      // vibrance suave estilo BUILD
+      const s1 = Math.min(1, ss + 0.22 * (1 - ss));
+      const v1 = Math.min(0.93, vv * 1.04);
+      rgb = hsvToRgb(hh, s1, v1);
+      rgb = ensureContrastRGB(rgb);
+
+      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    }
+
+    function tmslOrientation(pa, cellIndex){
+      const mRank = mappingRank(attributeMapping.slice(0,5));   // mapping 120
+      const r     = lehmerRank(pa);
+      return (r + mRank + sceneSeed + cellIndex) % 4;           // 0..3
+    }
+
+    // Sugar (por si llamas desde fuera)
+    function rebuildTMSLIfActive(){
+      if (isTMSL){
+        try { buildTMSL(); } catch(_){ }
+        try { buildTMSL_TomaselloStaudt(); } catch(_){ }
+      }
     }
 
     function buildTMSL(){
@@ -4038,8 +4073,8 @@ void main(){
           const idxCell   = iy*GRID + ix;
           const pa        = permsSafe[idxCell % permsSafe.length];
 
-          // reciclamos la misma lógica cromática que 13245 (slot 0..2 para variar por celda)
-          const color = color132For(pa, idxCell % 3);
+          // color determinista
+          const color = tmslColorFor(pa, idxCell);
 
           // --- materiales base (blancos suaves) ---
           const cEdge = color;
@@ -4055,9 +4090,8 @@ void main(){
             new THREE.MeshLambertMaterial({color: 0xffffff})  // -Z
           ];
 
-          // orientación L: 0..3 determinista desde mapping+perm+seed
-          const mapSig = Array.isArray(attributeMapping) ? attributeMapping.join('|') : String(attributeMapping||'');
-          const ori = (lehmerRank(pa) + idxCell + sceneSeed + mapSig.length) % 4;
+          // orientación L determinista
+          const ori = tmslOrientation(pa, idxCell);  // 0..3 (gira la “L”)
 
           // pinta dos cantos (una “L”) con el color
           const EDGE_EMI = 0.08;
@@ -4075,20 +4109,22 @@ void main(){
           cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
           tmslGroup.add(cube);
 
-          // halo aditivo “simulando rebote” (pegado a la pared, sin z-fight)
+          // halo “simulando rebote” (pegado a la pared, sin z-fight)
           const PL   = MOD * 1.7;
           const pgeo = new THREE.PlaneGeometry(PL, PL);
           const pmat = new THREE.MeshBasicMaterial({
-            color, map: tmslHaloTex, transparent:true,
-            depthWrite:false,
-            blending: THREE.NormalBlending,          // ← antes: Additive → ahora color real
-            premultipliedAlpha: true,
-            opacity: 0.85
+            color,                   // ← color del patrón manda
+            map: tmslHaloTex,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.NormalBlending, // ← no aditivo
+            premultipliedAlpha: false,
+            opacity: 0.90
           });
           const halo = new THREE.Mesh(pgeo, pmat);
           halo.position.set(x, y, wallFrontZ + 0.005);
-          halo.userData.baseOpacity = 0.55;
-          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015; // desfase determinista
+          halo.userData.baseOpacity = 0.65;
+          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
           tmslHaloGroup.add(halo);
         }
       }
@@ -4105,10 +4141,30 @@ void main(){
         const scale  = 1.0 + 0.18*Math.sin(t*0.5 + ph*1.7);
         h.scale.setScalar(scale);
         h.material.opacity = THREE.MathUtils.clamp(
-          (h.userData.baseOpacity||0.55) + wobble + mx*0.2 - my*0.1,
+          (h.userData.baseOpacity||0.65) + wobble + mx*0.2 - my*0.1,
           0.05, 1.0
         );
       });
+    }
+
+    function enterTMSLView(){
+      camera.up.set(0,1,0);
+      camera.fov = 55;
+      camera.updateProjectionMatrix();
+      const eyeY = (controls && controls.target) ? controls.target.y : 0;
+      camera.position.set(0, eyeY, 42);
+      controls.target.set(0, eyeY, 0);
+
+      controls.enabled = true;
+      controls.enableRotate = true;    // yaw
+      controls.enablePan    = true;
+      controls.enableZoom   = true;
+      controls.screenSpacePanning = true;
+      controls.minDistance = 10;
+      controls.maxDistance = 200;
+      controls.minPolarAngle = Math.PI / 2;
+      controls.maxPolarAngle = Math.PI / 2;
+      controls.update();
     }
 
     function toggleTMSL(){
@@ -4128,16 +4184,8 @@ void main(){
         tmslPrevBg = scene.background ? scene.background.clone() : null;
         scene.background = new THREE.Color(0x000000);
 
-        // Vista frontal fija con zoom
-        controls.enabled      = true;
-        controls.enableRotate = false;
-        controls.enablePan    = false;
-        controls.enableZoom   = true;
-        controls.minDistance  = 25;
-        controls.maxDistance  = 140;
-
-        document.getElementById('standardView').value = 'front';
-        applyStandardView();
+        // Vista nivelada al entrar
+        enterTMSLView();
 
         isTMSL = true;
 
@@ -5524,6 +5572,19 @@ async function showPatternInfo(){
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
 })();
 
+/* === TMSL · coalescer: 1 rebuild por frame === */
+(function(){
+  let tmslPending = false;
+  window.requestTMSLRebuild = function(){
+    if (!window.isTMSL || tmslPending) return;
+    tmslPending = true;
+    requestAnimationFrame(() => {
+      tmslPending = false;
+      try { window.rebuildTMSLIfActive(); } catch(e){ console.warn('[TMSL] rebuild:', e); }
+    });
+  };
+})();
+
 // ── TMSL · Hook de rebuild determinista ─────────────────────────────────────
 (function TMSLHook(){
   if (typeof window.rebuildTMSLIfActive !== 'function') {
@@ -5534,7 +5595,7 @@ async function showPatternInfo(){
     };
   }
 
-  function run(){ try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } }
+  function run(){ try{ window.requestTMSLRebuild(); }catch(e){ console.warn('[TMSL] schedule:', e); } }
 
   // Pincha funciones típicas que tu UI ya usa
   [
@@ -5547,8 +5608,7 @@ async function showPatternInfo(){
     if (typeof orig === 'function' && !orig.__tmsl_hooked){
       window[name] = function(...args){
         const res = orig.apply(this, args);
-        setTimeout(run, 0);
-        requestAnimationFrame(run);
+        run();              // coalesced
         return res;
       };
       window[name].__tmsl_hooked = true;
@@ -5556,7 +5616,7 @@ async function showPatternInfo(){
   });
 
   // También tras resize (como R5NOVA)
-  window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+  window.addEventListener('resize', run);
 })();
 </script>
 </body>
