@@ -5074,6 +5074,28 @@ void main(){
     
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
+
+    // Enciende SOLO FRBN
+    function ensureOnlyFRBN(){
+      try{ if (isLCHT)   toggleLCHT();   }catch(_){}
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
+      try{ if (isTMSL)   toggleTMSL();   }catch(_){}
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){}
+      try{ if (is13245)  toggle13245();  }catch(_){}
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+      try{ if (!isFRBN)  toggleFRBN();   }catch(_){}
+    }
+
+    // Enciende SOLO LCHT
+    function ensureOnlyLCHT(){
+      try{ if (isFRBN)   toggleFRBN();   }catch(_){}
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
+      try{ if (isTMSL)   toggleTMSL();   }catch(_){}
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){}
+      try{ if (is13245)  toggle13245();  }catch(_){}
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+      try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
+    }
     
     /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
@@ -5111,19 +5133,22 @@ void main(){
         requestAnimationFrame(updateEngineSelectUI);
       };
 
+      // Orden deseado:
+      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → R5NOVA → BUILD
+
       if (isFRBN){   ensureOnlyLCHT();   syncUI(); return; }   // FRBN  → LCHT
       if (isLCHT){   ensureOnlyOFFNNG(); syncUI(); return; }   // LCHT  → OFFNNG
       if (isOFFNNG){ ensureOnlyTMSL();   syncUI(); return; }   // OFFNNG→ TMSL
 
-      // FIX: TMSL no hace doble toggle
+      // FIX TMSL: sin doble toggle ni rebotes
       if (isTMSL){   ensureOnlyRAUM();   syncUI(); return; }   // TMSL → RAUM
 
       if (isRAUM){   ensureOnly13245();  syncUI(); return; }   // RAUM  → 13245
       if (is13245){  ensureOnlyR5NOVA(); syncUI(); return; }   // 13245 → R5NOVA
       if (isR5NOVA){ switchToBuild();    syncUI(); return; }   // R5NOVA→ BUILD
 
-      // BUILD → FRBN
-      if (typeof ensureOnlyFRBN === 'function') ensureOnlyFRBN(); else toggleFRBN();
+      // BUILD (o cualquier otro estado “ninguno”) → FRBN
+      ensureOnlyFRBN();
       syncUI();
     }
 
