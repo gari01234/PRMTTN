@@ -4154,47 +4154,50 @@ void main(){
           const geo  = new THREE.BoxGeometry(W, H, DEP);
           const cube = new THREE.Mesh(geo, mats);
           cube.position.set(x, y, wallFrontZ + DEP/2 + 0.035);
-          cube.renderOrder = 1;
+          cube.renderOrder = 1; // se dibuja después (delante) del halo
           tmslBlocksGroup.add(cube);
 
-          // ==== HALO PERIMETRAL RECTANGULAR (suave y sin cruz) ====
-          const PL = W * 2.40;           // plano del halo (más grande → irradia más)
-          const HL = H * 2.40;
+          // ==== HALO PERIMETRAL RECTANGULAR (suave, no quema) ====
+          const HALO_SIZE_K = 2.00;      // 2.0 = amplio pero controlado
+          const PL = W * HALO_SIZE_K;
+          const HL = H * HALO_SIZE_K;
           const pgeo = new THREE.PlaneGeometry(PL, HL);
 
-          // Ajusta el rectángulo interno al tamaño real de la cara vista
-          // (un pelín más pequeño para que el color “nazca” del borde)
+          // rectángulo interior ≈ cara visible (ligeramente más pequeño, 96%)
           const innerX = (W / PL) * 0.96;
           const innerY = (H / HL) * 0.96;
 
-          // Crea la textura SDF una vez por proporción (cache básica opcional)
+          // usa la SDF rectangular (si ya existe, se reusa)
           if (!tmslHaloTex || !tmslHaloTex._key || tmslHaloTex._key !== `${innerX.toFixed(3)}x${innerY.toFixed(3)}`){
             tmslHaloTex = makeRectHaloTexture(384, 384, innerX, innerY, /*featherOut*/0.35, /*featherIn*/0.12, /*gamma*/1.35);
             tmslHaloTex._key = `${innerX.toFixed(3)}x${innerY.toFixed(3)}`;
           }
 
+          // Ganancia/alpha pensadas para fondo claro sin “washout”
+          const HALO_GAIN    = 0.90;
+          const HALO_OPACITY = 0.62;
+          const HALO_Z       = 0.018;
+
           const pmat = new THREE.MeshBasicMaterial({
-            color: color,                 // ← el patrón manda
+            color: color.clone().multiplyScalar(HALO_GAIN),
             map: tmslHaloTex,
             transparent: true,
-            opacity: 1.0,
+            opacity: HALO_OPACITY,
             depthTest: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending,  // suma color sin “lavar” el gris
-            premultipliedAlpha: true,
-            toneMapped: false                 // color “limpio” en post-tonemapping
+            blending: THREE.NormalBlending, // ← clave: NO aditivo → no quema
+            premultipliedAlpha: false,
+            toneMapped: false
           });
 
           const halo = new THREE.Mesh(pgeo, pmat);
-          // Pequeña separación para evitar z-fighting y pixelado en vista oblicua
-          const HALO_Z = 0.015;                  // antes 0.005
           halo.position.set(x, y, wallFrontZ + HALO_Z);
-
-          // “respiración” muy sutil (opcional)
-          halo.userData.baseOpacity = 0.70;
+          halo.userData.baseOpacity = HALO_OPACITY;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
 
-          halo.renderOrder = 0;   // se dibuja antes que el volumen (que va delante)
+          // dibuja ANTES (detrás) del volumen
+          halo.renderOrder = -1;
+
           tmslHaloGroup.add(halo);
         }
       }
@@ -4214,10 +4217,10 @@ void main(){
         const scale  = 1.0 + 0.14*Math.sin(t*0.55 + ph*1.1);
         h.scale.setScalar(scale);
 
-        const wobble = 0.18 + 0.12*Math.sin(t*0.80 + ph);
         h.material.opacity = THREE.MathUtils.clamp(
-          (h.userData.baseOpacity||0.55) + wobble + mx*0.12 - my*0.08,
-          0.05, 0.95
+          (h.userData.baseOpacity||0.62) + (0.20 + 0.15*Math.sin(t*0.8 + ph)) * 0.50
+          + mx*0.15 - my*0.08,
+          0.06, 0.70
         );
       });
     }
@@ -5707,7 +5710,7 @@ async function showPatternInfo(){
     try{
       if (on){
         if (!window.__tmslAmbient){
-          const amb = new THREE.AmbientLight(0xffffff, 0.35);
+          const amb = new THREE.AmbientLight(0xffffff, 0.25);
           amb.name = '__tmslAmbient';
           scene.add(amb);
           window.__tmslAmbient = amb;
