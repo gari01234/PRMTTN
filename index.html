@@ -3928,6 +3928,9 @@ void main(){
     let tmslHaloTex = null;
     let tmslHaloGroup = null;
 
+    // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
+    window.isTMSL = false;
+
     function makeHaloTexture(size=256){
       const c = document.createElement('canvas');
       c.width = size; c.height = size;
@@ -4004,29 +4007,36 @@ void main(){
       return (r + mRank + sceneSeed + cellIndex) % 4;           // 0..3
     }
 
-    // Sugar (por si llamas desde fuera)
+    /* HALO-ONLY · compat layer: delega en la versión unificada */
     function rebuildTMSLIfActive(){
-      if (isTMSL){
-        try { buildTMSL(); } catch(_){ }
-        try { buildTMSL_TomaselloStaudt(); } catch(_){ }
-      }
+      if (!window.isTMSL) return;
+      try { buildTMSL_TomaselloStaudt(); } catch(_){ }
     }
 
     function buildTMSL(){
-      /* limpia versión previa */
+      // limpia versión previa
       if (tmslGroup){
-        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+        tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
         scene.remove(tmslGroup);
       }
       tmslGroup = new THREE.Group();
 
-      /* pared blanca con 2 u de “tiefe” */
+      // Luz local de cortesía (por si lichtGroup está oculto)
+      let amb = tmslGroup.getObjectByName('__tmslAmbient');
+      if (!amb){
+        amb = new THREE.AmbientLight(0xffffff, 0.55);
+        amb.name = '__tmslAmbient';
+        tmslGroup.add(amb);
+      }
+
+      // Pared blanca "autoiluminada" (no depende de luces)
       const DEPTH = 2;
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // ← antes: Lambert
       const wall = new THREE.Mesh(wallGeo, wallMat);
       wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
       tmslGroup.add(wall);
+
       scene.add(tmslGroup);
     }
 
@@ -4170,33 +4180,38 @@ void main(){
     function toggleTMSL(){
       if (!isTMSL){ // ENTRAR
         leaveBuildRenderBoost();
-        if (isFRBN)  toggleFRBN();
-        if (isLCHT)  toggleLCHT();
-        if (isOFFNNG)toggleOFFNNG();
+        if (isFRBN)   toggleFRBN();
+        if (isLCHT)   toggleLCHT();
+        if (isOFFNNG) toggleOFFNNG();
 
+        // Construye pared + halo
         buildTMSL();
         buildTMSL_TomaselloStaudt();
 
+        // Exclusividad visual
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
 
+        // Fondo negro (guarda el anterior)
         tmslPrevBg = scene.background ? scene.background.clone() : null;
         scene.background = new THREE.Color(0x000000);
 
-        // Vista nivelada al entrar
+        // Vista nivelada
         enterTMSLView();
 
+        // Estado (local + global, imprescindible para hooks)
         isTMSL = true;
+        window.isTMSL = true;
 
       } else { // SALIR
         if (tmslHaloGroup){
-          tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
+          tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
           if (tmslGroup) tmslGroup.remove(tmslHaloGroup);
           tmslHaloGroup = null;
         }
         if (tmslGroup){
-          tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+          tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
           scene.remove(tmslGroup);
           tmslGroup = null;
         }
@@ -4213,6 +4228,7 @@ void main(){
         if (lichtGroup && isLCHT) lichtGroup.visible = true;
 
         isTMSL = false;
+        window.isTMSL = false;
       }
     }
     function clearGroup(g){
