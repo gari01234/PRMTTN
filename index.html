@@ -4113,32 +4113,72 @@ void main(){
           const r = (lehmerRank(pa) + idx + sceneSeed) % RATIOS.length;
           const H = W * RATIOS[r];
 
-          // --- materiales base (negro mate) ---
-          const cEdge = color;                 // color para pintar la “L”
-          const cSide = TMSL_SIDE_HEX;         // lateral muy oscuro
-          const cFront= TMSL_FRONT_HEX;        // frontal/trasera negro puro
+          // --- materiales base (laterales a COLOR + frontal negro) ---
+          const cEdge  = color;                 // color determinista del volumen
+          const cFront = TMSL_FRONT_HEX;        // negro mate (definido antes)
+          const EDGE_EMI = 0.08;
 
           // orden three.js: +X, -X, +Y, -Y, +Z, -Z
           const mats = [
-            new THREE.MeshLambertMaterial({color: cSide}), // +X
-            new THREE.MeshLambertMaterial({color: cSide}), // -X
-            new THREE.MeshLambertMaterial({color: cSide}), // +Y
-            new THREE.MeshLambertMaterial({color: cSide}), // -Y
-            new THREE.MeshLambertMaterial({color: cFront}), // +Z (FRONTAL) negro mate
-            new THREE.MeshLambertMaterial({color: cFront})  // -Z (TRASERA) negro mate
+            new THREE.MeshLambertMaterial({color: cEdge}),  // +X (LATERAL)
+            new THREE.MeshLambertMaterial({color: cEdge}),  // -X (LATERAL)
+            new THREE.MeshLambertMaterial({color: cEdge}),  // +Y (LATERAL)
+            new THREE.MeshLambertMaterial({color: cEdge}),  // -Y (LATERAL)
+            new THREE.MeshLambertMaterial({color: cFront}), // +Z (FRONTAL negro)
+            new THREE.MeshLambertMaterial({color: cFront})  // -Z (TRASERA negro)
           ];
-          const paintEdge = (m)=>{ m.color = cEdge.clone(); };
-          const ori = tmslOrientation(pa, idx);
-          if (ori === 0){ paintEdge(mats[0]); paintEdge(mats[2]); }
-          if (ori === 1){ paintEdge(mats[1]); paintEdge(mats[2]); }
-          if (ori === 2){ paintEdge(mats[1]); paintEdge(mats[3]); }
-          if (ori === 3){ paintEdge(mats[0]); paintEdge(mats[3]); }
+
+          // leve “emissive” en los 4 laterales para que no se apaguen en negro mate
+          [mats[0], mats[1], mats[2], mats[3]].forEach(m=>{
+            const base = (cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge));
+            m.emissive = base;
+            m.emissiveIntensity = EDGE_EMI;
+          });
+
+          // (la orientación 'L' ya no colorea solo dos cantos; se deja de usar)
 
           const geo  = new THREE.BoxGeometry(W, H, DEP);
           const cube = new THREE.Mesh(geo, mats);
           cube.position.set(x, y, wallFrontZ + DEP/2 + 0.035);
           cube.renderOrder = 1; // se dibuja después (delante) del halo
           tmslBlocksGroup.add(cube);
+
+          // ==== RAHMEN FRONTAL (mismo color que los laterales) ====
+          (() => {
+            // dimensiones del “marco”
+            const W = geo.parameters.width;
+            const H = geo.parameters.height;
+
+            // grosor del marco (14% del lado menor, con mínimos seguros)
+            const FRAME_T = Math.max(0.06, Math.min(W, H) * 0.14);
+            // pequeña profundidad para que sea visible pero sin “bulto”
+            const FRAME_D = 0.05;
+            // un “pull” hacia delante para evitar z-fighting con la cara frontal negra
+            const zFrame = cube.position.z + (DEP/2) + (FRAME_D/2) + 0.002;
+
+            // tamaño interior del hueco del marco
+            const wIn = Math.max(0.001, W - 2*FRAME_T);
+            const hIn = Math.max(0.001, H - 2*FRAME_T);
+
+            const matF = new THREE.MeshLambertMaterial({ color: cEdge, dithering:true });
+            const emi  = (cEdge.clone ? cEdge.clone() : new THREE.Color(cEdge));
+            matF.emissive = emi; matF.emissiveIntensity = 0.10;
+
+            // 4 barras: arriba/abajo/izq/der
+            const top = new THREE.Mesh(new THREE.BoxGeometry(wIn, FRAME_T, FRAME_D), matF);
+            top.position.set(x, y + (H/2 - FRAME_T/2), zFrame);
+
+            const bot = new THREE.Mesh(new THREE.BoxGeometry(wIn, FRAME_T, FRAME_D), matF);
+            bot.position.set(x, y - (H/2 - FRAME_T/2), zFrame);
+
+            const lef = new THREE.Mesh(new THREE.BoxGeometry(FRAME_T, hIn, FRAME_D), matF);
+            lef.position.set(x - (W/2 - FRAME_T/2), y, zFrame);
+
+            const rig = new THREE.Mesh(new THREE.BoxGeometry(FRAME_T, hIn, FRAME_D), matF);
+            rig.position.set(x + (W/2 - FRAME_T/2), y, zFrame);
+
+            tmslGroup.add(top, bot, lef, rig);
+          })();
 
           // --- HALOS: core fijo + exterior "breathing" (ambos rectangulares) ---
           if (!tmslHaloTex)      tmslHaloTex     = makeBoxGlowTexture(256, 0.35, 0.98, 1.4);
