@@ -3924,6 +3924,11 @@ void main(){
     let tmslGroup = null;
     let tmslPrevBg = null;
 
+    /* === TMSL · colores “negro mate” === */
+    const TMSL_BG_HEX     = 0x000000; // fondo/“pared”
+    const TMSL_FRONT_HEX  = 0x000000; // cara frontal (y trasera) de los volúmenes
+    const TMSL_SIDE_HEX   = 0x0b0b0b; // caras laterales muy oscuras (ligeramente >0 para no aplastar)
+
     // ——— TMSL helpers / sub-grupos ———
     let tmslBlocksGroup = null;
 
@@ -4043,12 +4048,12 @@ void main(){
       disposeAndRemove(tmslGroup);
       tmslGroup = new THREE.Group();
 
-      // pared frontal (material básico → no depende de la luz)
+      /* pared negra mate con 2 u de “tiefe” */
       const DEPTH = 2;
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const wallMat = new THREE.MeshLambertMaterial({ color: TMSL_BG_HEX }); // ← negro
       const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
       wall.name = '__tmslWall';
       tmslGroup.add(wall);
 
@@ -4108,22 +4113,26 @@ void main(){
           const r = (lehmerRank(pa) + idx + sceneSeed) % RATIOS.length;
           const H = W * RATIOS[r];
 
-          // — caras NO-iluminadas (blanco suave) + cantos con color
-          const faceWhite = new THREE.Color(0xf5f5f5);
+          // --- materiales base (negro mate) ---
+          const cEdge = color;                 // color para pintar la “L”
+          const cSide = TMSL_SIDE_HEX;         // lateral muy oscuro
+          const cFront= TMSL_FRONT_HEX;        // frontal/trasera negro puro
+
+          // orden three.js: +X, -X, +Y, -Y, +Z, -Z
           const mats = [
-            new THREE.MeshBasicMaterial({color: faceWhite}), // +X
-            new THREE.MeshBasicMaterial({color: faceWhite}), // -X
-            new THREE.MeshBasicMaterial({color: faceWhite}), // +Y
-            new THREE.MeshBasicMaterial({color: faceWhite}), // -Y
-            new THREE.MeshBasicMaterial({color: 0xffffff}),  // +Z
-            new THREE.MeshBasicMaterial({color: 0xffffff})   // -Z
+            new THREE.MeshLambertMaterial({color: cSide}), // +X
+            new THREE.MeshLambertMaterial({color: cSide}), // -X
+            new THREE.MeshLambertMaterial({color: cSide}), // +Y
+            new THREE.MeshLambertMaterial({color: cSide}), // -Y
+            new THREE.MeshLambertMaterial({color: cFront}), // +Z (FRONTAL) negro mate
+            new THREE.MeshLambertMaterial({color: cFront})  // -Z (TRASERA) negro mate
           ];
-          const paint = (m)=>{ m.color = color.clone(); };
+          const paintEdge = (m)=>{ m.color = cEdge.clone(); };
           const ori = tmslOrientation(pa, idx);
-          if (ori === 0){ paint(mats[0]); paint(mats[2]); }
-          if (ori === 1){ paint(mats[1]); paint(mats[2]); }
-          if (ori === 2){ paint(mats[1]); paint(mats[3]); }
-          if (ori === 3){ paint(mats[0]); paint(mats[3]); }
+          if (ori === 0){ paintEdge(mats[0]); paintEdge(mats[2]); }
+          if (ori === 1){ paintEdge(mats[1]); paintEdge(mats[2]); }
+          if (ori === 2){ paintEdge(mats[1]); paintEdge(mats[3]); }
+          if (ori === 3){ paintEdge(mats[0]); paintEdge(mats[3]); }
 
           const geo  = new THREE.BoxGeometry(W, H, DEP);
           const cube = new THREE.Mesh(geo, mats);
@@ -5693,15 +5702,17 @@ async function showPatternInfo(){
 
 // === TMSL · base visible + cámara segura + luz de cortesía + watchdog ===
 (function(){
-  // Luz de cortesía SOLO cuando TMSL está ON (evita negros en iOS si los materiales no son Basic)
+  // Luz de cortesía SOLO cuando TMSL está ON (intensidad baja para “negro mate”)
   function ensureTMSLLighting(on){
     try{
       if (on){
         if (!window.__tmslAmbient){
-          const amb = new THREE.AmbientLight(0xffffff, 0.25);
+          const amb = new THREE.AmbientLight(0xffffff, 0.12); // antes 0.55
           amb.name = '__tmslAmbient';
           scene.add(amb);
           window.__tmslAmbient = amb;
+        } else {
+          window.__tmslAmbient.intensity = 0.12;
         }
       } else {
         if (window.__tmslAmbient){
@@ -5732,35 +5743,17 @@ async function showPatternInfo(){
     }catch(_){ }
   };
 
-  // Base mínima para TMSL: NO toca background ni visibilidad de otros grupos
+  // Base mínima visible + FONDO NEGRO MATE para TMSL
   window.ensureBaseVisibilityForTMSL = function(){
-    // Nada de updateBackground() ni de re-mostrar cubeUniverse/permutationGroup aquí.
-    // Solo cámara segura y una luz suave por si algún material no es Basic.
     try{
-      if (renderer) renderer.autoClear = true;
-      if (camera){
-        camera.up.set(0,1,0);
-        camera.fov = 60;
-        camera.updateProjectionMatrix();
-        if (controls && controls.target) controls.target.set(0,0,0);
-        camera.position.set(0, 0, 42);
-        if (controls){
-          controls.enabled = true;
-          controls.enableRotate = true;
-          controls.enablePan = true;
-          controls.enableZoom = true;
-          controls.minPolarAngle = 0;
-          controls.maxPolarAngle = Math.PI;
-          controls.update();
-        }
-      }
-      // Luz suave local si no existe (la de buildTMSL ya la crea dentro del grupo)
-      if (!tmslGroup || !tmslGroup.getObjectByName('TMSL_AMB')){
-        try{
-          if (!tmslGroup) buildTMSL();
-        }catch(_){ }
-      }
+      scene.background = new THREE.Color(TMSL_BG_HEX);
+      if (renderer && renderer.setClearColor) renderer.setClearColor(TMSL_BG_HEX, 1);
     }catch(_){ }
+    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
+    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
+    try{ renderer.autoClear = true; }catch(_){ }
+    ensureTMSLLighting(true);
+    window.applyTMSLSafeCamera?.();
   };
 
   // Parchea toggleTMSL (post-entrada) — sin reactivar el cubo ni el fondo
