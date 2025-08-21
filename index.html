@@ -4088,8 +4088,8 @@ void main(){
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
       // ── 3) parámetros de grilla
-      const GRID = 8;
-      const PAD  = cubeSize * 0.20;
+      const GRID = 7;
+      const PAD  = cubeSize * 0.2;
       const span = cubeSize - PAD*2;
       const step = span / (GRID-1);
 
@@ -4097,8 +4097,8 @@ void main(){
       // halo más corto: radio reducido en 1/3 (→ 2/3 del anterior)
       const MOD_W = 1.60;          // ancho
       const DEP   = 0.10;          // PROFUNDIDAD MITAD (antes 0.80)
-      const HALO_SCALE_X = 8.0;  // 
-      const HALO_SCALE_Y = 8.0;  // 
+      const HALO_SCALE_X = 4.0;  // 
+      const HALO_SCALE_Y = 4.0;  // 
 
       // —— único índice √3 determinista (nunca en la fila inferior)
       const TOTAL = GRID * GRID;
