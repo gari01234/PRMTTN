@@ -4157,6 +4157,8 @@ void main(){
           tmslHaloGroup.add(core);
 
           // --- OUTER: respiración suave (escala/opacity), siempre por detrás del sólido ---
+          const OUTER_MULT = 4.0;  // ← 4× más grande que antes
+
           const outerGeo = new THREE.PlaneGeometry(PLx, PLy);
           const outerMat = new THREE.MeshBasicMaterial({
             color,
@@ -4172,7 +4174,11 @@ void main(){
           outer.userData.kind = 'outer';
           outer.userData.baseOpacity = 0.65;
           outer.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
-          outer.renderOrder = -1;
+
+          // → base de escala 4× (la animación multiplicará sobre esta base)
+          outer.userData.baseScale = OUTER_MULT;
+          outer.scale.set(OUTER_MULT, OUTER_MULT, 1);
+
           tmslHaloGroup.add(outer);
         }
       }
@@ -4189,10 +4195,12 @@ void main(){
 
         if (h.userData.kind === 'outer'){
           // respiración suave sin abrir hueco junto al volumen
-          const ph = h.userData.phase || 0;
+          const ph    = h.userData.phase || 0;
+          const base  = h.userData.baseScale || 1;      // ← usa la base (4×)
           const wobble = 0.08 + 0.06*Math.sin(t*0.75 + ph);
           const scale  = 1.00 + 0.12*Math.sin(t*0.50 + ph*1.7) + mx*0.04 - my*0.03;
-          h.scale.set(scale, scale, 1);
+
+          h.scale.set(base * scale, base * scale, 1);
           h.material.opacity = THREE.MathUtils.clamp(
             (h.userData.baseOpacity||0.65) + wobble,
             0.25, 0.95
