@@ -4040,122 +4040,152 @@ void main(){
     }
 
     function buildTMSL(){
-      // limpia grupo previo si existía
-      disposeAndRemove(tmslGroup);
+      /* limpia versión previa */
+      if (tmslGroup){
+        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+        scene.remove(tmslGroup);
+      }
       tmslGroup = new THREE.Group();
 
-      /* pared negra mate con 2 u de “tiefe” */
+      /* pared blanca con 2 u de “tiefe” */
       const DEPTH = 2;
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      const wallMat = new THREE.MeshLambertMaterial({ color: TMSL_BG_HEX }); // ← negro
+      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
       const wall = new THREE.Mesh(wallGeo, wallMat);
       wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
-      wall.name = '__tmslWall';
+      wall.userData.tmslKind = 'wall';               // ← etiqueta para no eliminarla en rebuild
       tmslGroup.add(wall);
-
       scene.add(tmslGroup);
     }
 
     function buildTMSL_TomaselloStaudt(){
       if (!tmslGroup) return;
 
-      // limpia versión previa
+      // ── 0) ELIMINA TODO lo que no sea la pared (evita duplicados al regenerar)
+      for (let i = tmslGroup.children.length - 1; i >= 0; i--){
+        const ch = tmslGroup.children[i];
+        if (ch.userData?.tmslKind === 'wall') continue; // conserva la pared
+        // libera y quita
+        ch.traverse?.(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
+        tmslGroup.remove(ch);
+      }
+
+      // ── 1) prepara halo group/texture
       if (tmslHaloGroup){
         tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512); // tu textura actual
-
+      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512);
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
 
-      // pared frontal (primer mesh del grupo TMSL)
-      const wall = tmslGroup.children.find(o=>o.isMesh);
+      // ── 2) localiza la pared para posicionar frente
+      const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
       if (!wall || !wall.geometry?.parameters) return;
-
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
-      // ====== grilla (tal como la usas) ======
+      // ── 3) parámetros de grilla
       const GRID = 9;
-      const PAD  = cubeSize * 0.10;            // margen
-      const span = cubeSize - PAD*2;           // ancho útil
+      const PAD  = cubeSize * 0.10;
+      const span = cubeSize - PAD*2;
       const step = span / (GRID-1);
 
-      // ====== parámetros de los volúmenes (sin cambiar materiales/halo existentes) ======
-      const MOD_W = 1.60;       // ancho visible base (igual que estabas usando)
-      const DEP   = 0.80;       // salida hacia el espectador (profundidad)
-      const HALO_SCALE_X = 4.0; // halo exterior (mantén lo que ya tenías)
+      // medidas base (igual que venías usando)
+      const MOD_W = 1.60;     // ancho
+      const DEP   = 0.80;     // profundidad (salida)
+      const HALO_SCALE_X = 4.0;
       const HALO_SCALE_Y = 4.0;
 
-      // índices deterministas para la única celda √3 (excluye la fila inferior)
+      // —— único índice √3 determinista (nunca en la fila inferior)
       const TOTAL = GRID * GRID;
       const mRank = mappingRank(attributeMapping.slice(0,5));
       const seed  = (sceneSeed + S_global + mRank) >>> 0;
-      const idxSqrt3 = GRID + (seed % (TOTAL - GRID)); // ∈ [GRID .. TOTAL-1] → nunca en la fila 0
+      const idxSqrt3 = GRID + (seed % (TOTAL - GRID)); // ∈ [GRID .. TOTAL-1]
 
-      // helpers
       const SQ1 = 1.0, SQ3 = Math.sqrt(3), SQ5 = Math.sqrt(5);
+
+      // helper: crea el Rahmen frontal de color
+      function addFrameFor(cube, W, H, colorTHREE){
+        const FRAME_Z_PULL = 0.03;                 // muy cerca del frente
+        const FRAME_DEPTH  = 0.04;                 // laminita fina
+        const tRaw = Math.min(W, H) * 0.16;        // grosor relativo
+        const t    = Math.max(0.05, Math.min(tRaw, W/3, H/3));
+
+        const wIn = Math.max(0.001, W - 2 * t);
+        const hIn = Math.max(0.001, H - 2 * t);
+
+        const matF = new THREE.MeshLambertMaterial({ color: colorTHREE, dithering:true });
+        matF.emissive = colorTHREE.clone();
+        matF.emissiveIntensity = 0.12;
+
+        const zFrame = cube.position.z + DEP/2 + FRAME_Z_PULL;
+
+        const top  = new THREE.Mesh(new THREE.BoxGeometry(wIn, t, FRAME_DEPTH), matF);
+        const bot  = new THREE.Mesh(new THREE.BoxGeometry(wIn, t, FRAME_DEPTH), matF);
+        const left = new THREE.Mesh(new THREE.BoxGeometry(t,   hIn, FRAME_DEPTH), matF);
+        const rigt = new THREE.Mesh(new THREE.BoxGeometry(t,   hIn, FRAME_DEPTH), matF);
+
+        top.position.set (cube.position.x, cube.position.y + (H/2 - t/2), zFrame);
+        bot.position.set (cube.position.x, cube.position.y - (H/2 - t/2), zFrame);
+        left.position.set(cube.position.x - (W/2 - t/2), cube.position.y, zFrame);
+        rigt.position.set(cube.position.x + (W/2 - t/2), cube.position.y, zFrame);
+
+        tmslGroup.add(top, bot, left, rigt);
+      }
+
+      // ── 4) construir malla
+      const perms = (typeof getSelectedPerms === 'function')
+        ? getSelectedPerms()
+        : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
+      const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
 
       for (let iy=0; iy<GRID; iy++){
         for (let ix=0; ix<GRID; ix++){
           const x = -halfCube + PAD + ix*step;
           const y = -halfCube + PAD + iy*step;
 
-          // Colores atados a las permutaciones (igual que ya tenías)
-          const perms = (typeof getSelectedPerms === 'function')
-            ? getSelectedPerms()
-            : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
+          const idxCell = iy*GRID + ix;
+          const pa      = permsSafe[idxCell % permsSafe.length];
 
-          const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
-          const idxCell   = iy*GRID + ix;
-          const pa        = permsSafe[idxCell % permsSafe.length];
-
-          // color determinista (sin tocar tu pipeline)
+          // color determinista
           const color = tmslColorFor(pa, idxCell);
 
-          // ====== relación de aspecto por celda ======
-          // fila inferior → √5 ; una celda determinista → √3 ; resto → √1
+          // relación de aspecto deseada
           let aspect = SQ1;
-          if (iy === 0){
-            aspect = SQ5;
-          } else if (idxCell === idxSqrt3){
-            aspect = SQ3;
-          }
+          if (iy === 0) aspect = SQ5;              // fila inferior → √5
+          else if (idxCell === idxSqrt3) aspect = SQ3; // único √3
 
           const W = MOD_W;
           const H = MOD_W * aspect;
 
-          // — materiales base (tal como lo llevabas: laterales color; frente negro mate, etc.)
-          // Si ya tienes tu bloque de materiales con Rahmen, déjalo; aquí conservamos uno básico:
-          const cEdge = color;
-          const mats = [
-            new THREE.MeshLambertMaterial({color: cEdge}),  // +X
-            new THREE.MeshLambertMaterial({color: cEdge}),  // -X
-            new THREE.MeshLambertMaterial({color: cEdge}),  // +Y
-            new THREE.MeshLambertMaterial({color: cEdge}),  // -Y
-            new THREE.MeshLambertMaterial({color: 0x000000}), // +Z (frontal negro mate)
-            new THREE.MeshLambertMaterial({color: 0x000000})  // -Z (trasera negra)
-          ];
-          mats.forEach((m,i)=>{ if(i<4){ m.emissive = cEdge.clone(); m.emissiveIntensity = 0.10; } });
+          // laterales coloreados + frontal negro mate
+          const sideMat = new THREE.MeshLambertMaterial({ color, dithering:true });
+          sideMat.emissive = color.clone();
+          sideMat.emissiveIntensity = 0.10;
 
-          // caja rectangular con la proporción calculada
+          const frontMat = new THREE.MeshLambertMaterial({ color:0x000000, dithering:true });
+          const backMat  = new THREE.MeshLambertMaterial({ color:0x000000, dithering:true });
+
+          const mats = [
+            sideMat.clone(), sideMat.clone(), sideMat.clone(), sideMat.clone(),
+            frontMat, backMat
+          ];
+
           const geo  = new THREE.BoxGeometry(W, H, DEP);
           const cube = new THREE.Mesh(geo, mats);
           cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
           tmslGroup.add(cube);
 
-          // —— si en tu versión añadiste un “Rahmen” frontal como sub-malla, mantenlo aquí:
-          // (opcional; si ya tienes tu helper para el marco, llama a ese helper en vez de este bloque)
-          // const frameT = Math.min(0.18, Math.max(0.06, Math.min(W,H) * 0.10));
-          // (deja tu implementación actual del marco)
+          // Rahmen frontal del mismo color que los laterales
+          addFrameFor(cube, W, H, color);
 
-          // ====== halo rectangular (ajustado al nuevo alto/alto) ======
+          // halo rectangular (ajustado al nuevo W×H)
           const PLx = W * HALO_SCALE_X;
           const PLy = H * HALO_SCALE_Y;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
           const pmat = new THREE.MeshBasicMaterial({
-            color,                   // color patrón
+            color,
             map: tmslHaloTex,
             transparent: true,
             depthWrite: false,
