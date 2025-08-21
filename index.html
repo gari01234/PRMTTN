@@ -3301,13 +3301,8 @@ function renderArchPanel(html){
       });
     }
     function initRenderer(){
-      // --- Renderer ---
-      renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: false,
-        powerPreference: 'high-performance',
-        preserveDrawingBuffer: false
-      });
+      // Antialias + conservar buffer para exportación
+      renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
 
       /* ✅ Más nitidez en BUILD:
          - Subimos el cap del pixelRatio de 1.25 → 2.0 (sin ir al máximo del dispositivo para no matar FPS).
@@ -3319,14 +3314,6 @@ function renderArchPanel(html){
       renderer.outputEncoding = THREE.sRGBEncoding;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 0.95;
-
-      // Fondo negro mate por "clear color" (no por un mesh delante)
-      renderer.setClearColor(0x000000, 1);
-      scene.background = null;
-
-      // por si el canvas es transparente en CSS
-      renderer.domElement.style.background = '#000';
-      document.body.style.backgroundColor = '#000';
 
       document.body.appendChild(renderer.domElement);
     }
@@ -3357,34 +3344,14 @@ function renderArchPanel(html){
       }
     }
     function init(){
-      scene = new THREE.Scene();
-
-      // --- Quitar cualquier plano negro usado como parche de fondo ---
-      (function removeBgPatches(root){
-        const toRemove = [];
-        root.traverse(o => {
-          const isMesh = o && o.isMesh;
-          if (!isMesh) return;
-
-          const isPlane = o.geometry && /Plane/i.test(o.geometry.type);
-          const isBlack =
-            o.material &&
-            (o.material.color?.getHex?.() === 0x000000 ||
-             o.material.name === 'bgPatch' ||
-             o.userData?.bgPatch === true);
-
-          if (isPlane && isBlack) toRemove.push(o);
-        });
-        toRemove.forEach(o => o.parent?.remove(o));
-      })(scene);
-
-      camera = new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
+      scene=new THREE.Scene();
+      scene.background=new THREE.Color(0xffffff);
+      camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
       initRenderer();
-      fixHaloMaterials(scene);
       renderer.domElement.addEventListener('click',      centralPlayHandler, false);
       renderer.domElement.addEventListener('touchstart', centralPlayHandler, { passive:false });
-      controls = new THREE.OrbitControls(camera,renderer.domElement);
+      controls=new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
       document.getElementById('standardView').value = 'front';
       applyStandardView();
@@ -3952,7 +3919,7 @@ void main(){
 
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
 
-    /* ───────────────  TMSL  ·  black matte background  ─────────────── */
+    /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
     let isTMSL = false;
     let tmslGroup = null;
     let tmslPrevBg = null;
@@ -4004,36 +3971,6 @@ void main(){
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
       return tex;
-    }
-
-    function makeHaloMaterial(map){
-      const mat = new THREE.MeshBasicMaterial({
-        map,
-        color: 0xffffff,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false
-      });
-      return mat;
-    }
-
-    function fixHaloMaterials(root){
-      root.traverse(o => {
-        if (o?.isMesh && o.material?.transparent){
-          o.material.depthWrite = false;
-          o.material.depthTest = false;
-          o.material.blending = THREE.AdditiveBlending;
-          o.renderOrder = Math.max(o.renderOrder ?? 0, 1);
-          if (Array.isArray(o.material)){
-            o.material.forEach(m => {
-              m.depthWrite = false;
-              m.depthTest = false;
-              m.blending = THREE.AdditiveBlending;
-            });
-          }
-        }
-      });
     }
 
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
@@ -4099,75 +4036,7 @@ void main(){
       try{
         if (!tmslGroup) buildTMSL();
         buildTMSL_TomaselloStaudt();
-        tmslSetBackgroundBlack();
-        tmslEnsureBlackBackdrop();
-        tmslHalveVolumeThickness();
       }catch(_){ }
-    }
-
-    // === FONDO NEGRO MATE PARA TMSL ===
-    function tmslSetBackgroundBlack(){
-      // negro real en el clear del renderer y en el canvas
-      renderer.autoClear = true;
-      renderer.setClearColor(0x000000, 1);
-      if (scene) scene.background = null;
-      if (renderer.domElement && renderer.domElement.style){
-        renderer.domElement.style.background = '#000';
-        document.body.style.backgroundColor = '#000';
-      }
-    }
-
-    // Pared negra justo detrás del campo de volúmenes (siempre mirando a cámara)
-    function tmslEnsureBlackBackdrop(){
-      const plane = scene.getObjectByName('TMSL_BACKDROP');
-      if (plane) plane.parent?.remove(plane);
-    }
-
-    // === MITAD DE ESPESOR EN VOLÚMENES ===
-    function tmslHalveVolumeThickness(){
-      const root = (window.tmslGroup ?? scene);
-      if (!root) return;
-
-      const processed = new Set();
-
-      root.traverse(obj=>{
-        if (!obj || !obj.isMesh) return;
-        if (obj.name === 'TMSL_BACKDROP') return;                    // no tocar fondo
-        const mat = obj.material;
-        // evita halos/capas transparentes
-        if (Array.isArray(mat) ? mat.some(m=>m.transparent) : (mat && mat.transparent)) return;
-
-        const g = obj.geometry;
-        if (!g) return;
-
-        // sólo candidatos que parecen volúmenes (caja/extrusión o nombre típico)
-        const name = (obj.name||'').toLowerCase();
-        const isCandidate =
-          g.type === 'BoxGeometry' || g.type === 'ExtrudeGeometry' ||
-          name.includes('vol') || name.includes('block') || name.includes('cube');
-        if (!isCandidate) return;
-
-        if (processed.has(obj)) return;
-        processed.add(obj);
-
-        g.computeBoundingBox?.();
-        const bb = g.boundingBox;
-        if (!bb) return;
-
-        const sx = bb.max.x - bb.min.x;
-        const sy = bb.max.y - bb.min.y;
-        const sz = bb.max.z - bb.min.z;
-
-        // el eje con menor dimensión es el espesor
-        let axis = 'x', min = sx;
-        if (sy < min){ axis = 'y'; min = sy; }
-        if (sz < min){ axis = 'z'; min = sz; }
-
-        // mitad del espesor
-        if (axis === 'x') obj.scale.x *= 0.5;
-        if (axis === 'y') obj.scale.y *= 0.5;
-        if (axis === 'z') obj.scale.z *= 0.5;
-      });
     }
 
     function buildTMSL(){
@@ -4177,16 +4046,25 @@ void main(){
         scene.remove(tmslGroup);
       }
       tmslGroup = new THREE.Group();
+
+      /* pared blanca con 2 u de “tiefe” */
+      const DEPTH = 2;
+      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
+      const wallMat = new THREE.MeshLambertMaterial({color:0xffffff});
+      const wall = new THREE.Mesh(wallGeo, wallMat);
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+      wall.userData.tmslKind = 'wall';               // ← etiqueta para no eliminarla en rebuild
+      tmslGroup.add(wall);
       scene.add(tmslGroup);
-      window.tmslGroup = tmslGroup;
     }
 
     function buildTMSL_TomaselloStaudt(){
       if (!tmslGroup) return;
 
-      // ── 0) ELIMINA TODO (evita duplicados al regenerar)
+      // ── 0) ELIMINA TODO lo que no sea la pared (evita duplicados al regenerar)
       for (let i = tmslGroup.children.length - 1; i >= 0; i--){
         const ch = tmslGroup.children[i];
+        if (ch.userData?.tmslKind === 'wall') continue; // conserva la pared
         // libera y quita
         ch.traverse?.(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
         tmslGroup.remove(ch);
@@ -4202,8 +4080,10 @@ void main(){
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
 
-      // ── 2) posición frontal base
-      const wallFrontZ = halfCube + 2;
+      // ── 2) localiza la pared para posicionar frente
+      const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
+      if (!wall || !wall.geometry?.parameters) return;
+      const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
       // ── 3) parámetros de grilla
       const GRID = 9;
@@ -4304,18 +4184,22 @@ void main(){
           const PLx = W * HALO_SCALE_X;
           const PLy = H * HALO_SCALE_Y;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
-          const pmat = makeHaloMaterial(tmslHaloTex);
-          pmat.color.copy(color);
-          pmat.opacity = 0.90;
+          const pmat = new THREE.MeshBasicMaterial({
+            color,
+            map: tmslHaloTex,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.NormalBlending,
+            premultipliedAlpha: false,
+            opacity: 0.90
+          });
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.renderOrder = Math.max(halo.renderOrder ?? 0, 1);
           halo.position.set(x, y, wallFrontZ + 0.005);
           halo.userData.baseOpacity = 0.65;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
           tmslHaloGroup.add(halo);
         }
       }
-      fixHaloMaterials(tmslHaloGroup);
     }
 
     function updateTMSLHalos(t){
@@ -4366,12 +4250,9 @@ void main(){
         if (isLCHT)   toggleLCHT();
         if (isOFFNNG) toggleOFFNNG();
 
-        // Construye escena TMSL
+        // Construye pared + halo
         buildTMSL();
         buildTMSL_TomaselloStaudt();
-        tmslSetBackgroundBlack();
-        tmslEnsureBlackBackdrop();
-        tmslHalveVolumeThickness();
 
         // Exclusividad visual
         cubeUniverse.visible     = false;
@@ -4380,7 +4261,7 @@ void main(){
 
         // Fondo negro (guarda el anterior)
         tmslPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = null;
+        scene.background = new THREE.Color(0x000000);
 
         // Vista nivelada
         enterTMSLView();
@@ -4396,14 +4277,6 @@ void main(){
           tmslCellsGroup = null;
         }
         disposeAndRemove(tmslGroup);      tmslGroup      = null;
-        window.tmslGroup = null;
-
-        const bd = scene.getObjectByName('TMSL_BACKDROP');
-        if (bd){
-          bd.geometry.dispose?.();
-          bd.material.dispose?.();
-          scene.remove(bd);
-        }
 
         if (tmslPrevBg) scene.background = tmslPrevBg;
 
@@ -5877,10 +5750,8 @@ async function showPatternInfo(){
   // Base mínima visible + FONDO NEGRO MATE para TMSL
   window.ensureBaseVisibilityForTMSL = function(){
     try{
+      scene.background = new THREE.Color(TMSL_BG_HEX);
       if (renderer && renderer.setClearColor) renderer.setClearColor(TMSL_BG_HEX, 1);
-      if (scene) scene.background = null;
-      if (renderer?.domElement) renderer.domElement.style.background = '#000';
-      document.body.style.backgroundColor = '#000';
     }catch(_){ }
     try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
     try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
