@@ -4059,49 +4059,55 @@ void main(){
       scene.add(tmslGroup);
     }
 
-    // Ocultador del halo fuera del área útil (perímetro = cuadrado del cubo 30×30)
+    // Marco negro que tapa el halo fuera del área útil (sin z-fighting)
+    // Usa un Shape con agujero (un solo mesh) → sin costuras ni parpadeo
     function buildTMSLHaloClamp(wallFrontZ){
       try{
         // limpia versión previa
         if (tmslClampGroup){
-          tmslClampGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
-          if (tmslGroup) tmslGroup.remove(tmslClampGroup);
+          tmslClampGroup.traverse(o=>{
+            if (o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }
+          });
+          tmslGroup.remove(tmslClampGroup);
           tmslClampGroup = null;
         }
         if (!tmslGroup) return;
 
-        const clampZ = wallFrontZ + 0.006;           // un pelo delante del halo (halo ≈ +0.005)
-        const BIG    = cubeSize * 10;                 // tamaño amplio para cubrir “hasta infinito”
-        const minX   = -halfCube, maxX = halfCube;    // perímetro: el cuadrado 30×30
-        const minY   = -halfCube, maxY = halfCube;
-        const W      = (maxX - minX);
-        const H      = (maxY - minY);
+        const OUTPAD = cubeSize * 0.15;     // margen exterior amplio para cubrir toda fuga
+        const innerX0 = -halfCube, innerY0 = -halfCube;
+        const innerX1 =  halfCube, innerY1 =  halfCube;
 
-        const mat = new THREE.MeshBasicMaterial({
+        const outer = new THREE.Shape();
+        outer.moveTo(-halfCube - OUTPAD, -halfCube - OUTPAD);
+        outer.lineTo( halfCube + OUTPAD, -halfCube - OUTPAD);
+        outer.lineTo( halfCube + OUTPAD,  halfCube + OUTPAD);
+        outer.lineTo(-halfCube - OUTPAD,  halfCube + OUTPAD);
+        outer.lineTo(-halfCube - OUTPAD, -halfCube - OUTPAD);
+
+        const hole = new THREE.Path();
+        hole.moveTo(innerX0, innerY0);
+        hole.lineTo(innerX1, innerY0);
+        hole.lineTo(innerX1, innerY1);
+        hole.lineTo(innerX0, innerY1);
+        hole.lineTo(innerX0, innerY0);
+        outer.holes.push(hole);
+
+        const geom = new THREE.ShapeGeometry(outer);
+        const mat  = new THREE.MeshBasicMaterial({
           color: 0x000000,
           side: THREE.DoubleSide,
-          depthWrite: true,
-          depthTest: true,
-          transparent: false
+          transparent: true,
+          opacity: 1,
+          depthTest: false,   // ← evita z-fighting
+          depthWrite: false
         });
 
+        const frame = new THREE.Mesh(geom, mat);
+        frame.position.z = wallFrontZ + 0.06; // va por delante del halo (halo ≈ +0.005)
+        frame.renderOrder = 9999;             // siempre encima del halo
+
         tmslClampGroup = new THREE.Group();
-
-        // Bandas superior e inferior
-        const top    = new THREE.Mesh(new THREE.PlaneGeometry(W, BIG), mat.clone());
-        top.position.set((minX+maxX)/2, maxY + BIG/2, clampZ);
-
-        const bottom = new THREE.Mesh(new THREE.PlaneGeometry(W, BIG), mat.clone());
-        bottom.position.set((minX+maxX)/2, minY - BIG/2, clampZ);
-
-        // Bandas izquierda y derecha
-        const left   = new THREE.Mesh(new THREE.PlaneGeometry(BIG, H + 2*BIG), mat.clone());
-        left.position.set(minX - BIG/2, (minY+maxY)/2, clampZ);
-
-        const right  = new THREE.Mesh(new THREE.PlaneGeometry(BIG, H + 2*BIG), mat.clone());
-        right.position.set(maxX + BIG/2, (minY+maxY)/2, clampZ);
-
-        tmslClampGroup.add(top, bottom, left, right);
+        tmslClampGroup.add(frame);
         tmslGroup.add(tmslClampGroup);
       }catch(e){ console.warn('[TMSL] halo clamp error:', e); }
     }
@@ -4242,7 +4248,8 @@ void main(){
             color,
             map: tmslHaloTex,
             transparent: true,
-            depthWrite: false,
+            depthWrite: false,        // ← evita artefactos con el clamp
+            depthTest: true,
             blending: THREE.NormalBlending,
             premultipliedAlpha: false,
             opacity: 0.90
@@ -4255,6 +4262,7 @@ void main(){
         }
       }
       // … tras terminar de crear todos los halos y volúmenes …
+      enforceTMSLBlackBackdrop(wallFrontZ);
       buildTMSLHaloClamp(wallFrontZ);
     }
 
@@ -5808,11 +5816,17 @@ async function showPatternInfo(){
     try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
     try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
 
-    // Fondo y clear a negro mate (evita grises heredados de BUILD)
-    try{ scene.background = new THREE.Color(0x000000); }catch(_){ }
-    try{ renderer.autoClear = true; renderer.setClearColor(0x000000, 1); }catch(_){ }
+    // Canvas/clear a NEGRO MATE
+    try{
+      scene.background = new THREE.Color(0x000000);
+      renderer.autoClear = true;
+      renderer.setClearColor(0x000000, 1);
+      if (renderer.domElement && renderer.domElement.style){
+        renderer.domElement.style.background = '#000000';
+      }
+    }catch(_){ }
 
-    // Luz de cortesía (suave, no quema el halo)
+    // Luz muy suave (no lava el halo)
     try{
       if (!window.__tmslAmbient){
         const amb = new THREE.AmbientLight(0xffffff, 0.55);
@@ -5822,9 +5836,41 @@ async function showPatternInfo(){
       }
     }catch(_){ }
 
-    // Cámara segura
-    window.applyTMSLSafeCamera();
+    window.applyTMSLSafeCamera?.();
   };
+
+  // Pared negra opaca justo DETRÁS del área útil de la retícula (30×30)
+  function enforceTMSLBlackBackdrop(wallFrontZ){
+    if (!window.tmslGroup) return;
+
+    // Si existe una pared heredada clara, la forzamos a negro
+    tmslGroup.traverse(o=>{
+      if (o && o.isMesh && /(wall|back|panel|base|fondo|background|occluder)/i.test(o.name||'')){
+        const m = o.material;
+        try{
+          if (m.color)     m.color.set(0x000000);
+          if (m.emissive)  m.emissive.set(0x000000);
+          if ('opacity' in m){ m.opacity = 1; m.transparent = false; }
+          if ('metalness' in m) m.metalness = 0;
+          if ('roughness' in m) m.roughness = 1;
+        }catch(_){ }
+      }
+    });
+
+    // Crea/actualiza la pared negra propia de TMSL
+    let wall = tmslGroup.getObjectByName('TMSL_BLACK_WALL');
+    if (!wall){
+      wall = new THREE.Mesh(
+        new THREE.PlaneGeometry(cubeSize, cubeSize),
+        new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })
+      );
+      wall.name = 'TMSL_BLACK_WALL';
+      tmslGroup.add(wall);
+    }
+    // La pared va un poco detrás del plano del halo/volúmenes
+    wall.position.set(0, 0, wallFrontZ - 0.02);
+    wall.renderOrder = -1000; // siempre al fondo
+  }
 
   // Parchea toggleTMSL (post-entrada) — sin reactivar el cubo ni el fondo
   (function patchToggleTMSL(){
