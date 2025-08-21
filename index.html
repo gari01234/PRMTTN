@@ -3301,8 +3301,13 @@ function renderArchPanel(html){
       });
     }
     function initRenderer(){
-      // Antialias + conservar buffer para exportación
-      renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+      // --- Renderer ---
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+        powerPreference: 'high-performance',
+        preserveDrawingBuffer: false
+      });
 
       /* ✅ Más nitidez en BUILD:
          - Subimos el cap del pixelRatio de 1.25 → 2.0 (sin ir al máximo del dispositivo para no matar FPS).
@@ -3314,6 +3319,14 @@ function renderArchPanel(html){
       renderer.outputEncoding = THREE.sRGBEncoding;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 0.95;
+
+      // Fondo negro mate por "clear color" (no por un mesh delante)
+      renderer.setClearColor(0x000000, 1);
+      scene.background = null;
+
+      // por si el canvas es transparente en CSS
+      renderer.domElement.style.background = '#000';
+      document.body.style.backgroundColor = '#000';
 
       document.body.appendChild(renderer.domElement);
     }
@@ -3344,14 +3357,34 @@ function renderArchPanel(html){
       }
     }
     function init(){
-      scene=new THREE.Scene();
-      scene.background=new THREE.Color(0xffffff);
-      camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
+      scene = new THREE.Scene();
+
+      // --- Quitar cualquier plano negro usado como parche de fondo ---
+      (function removeBgPatches(root){
+        const toRemove = [];
+        root.traverse(o => {
+          const isMesh = o && o.isMesh;
+          if (!isMesh) return;
+
+          const isPlane = o.geometry && /Plane/i.test(o.geometry.type);
+          const isBlack =
+            o.material &&
+            (o.material.color?.getHex?.() === 0x000000 ||
+             o.material.name === 'bgPatch' ||
+             o.userData?.bgPatch === true);
+
+          if (isPlane && isBlack) toRemove.push(o);
+        });
+        toRemove.forEach(o => o.parent?.remove(o));
+      })(scene);
+
+      camera = new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
       camera.position.set(0,0,50);
       initRenderer();
+      fixHaloMaterials(scene);
       renderer.domElement.addEventListener('click',      centralPlayHandler, false);
       renderer.domElement.addEventListener('touchstart', centralPlayHandler, { passive:false });
-      controls=new THREE.OrbitControls(camera,renderer.domElement);
+      controls = new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableDamping=true; controls.dampingFactor=0.1; controls.enableZoom=true;
       document.getElementById('standardView').value = 'front';
       applyStandardView();
@@ -3973,6 +4006,36 @@ void main(){
       return tex;
     }
 
+    function makeHaloMaterial(map){
+      const mat = new THREE.MeshBasicMaterial({
+        map,
+        color: 0xffffff,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false
+      });
+      return mat;
+    }
+
+    function fixHaloMaterials(root){
+      root.traverse(o => {
+        if (o?.isMesh && o.material?.transparent){
+          o.material.depthWrite = false;
+          o.material.depthTest = false;
+          o.material.blending = THREE.AdditiveBlending;
+          o.renderOrder = Math.max(o.renderOrder ?? 0, 1);
+          if (Array.isArray(o.material)){
+            o.material.forEach(m => {
+              m.depthWrite = false;
+              m.depthTest = false;
+              m.blending = THREE.AdditiveBlending;
+            });
+          }
+        }
+      });
+    }
+
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
 
@@ -4047,47 +4110,17 @@ void main(){
       // negro real en el clear del renderer y en el canvas
       renderer.autoClear = true;
       renderer.setClearColor(0x000000, 1);
-      if (scene) scene.background = new THREE.Color(0x000000);
+      if (scene) scene.background = null;
       if (renderer.domElement && renderer.domElement.style){
-        renderer.domElement.style.background = '#000000';
+        renderer.domElement.style.background = '#000';
+        document.body.style.backgroundColor = '#000';
       }
     }
 
     // Pared negra justo detrás del campo de volúmenes (siempre mirando a cámara)
     function tmslEnsureBlackBackdrop(){
-      const root = (window.tmslGroup ?? scene);
-      if (!root) return;
-
-      // calcula el área a cubrir
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-
-      const W = Math.max(1, size.x * 1.1);
-      const H = Math.max(1, size.y * 1.1);
-
-      let plane = scene.getObjectByName('TMSL_BACKDROP');
-      if (!plane){
-        plane = new THREE.Mesh(
-          new THREE.PlaneGeometry(W, H),
-          new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })
-        );
-        plane.name = 'TMSL_BACKDROP';
-        plane.renderOrder = -1_000_000; // SIEMPRE al fondo
-        scene.add(plane);
-      }else{
-        // actualiza tamaño por si cambió la retícula
-        plane.geometry.dispose?.();
-        plane.geometry = new THREE.PlaneGeometry(W, H);
-        plane.material.color.set(0x000000);
-      }
-
-      // coloca la pared detrás, perpendicular a cámara
-      const dir = new THREE.Vector3();
-      camera.getWorldDirection(dir);         // dirección hacia delante
-      const offset = 0.1;                     // distancia pequeña detrás
-      plane.position.copy(center).add(dir.multiplyScalar(-offset));
-      plane.quaternion.copy(camera.quaternion);
+      const plane = scene.getObjectByName('TMSL_BACKDROP');
+      if (plane) plane.parent?.remove(plane);
     }
 
     // === MITAD DE ESPESOR EN VOLÚMENES ===
@@ -4271,22 +4304,18 @@ void main(){
           const PLx = W * HALO_SCALE_X;
           const PLy = H * HALO_SCALE_Y;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
-          const pmat = new THREE.MeshBasicMaterial({
-            color,
-            map: tmslHaloTex,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.NormalBlending,
-            premultipliedAlpha: false,
-            opacity: 0.90
-          });
+          const pmat = makeHaloMaterial(tmslHaloTex);
+          pmat.color.copy(color);
+          pmat.opacity = 0.90;
           const halo = new THREE.Mesh(pgeo, pmat);
+          halo.renderOrder = Math.max(halo.renderOrder ?? 0, 1);
           halo.position.set(x, y, wallFrontZ + 0.005);
           halo.userData.baseOpacity = 0.65;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
           tmslHaloGroup.add(halo);
         }
       }
+      fixHaloMaterials(tmslHaloGroup);
     }
 
     function updateTMSLHalos(t){
@@ -4351,7 +4380,7 @@ void main(){
 
         // Fondo negro (guarda el anterior)
         tmslPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0x000000);
+        scene.background = null;
 
         // Vista nivelada
         enterTMSLView();
@@ -5848,8 +5877,10 @@ async function showPatternInfo(){
   // Base mínima visible + FONDO NEGRO MATE para TMSL
   window.ensureBaseVisibilityForTMSL = function(){
     try{
-      scene.background = new THREE.Color(TMSL_BG_HEX);
       if (renderer && renderer.setClearColor) renderer.setClearColor(TMSL_BG_HEX, 1);
+      if (scene) scene.background = null;
+      if (renderer?.domElement) renderer.domElement.style.background = '#000';
+      document.body.style.backgroundColor = '#000';
     }catch(_){ }
     try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
     try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
