@@ -3935,7 +3935,8 @@ void main(){
       if (g.parent) g.parent.remove(g);
     }
     // ── TMSL · Tomasello/Staudt — estado + textura halo ────────────────
-    let tmslHaloTex = null;
+    let tmslHaloTex   = null;      // (se mantiene por compatibilidad)
+    let tmslShadowTex = null;      // ← NUEVO: textura direccional
     let tmslHaloGroup = null;
     let tmslCellsGroup = null;   // ← NUEVO: contenedor único de volúmenes+marcos
 
@@ -3973,35 +3974,37 @@ void main(){
       return tex;
     }
 
-    // === Halo direccional (degradado suave tipo "sombra") ===
-    function makeDirectionalHaloTexture(size = 512, width = 0.62, tail = 0.95, gammaAcross = 1.6, gammaAlong = 1.85){
-      // x,y normalizados a [-1,1] con el eje +Y = dirección de la sombra
+    /* === TMSL · sombra direccional tipo “sol” ===================== */
+
+    /* Cono direccional: u=0 en el origen (pegado al volumen) → cola
+       que se abre y se desvanece de forma suave */
+    function makeDirectionalShadowTexture(size = 1024){
       const c = document.createElement('canvas');
       c.width = size; c.height = size;
       const ctx = c.getContext('2d');
       const img = ctx.createImageData(size, size);
-      const cx = size * 0.5, cy = size * 0.5;
-      const inv = 2 / size;
 
-      const sstep = (a,b,x)=>{ const t = Math.min(1, Math.max(0,(x-a)/(b-a))); return t*t*(3-2*t); };
+      const powU = 2.2;        // caída a lo largo
+      const powV = 2.0;        // suavidad transversal
+      for (let y=0; y<size; y++){
+        for (let x=0; x<size; x++){
+          // u: 0..1 a lo largo (izq→der), v: -1..1 transversal (centro=0)
+          const u = x / (size-1);
+          const v = ((y + 0.5) - size/2) / (size/2);
 
-      for (let y = 0; y < size; y++){
-        for (let x = 0; x < size; x++){
-          const nx = ((x + 0.5) - cx) * inv; // [-1,1]
-          const ny = ((y + 0.5) - cy) * inv; // [-1,1]
+          // ancho que crece con la distancia (cono/trapecio suave)
+          const widthGrow = 0.28 + 0.72 * u; // 28% en origen → 100% en la cola
+          const vNorm = Math.abs(v) / widthGrow;
 
-          // máscara lateral (rectangular suave): se apaga fuera de "width"
-          const ax = Math.pow(Math.max(0, 1 - Math.abs(nx) / Math.max(1e-6, width)), gammaAcross);
+          let along = Math.max(0, 1 - u);            // 1 en origen → 0 en cola
+          along = Math.pow(along, powU);
 
-          // a lo largo: cero por detrás (ny < -0.06 aprox), máximo cerca del origen,
-          // y decae suavemente hasta 0 en ny≈tail
-          const head = sstep(-0.10, -0.02, ny);          // corta la "parte trasera"
-          const fall = 1 - sstep(0.0, tail, ny);         // decae hacia +Y
-          const ay   = Math.pow(Math.max(0, head * fall), gammaAlong);
+          let across = Math.max(0, 1 - Math.min(1, vNorm));
+          across = Math.pow(across, powV);
 
-          const a = Math.max(0, Math.min(1, ax * ay));   // alpha final
+          const a = Math.max(0, Math.min(1, along * across));
 
-          const off = (y * size + x) * 4;
+          const off = (y*size + x)*4;
           img.data[off    ] = 255;
           img.data[off + 1] = 255;
           img.data[off + 2] = 255;
@@ -4009,56 +4012,23 @@ void main(){
         }
       }
       ctx.putImageData(img, 0, 0);
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.center.set(0.5, 0.5);
-      return tex;
-    }
-
-    // ── TMSL · textura de Sombra Direccional (cuña con bordes suaves)
-    /* Gradiente 2D: opaco en el borde de anclaje (y=0) y
-       se desvanece hacia +Y; laterales con caída suave.
-       w,h: resolución; edgeSoft: fracción del semiancho con suavizado lateral. */
-    function makeDirectionalShadowTexture(w = 1024, h = 1024, edgeSoft = 0.18, gammaY = 1.45){
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const ctx = c.getContext('2d');
-      const img = ctx.createImageData(w, h);
-      const cx = (w - 1) * 0.5;
-      const invHalfW = 1 / cx;
-
-      for (let y = 0; y < h; y++){
-        const ny = y / (h - 1);                  // 0..1  (0 = anclaje, 1 = lejos)
-        const ay = Math.pow(1 - ny, gammaY);     // caída en dirección “proyección”
-        for (let x = 0; x < w; x++){
-          const nx = Math.abs(x - cx) * invHalfW;   // 0..1 hacia los laterales
-          // Suavizado lateral: 1 en el centro → 0 cerca de bordes (con hombro suave)
-          let ax = 0;
-          const limit = 1 - edgeSoft;
-          if (nx < limit){
-            const k = 1 - (nx / limit);          // 1 en centro → 0 en borde de la “zona viva”
-            ax = Math.pow(k, 1.35);
-          } // si nx≥limit → ax = 0
-          const a = Math.max(0, Math.min(1, ay * ax));
-
-          const off = (y * w + x) * 4;
-          img.data[off    ] = 255;
-          img.data[off + 1] = 255;
-          img.data[off + 2] = 255;
-          img.data[off + 3] = Math.round(a * 255);
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-
       const tex = new THREE.CanvasTexture(c);
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
       return tex;
     }
+
+    /* Parámetros globales del “sol” */
+    const TMSL_LIGHT = {
+      angle0 : Math.PI * 38/180,   // ángulo inicial ≈ 38°
+      speed  : 0.06                // rad/s (giro lento, contemplativo)
+    };
+
+    // Factores geométricos de la sombra (longitud/anchura/contacto)
+    const TMSL_SHADOW_LEN_FACTOR   = 6.0;  // L ≈ 6× max(W,H)
+    const TMSL_SHADOW_WIDTH_BOOST  = 1.05; // +5% para evitar recortes
+    const TMSL_SHADOW_CONTACT_K    = 0.32; // arranque pegado al volumen
 
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
@@ -4166,15 +4136,8 @@ void main(){
         tmslHaloGroup = null;
       }
 
-      // Textura con degradado más marcado y cola más larga
-      if (!tmslHaloTex) tmslHaloTex = makeDirectionalHaloTexture(1024, 0.56, 1.22, 1.5, 2.1);
-
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
-
-      // Dirección y velocidad GLOBAL (todos iguales)
-      const DIR_BASE_ANGLE = THREE.MathUtils.degToRad(37); // misma dirección inicial
-      const SUN_SPEED = 0.010;                              // giro lento y contemplativo
 
       // ── 2) localiza la pared para posicionar frente
       const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
@@ -4274,37 +4237,40 @@ void main(){
           // Rahmen frontal del mismo color que los laterales
           addFrameFor(cube, W, H, color);
 
-          // ——— halo direccional con geometría de sombra ———
-          // Plano más largo y un poco más ancho que el volumen
-          const PLx = W * 2.6;
-          const PLy = H * 5.0;
-          const pgeo = new THREE.PlaneGeometry(PLx, PLy);
+          // === SOMBRA direccional con proyección “tipo sol” ==============
+          if (!tmslShadowTex) tmslShadowTex = makeDirectionalShadowTexture(1024);
 
-          // Empuja el contenido del plano hacia +Y para que la “cola” salga desde el volumen
-          pgeo.translate(0, PLy * 0.33, 0);
+          // Longitud base y dimensiones del volumen
+          const L  = Math.max(W, H) * TMSL_SHADOW_LEN_FACTOR;
 
+          // Usamos PlaneGeometry(1,1) y escalamos en update() para ajustar ancho según ángulo
+          const pgeo = new THREE.PlaneGeometry(1, 1);
           const pmat = new THREE.MeshBasicMaterial({
-            color,
-            map: tmslHaloTex,
+            color: color,
+            map: tmslShadowTex,
             transparent: true,
             depthWrite: false,
-            blending: THREE.NormalBlending,
+            blending: THREE.MultiplyBlending,   // ← se lee como sombra real
             premultipliedAlpha: false,
-            opacity: 0.92    // ↑ intensidad de la sombra-halo
+            opacity: 0.90                        // intensidad alta (puedes subir a 0.95)
           });
 
           const halo = new THREE.Mesh(pgeo, pmat);
-
-          // Ancla del halo = centro del volumen; lo desplazaremos en update() según el ángulo global
-          halo.userData.anchorX = x;
-          halo.userData.anchorY = y;
-
-          // Offset inicial para despegar la parte más opaca del borde del volumen
-          halo.userData.offsetLen = Math.max(W, H) * 0.28;
-
           halo.position.set(x, y, wallFrontZ + 0.005);
-          halo.rotation.z = DIR_BASE_ANGLE;
 
+          // guardamos parámetros para el update direccional
+          halo.userData.anchorX = x;                // centro del volumen
+          halo.userData.anchorY = y;
+          halo.userData.len     = L;                // longitud (escala X)
+          halo.userData.W       = W;                // tamaño real del volumen
+          halo.userData.H       = H;
+          halo.userData.contact = Math.max(0.05, Math.min(W,H) * TMSL_SHADOW_CONTACT_K);
+
+          // iniciamos con la escala correcta en X; Y se ajusta cada frame según ángulo
+          halo.scale.set(L, Math.max(W,H), 1);
+
+          // esta textura está pensada con “u→derecha” = dirección de la luz
+          // la rotación real se pone en updateTMSLHalos(t)
           tmslHaloGroup.add(halo);
         }
       }
@@ -4313,28 +4279,41 @@ void main(){
     function updateTMSLHalos(t){
       if (!tmslHaloGroup) return;
 
-      // Ángulo solar global para todos
-      const angle = THREE.MathUtils.degToRad(37) + t * 0.010; // mismo valor que SUN_SPEED y DIR_BASE_ANGLE
+      // ángulo global del “sol” (todas las sombras igual)
+      const theta = TMSL_LIGHT.angle0 + TMSL_LIGHT.speed * t;
 
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
 
-        // Rotación uniforme (todas las sombras apuntan igual)
-        h.rotation.z = angle;
+        // datos guardados al construir
+        const L   = h.userData.len     || 6.0;
+        const W   = h.userData.W       || 1.6;
+        const H   = h.userData.H       || 1.6;
+        const cx  = h.userData.anchorX || h.position.x;
+        const cy  = h.userData.anchorY || h.position.y;
+        const c   = h.userData.contact || 0.2;
 
-        // Desplaza el halo a lo largo de su +Y local (cast shadow separado del volumen)
-        const off = (typeof h.userData.offsetLen === 'number') ? h.userData.offsetLen : 0.0;
-        const ax  = (typeof h.userData.anchorX  === 'number') ? h.userData.anchorX  : h.position.x;
-        const ay  = (typeof h.userData.anchorY  === 'number') ? h.userData.anchorY  : h.position.y;
+        // ancho “proyectado” del volumen en el eje perpendicular a la luz:
+        // |W·sinθ| + |H·cosθ|   (muy parecido a una sombra real)
+        const width = (Math.abs(W * Math.sin(theta)) + Math.abs(H * Math.cos(theta)))
+                      * TMSL_SHADOW_WIDTH_BOOST;
 
-        // +Y local del plano rotado → (-sin a, +cos a)
-        const dx = -Math.sin(angle) * off;
-        const dy =  Math.cos(angle) * off;
+        // escala del plano: X=longitud (constante), Y=ancho proyectado (dinámico)
+        h.scale.x = L;
+        h.scale.y = Math.max(Math.max(W,H)*0.8, width);
 
-        h.position.set(ax + dx, ay + dy, h.position.z);
+        // rotación del plano para alinear la dirección de la textura
+        h.rotation.z = theta;
 
-        // Opacidad estable (sin respiración). Pequeña micro-variación opcional:
-        h.material.opacity = 0.92;
+        // colocamos el CENTRO del plano de forma que su borde de arranque
+        // quede pegado al volumen (compensando que PlaneGeometry está centrado)
+        const dx = Math.cos(theta) * (L/2 - c);
+        const dy = Math.sin(theta) * (L/2 - c);
+        h.position.x = cx + dx;
+        h.position.y = cy + dy;
+
+        // opacidad fija alta (sombras marcadas); si quieres interacción, modificala aquí
+        h.material.opacity = 0.90;
       });
     }
 
