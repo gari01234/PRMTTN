@@ -3935,7 +3935,7 @@ void main(){
       if (g.parent) g.parent.remove(g);
     }
     // ── TMSL · Tomasello/Staudt — estado + textura halo ────────────────
-    let tmslShadowTex = null;
+    let tmslHaloTex = null;
     let tmslHaloGroup = null;
     let tmslCellsGroup = null;   // ← NUEVO: contenedor único de volúmenes+marcos
 
@@ -3970,6 +3970,51 @@ void main(){
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      return tex;
+    }
+
+    // === Halo direccional (degradado suave tipo "sombra") ===
+    function makeDirectionalHaloTexture(size = 512, width = 0.62, tail = 0.95, gammaAcross = 1.6, gammaAlong = 1.85){
+      // x,y normalizados a [-1,1] con el eje +Y = dirección de la sombra
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      const ctx = c.getContext('2d');
+      const img = ctx.createImageData(size, size);
+      const cx = size * 0.5, cy = size * 0.5;
+      const inv = 2 / size;
+
+      const sstep = (a,b,x)=>{ const t = Math.min(1, Math.max(0,(x-a)/(b-a))); return t*t*(3-2*t); };
+
+      for (let y = 0; y < size; y++){
+        for (let x = 0; x < size; x++){
+          const nx = ((x + 0.5) - cx) * inv; // [-1,1]
+          const ny = ((y + 0.5) - cy) * inv; // [-1,1]
+
+          // máscara lateral (rectangular suave): se apaga fuera de "width"
+          const ax = Math.pow(Math.max(0, 1 - Math.abs(nx) / Math.max(1e-6, width)), gammaAcross);
+
+          // a lo largo: cero por detrás (ny < -0.06 aprox), máximo cerca del origen,
+          // y decae suavemente hasta 0 en ny≈tail
+          const head = sstep(-0.10, -0.02, ny);          // corta la "parte trasera"
+          const fall = 1 - sstep(0.0, tail, ny);         // decae hacia +Y
+          const ay   = Math.pow(Math.max(0, head * fall), gammaAlong);
+
+          const a = Math.max(0, Math.min(1, ax * ay));   // alpha final
+
+          const off = (y * size + x) * 4;
+          img.data[off    ] = 255;
+          img.data[off + 1] = 255;
+          img.data[off + 2] = 255;
+          img.data[off + 3] = Math.round(a * 255);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.center.set(0.5, 0.5);
       return tex;
     }
 
@@ -4014,10 +4059,6 @@ void main(){
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
       return tex;
     }
-
-    // ── “Sol” global: ángulo inicial y velocidad de giro (lento/contemplativo)
-    const TMSL_SUN_THETA0 = Math.PI / 4;            // 45°
-    const TMSL_SUN_OMEGA  = (Math.PI * 2) / 480;    // 1 vuelta cada 480 s (~8 min)
 
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
@@ -4118,15 +4159,20 @@ void main(){
         tmslGroup.remove(ch);
       }
 
-      // ── 1) prepara halo group/texture
+      // ── 1) prepara halo group/texture (versión direccional con degradado)
       if (tmslHaloGroup){
         tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-      if (!tmslShadowTex) tmslShadowTex = makeDirectionalShadowTexture(1024, 1024, 0.18, 1.45);
+      if (!tmslHaloTex) tmslHaloTex = makeDirectionalHaloTexture(512);
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
+
+      // Parámetros globales del “rayo” de sombra (constantes visuales)
+      const DIR_BASE_ANGLE = THREE.MathUtils.degToRad(37);  // ángulo inicial "profesional"
+      const HALO_DIR_WIDTH = 2.2;   // ancho relativo del plano vs W del volumen
+      const HALO_DIR_LEN   = 4.2;   // largo relativo del plano vs H del volumen
 
       // ── 2) localiza la pared para posicionar frente
       const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
@@ -4226,47 +4272,35 @@ void main(){
           // Rahmen frontal del mismo color que los laterales
           addFrameFor(cube, W, H, color);
 
-          // === SOMBRA DIRECCIONAL (cuña) ===
-          // ancho ≈ del volumen; largo relativo al alto (para acentos diagonales largos)
-          const SHADOW_W = Math.max(0.001, W * 1.10);
-          const SHADOW_L = Math.max(0.001, H * 2.60);
-
-          // Geometría: origen en el BORDE de anclaje (y=0), así el pivot queda en el volumen
-          const pgeo = new THREE.PlaneGeometry(SHADOW_W, SHADOW_L);
-          // Mueve el centro geométrico para que el origen quede en el borde “pegado” al volumen
-          pgeo.translate(0, SHADOW_L * 0.5, 0);
-
+          // ——— halo direccional (degradado) ———
+          const PLx = W * HALO_DIR_WIDTH;
+          const PLy = H * HALO_DIR_LEN;
+          const pgeo = new THREE.PlaneGeometry(PLx, PLy);
           const pmat = new THREE.MeshBasicMaterial({
             color,
-            map: tmslShadowTex,
+            map: tmslHaloTex,
             transparent: true,
             depthWrite: false,
-            blending: THREE.MultiplyBlending,    // sombra coloreada sobre pared blanca
+            blending: THREE.NormalBlending,
             premultipliedAlpha: false,
-            opacity: 0.88
+            opacity: 0.78
           });
-
           const halo = new THREE.Mesh(pgeo, pmat);
-          // Situado prácticamente sobre la pared
-          halo.position.set(x, y, wallFrontZ + 0.006);
+          halo.position.set(x, y, wallFrontZ + 0.005);
 
-          // —— parámetros deterministas por celda (fase/velocidad muy sutiles)
+          // — velocidades de rotación deterministas por celda (no hay “respirar”)
           const rLehmer = lehmerRank(pa);
           const mRankT  = mappingRank(attributeMapping.slice(0,5));
           const sig32   = (rLehmer * 1315423911) ^ (mRankT * 2654435761) ^ (idxCell * 374761393) ^ (sceneSeed|0);
 
-          // Micro-variaciones (coherentes pero no uniformes)
-          const speedDelta = ((sig32 & 1023) / 1023) * 0.12 - 0.06;  // −6% … +6%
-          const phaseRad   = ((((sig32 >>> 10) & 1023) / 1023) - 0.5) * (Math.PI / 9); // ±20°
-          const opJitter   = (((sig32 >>> 20) & 1023) / 1023) * 0.08; // 0…0.08
+          // rotación lenta y contemplativa (≈ 0.018 … 0.050 rad/s)
+          halo.userData.rotSpeed = 0.03 * (0.60 + ((sig32 & 1023) / 1023) * 1.0);
+          halo.userData.rotPhase = (((sig32 >>> 10) & 8191) / 8191) * Math.PI * 2;
+          halo.userData.rotBase  = DIR_BASE_ANGLE + (((sig32 >>> 25) & 255) - 128) * (Math.PI/180) * 0.12; // sutil desviación
+          halo.rotation.z = halo.userData.rotBase + halo.userData.rotPhase;
 
-          halo.userData.sunSpeedDelta = speedDelta;
-          halo.userData.sunPhase      = phaseRad;
-          halo.userData.baseOpacity   = 0.72 + opJitter;             // 0.72..0.80
-          halo.userData.phaseNoise    = ((sig32 >>> 30) & 255) / 255; // 0..1
-
-          // Arranque con el ángulo base (se actualizará en updateTMSLHalos)
-          halo.rotation.z = TMSL_SUN_THETA0 + phaseRad;
+          // opacidad base constante (sin oscilación de escala)
+          halo.userData.baseOpacity = 0.75;
 
           tmslHaloGroup.add(halo);
         }
@@ -4276,29 +4310,23 @@ void main(){
     function updateTMSLHalos(t){
       if (!tmslHaloGroup) return;
 
-      // Ángulo “solar” global (giro muy lento y contemplativo)
-      const sunTheta = TMSL_SUN_THETA0 + TMSL_SUN_OMEGA * t;
+      const mx = (typeof mouse?.x==='number') ? mouse.x*0.20 : 0; // leve interacción opcional
+      const my = (typeof mouse?.y==='number') ? mouse.y*0.20 : 0;
 
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
 
-        const dSpeed = (typeof h.userData.sunSpeedDelta === 'number') ? h.userData.sunSpeedDelta : 0;
-        const ph0    = (typeof h.userData.sunPhase      === 'number') ? h.userData.sunPhase      : 0;
-        const baseOp = (typeof h.userData.baseOpacity   === 'number') ? h.userData.baseOpacity   : 0.76;
-        const nseed  = (typeof h.userData.phaseNoise    === 'number') ? h.userData.phaseNoise    : 0.5;
+        const sp = (typeof h.userData.rotSpeed === 'number') ? h.userData.rotSpeed : 0.03;
+        const ph = (typeof h.userData.rotPhase === 'number') ? h.userData.rotPhase : 0.0;
+        const rb = (typeof h.userData.rotBase  === 'number') ? h.userData.rotBase  : 0.0;
 
-        // Pequeña variación determinista de velocidad alrededor del global
-        const theta = sunTheta + (TMSL_SUN_OMEGA * dSpeed * t) + ph0;
-        h.rotation.z = theta;
+        // rotación "sol que se mueve" + pequeño acople al puntero
+        const angle = rb + (t * sp) + ph + mx*0.12 - my*0.10;
+        h.rotation.z = angle;
 
-        // Opacidad sutilmente viva (muy lenta)
-        const wobble = 0.03 * Math.sin( (t * 0.20) + nseed * 6.28318 );
-        h.material.opacity = THREE.MathUtils.clamp(baseOp + wobble, 0.40, 0.92);
-
-        // (Opcional) ligero “foreshortening” según el ángulo — mantiene lectura arquitectónica
-        const a = Math.abs(Math.cos(theta));
-        const sx = 1.00 + 0.08 * (1 - a);  // se ensancha un poco cuando va en diagonal
-        h.scale.set(sx, 1.00, 1);
+        // opacidad estable con micro-variación muy sutil (NO escala)
+        const base = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.75;
+        h.material.opacity = THREE.MathUtils.clamp(base + 0.03*Math.sin(t*0.07 + ph), 0.0, 0.90);
       });
     }
 
