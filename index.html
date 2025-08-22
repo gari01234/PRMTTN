@@ -3939,23 +3939,27 @@ void main(){
     let tmslHaloGroup = null;
     let tmslCellsGroup = null;   // ← NUEVO: contenedor único de volúmenes+marcos
 
-    function makeHaloTexture(size = 256, inner = 0.30, outer = 0.98, gamma = 1.6){
-      // Gradiente rectangular: alpha=1 en el centro, cae suave hacia el borde
+    function makeHaloTexture(size = 512, inner = 0.30, outer = 0.985, gamma = 1.55){
+      // Gradiente rectangular invertido: 0 en el centro → 1 en los bordes (con caída final)
       const c = document.createElement('canvas');
       c.width = size; c.height = size;
       const ctx = c.getContext('2d');
       const img = ctx.createImageData(size, size);
       const cx = size / 2, cy = size / 2;
-      const inv = 2 / size; // normaliza a [-1,1] aprox
+      const inv = 2 / size; // normaliza a [-1,1]
 
       for (let y = 0; y < size; y++){
         for (let x = 0; x < size; x++){
-          const dx = Math.abs((x + 0.5) - cx) * inv;   // 0..1
-          const dy = Math.abs((y + 0.5) - cy) * inv;   // 0..1
-          const d  = Math.max(dx, dy);                 // distancia "caja" (Chebyshev)
-          let t    = (d - inner) / Math.max(1e-6, (outer - inner));
+          const dx = Math.abs((x + 0.5) - cx) * inv;  // 0..1
+          const dy = Math.abs((y + 0.5) - cy) * inv;  // 0..1
+          const d  = Math.max(dx, dy);                // distancia "caja" (Chebyshev)
+          let t    = (d - inner) / Math.max(1e-6, (outer - inner)); // 0 en inner → 1 en outer
           t = Math.min(1, Math.max(0, t));
-          let a = 1 - Math.pow(t, gamma);              // 1 en centro → 0 en borde
+
+          // brillo en el borde (inversión) + caída suave al llegar al límite
+          let aEdge = Math.pow(t, gamma);                 // 0 centro → 1 borde
+          let fadeE = 1 - Math.min(1, Math.max(0, (d - 0.96) / 0.04)); // 1 → 0 muy al borde
+          const a = Math.max(0, Math.min(1, aEdge * fadeE));
 
           const off = (y * size + x) * 4;
           img.data[off    ] = 255;
@@ -4047,14 +4051,15 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      /* pared NEGRA con 2 u de “tiefe” (fondo real del modo) */
+      /* pared BLANCA con 2 u de “tiefe” (fondo real del modo) */
       const DEPTH = 2;
       const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      // ← negro mate; MeshBasicMaterial para que la luz no la vuelva gris
+      // ← blanco mate; MeshBasicMaterial para que la luz no la vuelva gris
       const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const wall = new THREE.Mesh(wallGeo, wallMat);
       wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
       wall.userData.tmslKind = 'wall';
+      wall.renderOrder = -50;
       tmslGroup.add(wall);
 
       scene.add(tmslGroup);
@@ -4063,80 +4068,44 @@ void main(){
     function buildTMSL_TomaselloStaudt(){
       if (!tmslGroup) return;
 
-      // ── 0) ELIMINA TODO lo que no sea la pared (evita duplicados al regenerar)
+      // — limpia todo menos la pared —
       for (let i = tmslGroup.children.length - 1; i >= 0; i--){
         const ch = tmslGroup.children[i];
-        if (ch.userData?.tmslKind === 'wall') continue; // conserva la pared
-        // libera y quita
-        ch.traverse?.(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
+        if (ch.userData?.tmslKind === 'wall') continue;
+        ch.traverse?.(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
         tmslGroup.remove(ch);
       }
 
-      // ── 1) prepara halo group/texture
+      // — prepara grupo de halos —
       if (tmslHaloGroup){
-        tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
+        tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
       if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512);
       tmslHaloGroup = new THREE.Group();
+      tmslHaloGroup.renderOrder = -40;        // detrás de “volúmenes”
       tmslGroup.add(tmslHaloGroup);
 
-      // ── 2) localiza la pared para posicionar frente
+      // — pared (referencia de Z) —
       const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
       if (!wall || !wall.geometry?.parameters) return;
+      wall.renderOrder = -50;
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
-      // ── 3) parámetros de grilla
+      // — parrilla cuadrada homogénea —
       const GRID = 9;
       const PAD  = cubeSize * 0.12;
       const span = cubeSize - PAD*2;
       const step = span / (GRID-1);
 
-      // medidas base (mantenemos ancho; profundidad a la MITAD)
-      const MOD_W = 1.6;          // ancho
-      const DEP   = 0.10;          // PROFUNDIDAD 
-      const HALO_SCALE_X = 2.5;  // 
-      const HALO_SCALE_Y = 2.5;  // 
+      // — módulo cuadrado único (lado S) y “profundidad” hacia adentro —
+      const S       = 1.80;     // lado de todos los módulos (√1: cuadrados)
+      const DEP_IN  = 0.18;     // “hacia adentro” (no sobresale)
+      const HALO_SX = 2.35;     // escala halo (anchura del “halo de borde”)
+      const HALO_SY = 2.35;
 
-      // —— único índice √3 determinista (nunca en la fila inferior)
-      const TOTAL = GRID * GRID;
-      const mRank = mappingRank(attributeMapping.slice(0,5));
-      const seed  = (sceneSeed + S_global + mRank) >>> 0;
-      const idxSqrt3 = GRID + (seed % (TOTAL - GRID)); // ∈ [GRID .. TOTAL-1]
-
-      const SQ1 = 1.0, SQ3 = Math.sqrt(3), SQ5 = Math.sqrt(5);
-
-      // helper: crea el Rahmen frontal de color
-      function addFrameFor(cube, W, H, colorTHREE){
-        const FRAME_Z_PULL = 0.03;                 // muy cerca del frente
-        const FRAME_DEPTH  = 0.04;                 // laminita fina
-        const tRaw = Math.min(W, H) * 0.15;        // grosor relativo
-        const t    = Math.max(0.05, Math.min(tRaw, W/3, H/3));
-
-        const wIn = Math.max(0.001, W - 2 * t);
-        const hIn = Math.max(0.001, H - 2 * t);
-
-        const matF = new THREE.MeshLambertMaterial({ color: colorTHREE, dithering:true });
-        matF.emissive = colorTHREE.clone();
-        matF.emissiveIntensity = 0.12;
-
-        const zFrame = cube.position.z + DEP/2 + FRAME_Z_PULL;
-
-        const top  = new THREE.Mesh(new THREE.BoxGeometry(wIn, t, FRAME_DEPTH), matF);
-        const bot  = new THREE.Mesh(new THREE.BoxGeometry(wIn, t, FRAME_DEPTH), matF);
-        const left = new THREE.Mesh(new THREE.BoxGeometry(t,   hIn, FRAME_DEPTH), matF);
-        const rigt = new THREE.Mesh(new THREE.BoxGeometry(t,   hIn, FRAME_DEPTH), matF);
-
-        top.position.set (cube.position.x, cube.position.y + (H/2 - t/2), zFrame);
-        bot.position.set (cube.position.x, cube.position.y - (H/2 - t/2), zFrame);
-        left.position.set(cube.position.x - (W/2 - t/2), cube.position.y, zFrame);
-        rigt.position.set(cube.position.x + (W/2 - t/2), cube.position.y, zFrame);
-
-        tmslGroup.add(top, bot, left, rigt);
-      }
-
-      // ── 4) construir malla
+      // — permisos activos SOLO para color — 
       const perms = (typeof getSelectedPerms === 'function')
         ? getSelectedPerms()
         : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
@@ -4146,80 +4115,60 @@ void main(){
         for (let ix=0; ix<GRID; ix++){
           const x = -halfCube + PAD + ix*step;
           const y = -halfCube + PAD + iy*step;
-
           const idxCell = iy*GRID + ix;
           const pa      = permsSafe[idxCell % permsSafe.length];
 
-          // color determinista
-          const color = tmslColorFor(pa, idxCell);
+          // — color determinista para laterales —
+          const col = tmslColorFor(pa, idxCell);
+          const sideMat = new THREE.MeshLambertMaterial({ color: col, dithering:true, depthTest:false });
+          sideMat.emissive = col.clone();
+          sideMat.emissiveIntensity = 0.12;
 
-          // relación de aspecto deseada
-          let aspect = SQ1;
-          if (iy === 0) aspect = SQ5;              // fila inferior → √5
-          else if (idxCell === idxSqrt3) aspect = SQ3; // único √3
+          // — frontal invisible (para que parezca un hueco) —
+          const frontInvisible = new THREE.MeshBasicMaterial({
+            color: 0xffffff, transparent: true, opacity: 0.0, depthWrite: false, depthTest: false
+          });
 
-          const W = MOD_W;
-          const H = MOD_W * aspect;
+          // — fondo negro (cierra el “hueco”) —
+          const backMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0a, dithering:true, depthTest:false });
+          backMat.emissive = new THREE.Color(0x000000);
+          backMat.emissiveIntensity = 0.0;
 
-          // laterales coloreados + frontal negro mate
-          const sideMat = new THREE.MeshLambertMaterial({ color, dithering:true });
-          sideMat.emissive = color.clone();
-          sideMat.emissiveIntensity = 0.10;
-
-          const frontMat = new THREE.MeshLambertMaterial({ color:0xffffff, dithering:true });
-          const backMat  = new THREE.MeshLambertMaterial({ color:0xffffff, dithering:true });
-
+          // Orden de BoxGeometry: +X, -X, +Y, -Y, +Z (front), -Z (back)
           const mats = [
             sideMat.clone(), sideMat.clone(), sideMat.clone(), sideMat.clone(),
-            frontMat, backMat
+            frontInvisible, backMat
           ];
 
-          const geo  = new THREE.BoxGeometry(W, H, DEP);
+          const geo  = new THREE.BoxGeometry(S, S, DEP_IN);
           const cube = new THREE.Mesh(geo, mats);
-          cube.position.set(x, y, wallFrontZ + DEP/2 + 0.01);
+          // Coloca el “hueco” justo DETRÁS del plano de pared; depthTest:false → no lo tapa
+          cube.position.set(x, y, wallFrontZ - DEP_IN/2 - 0.002);
+          cube.renderOrder = -30;                     // delante del halo, detrás de la pared
           tmslGroup.add(cube);
 
-          // Rahmen frontal del mismo color que los laterales
-          addFrameFor(cube, W, H, color);
-
-          // halo rectangular (ajustado al nuevo W×H)
-          const PLx = W * HALO_SCALE_X;
-          const PLy = H * HALO_SCALE_Y;
+          // — HALO de borde (respira hacia dentro) —
+          const PLx = S * HALO_SX;
+          const PLy = S * HALO_SY;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
           const pmat = new THREE.MeshBasicMaterial({
-            color,
-            map: tmslHaloTex,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.NormalBlending,
-            premultipliedAlpha: false,
-            opacity: 0.90
+            color: col, map: tmslHaloTex,
+            transparent: true, depthWrite: false, depthTest: false,
+            blending: THREE.NormalBlending, premultipliedAlpha: false, opacity: 0.90
           });
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ + 0.005);
-          halo.userData.baseOpacity = 0.65;
-          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
+          halo.position.set(x, y, wallFrontZ - 0.004); // ligeramente por detrás del borde
+          halo.userData.baseOpacity = 0.70;
 
-          // ——— respiración determinista por celda (como en BUILD, via rango Lehmer) ———
-          const rLehmer = lehmerRank(pa);
-          const mRankT  = mappingRank(attributeMapping.slice(0,5));
-          const sig32   = (rLehmer * 1315423911) ^ (mRankT * 2654435761) ^ (idxCell * 374761393) ^ (sceneSeed|0);
-
-          // velocidades (factores sobre la base), armónico y wobble de opacidad, todo 100% determinista
-          halo.userData.speed1 = (0.65 + ((sig32 & 1023) / 1023) * 1.10) * 0.4;          // 0.325× … 0.875×
-          halo.userData.speed2 = (0.80 + (((sig32 >>> 10) & 1023) / 1023) * 0.90) * 0.4; // 0.40×  … 0.85×
-          halo.userData.harm   = 0.08 + (((sig32 >>> 20) & 1023) / 1023) * 0.18; // 0.08 … 0.26
-          halo.userData.wAmp   = 0.04 + (((sig32 >>> 30) & 255)  / 255)  * 0.06; // 0.04 … 0.10
-
-          // límites de escala: mínimo = justo hasta desaparecer, máximo = 1.00
-          const sMin = Math.min(1 / HALO_SCALE_X, 1 / HALO_SCALE_Y) * 0.98;
-          const sMax = 1.00;
+          // respiración global en la MISMA fase (todas iguales)
+          const sMin = Math.min(1 / HALO_SX, 1 / HALO_SY) * 0.82; // se mete hacia dentro
+          const sMax = 1.02;                                      // casi del tamaño del hueco
           halo.userData.sMin = sMin;
           halo.userData.sMax = sMax;
+          halo.userData.speed = 0.42; // lento, contemplativo
+          halo.userData.phase = 0.0;  // misma fase para todos
 
-          // arranca “fuera”
           halo.scale.set(sMax, sMax, 1);
-
           tmslHaloGroup.add(halo);
         }
       }
@@ -4228,35 +4177,22 @@ void main(){
     function updateTMSLHalos(t){
       if (!tmslHaloGroup) return;
 
-      const mx = (typeof mouse?.x==='number') ? mouse.x*0.35 : 0;
-      const my = (typeof mouse?.y==='number') ? mouse.y*0.35 : 0;
-
+      const T = t * 0.75; // tempo global
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
+        const sMin = h.userData.sMin, sMax = h.userData.sMax;
+        const sp   = h.userData.speed || 0.42;
+        const ph   = h.userData.phase || 0.0;
 
-        const ph    = h.userData.phase || 0;
-        const sMin  = (typeof h.userData.sMin  === 'number') ? h.userData.sMin  : 0.4;
-        const sMax  = (typeof h.userData.sMax  === 'number') ? h.userData.sMax  : 1.0;
-        const sp1   = (typeof h.userData.speed1=== 'number') ? h.userData.speed1: 1.0;
-        const sp2   = (typeof h.userData.speed2=== 'number') ? h.userData.speed2: 1.0;
-        const harm  = (typeof h.userData.harm  === 'number') ? h.userData.harm  : 0.12;
-        const wAmp  = (typeof h.userData.wAmp  === 'number') ? h.userData.wAmp  : 0.06;
+        // oscila 0..1; cuando sube, el halo SE CONTRAE (entra hacia el hueco)
+        let osc = 0.5 + 0.5 * Math.sin(T * sp + ph);
+        const s = THREE.MathUtils.lerp(sMax, sMin, osc); // ⇐ invertido: grande→pequeño
 
-        // base: seno principal + armónico con distinta frecuencia/fase → rompe uniformidad diagonal
-        let osc = 0.5 + 0.5 * Math.sin((t * 0.75 * sp1) + ph);
-        osc += harm * Math.sin((t * 1.43 * sp2) + ph * 1.3);
-        osc = THREE.MathUtils.clamp(osc, 0.0, 1.0);
-
-        // escala resultante (interacción ligera con el puntero)
-        let s = THREE.MathUtils.lerp(sMin, sMax, osc);
-        s = THREE.MathUtils.clamp(s + mx*0.04 - my*0.03, sMin*0.90, sMax*1.05);
         h.scale.set(s, s, 1);
 
-        // opacidad acompaña a la escala + wobble determinista por halo
-        const base   = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.65;
-        const k      = (s - sMin) / Math.max(1e-5, (sMax - sMin)); // 0..1
-        const wobble = wAmp * Math.sin((t * 0.95 * sp2) + ph + Math.PI/2);
-        h.material.opacity = THREE.MathUtils.clamp(base * (0.15 + 0.85*k) + wobble, 0.0, 0.95);
+        // opacidad acompaña (un poco más intensa cuando “entra”)
+        const k = (s - sMin) / Math.max(1e-5, (sMax - sMin)); // 0..1
+        h.material.opacity = THREE.MathUtils.clamp((h.userData.baseOpacity || 0.70) * (1.10 - 0.25*k), 0.0, 0.95);
       });
     }
 
