@@ -4159,20 +4159,22 @@ void main(){
         tmslGroup.remove(ch);
       }
 
-      // ── 1) prepara halo group/texture (versión direccional con degradado)
+      // ── 1) prepara halo group/texture (direccional y común a todos)
       if (tmslHaloGroup){
         tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-      if (!tmslHaloTex) tmslHaloTex = makeDirectionalHaloTexture(512);
+
+      // Textura con degradado más marcado y cola más larga
+      if (!tmslHaloTex) tmslHaloTex = makeDirectionalHaloTexture(1024, 0.56, 1.22, 1.5, 2.1);
+
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
 
-      // Parámetros globales del “rayo” de sombra (constantes visuales)
-      const DIR_BASE_ANGLE = THREE.MathUtils.degToRad(37);  // ángulo inicial "profesional"
-      const HALO_DIR_WIDTH = 2.2;   // ancho relativo del plano vs W del volumen
-      const HALO_DIR_LEN   = 4.2;   // largo relativo del plano vs H del volumen
+      // Dirección y velocidad GLOBAL (todos iguales)
+      const DIR_BASE_ANGLE = THREE.MathUtils.degToRad(37); // misma dirección inicial
+      const SUN_SPEED = 0.010;                              // giro lento y contemplativo
 
       // ── 2) localiza la pared para posicionar frente
       const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
@@ -4272,10 +4274,15 @@ void main(){
           // Rahmen frontal del mismo color que los laterales
           addFrameFor(cube, W, H, color);
 
-          // ——— halo direccional (degradado) ———
-          const PLx = W * HALO_DIR_WIDTH;
-          const PLy = H * HALO_DIR_LEN;
+          // ——— halo direccional con geometría de sombra ———
+          // Plano más largo y un poco más ancho que el volumen
+          const PLx = W * 2.6;
+          const PLy = H * 5.0;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
+
+          // Empuja el contenido del plano hacia +Y para que la “cola” salga desde el volumen
+          pgeo.translate(0, PLy * 0.33, 0);
+
           const pmat = new THREE.MeshBasicMaterial({
             color,
             map: tmslHaloTex,
@@ -4283,24 +4290,20 @@ void main(){
             depthWrite: false,
             blending: THREE.NormalBlending,
             premultipliedAlpha: false,
-            opacity: 0.78
+            opacity: 0.92    // ↑ intensidad de la sombra-halo
           });
+
           const halo = new THREE.Mesh(pgeo, pmat);
+
+          // Ancla del halo = centro del volumen; lo desplazaremos en update() según el ángulo global
+          halo.userData.anchorX = x;
+          halo.userData.anchorY = y;
+
+          // Offset inicial para despegar la parte más opaca del borde del volumen
+          halo.userData.offsetLen = Math.max(W, H) * 0.28;
+
           halo.position.set(x, y, wallFrontZ + 0.005);
-
-          // — velocidades de rotación deterministas por celda (no hay “respirar”)
-          const rLehmer = lehmerRank(pa);
-          const mRankT  = mappingRank(attributeMapping.slice(0,5));
-          const sig32   = (rLehmer * 1315423911) ^ (mRankT * 2654435761) ^ (idxCell * 374761393) ^ (sceneSeed|0);
-
-          // rotación lenta y contemplativa (≈ 0.018 … 0.050 rad/s)
-          halo.userData.rotSpeed = 0.03 * (0.60 + ((sig32 & 1023) / 1023) * 1.0);
-          halo.userData.rotPhase = (((sig32 >>> 10) & 8191) / 8191) * Math.PI * 2;
-          halo.userData.rotBase  = DIR_BASE_ANGLE + (((sig32 >>> 25) & 255) - 128) * (Math.PI/180) * 0.12; // sutil desviación
-          halo.rotation.z = halo.userData.rotBase + halo.userData.rotPhase;
-
-          // opacidad base constante (sin oscilación de escala)
-          halo.userData.baseOpacity = 0.75;
+          halo.rotation.z = DIR_BASE_ANGLE;
 
           tmslHaloGroup.add(halo);
         }
@@ -4310,23 +4313,28 @@ void main(){
     function updateTMSLHalos(t){
       if (!tmslHaloGroup) return;
 
-      const mx = (typeof mouse?.x==='number') ? mouse.x*0.20 : 0; // leve interacción opcional
-      const my = (typeof mouse?.y==='number') ? mouse.y*0.20 : 0;
+      // Ángulo solar global para todos
+      const angle = THREE.MathUtils.degToRad(37) + t * 0.010; // mismo valor que SUN_SPEED y DIR_BASE_ANGLE
 
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
 
-        const sp = (typeof h.userData.rotSpeed === 'number') ? h.userData.rotSpeed : 0.03;
-        const ph = (typeof h.userData.rotPhase === 'number') ? h.userData.rotPhase : 0.0;
-        const rb = (typeof h.userData.rotBase  === 'number') ? h.userData.rotBase  : 0.0;
-
-        // rotación "sol que se mueve" + pequeño acople al puntero
-        const angle = rb + (t * sp) + ph + mx*0.12 - my*0.10;
+        // Rotación uniforme (todas las sombras apuntan igual)
         h.rotation.z = angle;
 
-        // opacidad estable con micro-variación muy sutil (NO escala)
-        const base = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.75;
-        h.material.opacity = THREE.MathUtils.clamp(base + 0.03*Math.sin(t*0.07 + ph), 0.0, 0.90);
+        // Desplaza el halo a lo largo de su +Y local (cast shadow separado del volumen)
+        const off = (typeof h.userData.offsetLen === 'number') ? h.userData.offsetLen : 0.0;
+        const ax  = (typeof h.userData.anchorX  === 'number') ? h.userData.anchorX  : h.position.x;
+        const ay  = (typeof h.userData.anchorY  === 'number') ? h.userData.anchorY  : h.position.y;
+
+        // +Y local del plano rotado → (-sin a, +cos a)
+        const dx = -Math.sin(angle) * off;
+        const dy =  Math.cos(angle) * off;
+
+        h.position.set(ax + dx, ay + dy, h.position.z);
+
+        // Opacidad estable (sin respiración). Pequeña micro-variación opcional:
+        h.material.opacity = 0.92;
       });
     }
 
