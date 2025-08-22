@@ -4088,7 +4088,7 @@ void main(){
       const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
 
       // ── 3) parámetros de grilla
-      const GRID = 11;
+      const GRID = 9;
       const PAD  = cubeSize * 0.2;
       const span = cubeSize - PAD*2;
       const step = span / (GRID-1);
@@ -4096,8 +4096,8 @@ void main(){
       // medidas base (mantenemos ancho; profundidad a la MITAD)
       const MOD_W = 1.6;          // ancho
       const DEP   = 0.10;          // PROFUNDIDAD 
-      const HALO_SCALE_X = 4.0;  // 
-      const HALO_SCALE_Y = 4.0;  // 
+      const HALO_SCALE_X = 8.0;  // 
+      const HALO_SCALE_Y = 8.0;  // 
 
       // —— único índice √3 determinista (nunca en la fila inferior)
       const TOTAL = GRID * GRID;
