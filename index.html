@@ -3935,7 +3935,7 @@ void main(){
       if (g.parent) g.parent.remove(g);
     }
     // ── TMSL · Tomasello/Staudt — estado + textura halo ────────────────
-    let tmslHaloTex   = null;      // (se mantiene por compatibilidad)
+    let tmslHaloTex   = null;
     let tmslHaloGroup = null;
     let tmslCellsGroup = null;   // ← NUEVO: contenedor único de volúmenes+marcos
 
@@ -3971,107 +3971,6 @@ void main(){
       tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
       return tex;
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // TMSL · Soft directional shadow (single global light)
-    // ──────────────────────────────────────────────────────────────
-    const TMSL_SHADOW_CONF = {
-      BASE_ANGLE   : Math.PI * 0.33,   // ángulo inicial (≈ 60°)
-      ANG_SPEED    : 0.035,            // velocidad angular (lenta, contemplativa)
-      STRENGTH     : 1.45,             // intensidad del degradado (sube sombra)
-      LENGTH_K     : 3.0,              // largo de sombra relativo a la altura H
-      SOFT_PERP    : 0.22,             // suavidad transversal (penumbra lateral)
-      SOFT_ALONG   : 0.70,             // suavidad que aumenta hacia la punta
-      HARDNESS     : 0.85              // 0..1 (0 muy blando, 1 más contrastado)
-    };
-    // colección de materiales para actualizar la dirección de luz
-    let __tmslShadowMaterials = [];
-
-    function makeDirectionalShadowMaterial(colorTHREE, rectHalfX_N, rectHalfY_N, length_N){
-      const vsh = `
-        varying vec2 vUv;
-        void main(){
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-        }
-      `;
-      const fsh = `
-        precision mediump float;
-
-        uniform vec3  uColor;
-        uniform vec2  uRect;      // (halfW, halfH) normalizados al semitamaño del plano
-        uniform float uLength;    // largo de sombra (normalizado al semiancho del plano)
-        uniform vec2  uLightDir;  // dirección 2D normalizada (común para todas)
-        uniform float uSoftPerp;  // suavidad transversal base
-        uniform float uSoftAlong; // cuánto crece suavidad hacia la punta
-        uniform float uHard;      // mezcla gauss / núcleo duro
-        uniform float uStrength;  // multiplicador de alpha
-
-        varying vec2 vUv;
-
-        void main(){
-          // uv en [-1,1]
-          vec2 uv = vUv * 2.0 - 1.0;
-
-          // ejes: d = dirección de luz; p = perpendicular
-          vec2 d = normalize(uLightDir);
-          vec2 p = vec2(-d.y, d.x);
-
-          // coords en el sistema (s,t)
-          float s = dot(uv, d); // a lo largo de la luz
-          float t = dot(uv, p); // perpendicular
-
-          // dominio longitudinal de la sombra:
-          // arranca cerca del cuerpo y llega hasta uLength + ancho proyectado
-          float s0 = 0.0;
-          float s1 = uLength + uRect.x * 2.0;
-
-          // “puerta” en s con bordes suaves (evita cortes duros fuera del plano)
-          float gateS = smoothstep(s0 - 0.02, s0 + 0.02, s)
-                      * (1.0 - smoothstep(s1 - 0.04, s1 + 0.04, s));
-
-          // penumbra: el medio ancho crece ligeramente hacia la punta
-          float k   = clamp(s / max(0.0001, uLength), 0.0, 1.0);
-          float w   = uRect.y + (uSoftAlong * k) * (uRect.y * 0.7);
-
-          // gauss transversal cuyo sigma también crece hacia la punta
-          float sigma = max(0.001, uSoftPerp * (0.75 + 0.75 * k));
-          float gauss = exp(-(t*t) / (2.0 * sigma * sigma));
-
-          // núcleo tipo “umbra” (más duro cerca del centro)
-          float umbra = smoothstep(w, w * 0.20, abs(t));
-
-          // combinación: mezcla controlada por uHard
-          float alpha = gateS * mix(gauss, umbra, uHard);
-
-          // caída extra hacia la punta (se disuelve)
-          alpha *= (1.0 - smoothstep(uLength * 0.70, uLength * 1.10, s));
-
-          alpha = clamp(alpha * uStrength, 0.0, 0.98);
-          if (alpha < 0.002) discard;
-
-          gl_FragColor = vec4(uColor, alpha);
-        }
-      `;
-
-      return new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite : false,
-        blending   : THREE.NormalBlending,  // nada de Multiply que ennegrece
-        uniforms   : {
-          uColor    : { value: colorTHREE.clone() },
-          uRect     : { value: new THREE.Vector2(rectHalfX_N, rectHalfY_N) },
-          uLength   : { value: length_N },
-          uLightDir : { value: new THREE.Vector2(Math.cos(TMSL_SHADOW_CONF.BASE_ANGLE), Math.sin(TMSL_SHADOW_CONF.BASE_ANGLE)) },
-          uSoftPerp : { value: TMSL_SHADOW_CONF.SOFT_PERP },
-          uSoftAlong: { value: TMSL_SHADOW_CONF.SOFT_ALONG },
-          uHard     : { value: TMSL_SHADOW_CONF.HARDNESS },
-          uStrength : { value: TMSL_SHADOW_CONF.STRENGTH }
-        },
-        vertexShader  : vsh,
-        fragmentShader: fsh
-      });
     }
 
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
@@ -4157,7 +4056,6 @@ void main(){
       wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
       wall.userData.tmslKind = 'wall';
       tmslGroup.add(wall);
-      wall.renderOrder = -50; // muy detrás
 
       scene.add(tmslGroup);
     }
@@ -4174,17 +4072,15 @@ void main(){
         tmslGroup.remove(ch);
       }
 
-      // ── 1) prepara halo group/texture (direccional y común a todos)
+      // ── 1) prepara halo group/texture
       if (tmslHaloGroup){
         tmslHaloGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose?.(); o.material.dispose?.(); }});
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-
+      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512);
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
-      tmslHaloGroup.renderOrder = -30; // sombras por delante de la pared pero detrás de los volúmenes
-      __tmslShadowMaterials.length = 0;
 
       // ── 2) localiza la pared para posicionar frente
       const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
@@ -4199,7 +4095,9 @@ void main(){
 
       // medidas base (mantenemos ancho; profundidad a la MITAD)
       const MOD_W = 1.6;          // ancho
-      const DEP   = 0.10;          // PROFUNDIDAD
+      const DEP   = 0.10;          // PROFUNDIDAD 
+      const HALO_SCALE_X = 2.5;  // 
+      const HALO_SCALE_Y = 2.5;  // 
 
       // —— único índice √3 determinista (nunca en la fila inferior)
       const TOTAL = GRID * GRID;
@@ -4284,52 +4182,82 @@ void main(){
           // Rahmen frontal del mismo color que los laterales
           addFrameFor(cube, W, H, color);
 
-          // —— Sombra direccional “tipo luz” (paralelogramo + penumbra) ——
-          // largo de sombra relativo a la altura (más altura → sombra más larga)
-          const SH_LEN = Math.max(0.10, H * TMSL_SHADOW_CONF.LENGTH_K);
-
-          // plano lo bastante grande para cubrir largo+desenfoque
-          const PLx = W + SH_LEN + W * 0.5;   // margen frontal
-          const PLy = H * 3.0;                // penumbra generosa vertical
-
+          // halo rectangular (ajustado al nuevo W×H)
+          const PLx = W * HALO_SCALE_X;
+          const PLy = H * HALO_SCALE_Y;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
+          const pmat = new THREE.MeshBasicMaterial({
+            color,
+            map: tmslHaloTex,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.NormalBlending,
+            premultipliedAlpha: false,
+            opacity: 0.90
+          });
+          const halo = new THREE.Mesh(pgeo, pmat);
+          halo.position.set(x, y, wallFrontZ + 0.005);
+          halo.userData.baseOpacity = 0.65;
+          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
 
-          // normalización de parámetros al semitamaño del plano
-          const halfX = PLx * 0.5;
-          const halfY = PLy * 0.5;
+          // ——— respiración determinista por celda (como en BUILD, via rango Lehmer) ———
+          const rLehmer = lehmerRank(pa);
+          const mRankT  = mappingRank(attributeMapping.slice(0,5));
+          const sig32   = (rLehmer * 1315423911) ^ (mRankT * 2654435761) ^ (idxCell * 374761393) ^ (sceneSeed|0);
 
-          // el “rectángulo” que proyecta sombra: mitad de ancho/alto en coords normalizados
-          const rectHalfX_N = (W * 0.5) / halfX;
-          const rectHalfY_N = (H * 0.5) / halfY;
+          // velocidades (factores sobre la base), armónico y wobble de opacidad, todo 100% determinista
+          halo.userData.speed1 = (0.65 + ((sig32 & 1023) / 1023) * 1.10) * 0.4;          // 0.325× … 0.875×
+          halo.userData.speed2 = (0.80 + (((sig32 >>> 10) & 1023) / 1023) * 0.90) * 0.4; // 0.40×  … 0.85×
+          halo.userData.harm   = 0.08 + (((sig32 >>> 20) & 1023) / 1023) * 0.18; // 0.08 … 0.26
+          halo.userData.wAmp   = 0.04 + (((sig32 >>> 30) & 255)  / 255)  * 0.06; // 0.04 … 0.10
 
-          // largo de sombra normalizado
-          const length_N = SH_LEN / halfX;
+          // límites de escala: mínimo = justo hasta desaparecer, máximo = 1.00
+          const sMin = Math.min(1 / HALO_SCALE_X, 1 / HALO_SCALE_Y) * 0.98;
+          const sMax = 1.00;
+          halo.userData.sMin = sMin;
+          halo.userData.sMax = sMax;
 
-          // material shader (mismo color que los laterales; más visible)
-          const smat = makeDirectionalShadowMaterial(color, rectHalfX_N, rectHalfY_N, length_N);
-
-          const halo = new THREE.Mesh(pgeo, smat);
-          halo.position.set(x, y, wallFrontZ + 0.001); // bien pegado al fondo
-          halo.renderOrder = -20;                       // se dibuja antes que los volúmenes
+          // arranca “fuera”
+          halo.scale.set(sMax, sMax, 1);
 
           tmslHaloGroup.add(halo);
-          __tmslShadowMaterials.push(smat);
         }
       }
     }
 
     function updateTMSLHalos(t){
-      if (!tmslHaloGroup || __tmslShadowMaterials.length === 0) return;
+      if (!tmslHaloGroup) return;
 
-      // Luz global: ángulo base + giro MUY lento (contemplativo)
-      const a = TMSL_SHADOW_CONF.BASE_ANGLE + TMSL_SHADOW_CONF.ANG_SPEED * t;
-      const dir = new THREE.Vector2(Math.cos(a), Math.sin(a));
+      const mx = (typeof mouse?.x==='number') ? mouse.x*0.35 : 0;
+      const my = (typeof mouse?.y==='number') ? mouse.y*0.35 : 0;
 
-      // Aplica la misma dirección a TODAS las sombras
-      for (let i = 0; i < __tmslShadowMaterials.length; i++){
-        const m = __tmslShadowMaterials[i];
-        if (m && m.uniforms && m.uniforms.uLightDir) m.uniforms.uLightDir.value.copy(dir);
-      }
+      tmslHaloGroup.children.forEach(h=>{
+        if (!h.isMesh) return;
+
+        const ph    = h.userData.phase || 0;
+        const sMin  = (typeof h.userData.sMin  === 'number') ? h.userData.sMin  : 0.4;
+        const sMax  = (typeof h.userData.sMax  === 'number') ? h.userData.sMax  : 1.0;
+        const sp1   = (typeof h.userData.speed1=== 'number') ? h.userData.speed1: 1.0;
+        const sp2   = (typeof h.userData.speed2=== 'number') ? h.userData.speed2: 1.0;
+        const harm  = (typeof h.userData.harm  === 'number') ? h.userData.harm  : 0.12;
+        const wAmp  = (typeof h.userData.wAmp  === 'number') ? h.userData.wAmp  : 0.06;
+
+        // base: seno principal + armónico con distinta frecuencia/fase → rompe uniformidad diagonal
+        let osc = 0.5 + 0.5 * Math.sin((t * 0.75 * sp1) + ph);
+        osc += harm * Math.sin((t * 1.43 * sp2) + ph * 1.3);
+        osc = THREE.MathUtils.clamp(osc, 0.0, 1.0);
+
+        // escala resultante (interacción ligera con el puntero)
+        let s = THREE.MathUtils.lerp(sMin, sMax, osc);
+        s = THREE.MathUtils.clamp(s + mx*0.04 - my*0.03, sMin*0.90, sMax*1.05);
+        h.scale.set(s, s, 1);
+
+        // opacidad acompaña a la escala + wobble determinista por halo
+        const base   = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.65;
+        const k      = (s - sMin) / Math.max(1e-5, (sMax - sMin)); // 0..1
+        const wobble = wAmp * Math.sin((t * 0.95 * sp2) + ph + Math.PI/2);
+        h.material.opacity = THREE.MathUtils.clamp(base * (0.15 + 0.85*k) + wobble, 0.0, 0.95);
+      });
     }
 
     function enterTMSLView(){
