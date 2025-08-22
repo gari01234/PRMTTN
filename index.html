@@ -4199,6 +4199,19 @@ void main(){
           halo.position.set(x, y, wallFrontZ + 0.005);
           halo.userData.baseOpacity = 0.65;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
+
+          // Escalas para el “respiro”:
+          //  - sMin: cuando el halo queda justo por detrás del volumen (desaparece).
+          //  - sMax: el tamaño “fuera” actual (1.0).
+          const sMin = Math.min(1 / HALO_SCALE_X, 1 / HALO_SCALE_Y) * 0.98; // 2% menos para asegurar ocultación
+          const sMax = 1.00;
+
+          halo.userData.sMin = sMin;
+          halo.userData.sMax = sMax;
+
+          // Arranca “fuera”
+          halo.scale.set(sMax, sMax, 1);
+
           tmslHaloGroup.add(halo);
         }
       }
@@ -4213,15 +4226,24 @@ void main(){
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
 
-        const ph    = h.userData.phase || 0;
-        const wobble = 0.08 + 0.06*Math.sin(t*0.75 + ph);
-        const scale  = 1.00 + 0.12*Math.sin(t*0.50 + ph*1.7) + mx*0.04 - my*0.03;
+        const ph   = h.userData.phase || 0;
+        const sMin = (typeof h.userData.sMin === 'number') ? h.userData.sMin : 0.4;
+        const sMax = (typeof h.userData.sMax === 'number') ? h.userData.sMax : 1.0;
 
-        h.scale.set(scale, scale, 1);
-        h.material.opacity = THREE.MathUtils.clamp(
-          (h.userData.baseOpacity||0.65) + wobble,
-          0.25, 0.95
-        );
+        // Oscilador 0..1 → interpola entre sMin y sMax
+        const osc = 0.5 + 0.5 * Math.sin(t * 0.75 + ph);
+        let s = THREE.MathUtils.lerp(sMin, sMax, osc);
+
+        // Leve interacción con el puntero (sin salirse de rangos razonables)
+        s = THREE.MathUtils.clamp(s + mx*0.04 - my*0.03, sMin*0.90, sMax*1.05);
+
+        h.scale.set(s, s, 1);
+
+        // Opacidad acompaña a la escala: cerca de sMin puede llegar a 0
+        const base   = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.65;
+        const wobble = 0.06 * Math.sin(t * 0.75 + ph + Math.PI/2);
+        const k      = (s - sMin) / Math.max(1e-5, (sMax - sMin)); // 0..1
+        h.material.opacity = THREE.MathUtils.clamp(base * (0.15 + 0.85*k) + wobble, 0.0, 0.95);
       });
     }
 
