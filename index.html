@@ -4200,16 +4200,24 @@ void main(){
           halo.userData.baseOpacity = 0.65;
           halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
 
-          // Escalas para el “respiro”:
-          //  - sMin: cuando el halo queda justo por detrás del volumen (desaparece).
-          //  - sMax: el tamaño “fuera” actual (1.0).
-          const sMin = Math.min(1 / HALO_SCALE_X, 1 / HALO_SCALE_Y) * 0.98; // 2% menos para asegurar ocultación
-          const sMax = 1.00;
+          // ——— respiración determinista por celda (como en BUILD, via rango Lehmer) ———
+          const rLehmer = lehmerRank(pa);
+          const mRankT  = mappingRank(attributeMapping.slice(0,5));
+          const sig32   = (rLehmer * 1315423911) ^ (mRankT * 2654435761) ^ (idxCell * 374761393) ^ (sceneSeed|0);
 
+          // velocidades (factores sobre la base), armónico y wobble de opacidad, todo 100% determinista
+          halo.userData.speed1 = 0.65 + ((sig32 & 1023) / 1023) * 1.10;          // 0.65× … 1.75×
+          halo.userData.speed2 = 0.80 + (((sig32 >>> 10) & 1023) / 1023) * 0.90; // 0.80× … 1.70×
+          halo.userData.harm   = 0.08 + (((sig32 >>> 20) & 1023) / 1023) * 0.18; // 0.08 … 0.26
+          halo.userData.wAmp   = 0.04 + (((sig32 >>> 30) & 255)  / 255)  * 0.06; // 0.04 … 0.10
+
+          // límites de escala: mínimo = justo hasta desaparecer, máximo = 1.00
+          const sMin = Math.min(1 / HALO_SCALE_X, 1 / HALO_SCALE_Y) * 0.98;
+          const sMax = 1.00;
           halo.userData.sMin = sMin;
           halo.userData.sMax = sMax;
 
-          // Arranca “fuera”
+          // arranca “fuera”
           halo.scale.set(sMax, sMax, 1);
 
           tmslHaloGroup.add(halo);
@@ -4226,23 +4234,28 @@ void main(){
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
 
-        const ph   = h.userData.phase || 0;
-        const sMin = (typeof h.userData.sMin === 'number') ? h.userData.sMin : 0.4;
-        const sMax = (typeof h.userData.sMax === 'number') ? h.userData.sMax : 1.0;
+        const ph    = h.userData.phase || 0;
+        const sMin  = (typeof h.userData.sMin  === 'number') ? h.userData.sMin  : 0.4;
+        const sMax  = (typeof h.userData.sMax  === 'number') ? h.userData.sMax  : 1.0;
+        const sp1   = (typeof h.userData.speed1=== 'number') ? h.userData.speed1: 1.0;
+        const sp2   = (typeof h.userData.speed2=== 'number') ? h.userData.speed2: 1.0;
+        const harm  = (typeof h.userData.harm  === 'number') ? h.userData.harm  : 0.12;
+        const wAmp  = (typeof h.userData.wAmp  === 'number') ? h.userData.wAmp  : 0.06;
 
-        // Oscilador 0..1 → interpola entre sMin y sMax
-        const osc = 0.5 + 0.5 * Math.sin(t * 0.75 + ph);
+        // base: seno principal + armónico con distinta frecuencia/fase → rompe uniformidad diagonal
+        let osc = 0.5 + 0.5 * Math.sin((t * 0.75 * sp1) + ph);
+        osc += harm * Math.sin((t * 1.43 * sp2) + ph * 1.3);
+        osc = THREE.MathUtils.clamp(osc, 0.0, 1.0);
+
+        // escala resultante (interacción ligera con el puntero)
         let s = THREE.MathUtils.lerp(sMin, sMax, osc);
-
-        // Leve interacción con el puntero (sin salirse de rangos razonables)
         s = THREE.MathUtils.clamp(s + mx*0.04 - my*0.03, sMin*0.90, sMax*1.05);
-
         h.scale.set(s, s, 1);
 
-        // Opacidad acompaña a la escala: cerca de sMin puede llegar a 0
+        // opacidad acompaña a la escala + wobble determinista por halo
         const base   = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.65;
-        const wobble = 0.06 * Math.sin(t * 0.75 + ph + Math.PI/2);
         const k      = (s - sMin) / Math.max(1e-5, (sMax - sMin)); // 0..1
+        const wobble = wAmp * Math.sin((t * 0.95 * sp2) + ph + Math.PI/2);
         h.material.opacity = THREE.MathUtils.clamp(base * (0.15 + 0.85*k) + wobble, 0.0, 0.95);
       });
     }
