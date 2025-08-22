@@ -3935,7 +3935,7 @@ void main(){
       if (g.parent) g.parent.remove(g);
     }
     // ── TMSL · Tomasello/Staudt — estado + textura halo ────────────────
-    let tmslHaloTex   = null;
+    let tmslShadowTex = null;
     let tmslHaloGroup = null;
     let tmslCellsGroup = null;   // ← NUEVO: contenedor único de volúmenes+marcos
 
@@ -3972,6 +3972,52 @@ void main(){
       tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
       return tex;
     }
+
+    // ── TMSL · textura de Sombra Direccional (cuña con bordes suaves)
+    /* Gradiente 2D: opaco en el borde de anclaje (y=0) y
+       se desvanece hacia +Y; laterales con caída suave.
+       w,h: resolución; edgeSoft: fracción del semiancho con suavizado lateral. */
+    function makeDirectionalShadowTexture(w = 1024, h = 1024, edgeSoft = 0.18, gammaY = 1.45){
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      const img = ctx.createImageData(w, h);
+      const cx = (w - 1) * 0.5;
+      const invHalfW = 1 / cx;
+
+      for (let y = 0; y < h; y++){
+        const ny = y / (h - 1);                  // 0..1  (0 = anclaje, 1 = lejos)
+        const ay = Math.pow(1 - ny, gammaY);     // caída en dirección “proyección”
+        for (let x = 0; x < w; x++){
+          const nx = Math.abs(x - cx) * invHalfW;   // 0..1 hacia los laterales
+          // Suavizado lateral: 1 en el centro → 0 cerca de bordes (con hombro suave)
+          let ax = 0;
+          const limit = 1 - edgeSoft;
+          if (nx < limit){
+            const k = 1 - (nx / limit);          // 1 en centro → 0 en borde de la “zona viva”
+            ax = Math.pow(k, 1.35);
+          } // si nx≥limit → ax = 0
+          const a = Math.max(0, Math.min(1, ay * ax));
+
+          const off = (y * w + x) * 4;
+          img.data[off    ] = 255;
+          img.data[off + 1] = 255;
+          img.data[off + 2] = 255;
+          img.data[off + 3] = Math.round(a * 255);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      return tex;
+    }
+
+    // ── “Sol” global: ángulo inicial y velocidad de giro (lento/contemplativo)
+    const TMSL_SUN_THETA0 = Math.PI / 4;            // 45°
+    const TMSL_SUN_OMEGA  = (Math.PI * 2) / 480;    // 1 vuelta cada 480 s (~8 min)
 
     // ★ Mantén el flag global sincronizado (necesario para hooks/watchdogs)
     window.isTMSL = false;
@@ -4078,7 +4124,7 @@ void main(){
         tmslGroup.remove(tmslHaloGroup);
         tmslHaloGroup = null;
       }
-      if (!tmslHaloTex) tmslHaloTex = makeHaloTexture(512);
+      if (!tmslShadowTex) tmslShadowTex = makeDirectionalShadowTexture(1024, 1024, 0.18, 1.45);
       tmslHaloGroup = new THREE.Group();
       tmslGroup.add(tmslHaloGroup);
 
@@ -4095,9 +4141,7 @@ void main(){
 
       // medidas base (mantenemos ancho; profundidad a la MITAD)
       const MOD_W = 1.6;          // ancho
-      const DEP   = 0.10;          // PROFUNDIDAD 
-      const HALO_SCALE_X = 2.5;  // 
-      const HALO_SCALE_Y = 2.5;  // 
+      const DEP   = 0.10;          // PROFUNDIDAD
 
       // —— único índice √3 determinista (nunca en la fila inferior)
       const TOTAL = GRID * GRID;
@@ -4182,43 +4226,47 @@ void main(){
           // Rahmen frontal del mismo color que los laterales
           addFrameFor(cube, W, H, color);
 
-          // halo rectangular (ajustado al nuevo W×H)
-          const PLx = W * HALO_SCALE_X;
-          const PLy = H * HALO_SCALE_Y;
-          const pgeo = new THREE.PlaneGeometry(PLx, PLy);
+          // === SOMBRA DIRECCIONAL (cuña) ===
+          // ancho ≈ del volumen; largo relativo al alto (para acentos diagonales largos)
+          const SHADOW_W = Math.max(0.001, W * 1.10);
+          const SHADOW_L = Math.max(0.001, H * 2.60);
+
+          // Geometría: origen en el BORDE de anclaje (y=0), así el pivot queda en el volumen
+          const pgeo = new THREE.PlaneGeometry(SHADOW_W, SHADOW_L);
+          // Mueve el centro geométrico para que el origen quede en el borde “pegado” al volumen
+          pgeo.translate(0, SHADOW_L * 0.5, 0);
+
           const pmat = new THREE.MeshBasicMaterial({
             color,
-            map: tmslHaloTex,
+            map: tmslShadowTex,
             transparent: true,
             depthWrite: false,
-            blending: THREE.NormalBlending,
+            blending: THREE.MultiplyBlending,    // sombra coloreada sobre pared blanca
             premultipliedAlpha: false,
-            opacity: 0.90
+            opacity: 0.88
           });
-          const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ + 0.005);
-          halo.userData.baseOpacity = 0.65;
-          halo.userData.phase = (ix*37 + iy*19 + sceneSeed) * 0.015;
 
-          // ——— respiración determinista por celda (como en BUILD, via rango Lehmer) ———
+          const halo = new THREE.Mesh(pgeo, pmat);
+          // Situado prácticamente sobre la pared
+          halo.position.set(x, y, wallFrontZ + 0.006);
+
+          // —— parámetros deterministas por celda (fase/velocidad muy sutiles)
           const rLehmer = lehmerRank(pa);
           const mRankT  = mappingRank(attributeMapping.slice(0,5));
           const sig32   = (rLehmer * 1315423911) ^ (mRankT * 2654435761) ^ (idxCell * 374761393) ^ (sceneSeed|0);
 
-          // velocidades (factores sobre la base), armónico y wobble de opacidad, todo 100% determinista
-          halo.userData.speed1 = (0.65 + ((sig32 & 1023) / 1023) * 1.10) * 0.4;          // 0.325× … 0.875×
-          halo.userData.speed2 = (0.80 + (((sig32 >>> 10) & 1023) / 1023) * 0.90) * 0.4; // 0.40×  … 0.85×
-          halo.userData.harm   = 0.08 + (((sig32 >>> 20) & 1023) / 1023) * 0.18; // 0.08 … 0.26
-          halo.userData.wAmp   = 0.04 + (((sig32 >>> 30) & 255)  / 255)  * 0.06; // 0.04 … 0.10
+          // Micro-variaciones (coherentes pero no uniformes)
+          const speedDelta = ((sig32 & 1023) / 1023) * 0.12 - 0.06;  // −6% … +6%
+          const phaseRad   = ((((sig32 >>> 10) & 1023) / 1023) - 0.5) * (Math.PI / 9); // ±20°
+          const opJitter   = (((sig32 >>> 20) & 1023) / 1023) * 0.08; // 0…0.08
 
-          // límites de escala: mínimo = justo hasta desaparecer, máximo = 1.00
-          const sMin = Math.min(1 / HALO_SCALE_X, 1 / HALO_SCALE_Y) * 0.98;
-          const sMax = 1.00;
-          halo.userData.sMin = sMin;
-          halo.userData.sMax = sMax;
+          halo.userData.sunSpeedDelta = speedDelta;
+          halo.userData.sunPhase      = phaseRad;
+          halo.userData.baseOpacity   = 0.72 + opJitter;             // 0.72..0.80
+          halo.userData.phaseNoise    = ((sig32 >>> 30) & 255) / 255; // 0..1
 
-          // arranca “fuera”
-          halo.scale.set(sMax, sMax, 1);
+          // Arranque con el ángulo base (se actualizará en updateTMSLHalos)
+          halo.rotation.z = TMSL_SUN_THETA0 + phaseRad;
 
           tmslHaloGroup.add(halo);
         }
@@ -4228,35 +4276,29 @@ void main(){
     function updateTMSLHalos(t){
       if (!tmslHaloGroup) return;
 
-      const mx = (typeof mouse?.x==='number') ? mouse.x*0.35 : 0;
-      const my = (typeof mouse?.y==='number') ? mouse.y*0.35 : 0;
+      // Ángulo “solar” global (giro muy lento y contemplativo)
+      const sunTheta = TMSL_SUN_THETA0 + TMSL_SUN_OMEGA * t;
 
       tmslHaloGroup.children.forEach(h=>{
         if (!h.isMesh) return;
 
-        const ph    = h.userData.phase || 0;
-        const sMin  = (typeof h.userData.sMin  === 'number') ? h.userData.sMin  : 0.4;
-        const sMax  = (typeof h.userData.sMax  === 'number') ? h.userData.sMax  : 1.0;
-        const sp1   = (typeof h.userData.speed1=== 'number') ? h.userData.speed1: 1.0;
-        const sp2   = (typeof h.userData.speed2=== 'number') ? h.userData.speed2: 1.0;
-        const harm  = (typeof h.userData.harm  === 'number') ? h.userData.harm  : 0.12;
-        const wAmp  = (typeof h.userData.wAmp  === 'number') ? h.userData.wAmp  : 0.06;
+        const dSpeed = (typeof h.userData.sunSpeedDelta === 'number') ? h.userData.sunSpeedDelta : 0;
+        const ph0    = (typeof h.userData.sunPhase      === 'number') ? h.userData.sunPhase      : 0;
+        const baseOp = (typeof h.userData.baseOpacity   === 'number') ? h.userData.baseOpacity   : 0.76;
+        const nseed  = (typeof h.userData.phaseNoise    === 'number') ? h.userData.phaseNoise    : 0.5;
 
-        // base: seno principal + armónico con distinta frecuencia/fase → rompe uniformidad diagonal
-        let osc = 0.5 + 0.5 * Math.sin((t * 0.75 * sp1) + ph);
-        osc += harm * Math.sin((t * 1.43 * sp2) + ph * 1.3);
-        osc = THREE.MathUtils.clamp(osc, 0.0, 1.0);
+        // Pequeña variación determinista de velocidad alrededor del global
+        const theta = sunTheta + (TMSL_SUN_OMEGA * dSpeed * t) + ph0;
+        h.rotation.z = theta;
 
-        // escala resultante (interacción ligera con el puntero)
-        let s = THREE.MathUtils.lerp(sMin, sMax, osc);
-        s = THREE.MathUtils.clamp(s + mx*0.04 - my*0.03, sMin*0.90, sMax*1.05);
-        h.scale.set(s, s, 1);
+        // Opacidad sutilmente viva (muy lenta)
+        const wobble = 0.03 * Math.sin( (t * 0.20) + nseed * 6.28318 );
+        h.material.opacity = THREE.MathUtils.clamp(baseOp + wobble, 0.40, 0.92);
 
-        // opacidad acompaña a la escala + wobble determinista por halo
-        const base   = (typeof h.userData.baseOpacity === 'number') ? h.userData.baseOpacity : 0.65;
-        const k      = (s - sMin) / Math.max(1e-5, (sMax - sMin)); // 0..1
-        const wobble = wAmp * Math.sin((t * 0.95 * sp2) + ph + Math.PI/2);
-        h.material.opacity = THREE.MathUtils.clamp(base * (0.15 + 0.85*k) + wobble, 0.0, 0.95);
+        // (Opcional) ligero “foreshortening” según el ángulo — mantiene lectura arquitectónica
+        const a = Math.abs(Math.cos(theta));
+        const sx = 1.00 + 0.08 * (1 - a);  // se ensancha un poco cuando va en diagonal
+        h.scale.set(sx, 1.00, 1);
       });
     }
 
