@@ -4836,13 +4836,16 @@ void main(){
     function keplrColorSlot(kSlot, pa){
       const sig = computeSignature(pa);
       const r   = lehmerRank(pa);
-      const slot = (r % 12) + kSlot;                 // kSlot = 0,1,2
+      const slot = (r + kSlot) % 12; // 12 slots cromáticos, desplazados por tramo
+
       let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
       sI = (sI * PHI_S) % 12;
       vI = (vI * PHI_V) % 12;
+
       const {h,s,v} = idxToHSV(hI, sI, vI);
       let rgb = hsvToRgb(h,s,v);
       rgb = ensureContrastRGB(rgb);
+
       return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
     }
 
@@ -4885,17 +4888,33 @@ void main(){
 
     /* Hash determinista a partir del set de permutaciones activo */
     function keplrSeedFromPerms(perms){
-      // mezcla estable: XOR + multiplicación de Knuth
+      // FNV-1a + mezclas; estable y sensible a orden/contenido
       let h = 2166136261 >>> 0;
-      perms.forEach(pa=>{
-        const r = lehmerRank(pa) >>> 0;
-        h = (h ^ r) >>> 0;
-        h = Math.imul(h, 2654435761) >>> 0;
-      });
-      h ^= (sceneSeed|0) ^ (S_global|0);
-      // scramble final
-      h ^= h << 13; h ^= h >>> 17; h ^= h << 5; h >>>= 0;
-      return h;
+
+      // mezcla TODOS los ranks de las permutaciones seleccionadas
+      for (let i=0;i<perms.length;i++){
+        const r = (lehmerRank(perms[i]) >>> 0);
+        h ^= r; h = Math.imul(h, 16777619) >>> 0;
+      }
+
+      // mezcla las 120 "architectural permutations" (attributeMapping[5])
+      try{
+        const am = (Array.isArray(attributeMapping) ? attributeMapping : []);
+        for (let i=0;i<5;i++){
+          const v = (am[i] | 0) & 255;
+          h ^= (v << ((i*7)%24)) >>> 0;
+          h = Math.imul(h, 2246822519) >>> 0;
+        }
+      }catch(_){ }
+
+      // mezcla patrón cromático + semillas globales
+      h ^= (activePatternId|0) >>> 0;
+      h ^= (sceneSeed|0) >>> 0;
+      h ^= (S_global|0) >>> 0;
+
+      // whitening final (Murmur-like)
+      h ^= h >>> 13; h = Math.imul(h, 3266489917) >>> 0; h ^= h >>> 16;
+      return h >>> 0;
     }
 
     /* Orientación discreta en función del grupo de simetría */
@@ -4913,49 +4932,31 @@ void main(){
       const colE = keplrColorSlot(1, pa);
       const colF = keplrColorSlot(2, pa);
 
-      // grosor/escala modulados por tIdx (0..5)
       const t = tIdx / 6;
       const faceMat = lambertRaumColor(colF, 0.08, false);
-      const edgeMat = new THREE.LineBasicMaterial({ color: colE });
-      const vtxMat  = lambertRaumColor(colV, 0.16, true);
+      const edgeMat = new THREE.LineBasicMaterial({ color: colE, transparent:true, opacity:0.75 });
 
       // sólido principal
-      {
-        const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx)); // ligera “contracción” con t
-        const mesh = new THREE.Mesh(geo, faceMat);
-        container.add(mesh);
+      const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
+      const mesh = new THREE.Mesh(geo, faceMat);
+      container.add(mesh);
 
-        // aristas (líneas)
-        const eGeo = new THREE.EdgesGeometry(geo);
-        const edges = new THREE.LineSegments(eGeo, edgeMat);
-        container.add(edges);
+      const eGeo = new THREE.EdgesGeometry(geo);
+      const edges = new THREE.LineSegments(eGeo, edgeMat);
+      container.add(edges);
 
-        // vértices (esferas)
-        const vs = uniqueVerticesFromGeo(geo);
-        const rV = Math.max(0.06, 0.06 + 0.02*tIdx) * (R/2); // escala relativa robusta
-        const sphGeo = new THREE.SphereGeometry(rV, 12, 9);
-        vs.forEach(p=>{
-          const s = new THREE.Mesh(sphGeo, vtxMat);
-          s.position.copy(p);
-          container.add(s);
-        });
-      }
-
-      // dual opcional
+      // dual opcional (sin esferas)
       if (dualOn){
         const dName = keplrDualOf(name);
-        const dR    = R * (0.62 + 0.06*tIdx); // radio del dual anidado
-        const dColF = keplrColorSlot(2, pa); // mismo esquema cromático
-        const dFace = lambertRaumColor(dColF, 0.08, false);
+        const dR    = R * (0.62 + 0.06*tIdx);
+        const dFace = lambertRaumColor(keplrColorSlot(2, pa), 0.08, false);
         const dGeo  = keplrGeometry(dName, dR);
         const dMesh = new THREE.Mesh(dGeo, dFace);
 
-        // orientar el dual con un “extra” determinista para evitar coincidencias
         applyKeplrOrientation(dMesh, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
 
-        // añadimos aristas del dual para reforzar lectura “kepleriana”
-        const eGeo2 = new THREE.EdgesGeometry(dGeo);
-        const dEdges = new THREE.LineSegments(eGeo2, new THREE.LineBasicMaterial({ color: keplrColorSlot(1, pa) }));
+        const eGeo2  = new THREE.EdgesGeometry(dGeo);
+        const dEdges = new THREE.LineSegments(eGeo2, new THREE.LineBasicMaterial({ color: keplrColorSlot(1, pa), transparent:true, opacity:0.75 }));
         const sub = new THREE.Group();
         sub.add(dMesh, dEdges);
         container.add(sub);
@@ -4967,47 +4968,49 @@ void main(){
       disposeGroupKEPLR();
       groupKEPLR = new THREE.Group();
 
-      updateBackground(false); // acopla fondo como RAUM/13245/R5NOVA
+      updateBackground(false);
 
-      // esfera inscrita al cubo 30×30×30 (halfCube≈15)
       const R_BASE = 14.2;
 
-      // conjunto de permutaciones
       let perms = getSelectedPerms();
       if (!perms || !perms.length) perms = [[1,2,3,4,5]];
-      const pa0 = perms[0];
 
-      // semilla determinista y decisiones
-      const H     = keplrSeedFromPerms(perms);
-      const pick  = (n,off=0)=> Math.floor(((H >>> off) % n + n) % n);
-      const s1    = KEPLR_SOLIDS[ pick(5, 0) ];
-      const ord1  = KEPLR_ORDER[s1];
-      const o1    = pick(ord1, 5);
-      const t1    = pick(6, 11);               // 0..5
-      const d1    = ((H >>> 17) & 1) === 1;    // dual on/off
+      // semilla determinista sensible a: perms + attributeMapping + patrón + seeds
+      const H = keplrSeedFromPerms(perms);
 
-      const nesting = 1 + (pick(2, 23));       // 1 ó 2
+      const pick = (n,off=0)=> Math.floor((((H >>> off) % n) + n) % n);
+
+      const KEPLR_SOLIDS = ['TETRA','CUBE','OCTA','DODE','ICOSA'];
+      const s1  = KEPLR_SOLIDS[ pick(5, 0) ];
+      const o1  = pick(60, 5);               // orientación discreta
+      const t1  = pick(6, 11);               // 0..5 (tramo)
+      const d1  = ((H >>> 17) & 1) === 1;    // dual on/off
+      const L   = 1 + pick(2, 23);           // profundidad: 1 o 2
+
+      // elige permutación cromática específica para cada nivel
+      const pa1 = perms[ (H >>> 7)  % perms.length ];
+      const pa2 = perms[ (H >>> 13) % perms.length ];
+
       const g = new THREE.Group();
 
-      // sólido 1
+      // nivel 1
       const g1 = new THREE.Group();
       applyKeplrOrientation(g1, s1, o1, H);
-      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa0, g1);
+      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa1, g1);
       g.add(g1);
 
-      // sólido 2 (si aplica), evitando repetir s1 si es posible
-      if (nesting === 2){
+      // nivel 2 (si procede), evitando repetir s1 cuando sea posible
+      if (L === 2){
         let H2 = (Math.imul(H, 1103515245) + 12345) >>> 0;
-        let s2 = KEPLR_SOLIDS[ (H2 % 5) ];
+        let s2 = KEPLR_SOLIDS[ H2 % 5 ];
         if (s2 === s1) s2 = KEPLR_SOLIDS[ (H2 + 1) % 5 ];
-        const ord2 = KEPLR_ORDER[s2];
-        const o2   = (H2 >>> 5) % ord2;
-        const t2   = (H2 >>> 11) % 6;
-        const d2   = ((H2 >>> 17) & 1) === 1;
+        const o2 = (H2 >>> 5) % 60;
+        const t2 = (H2 >>> 11) % 6;
+        const d2 = ((H2 >>> 17) & 1) === 1;
 
         const g2 = new THREE.Group();
         applyKeplrOrientation(g2, s2, o2, H2);
-        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa0, g2);
+        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa2, g2);
         g.add(g2);
       }
 
@@ -5085,6 +5088,29 @@ void main(){
     // Arranque rápido desde UI alternativas
     function ensureOnlyKEPLRFromUI(){ ensureOnlyKEPLR(); updateEngineSelectUI(); }
     function rebuildKEPLRFromUI(){ rebuildKEPLRIfActive(); }
+
+    // ── KEPLR · hook para asegurar rebuild ante cambios de patrón/mapping/perms ──
+    (function KEPLRHook(){
+      const run = ()=>{ try{ rebuildKEPLRIfActive(); }catch(_){ } };
+      [
+        'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+        'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+        'applyAttributeMapping','cycleAttributeMapping',
+        'applyPermutationSet','shufflePermutations','randomizePermutationCenterClick'
+      ].forEach(name=>{
+        const orig = window[name];
+        if (typeof orig === 'function' && !orig.__keplr_hooked){
+          window[name] = function(...args){
+            const res = orig.apply(this, args);
+            setTimeout(run, 0);
+            requestAnimationFrame(run);
+            return res;
+          };
+          window[name].__keplr_hooked = true;
+        }
+      });
+      window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+    })();
 
     // ──────────────────────────────
     // R5NOVA · Proportional tiling engine (tilers-integrated)
