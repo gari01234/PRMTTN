@@ -4832,23 +4832,6 @@ void main(){
       groupKEPLR = null;
     }
 
-    /* Utilidades de color (reusa tus patterns + contraste + vibrance) */
-    function keplrColorSlot(kSlot, pa){
-      const sig = computeSignature(pa);
-      const r   = lehmerRank(pa);
-      const slot = (r + kSlot) % 12; // 12 slots cromáticos, desplazados por tramo
-
-      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-      sI = (sI * PHI_S) % 12;
-      vI = (vI * PHI_V) % 12;
-
-      const {h,s,v} = idxToHSV(hI, sI, vI);
-      let rgb = hsvToRgb(h,s,v);
-      rgb = ensureContrastRGB(rgb);
-
-      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-    }
-
     /* Sólidos y simetrías */
     const KEPLR_SOLIDS = ['TETRA','CUBE','OCTA','DODE','ICOSA'];
     const KEPLR_ORDER  = { TETRA:12, CUBE:24, OCTA:24, DODE:60, ICOSA:60 };
@@ -4926,37 +4909,107 @@ void main(){
       obj.rotation.set(pitch, yaw, roll);
     }
 
+    // === KEPLR · constantes/materiales ===
+    const KEPLR_FACE_OPACITY = 0.74;   // transparencia de caras (0..1)
+
+    /* Color por slot como los demás motores (PATTERNS + vibrance + contraste) */
+    function keplrColorSlot(kSlot, pa){
+      const sig  = computeSignature(pa);
+      const r    = lehmerRank(pa);
+      const slot = (r + kSlot) % 12;
+
+      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+
+      const {h,s,v} = idxToHSV(hI, sI, vI);
+      let rgb = hsvToRgb(h,s,v);
+      rgb = ensureContrastRGB(rgb);
+      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    }
+
+    /* Tripleta determinista por sólido (cara, arista, dual) → offsets disjuntos */
+    function keplrColorsForSolid(pa, solidIndex){
+      const off = (solidIndex % 4) * 3;       // 0,3,6,9…
+      return [
+        keplrColorSlot(off + 0, pa),          // caras del sólido
+        keplrColorSlot(off + 1, pa),          // aristas del sólido
+        keplrColorSlot(off + 2, pa)           // caras del dual
+      ];
+    }
+
+    /* Material de caras: doble cara + transparente + sin z-fighting */
+    function keplrFaceMaterial(colorTHREE){
+      const c = applyBuildVibranceToColor(colorTHREE);
+      const m = new THREE.MeshStandardMaterial({
+        color: c,
+        roughness: 1.0,
+        metalness: 0.0,
+        transparent: true,
+        opacity: KEPLR_FACE_OPACITY,
+        side: THREE.DoubleSide,
+        dithering: true,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+        depthTest: true,
+        depthWrite: false
+      });
+      m.emissive = c.clone();
+      m.emissiveIntensity = 0.06;
+      return m;
+    }
+
+    /* Material de aristas, encima de las caras */
+    function keplrEdgeMaterial(colorTHREE){
+      return new THREE.LineBasicMaterial({
+        color: colorTHREE,
+        transparent: true,
+        opacity: 0.9,
+        depthTest: true,
+        depthWrite: false
+      });
+    }
+
+    /* Luz suave por si el entorno no aporta suficiente */
+    (function ensureKeplrLight(){
+      try{
+        if (!window.__keplrAmbient){
+          const amb = new THREE.AmbientLight(0xffffff, 0.18);
+          amb.name = '__keplrAmbient';
+          scene.add(amb);
+          window.__keplrAmbient = amb;
+        }
+      }catch(_){ }
+    })();
+
     /* Construye un sólido con capas V/E/F + (opcional) su dual */
-    function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container){
-      const colV = keplrColorSlot(0, pa);
-      const colE = keplrColorSlot(1, pa);
-      const colF = keplrColorSlot(2, pa);
+    function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container, solidIndex){
+      const [cFace, cEdge, cDual] = keplrColorsForSolid(pa, solidIndex|0);
 
       const t = tIdx / 6;
-      const faceMat = lambertRaumColor(colF, 0.08, false);
-      const edgeMat = new THREE.LineBasicMaterial({ color: colE, transparent:true, opacity:0.75 });
-
-      // sólido principal
       const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
-      const mesh = new THREE.Mesh(geo, faceMat);
+      const mesh = new THREE.Mesh(geo, keplrFaceMaterial(cFace));
+      mesh.renderOrder = 1;  // dibuja antes que las aristas
       container.add(mesh);
 
-      const eGeo = new THREE.EdgesGeometry(geo);
-      const edges = new THREE.LineSegments(eGeo, edgeMat);
+      const eGeo  = new THREE.EdgesGeometry(geo);
+      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
+      edges.renderOrder = 2;
       container.add(edges);
 
-      // dual opcional (sin esferas)
       if (dualOn){
         const dName = keplrDualOf(name);
         const dR    = R * (0.62 + 0.06*tIdx);
-        const dFace = lambertRaumColor(keplrColorSlot(2, pa), 0.08, false);
         const dGeo  = keplrGeometry(dName, dR);
-        const dMesh = new THREE.Mesh(dGeo, dFace);
-
+        const dMesh = new THREE.Mesh(dGeo, keplrFaceMaterial(cDual));
         applyKeplrOrientation(dMesh, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
+        dMesh.renderOrder = 1;
 
         const eGeo2  = new THREE.EdgesGeometry(dGeo);
-        const dEdges = new THREE.LineSegments(eGeo2, new THREE.LineBasicMaterial({ color: keplrColorSlot(1, pa), transparent:true, opacity:0.75 }));
+        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
+        dEdges.renderOrder = 2;
+
         const sub = new THREE.Group();
         sub.add(dMesh, dEdges);
         container.add(sub);
@@ -4996,7 +5049,7 @@ void main(){
       // nivel 1
       const g1 = new THREE.Group();
       applyKeplrOrientation(g1, s1, o1, H);
-      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa1, g1);
+      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa1, g1, 0);
       g.add(g1);
 
       // nivel 2 (si procede), evitando repetir s1 cuando sea posible
@@ -5010,7 +5063,7 @@ void main(){
 
         const g2 = new THREE.Group();
         applyKeplrOrientation(g2, s2, o2, H2);
-        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa2, g2);
+        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa2, g2, 1);
         g.add(g2);
       }
 
