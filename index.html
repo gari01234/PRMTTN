@@ -4869,18 +4869,15 @@ void main(){
       return out;
     }
 
-    /* Hash determinista a partir del set de permutaciones activo */
-    function keplrSeedFromPerms(perms){
-      // FNV-1a + mezclas; estable y sensible a orden/contenido
-      let h = 2166136261 >>> 0;
+    /* === Semillas KEPLR (forma vs color) ============================== */
 
-      // mezcla TODOS los ranks de las permutaciones seleccionadas
+    /* SOLO forma (shape): NUNCA mezclar patrón cromático aquí */
+    function keplrShapeSeedFromPerms(perms){
+      let h = 2166136261 >>> 0;             // FNV-1a base
       for (let i=0;i<perms.length;i++){
         const r = (lehmerRank(perms[i]) >>> 0);
         h ^= r; h = Math.imul(h, 16777619) >>> 0;
       }
-
-      // mezcla las 120 "architectural permutations" (attributeMapping[5])
       try{
         const am = (Array.isArray(attributeMapping) ? attributeMapping : []);
         for (let i=0;i<5;i++){
@@ -4889,13 +4886,17 @@ void main(){
           h = Math.imul(h, 2246822519) >>> 0;
         }
       }catch(_){ }
-
-      // mezcla patrón cromático + semillas globales
-      h ^= (activePatternId|0) >>> 0;
+      // semillas globales permitidas (NO patrón)
       h ^= (sceneSeed|0) >>> 0;
       h ^= (S_global|0) >>> 0;
+      h ^= h >>> 13; h = Math.imul(h, 3266489917) >>> 0; h ^= h >>> 16;
+      return h >>> 0;
+    }
 
-      // whitening final (Murmur-like)
+    /* Sal: SOLO para color (sí puede depender del patrón cromático) */
+    function keplrColorSalt(){
+      let h = 0x9e3779b9 ^ (activePatternId|0);     // φ hash
+      h ^= (sceneSeed|0) >>> 0;
       h ^= h >>> 13; h = Math.imul(h, 3266489917) >>> 0; h ^= h >>> 16;
       return h >>> 0;
     }
@@ -4910,13 +4911,15 @@ void main(){
     }
 
     // === KEPLR · constantes/materiales ===
-    const KEPLR_FACE_OPACITY = 0.74;   // transparencia de caras (0..1)
+    /* Transparencia suficiente para ver anidamientos, pero con z-buffer */
+    const KEPLR_FACE_OPACITY = 0.70;
 
-    /* Color por slot como los demás motores (PATTERNS + vibrance + contraste) */
+    /* Slot cromático como BUILD, con sal de color y offsets disjuntos */
     function keplrColorSlot(kSlot, pa){
-      const sig  = computeSignature(pa);
-      const r    = lehmerRank(pa);
-      const slot = (r + kSlot) % 12;
+      const sig   = computeSignature(pa);
+      const r     = lehmerRank(pa);
+      const salt  = keplrColorSalt() % 12;
+      const slot  = (r + kSlot + salt) % 12;
 
       let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
       sI = (sI * PHI_S) % 12;
@@ -4928,17 +4931,21 @@ void main(){
       return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
     }
 
-    /* Tripleta determinista por sólido (cara, arista, dual) → offsets disjuntos */
+    /* Tripleta por sólido:
+       - cara      → offset base (mucha superficie)
+       - rahmen    → offset +6 (complementario en rueda de 12)
+       - cara dual → offset +3 (tercio de rueda)
+       Además, “desfase” por índice del sólido para evitar repeticiones. */
     function keplrColorsForSolid(pa, solidIndex){
-      const off = (solidIndex % 4) * 3;       // 0,3,6,9…
-      return [
-        keplrColorSlot(off + 0, pa),          // caras del sólido
-        keplrColorSlot(off + 1, pa),          // aristas del sólido
-        keplrColorSlot(off + 2, pa)           // caras del dual
-      ];
+      const base = ((solidIndex % 4) * 2) % 12;  // 0,2,4,6 …
+      const cFace = keplrColorSlot(base + 0, pa);
+      const cFrame= keplrColorSlot(base + 6, pa);
+      const cDual = keplrColorSlot(base + 3, pa);
+      return [cFace, cFrame, cDual];
     }
 
-    /* Material de caras: doble cara + transparente + sin z-fighting */
+    /* Caras: transparente, escribe profundidad y con pequeño offset negativo
+       → evita z-fighting y NO se ven “huecas” */
     function keplrFaceMaterial(colorTHREE){
       const c = applyBuildVibranceToColor(colorTHREE);
       const m = new THREE.MeshStandardMaterial({
@@ -4950,22 +4957,22 @@ void main(){
         side: THREE.DoubleSide,
         dithering: true,
         polygonOffset: true,
-        polygonOffsetFactor: 1,
-        polygonOffsetUnits: 1,
+        polygonOffsetFactor: -1,      // caras “un pelín” hacia atrás
+        polygonOffsetUnits: -1,
         depthTest: true,
-        depthWrite: false
+        depthWrite: true               // ← CLAVE para que no se vean huecas
       });
       m.emissive = c.clone();
-      m.emissiveIntensity = 0.06;
+      m.emissiveIntensity = 0.08;
       return m;
     }
 
-    /* Material de aristas, encima de las caras */
+    /* Rahmen (borde fino) por aristas – siempre por delante de las caras */
     function keplrEdgeMaterial(colorTHREE){
       return new THREE.LineBasicMaterial({
-        color: colorTHREE,
+        color: applyBuildVibranceToColor(colorTHREE),
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.95,
         depthTest: true,
         depthWrite: false
       });
@@ -4985,16 +4992,17 @@ void main(){
 
     /* Construye un sólido con capas V/E/F + (opcional) su dual */
     function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container, solidIndex){
-      const [cFace, cEdge, cDual] = keplrColorsForSolid(pa, solidIndex|0);
+      const [cFace, cFrame, cDual] = keplrColorsForSolid(pa, solidIndex|0);
 
-      const t = tIdx / 6;
+      const t    = tIdx / 6;
       const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
       const mesh = new THREE.Mesh(geo, keplrFaceMaterial(cFace));
-      mesh.renderOrder = 1;  // dibuja antes que las aristas
+      mesh.renderOrder = 1;
       container.add(mesh);
 
+      // RAHMEN por aristas (encima)
       const eGeo  = new THREE.EdgesGeometry(geo);
-      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
+      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cFrame));
       edges.renderOrder = 2;
       container.add(edges);
 
@@ -5007,7 +5015,7 @@ void main(){
         dMesh.renderOrder = 1;
 
         const eGeo2  = new THREE.EdgesGeometry(dGeo);
-        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
+        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cFrame));
         dEdges.renderOrder = 2;
 
         const sub = new THREE.Group();
@@ -5028,8 +5036,8 @@ void main(){
       let perms = getSelectedPerms();
       if (!perms || !perms.length) perms = [[1,2,3,4,5]];
 
-      // semilla determinista sensible a: perms + attributeMapping + patrón + seeds
-      const H = keplrSeedFromPerms(perms);
+      // semilla determinista sensible a: perms + attributeMapping + seeds
+      const H = keplrShapeSeedFromPerms(perms);
 
       const pick = (n,off=0)=> Math.floor((((H >>> off) % n) + n) % n);
 
