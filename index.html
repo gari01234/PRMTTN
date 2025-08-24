@@ -613,6 +613,7 @@ window.Tilers = {
       <option value="TMSL">TMSL</option>
       <option value="RAUM">RAUM</option>
       <option value="13245">13245</option>
+      <option value="KEPLR">KEPLR</option>
       <option value="R5NOVA">R5NOVA</option>
     </select>
   </div>
@@ -1026,6 +1027,7 @@ function initSkySphere() {
       if (!isFRBN && isRAUM)  toggleRAUM();
       if (!isFRBN && is13245) toggle13245();
       if (!isFRBN && isR5NOVA) toggleR5NOVA();
+      if (!isFRBN && isKEPLR) toggleKEPLR();
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -1256,6 +1258,7 @@ function buildLCHT() {
     function toggleLCHT(){
       if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
       if (!isLCHT && isTMSL)  toggleTMSL();
+      if (!isLCHT && isKEPLR) toggleKEPLR();
       isLCHT = !isLCHT;
 
       if (isLCHT){
@@ -1327,6 +1330,7 @@ function buildLCHT() {
       if (isRAUM)  toggleRAUM();
       if (is13245) toggle13245();     // ← NUEVO
       if (isR5NOVA) toggleR5NOVA();     // ← NUEVO
+      if (isKEPLR) toggleKEPLR();     // ← NUEVO
       enterBuildRenderBoost();        // PR/exposure para BUILD
 
       // Controles: ORBIT LIBRE en BUILD
@@ -2928,7 +2932,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       // Detectar BUILD “puro” (ningún otro motor activado)
       const isBuild =
-        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isR5NOVA;
+        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isKEPLR && !isR5NOVA;
 
       if (isBuild || isLCHT){
         // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
@@ -3729,6 +3733,7 @@ void main(){
       if (isFRBN) toggleFRBN();        // asegura exclusividad
       if (isLCHT) toggleLCHT();
       if (isTMSL) toggleTMSL();
+      if (isKEPLR) toggleKEPLR();
 
       buildOFFNNG();
 
@@ -3772,6 +3777,7 @@ void main(){
     function ensureOnlyOFFNNG () {
       if (isFRBN) toggleFRBN();
       if (isLCHT) toggleLCHT();
+      if (isKEPLR) toggleKEPLR();
       if (!isOFFNNG) toggleOFFNNG();
     }
 
@@ -4222,6 +4228,7 @@ void main(){
         if (isFRBN)   toggleFRBN();
         if (isLCHT)   toggleLCHT();
         if (isOFFNNG) toggleOFFNNG();
+        if (isKEPLR)  toggleKEPLR();
 
         // Construye pared + halo
         buildTMSL();
@@ -4513,6 +4520,7 @@ void main(){
         if (isTMSL)  toggleTMSL();
         if (is13245) toggle13245();
         if (isR5NOVA) toggleR5NOVA();
+        if (isKEPLR) toggleKEPLR();
 
         // Sal del boost de BUILD si venías de allí y entra al boost de RAUM
         leaveBuildRenderBoost();
@@ -4746,6 +4754,7 @@ void main(){
         if (isTMSL)  toggleTMSL();
         if (isRAUM)  toggleRAUM();
         if (isR5NOVA) toggleR5NOVA();
+        if (isKEPLR) toggleKEPLR();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -4802,6 +4811,280 @@ void main(){
 
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnly13245(){ if (!is13245) toggle13245(); }
+
+    // ──────────────────────────────
+    // KEPLR · Platonic/Kepler interlock (L=1..2)
+    // ──────────────────────────────
+    let isKEPLR    = false;
+    let groupKEPLR = null;
+
+    /* Limpieza segura */
+    function disposeGroupKEPLR(){
+      if (!groupKEPLR) return;
+      groupKEPLR.traverse(o=>{
+        if (o.isMesh || o.isLineSegments){
+          o.geometry?.dispose?.();
+          // LineBasicMaterial no tiene emissive; MeshLambert sí.
+          o.material?.dispose?.();
+        }
+      });
+      scene.remove(groupKEPLR);
+      groupKEPLR = null;
+    }
+
+    /* Utilidades de color (reusa tus patterns + contraste + vibrance) */
+    function keplrColorSlot(kSlot, pa){
+      const sig = computeSignature(pa);
+      const r   = lehmerRank(pa);
+      const slot = (r % 12) + kSlot;                 // kSlot = 0,1,2
+      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+      const {h,s,v} = idxToHSV(hI, sI, vI);
+      let rgb = hsvToRgb(h,s,v);
+      rgb = ensureContrastRGB(rgb);
+      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    }
+
+    /* Sólidos y simetrías */
+    const KEPLR_SOLIDS = ['TETRA','CUBE','OCTA','DODE','ICOSA'];
+    const KEPLR_ORDER  = { TETRA:12, CUBE:24, OCTA:24, DODE:60, ICOSA:60 };
+    function keplrDualOf(name){
+      if (name === 'CUBE')  return 'OCTA';
+      if (name === 'OCTA')  return 'CUBE';
+      if (name === 'DODE')  return 'ICOSA';
+      if (name === 'ICOSA') return 'DODE';
+      return 'TETRA'; // auto-dual
+    }
+
+    /* Geometrías con radio circunscrito R */
+    function keplrGeometry(name, R){
+      switch(name){
+        case 'TETRA': return new THREE.TetrahedronGeometry(R, 0);
+        case 'OCTA':  return new THREE.OctahedronGeometry(R, 0);
+        case 'ICOSA': return new THREE.IcosahedronGeometry(R, 0);
+        case 'DODE':  return new THREE.DodecahedronGeometry(R, 0);
+        case 'CUBE': {
+          const a = 2*R/Math.sqrt(3); // lado para radio a vértices = R
+          return new THREE.BoxGeometry(a, a, a);
+        }
+      }
+    }
+
+    /* Vértices únicos de una geometría */
+    function uniqueVerticesFromGeo(geo){
+      const pos = geo.attributes.position.array;
+      const seen = new Map(), out=[];
+      for (let i=0;i<pos.length;i+=3){
+        const x = +pos[i].toFixed(6), y = +pos[i+1].toFixed(6), z = +pos[i+2].toFixed(6);
+        const k = `${x}|${y}|${z}`;
+        if (!seen.has(k)){ seen.set(k,1); out.push(new THREE.Vector3(x,y,z)); }
+      }
+      return out;
+    }
+
+    /* Hash determinista a partir del set de permutaciones activo */
+    function keplrSeedFromPerms(perms){
+      // mezcla estable: XOR + multiplicación de Knuth
+      let h = 2166136261 >>> 0;
+      perms.forEach(pa=>{
+        const r = lehmerRank(pa) >>> 0;
+        h = (h ^ r) >>> 0;
+        h = Math.imul(h, 2654435761) >>> 0;
+      });
+      h ^= (sceneSeed|0) ^ (S_global|0);
+      // scramble final
+      h ^= h << 13; h ^= h >>> 17; h ^= h << 5; h >>>= 0;
+      return h;
+    }
+
+    /* Orientación discreta en función del grupo de simetría */
+    function applyKeplrOrientation(obj, name, idx, extra){
+      const ord = KEPLR_ORDER[name] || 12;
+      const yaw   = (2*Math.PI * (idx % ord)) / ord;
+      const pitch = (2*Math.PI * (Math.floor(extra/3) % ord)) / ord;
+      const roll  = (2*Math.PI * (Math.floor(extra/7) % ord)) / ord;
+      obj.rotation.set(pitch, yaw, roll);
+    }
+
+    /* Construye un sólido con capas V/E/F + (opcional) su dual */
+    function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container){
+      const colV = keplrColorSlot(0, pa);
+      const colE = keplrColorSlot(1, pa);
+      const colF = keplrColorSlot(2, pa);
+
+      // grosor/escala modulados por tIdx (0..5)
+      const t = tIdx / 6;
+      const faceMat = lambertRaumColor(colF, 0.08, false);
+      const edgeMat = new THREE.LineBasicMaterial({ color: colE });
+      const vtxMat  = lambertRaumColor(colV, 0.16, true);
+
+      // sólido principal
+      {
+        const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx)); // ligera “contracción” con t
+        const mesh = new THREE.Mesh(geo, faceMat);
+        container.add(mesh);
+
+        // aristas (líneas)
+        const eGeo = new THREE.EdgesGeometry(geo);
+        const edges = new THREE.LineSegments(eGeo, edgeMat);
+        container.add(edges);
+
+        // vértices (esferas)
+        const vs = uniqueVerticesFromGeo(geo);
+        const rV = Math.max(0.06, 0.06 + 0.02*tIdx) * (R/2); // escala relativa robusta
+        const sphGeo = new THREE.SphereGeometry(rV, 12, 9);
+        vs.forEach(p=>{
+          const s = new THREE.Mesh(sphGeo, vtxMat);
+          s.position.copy(p);
+          container.add(s);
+        });
+      }
+
+      // dual opcional
+      if (dualOn){
+        const dName = keplrDualOf(name);
+        const dR    = R * (0.62 + 0.06*tIdx); // radio del dual anidado
+        const dColF = keplrColorSlot(2, pa); // mismo esquema cromático
+        const dFace = lambertRaumColor(dColF, 0.08, false);
+        const dGeo  = keplrGeometry(dName, dR);
+        const dMesh = new THREE.Mesh(dGeo, dFace);
+
+        // orientar el dual con un “extra” determinista para evitar coincidencias
+        applyKeplrOrientation(dMesh, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
+
+        // añadimos aristas del dual para reforzar lectura “kepleriana”
+        const eGeo2 = new THREE.EdgesGeometry(dGeo);
+        const dEdges = new THREE.LineSegments(eGeo2, new THREE.LineBasicMaterial({ color: keplrColorSlot(1, pa) }));
+        const sub = new THREE.Group();
+        sub.add(dMesh, dEdges);
+        container.add(sub);
+      }
+    }
+
+    /* Builder principal */
+    function buildKEPLR(){
+      disposeGroupKEPLR();
+      groupKEPLR = new THREE.Group();
+
+      updateBackground(false); // acopla fondo como RAUM/13245/R5NOVA
+
+      // esfera inscrita al cubo 30×30×30 (halfCube≈15)
+      const R_BASE = 14.2;
+
+      // conjunto de permutaciones
+      let perms = getSelectedPerms();
+      if (!perms || !perms.length) perms = [[1,2,3,4,5]];
+      const pa0 = perms[0];
+
+      // semilla determinista y decisiones
+      const H     = keplrSeedFromPerms(perms);
+      const pick  = (n,off=0)=> Math.floor(((H >>> off) % n + n) % n);
+      const s1    = KEPLR_SOLIDS[ pick(5, 0) ];
+      const ord1  = KEPLR_ORDER[s1];
+      const o1    = pick(ord1, 5);
+      const t1    = pick(6, 11);               // 0..5
+      const d1    = ((H >>> 17) & 1) === 1;    // dual on/off
+
+      const nesting = 1 + (pick(2, 23));       // 1 ó 2
+      const g = new THREE.Group();
+
+      // sólido 1
+      const g1 = new THREE.Group();
+      applyKeplrOrientation(g1, s1, o1, H);
+      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa0, g1);
+      g.add(g1);
+
+      // sólido 2 (si aplica), evitando repetir s1 si es posible
+      if (nesting === 2){
+        let H2 = (Math.imul(H, 1103515245) + 12345) >>> 0;
+        let s2 = KEPLR_SOLIDS[ (H2 % 5) ];
+        if (s2 === s1) s2 = KEPLR_SOLIDS[ (H2 + 1) % 5 ];
+        const ord2 = KEPLR_ORDER[s2];
+        const o2   = (H2 >>> 5) % ord2;
+        const t2   = (H2 >>> 11) % 6;
+        const d2   = ((H2 >>> 17) & 1) === 1;
+
+        const g2 = new THREE.Group();
+        applyKeplrOrientation(g2, s2, o2, H2);
+        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa0, g2);
+        g.add(g2);
+      }
+
+      groupKEPLR.add(g);
+      scene.add(groupKEPLR);
+    }
+
+    /* Exclusivo (como RAUM/13245/R5NOVA). Usa el “crispness boost” de RAUM */
+    function toggleKEPLR(){
+      isKEPLR = !isKEPLR;
+
+      if (isKEPLR){
+        // Exclusividad con otros motores
+        try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+        try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+        try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+        try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+        try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+        try{ if (is13245)  toggle13245();  }catch(_){ }
+        try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+
+        leaveBuildRenderBoost();
+        enterRaumRenderBoost();
+
+        buildKEPLR();
+
+        // Cámara nivelada; yaw/pan/zoom permitidos (pitch bloqueado)
+        camera.up.set(0,1,0);
+        camera.fov = 55;
+        camera.updateProjectionMatrix();
+
+        const eyeY = (controls && controls.target) ? controls.target.y : 0;
+        camera.position.set(0, eyeY, 42);
+        controls.target.set(0, eyeY, 0);
+
+        controls.enabled            = true;
+        controls.enableRotate       = true;   // solo yaw
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minDistance        = 10;
+        controls.maxDistance        = 200;
+        controls.screenSpacePanning = true;
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.update();
+
+        // Ocultar cubo/permutaciones para lectura “escultórica”
+        if (typeof cubeUniverse !== 'undefined')      cubeUniverse.visible = false;
+        if (typeof permutationGroup !== 'undefined')  permutationGroup.visible = false;
+        if (typeof lichtGroup !== 'undefined')        lichtGroup.visible = false;
+
+      } else {
+        leaveRaumRenderBoost();
+        disposeGroupKEPLR();
+
+        // Restaurar ajustes por defecto al salir
+        camera.fov = 75;
+        camera.updateProjectionMatrix();
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
+
+        if (typeof cubeUniverse !== 'undefined')      cubeUniverse.visible = true;
+        if (typeof permutationGroup !== 'undefined')  permutationGroup.visible = true;
+        if (typeof lichtGroup !== 'undefined' && isLCHT) lichtGroup.visible = true;
+      }
+    }
+
+    /* Rebuild si hay cambios de escena */
+    function rebuildKEPLRIfActive(){ if (isKEPLR) buildKEPLR(); }
+
+    /* Botón selector – sólo enciende, nunca apaga */
+    function ensureOnlyKEPLR(){ if (!isKEPLR) toggleKEPLR(); }
+
+    // Arranque rápido desde UI alternativas
+    function ensureOnlyKEPLRFromUI(){ ensureOnlyKEPLR(); updateEngineSelectUI(); }
+    function rebuildKEPLRFromUI(){ rebuildKEPLRIfActive(); }
 
     // ──────────────────────────────
     // R5NOVA · Proportional tiling engine (tilers-integrated)
@@ -5068,6 +5351,7 @@ void main(){
         if (isTMSL)  toggleTMSL();
         if (isRAUM)  toggleRAUM();
         if (is13245) toggle13245();
+        if (isKEPLR) toggleKEPLR();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();   // nitidez como RAUM/13245
@@ -5128,6 +5412,8 @@ void main(){
       try{ if (isRAUM)   toggleRAUM();   }catch(_){}
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
       try{ if (!isFRBN)  toggleFRBN();   }catch(_){}
     }
 
@@ -5139,6 +5425,7 @@ void main(){
       try{ if (isRAUM)   toggleRAUM();   }catch(_){}
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
       try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
     }
 
@@ -5166,13 +5453,14 @@ void main(){
       const sel = document.getElementById('engineSelect');
       if (!sel) return;
       let v = 'BUILD';
-      if (isFRBN)   v = 'FRBN';
-      else if (isLCHT)  v = 'LCHT';
+      if (isFRBN)        v = 'FRBN';
+      else if (isLCHT)   v = 'LCHT';
       else if (isOFFNNG) v = 'OFFNNG';
       else if (isTMSL)   v = 'TMSL';
       else if (isRAUM)   v = 'RAUM';
       else if (is13245)  v = '13245';
-      else if (isR5NOVA)  v = 'R5NOVA';
+      else if (isKEPLR)  v = 'KEPLR';     // ← NUEVO
+      else if (isR5NOVA) v = 'R5NOVA';
       sel.value = v;
     }
 
@@ -5194,6 +5482,7 @@ void main(){
       }
       if (val === 'RAUM')  { if (!isRAUM)  toggleRAUM();  return; }
       if (val === '13245') { if (!is13245) toggle13245(); return; }
+      if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }   // ← NUEVO
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
     }
 
@@ -5206,11 +5495,11 @@ void main(){
       };
 
       // Orden deseado:
-      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → R5NOVA → BUILD
+      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → R5NOVA → BUILD
 
-      if (isFRBN){   ensureOnlyLCHT();   syncUI(); return; }   // FRBN  → LCHT
-      if (isLCHT){   ensureOnlyOFFNNG(); syncUI(); return; }   // LCHT  → OFFNNG
-      if (isOFFNNG){ ensureOnlyTMSL();   syncUI(); return; }   // OFFNNG→ TMSL
+      if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }   // FRBN  → LCHT
+      if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }   // LCHT  → OFFNNG
+      if (isOFFNNG){  ensureOnlyTMSL();   syncUI(); return; }   // OFFNNG→ TMSL
 
       // --- TMSL → RAUM (forzado, sin pasar por otra variante de TMSL)
       if (isTMSL){
@@ -5222,9 +5511,10 @@ void main(){
         return;
       }
 
-      if (isRAUM){   ensureOnly13245();  syncUI(); return; }   // RAUM  → 13245
-      if (is13245){  ensureOnlyR5NOVA(); syncUI(); return; }   // 13245 → R5NOVA
-      if (isR5NOVA){ switchToBuild();    syncUI(); return; }   // R5NOVA→ BUILD
+      if (isRAUM){    ensureOnly13245();  syncUI(); return; }   // RAUM  → 13245
+      if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }   // 13245 → KEPLR   ← NUEVO
+      if (isKEPLR){   ensureOnlyR5NOVA(); syncUI(); return; }   // KEPLR → R5NOVA  ← NUEVO
+      if (isR5NOVA){  switchToBuild();    syncUI(); return; }   // R5NOVA→ BUILD
 
       // BUILD (o cualquier otro estado “ninguno”) → FRBN
       ensureOnlyFRBN();
