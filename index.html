@@ -3402,39 +3402,49 @@ function renderArchPanel(html){
     function animate(){
       requestAnimationFrame(animate);
       if(!isPaused){
+        // BUILD: giro de volúmenes si procede
         permutationGroup.children.forEach(o=>{
-          if(o.userData.rotationSpeed) o.rotation.y+=o.userData.rotationSpeed;
+          if(o.userData.rotationSpeed) o.rotation.y += o.userData.rotationSpeed;
         });
-      }
-        if(skySphere) skySphere.material.uniforms.time.value = performance.now()*0.001;
-        if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
-        const t = performance.now() * 0.001;
-        if (isTMSL && tmslHaloGroup) updateTMSLHalos(t);
-        if (isLCHT && lichtGroup) {
-          const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
 
-          lichtGroup.children.forEach(o => {
-
-            /* — luz pulsante (ya existía) — */
-            const d = o.userData.lcht;
-            if (d) {
-              const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
-              o.material.emissive         = o.material.color.clone();
-              o.material.emissiveIntensity = I * 0.15;
-            }
-
-            /* — desplazamiento del tono HSV — */
-            if (o.userData.baseHsv) {
-              const { h, s, v } = o.userData.baseHsv;
-              const hShift = (h + t * vHz * 360) % 360;
-              const rgb    = hsvToRgb(hShift, s, v);
-              o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+        // ⬇️ KEPLR: giro “sobre su propio eje” de cada sólido (spin)
+        if (isKEPLR && groupKEPLR){
+          groupKEPLR.traverse(o=>{
+            if (o.userData && o.userData.rotationSpeed){
+              o.rotation.y += o.userData.rotationSpeed;
             }
           });
         }
-        controls.update();
-        renderer.render(scene,camera);
       }
+
+      if (skySphere)  skySphere.material.uniforms.time.value = performance.now() * 0.001;
+      if (offnngMesh) offnngMesh.material.uniforms.uTime.value = performance.now() * 0.001;
+
+      const t = performance.now() * 0.001;
+
+      if (isTMSL && tmslHaloGroup) updateTMSLHalos(t);
+
+      if (isLCHT && lichtGroup) {
+        const vHz = 0.05 + 0.02 * (avgSceneRange - 2);   // 2→0.05  ·  6→0.13
+        lichtGroup.children.forEach(o => {
+          const d = o.userData.lcht;
+          if (d) {
+            const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
+            o.material.emissive          = o.material.color.clone();
+            o.material.emissiveIntensity = I * 0.15;
+          }
+          if (o.userData.baseHsv) {
+            const { h, s, v } = o.userData.baseHsv;
+            const hShift = (h + t * vHz * 360) % 360;
+            const rgb    = hsvToRgb(hShift, s, v);
+            o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+          }
+        });
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
     
     /* ═══════ OFFNNG · VOLUMÉTRICO CONTINUO (v4 – shader) ═══════
      *  – Un único cubo con ShaderMaterial (ray-march frontal→trasero)
@@ -4902,16 +4912,31 @@ void main(){
       obj.rotation.set(pitch, yaw, roll);
     }
 
-    // === KEPLR · constantes/materiales ===
-    // Mezcla útil para translucidez “sólida” (dos pasadas: dorso + frente)
-    const KEPLR_FACE_OPACITY = 0.72;     // opacidad de la pasada frontal
-    const KEPLR_BACK_OPACITY = 0.46;     // opacidad de la pasada de dorso
-    // “Rahmen” (marco interior). ON/OFF:
-    const KEPLR_RAHMEN_ON   = false;     // ← APAGADO por ahora
-    const KEPLR_RAHMEN_SHRINK = 0.985;   // 1.5% más pequeño → línea “inset”
-    const KEPLR_RAHMEN_ALPHA  = 0.95;    // casi opaco
+    // ========= FLAGS (líneas apagadas por defecto) =========
+    const KEPLR_RAHMEN_ON     = false;  // marco interior
+    const KEPLR_RAHMEN_SHRINK = 0.985;
+    const KEPLR_RAHMEN_ALPHA  = 0.95;
 
-    // Color de aristas derivado del de las caras (más brillante y con contraste)
+    // ⬇️ NUEVO: aristas (edges) ON/OFF
+    const KEPLR_EDGES_ON      = false;  // apagado: no se ven líneas
+
+    // ========= COLORES EXACTOS COMO BUILD =========
+    function keplrBuildColorFor(pa){
+      const sig  = computeSignature(pa);
+      const r    = lehmerRank(pa);
+      const slot = r % 12;
+
+      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+
+      const {h,s,v} = idxToHSV(hI, sI, vI);
+      let rgb = hsvToRgb(h, s, v);
+      rgb     = ensureContrastRGB(rgb);               // mismo mínimo ΔE que BUILD
+      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    }
+
+    // (Por si algún día reactivas edges) — derivado del de las caras:
     function keplrEdgeFromFaceColor(base){
       const rgb = [Math.round(base.r*255), Math.round(base.g*255), Math.round(base.b*255)];
       let [hh, ss, vv] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
@@ -4922,77 +4947,39 @@ void main(){
       return new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
     }
 
-    // Color único por sólido (como BUILD): slot = r + uniq
-    function keplrUniqueFaceColor(pa, uniq){
-      const sig = computeSignature(pa);
-      const r   = lehmerRank(pa);
-      const slot = (r + uniq) % 12;                     // ← unicidad por sólido
-      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-      sI = (sI * PHI_S) % 12; vI = (vI * PHI_V) % 12;
-      const {h,s,v} = idxToHSV(hI, sI, vI);
-      let rgb = hsvToRgb(h, s, v);
-      rgb = ensureContrastRGB(rgb);
-      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-      return applyBuildVibranceToColor(col);
-    }
-
-    // Tripleta de colores: cara única, arista derivada, y cara del dual también única
-    function keplrColorsForSolid(pa, uniqIndex){
-      const cFace = keplrUniqueFaceColor(pa, uniqIndex);       // color único por sólido
-      const cEdge = keplrEdgeFromFaceColor(cFace);             // arista contrastada
-      const cDual = keplrUniqueFaceColor(pa, uniqIndex + 1);   // dual ≠ cara principal
-      return [cFace, cEdge, cDual];
-    }
-
-    // — Caras en dos pasadas: primero dorso (BackSide), luego frente (FrontSide).
-    //   Esto evita “huecos”, mejora la mezcla y quita artefactos en iOS/Safari.
+    // Materiales de cara (dos pasadas) sin alterar el color de BUILD
     function keplrFaceMaterials(colorTHREE){
-      const c = applyBuildVibranceToColor(colorTHREE);
+      const c = colorTHREE.clone();
       const common = {
         color: c, roughness: 1.0, metalness: 0.0,
         transparent: true, dithering: true,
-        depthTest: true,  depthWrite: false,
+        depthTest: true, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
       };
-      const matBack  = new THREE.MeshStandardMaterial({ ...common, side: THREE.BackSide,  opacity: KEPLR_BACK_OPACITY });
-      const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: KEPLR_FACE_OPACITY });
+      const matBack  = new THREE.MeshStandardMaterial({ ...common, side: THREE.BackSide,  opacity: 0.46 });
+      const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: 0.72 });
       matBack.emissive  = c.clone(); matBack.emissiveIntensity  = 0.05;
       matFront.emissive = c.clone(); matFront.emissiveIntensity = 0.08;
       return { matBack, matFront };
     }
 
-    function keplrBuildFaceGroup(geo, colorTHREE){
-      const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
-      const g = new THREE.Group();
-      const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0;
-      const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1;
-      g.add(mBack, mFront);
-      return g;
+    // ========= VEL. DETERMINISTA POR SÓLIDO (range 2..6) =========
+    function keplrRotationSpeedFor(pa, signSeed = 0){
+      const rng = computeRange( computeSignature(pa) );     // 2..6
+      const t   = Math.max(0, Math.min(1, (rng - 2) / 4)); // 0..1
+      const w   = 0.0025 + 0.0050 * t;                     // 0.0025..0.0075 rad/frame
+      const sgn = ((signSeed >>> 0) & 1) ? 1 : -1;         // signo determinista
+      return w * sgn;
     }
 
-    /* Rahmen (borde fino) por aristas – siempre por delante de las caras */
-    function keplrEdgeMaterial(colorTHREE){
-      return new THREE.LineBasicMaterial({
-        color: applyBuildVibranceToColor(colorTHREE),
-        transparent: true,
-        opacity: 0.95,
-        depthTest: true,
-        depthWrite: false
-      });
-    }
+    // ========= ASIGNACIÓN DE TIPO DE SÓLIDO POR PERM =========
+    const KEPLR_SOLIDS = ['TETRA','CUBE','OCTA','DODE','ICOSA'];
+    const KEPLR_ORDER  = { TETRA:12, CUBE:24, OCTA:24, DODE:60, ICOSA:60 };
 
-    // “Rahmen” fino: edges del mismo sólido pero INSET (escalado) y encima
-    function keplrBuildRahmen(geo, colorTHREE){
-      const inner = geo.clone();
-      inner.scale(KEPLR_RAHMEN_SHRINK, KEPLR_RAHMEN_SHRINK, KEPLR_RAHMEN_SHRINK);
-      const eGeo = new THREE.EdgesGeometry(inner);
-      const mat  = new THREE.LineBasicMaterial({
-        color: colorTHREE, transparent: true, opacity: KEPLR_RAHMEN_ALPHA,
-        depthTest: true, depthWrite: false
-      });
-      const lines = new THREE.LineSegments(eGeo, mat);
-      lines.renderOrder = 3;
-      return lines;
+    function keplrPickShapeFor(pa, seed){
+      const r = lehmerRank(pa);
+      const idx = (r + seed + sceneSeed + S_global) % KEPLR_SOLIDS.length;
+      return KEPLR_SOLIDS[idx];
     }
 
     /* Luz suave por si el entorno no aporta suficiente */
@@ -5008,56 +4995,43 @@ void main(){
     })();
 
     /* Construye un sólido con capas V/E/F + (opcional) su dual */
-    function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container, uniqIndex){
-      const [cFace, cEdge, cDual] = keplrColorsForSolid(pa, uniqIndex|0);
-
-      // — Sólido principal
-      const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
+    function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container){
+      const cFace = keplrBuildColorFor(pa);          // color exacto BUILD
+      const cEdge = keplrEdgeFromFaceColor(cFace);   // (por si activas edges)
+      const geo   = keplrGeometry(name, R * (1 - 0.06*tIdx));
 
       // Caras (dos pasadas)
-      const faceGroup = keplrBuildFaceGroup(geo, cFace);
-      faceGroup.renderOrder = 0;               // antes que marcos y edges
-      container.add(faceGroup);
+      const { matBack, matFront } = keplrFaceMaterials(cFace);
+      const faceBack  = new THREE.Mesh(geo, matBack);  faceBack.renderOrder  = 0;
+      const faceFront = new THREE.Mesh(geo, matFront); faceFront.renderOrder = 1;
+      container.add(faceBack, faceFront);
 
-      // Rahmen (apagado por flag)
+      // Rahmen interno (apagado por flag)
       if (KEPLR_RAHMEN_ON){
-        const rahmen = keplrBuildRahmen(geo, cEdge);
-        rahmen.renderOrder = 3;
-        container.add(rahmen);
+        const inner = geo.clone();
+        inner.scale(KEPLR_RAHMEN_SHRINK, KEPLR_RAHMEN_SHRINK, KEPLR_RAHMEN_SHRINK);
+        const eGeo  = new THREE.EdgesGeometry(inner);
+        const eMat  = new THREE.LineBasicMaterial({
+          color: cEdge, transparent: true, opacity: KEPLR_RAHMEN_ALPHA, depthTest: true, depthWrite: false
+        });
+        const lines = new THREE.LineSegments(eGeo, eMat);
+        lines.renderOrder = 3;
+        container.add(lines);
       }
 
-      // Aristas exteriores (por encima de todo)
-      const eGeo  = new THREE.EdgesGeometry(geo);
-      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
-      edges.renderOrder = 4;
-      container.add(edges);
-
-      // — Sólido dual (opcional), con su propio grupo y orientación
-      if (dualOn){
-        const dName = keplrDualOf(name);
-        const dR    = R * (0.62 + 0.06*tIdx);
-        const dGeo  = keplrGeometry(dName, dR);
-
-        const sub = new THREE.Group();
-        applyKeplrOrientation(sub, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
-
-        const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual);
-        dFaceGroup.renderOrder = 0;
-        sub.add(dFaceGroup);
-
-        if (KEPLR_RAHMEN_ON){
-          const dRahmen = keplrBuildRahmen(dGeo, cEdge);
-          dRahmen.renderOrder = 3;
-          sub.add(dRahmen);
-        }
-
-        const eGeo2  = new THREE.EdgesGeometry(dGeo);
-        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
-        dEdges.renderOrder = 4;
-        sub.add(dEdges);
-
-        container.add(sub);
+      // Edges exteriores (apagados por flag)
+      if (KEPLR_EDGES_ON){
+        const eGeo  = new THREE.EdgesGeometry(geo);
+        const eMat  = new THREE.LineBasicMaterial({
+          color: cEdge, transparent: true, opacity: 0.95, depthTest: true, depthWrite: false
+        });
+        const lines = new THREE.LineSegments(eGeo, eMat);
+        lines.renderOrder = 4;
+        container.add(lines);
       }
+
+      // Nota: dualOn se ignora aquí (pediste 1 sólido por perm). Si quisieras dual,
+      // llama a buildKeplrSolid otra vez con keplrDualOf(name) en el mismo 'container'.
     }
 
     /* Builder principal */
@@ -5069,55 +5043,47 @@ void main(){
 
       const R_BASE = 14.2;
 
-      let perms = getSelectedPerms();
-      if (!perms || !perms.length) perms = [[1,2,3,4,5]];
+      // Permutaciones activas (mismo origen que BUILD)
+      let perms = (typeof getSelectedPerms === 'function')
+        ? getSelectedPerms()
+        : Array.from(document.getElementById('permutationList').selectedOptions)
+            .map(o => o.value.split(',').map(Number));
 
-      // semilla determinista sensible a: perms + attributeMapping + seeds
-      const H = keplrShapeSeedFromPerms(perms);
-
-      const pick = (n,off=0)=> Math.floor((((H >>> off) % n) + n) % n);
-
-      const KEPLR_SOLIDS = ['TETRA','CUBE','OCTA','DODE','ICOSA'];
-      const s1  = KEPLR_SOLIDS[ pick(5, 0) ];
-      const o1  = pick(60, 5);               // orientación discreta
-      const t1  = pick(6, 11);               // 0..5 (tramo)
-      const d1  = ((H >>> 17) & 1) === 1;    // dual on/off
-      const L   = 1 + pick(2, 23);           // profundidad: 1 o 2
-
-      // elige permutación cromática específica para cada nivel
-      const pa1 = perms[ (H >>> 7)  % perms.length ];
-      const pa2 = perms[ (H >>> 13) % perms.length ];
+      if (!perms || !perms.length) perms = [[1,2,3,4,5]];  // fallback defensivo
 
       const g = new THREE.Group();
+      const mRank = mappingRank(attributeMapping.slice(0,5)); // 120 mappings
 
-      // contador de “unicidad” por sólido de la escena
-      let uniq = 0;
+      perms.forEach((pa, i) => {
+        const r     = lehmerRank(pa);
+        const name  = keplrPickShapeFor(pa, i*97);
+        const ord   = KEPLR_ORDER[name] || 12;
+        const tIdx  = (r + i) % 6;
 
-      // nivel 1
-      const g1 = new THREE.Group();
-      applyKeplrOrientation(g1, s1, o1, H);
-      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa1, g1, uniq++);   // ← uniq++
-      g.add(g1);
+        // Orientación discreta determinista
+        const oIdx  = (r + mRank + sceneSeed + i*13) % ord;
+        const extra = (sceneSeed*31 + S_global*17 + r*13 + i*7) >>> 0;
 
-      // nivel 2 (si procede), evitando repetir s1 cuando sea posible
-      if (L === 2){
-        let H2 = (Math.imul(H, 1103515245) + 12345) >>> 0;
-        let s2 = KEPLR_SOLIDS[ H2 % 5 ];
-        if (s2 === s1) s2 = KEPLR_SOLIDS[ (H2 + 1) % 5 ];
-        const o2 = (H2 >>> 5) % 60;
-        const t2 = (H2 >>> 11) % 6;
-        const d2 = ((H2 >>> 17) & 1) === 1;
+        // PIVOT orientado + SPIN que gira “sobre su propio eje”
+        const pivot = new THREE.Group();
+        applyKeplrOrientation(pivot, name, oIdx, extra);
 
-        const g2 = new THREE.Group();
-        applyKeplrOrientation(g2, s2, o2, H2);
-        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa2, g2, uniq++);  // ← uniq++
-        g.add(g2);
-      }
+        const spin = new THREE.Group();
+        pivot.add(spin);
+
+        // Construye el sólido (sin líneas) con el color de BUILD
+        buildKeplrSolid(name, R_BASE, tIdx, /*dualOn*/ false, oIdx, pa, spin);
+
+        // Velocidad determinista por rango (como BUILD)
+        spin.userData.rotationSpeed = keplrRotationSpeedFor(pa, extra);
+
+        g.add(pivot);
+      });
 
       groupKEPLR.add(g);
       scene.add(groupKEPLR);
 
-      // Evita culling agresivo con transparencias cruzadas (iOS/Safari agradece)
+      // Evita culling agresivo con transparencias cruzadas
       groupKEPLR.traverse(o => { o.frustumCulled = false; });
     }
 
