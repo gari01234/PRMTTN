@@ -4911,8 +4911,12 @@ void main(){
     }
 
     // === KEPLR · constantes/materiales ===
-    /* Transparencia suficiente para ver anidamientos, pero con z-buffer */
-    const KEPLR_FACE_OPACITY = 0.70;
+    // Mezcla útil para translucidez “sólida” (dos pasadas: dorso + frente)
+    const KEPLR_FACE_OPACITY = 0.72;     // opacidad de la pasada frontal
+    const KEPLR_BACK_OPACITY = 0.46;     // opacidad de la pasada de dorso
+    // “Rahmen” (borde interior) – se logra con un polyhedro escalado y EdgesGeometry
+    const KEPLR_RAHMEN_SHRINK = 0.985;   // 0.985 ≈ 1.5% más pequeño → línea “inset”
+    const KEPLR_RAHMEN_ALPHA  = 0.95;    // casi opaco para que recorte bien
 
     /* Slot cromático como BUILD, con sal de color y offsets disjuntos */
     function keplrColorSlot(kSlot, pa){
@@ -4939,32 +4943,44 @@ void main(){
     function keplrColorsForSolid(pa, solidIndex){
       const base = ((solidIndex % 4) * 2) % 12;  // 0,2,4,6 …
       const cFace = keplrColorSlot(base + 0, pa);
-      const cFrame= keplrColorSlot(base + 6, pa);
+      const cEdge = keplrColorSlot(base + 6, pa);
       const cDual = keplrColorSlot(base + 3, pa);
-      return [cFace, cFrame, cDual];
+      return [cFace, cEdge, cDual];
     }
 
-    /* Caras: transparente, escribe profundidad y con pequeño offset negativo
-       → evita z-fighting y NO se ven “huecas” */
-    function keplrFaceMaterial(colorTHREE){
+    // — Caras en dos pasadas: primero dorso (BackSide), luego frente (FrontSide).
+    //   Esto evita “huecos”, mejora la mezcla y quita artefactos en iOS/Safari.
+    function keplrFaceMaterials(colorTHREE){
       const c = applyBuildVibranceToColor(colorTHREE);
-      const m = new THREE.MeshStandardMaterial({
+      const common = {
         color: c,
         roughness: 1.0,
         metalness: 0.0,
         transparent: true,
-        opacity: KEPLR_FACE_OPACITY,
-        side: THREE.DoubleSide,
         dithering: true,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,      // caras “un pelín” hacia atrás
-        polygonOffsetUnits: -1,
         depthTest: true,
-        depthWrite: true               // ← CLAVE para que no se vean huecas
-      });
-      m.emissive = c.clone();
-      m.emissiveIntensity = 0.08;
-      return m;
+        depthWrite: false,          // dejar false para mezcla correcta de transparentes
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1
+      };
+      const matBack  = new THREE.MeshStandardMaterial({ ...common, side: THREE.BackSide,  opacity: KEPLR_BACK_OPACITY });
+      const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: KEPLR_FACE_OPACITY });
+
+      matBack.emissive  = c.clone(); matBack.emissiveIntensity  = 0.05;
+      matFront.emissive = c.clone(); matFront.emissiveIntensity = 0.08;
+
+      return { matBack, matFront };
+    }
+
+    // Grupo con las dos pasadas ya apiladas y ordenadas
+    function keplrBuildFaceGroup(geo, colorTHREE){
+      const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
+      const g = new THREE.Group();
+      const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0; // primero
+      const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1; // después
+      g.add(mBack, mFront);
+      return g;
     }
 
     /* Rahmen (borde fino) por aristas – siempre por delante de las caras */
@@ -4976,6 +4992,26 @@ void main(){
         depthTest: true,
         depthWrite: false
       });
+    }
+
+    // “Rahmen” fino: edges del mismo sólido pero INSET (escalado) y encima
+    function keplrBuildRahmen(geo, colorTHREE){
+      // clon escalado para que el borde quede dentro de la cara (“marco interior”)
+      const inner = geo.clone();
+      inner.scale(KEPLR_RAHMEN_SHRINK, KEPLR_RAHMEN_SHRINK, KEPLR_RAHMEN_SHRINK);
+
+      const eGeo = new THREE.EdgesGeometry(inner);
+      const mat  = new THREE.LineBasicMaterial({
+        color: colorTHREE,
+        transparent: true,
+        opacity: KEPLR_RAHMEN_ALPHA,
+        depthTest: true,
+        depthWrite: false
+      });
+
+      const lines = new THREE.LineSegments(eGeo, mat);
+      lines.renderOrder = 3; // por delante de las caras (0/1) y por detrás del edge exterior
+      return lines;
     }
 
     /* Luz suave por si el entorno no aporta suficiente */
@@ -4992,34 +5028,49 @@ void main(){
 
     /* Construye un sólido con capas V/E/F + (opcional) su dual */
     function buildKeplrSolid(name, R, tIdx, dualOn, orientIdx, pa, container, solidIndex){
-      const [cFace, cFrame, cDual] = keplrColorsForSolid(pa, solidIndex|0);
+      const [cFace, cEdge, cDual] = keplrColorsForSolid(pa, solidIndex|0);
 
-      const t    = tIdx / 6;
+      // — Sólido principal
       const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
-      const mesh = new THREE.Mesh(geo, keplrFaceMaterial(cFace));
-      mesh.renderOrder = 1;
-      container.add(mesh);
 
-      // RAHMEN por aristas (encima)
+      // Caras (dos pasadas)
+      const faceGroup = keplrBuildFaceGroup(geo, cFace);
+      faceGroup.renderOrder = 0;               // antes que marcos y edges
+      container.add(faceGroup);
+
+      // Rahmen interior (borde fino “tipo R5Nova”)
+      const rahmen = keplrBuildRahmen(geo, cEdge);
+      rahmen.renderOrder = 3;
+      container.add(rahmen);
+
+      // Aristas exteriores (por encima de todo)
       const eGeo  = new THREE.EdgesGeometry(geo);
-      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cFrame));
-      edges.renderOrder = 2;
+      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
+      edges.renderOrder = 4;
       container.add(edges);
 
+      // — Sólido dual (opcional), con su propio grupo y orientación
       if (dualOn){
         const dName = keplrDualOf(name);
         const dR    = R * (0.62 + 0.06*tIdx);
         const dGeo  = keplrGeometry(dName, dR);
-        const dMesh = new THREE.Mesh(dGeo, keplrFaceMaterial(cDual));
-        applyKeplrOrientation(dMesh, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
-        dMesh.renderOrder = 1;
-
-        const eGeo2  = new THREE.EdgesGeometry(dGeo);
-        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cFrame));
-        dEdges.renderOrder = 2;
 
         const sub = new THREE.Group();
-        sub.add(dMesh, dEdges);
+        applyKeplrOrientation(sub, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
+
+        const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual);
+        dFaceGroup.renderOrder = 0;
+        sub.add(dFaceGroup);
+
+        const dRahmen = keplrBuildRahmen(dGeo, cEdge);
+        dRahmen.renderOrder = 3;
+        sub.add(dRahmen);
+
+        const eGeo2  = new THREE.EdgesGeometry(dGeo);
+        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
+        dEdges.renderOrder = 4;
+        sub.add(dEdges);
+
         container.add(sub);
       }
     }
@@ -5075,9 +5126,12 @@ void main(){
         g.add(g2);
       }
 
-      groupKEPLR.add(g);
-      scene.add(groupKEPLR);
-    }
+        groupKEPLR.add(g);
+        scene.add(groupKEPLR);
+
+        // Evita culling agresivo con transparencias cruzadas (iOS/Safari agradece)
+        groupKEPLR.traverse(o => { o.frustumCulled = false; });
+      }
 
     /* Exclusivo (como RAUM/13245/R5NOVA). Usa el “crispness boost” de RAUM */
     function toggleKEPLR(){
