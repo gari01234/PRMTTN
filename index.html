@@ -5066,22 +5066,39 @@ void main(){
       }
     }
 
-    // Velocidad y eje de giro deterministas por permutación (rango Lehmer)
+    // === KEPLR · Velocidad desde "Signature Range" =============================
+    // ω = max(F) − min(F), con compresión suave (tanh) y clamps de seguridad
+    function keplrOmegaFromSignature(pa){
+      let F = computeSignature(pa);
+      if (!Array.isArray(F)) F = [Number(F) || 0];
+      let mn = Infinity, mx = -Infinity;
+      for (let i=0;i<F.length;i++){
+        const v = +F[i];
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      const range = Math.max(0, mx - mn);      // “Signature Range”
+      const OMEGA_MIN = 0.25;                  // rad/s
+      const OMEGA_MAX = 1.10;                  // rad/s
+      const norm = Math.tanh(range * 0.75);    // comprime para evitar picos
+      return OMEGA_MIN + norm * (OMEGA_MAX - OMEGA_MIN);
+    }
+
+    // === KEPLR · Eje + velocidad por permutación (determinista) ================
     function keplrSpinParamsFor(pa, idx){
-      const r = (lehmerRank(pa) % 120);                 // 0..119
+      const r = (lehmerRank(pa) >>> 0);
       const seed = ((r * 1315423911) ^ (sceneSeed|0) ^ (S_global|0) ^ Math.imul((idx|0), 2654435761)) >>> 0;
 
-      // Eje en [-1,1]^3 desde el seed (normalizado)
-      const ax = (( seed        & 1023) / 511) - 1;     // ~[-1,1]
+      // Eje local pseudo-aleatorio en [-1,1]^3 a partir de seed
+      const ax = (( seed        & 1023) / 511) - 1;
       const ay = (((seed >>> 10) & 1023) / 511) - 1;
       const az = (((seed >>> 20) & 1023) / 511) - 1;
       const axis = new THREE.Vector3(ax, ay, az);
       if (axis.lengthSq() < 1e-6) axis.set(0.7071, 0.0, 0.7071);
       axis.normalize();
 
-      // Velocidad (rad/s) mapeada del rango (como BUILD: derivada del rango)
-      const VMIN = 0.25, VMAX = 0.95;
-      const vel  = VMIN + (r / 119) * (VMAX - VMIN);
+      // Velocidad desde “Signature Range”
+      const vel = keplrOmegaFromSignature(pa);
 
       return { axis, vel };
     }
@@ -5099,7 +5116,7 @@ void main(){
       let perms = getSelectedPerms();
       if (!perms || !perms.length) perms = [[1,2,3,4,5]];
 
-      // Semilla de forma (no cromática) que ya tenías
+      // Semilla de forma (no cromática)
       const H = keplrShapeSeedFromPerms(perms);
 
       // Desfase determinista para repartir el tipo de sólido sin repetir hasta agotar catálogo
@@ -5110,21 +5127,21 @@ void main(){
       groupKEPLR.userData.rotators = [];
 
       perms.forEach((pa, i) => {
-        // Tipo de sólido: round-robin determinista, sin repetir hasta agotar los 5
+        // Tipo de sólido: round-robin determinista (sin repetir hasta agotar los 5)
         const sName = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
 
         // Parámetros deterministas por permutación
         const r       = lehmerRank(pa) >>> 0;
-        const tIdx    = (r + i) % 6;                                  // tramo 0..5 (escala discreta)
+        const tIdx    = (r + i) % 6;                                  // tramo 0..5
         const orientK = (Math.imul(H ^ r ^ Math.imul(i, 109), 1103515245) + 12345) >>> 0;
         const oIdx    = orientK % 60;                                  // orientación discreta
-        const dualOn  = ((H >>> (7 + (i % 25))) & 1) === 1;            // dual determinista, barato
+        const dualOn  = ((H >>> (7 + (i % 25))) & 1) === 1;            // dual determinista
 
         // Grupo por sólido (para rotación local)
         const gS = new THREE.Group();
         applyKeplrOrientation(gS, sName, oIdx, orientK);
 
-        // Color único por sólido: usa tu función existente con uniq = i
+        // Color único por sólido: uniqIndex = i
         buildKeplrSolid(sName, R_BASE, tIdx, dualOn, oIdx, pa, gS, i);
 
         // Giro por eje propio (determinista)
@@ -5142,21 +5159,50 @@ void main(){
       // Evita culling agresivo con transparencias cruzadas
       groupKEPLR.traverse(o => { o.frustumCulled = false; });
 
-      // Animación por frame: rota cada sólido alrededor de su eje propio
+      // Inicializa marca temporal para el bucle RAF
       groupKEPLR.userData._lastT = performance.now();
-      groupKEPLR.onBeforeRender = function(){
+    }
+
+    // === KEPLR · Bucle de rotación per-frame (robusto incluso sin render loop global)
+    (function(){
+      let rafId = 0;
+
+      function tick(){
+        rafId = requestAnimationFrame(tick);
+        if (!window.isKEPLR || !window.groupKEPLR) return;
+
         const now = performance.now();
-        const dt  = (now - (this.userData._lastT || now)) / 1000;
-        this.userData._lastT = now;
-        const list = this.userData.rotators || [];
-        for (let j = 0; j < list.length; j++){
-          const n = list[j];
-          const ax = n.userData.rotAxis;
-          const w  = n.userData.rotVel;
-          if (ax && w) n.rotateOnAxis(ax, w * dt);
+        const last = groupKEPLR.userData?._lastT || now;
+        const dt = (now - last) / 1000;
+        groupKEPLR.userData._lastT = now;
+
+        const list = groupKEPLR.userData?.rotators || [];
+        for (let i=0;i<list.length;i++){
+          const g = list[i];
+          const ax = g.userData?.rotAxis;
+          const w  = g.userData?.rotVel;
+          if (ax && w) g.rotateOnAxis(ax, w * dt);
+        }
+
+        // Forzar re-render si la app no tiene bucle de render activo
+        try {
+          if (typeof renderer?.render === 'function') renderer.render(scene, camera);
+          else if (typeof window.render === 'function') window.render();
+          else if (typeof controls?.update === 'function') controls.update();
+        } catch(_){ }
+      }
+
+      window.ensureKeplrSpinLoop = function(on){
+        if (on){
+          if (!rafId){
+            if (window.groupKEPLR && groupKEPLR.userData) groupKEPLR.userData._lastT = performance.now();
+            rafId = requestAnimationFrame(tick);
+          }
+        } else {
+          if (rafId){ cancelAnimationFrame(rafId); rafId = 0; }
         }
       };
-    }
+    })();
 
     /* Exclusivo (como RAUM/13245/R5NOVA). Usa el “crispness boost” de RAUM */
     function toggleKEPLR(){
@@ -5176,6 +5222,7 @@ void main(){
         enterRaumRenderBoost();
 
         buildKEPLR();
+        ensureKeplrSpinLoop(true);   // ← ARRANCA giro KEPLR
 
         // Cámara nivelada; yaw/pan/zoom permitidos (pitch bloqueado)
         camera.up.set(0,1,0);
@@ -5203,6 +5250,7 @@ void main(){
         if (typeof lichtGroup !== 'undefined')        lichtGroup.visible = false;
 
       } else {
+        ensureKeplrSpinLoop(false);  // ← DETIENE giro KEPLR
         leaveRaumRenderBoost();
         disposeGroupKEPLR();
 
