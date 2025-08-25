@@ -4903,6 +4903,8 @@ void main(){
     }
 
     // === KEPLR · constantes/materiales ===
+    // ——— aristas (edges) del sólido
+    const KEPLR_EDGES_ON = false; // ← OFF: no se renderizan líneas de aristas
     // Mezcla útil para translucidez “sólida” (dos pasadas: dorso + frente)
     const KEPLR_FACE_OPACITY = 0.72;     // opacidad de la pasada frontal
     const KEPLR_BACK_OPACITY = 0.46;     // opacidad de la pasada de dorso
@@ -5026,11 +5028,13 @@ void main(){
         container.add(rahmen);
       }
 
-      // Aristas exteriores (por encima de todo)
-      const eGeo  = new THREE.EdgesGeometry(geo);
-      const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
-      edges.renderOrder = 4;
-      container.add(edges);
+      // Aristas exteriores (OPCIONAL, normalmente OFF)
+      if (KEPLR_EDGES_ON){
+        const eGeo  = new THREE.EdgesGeometry(geo);
+        const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
+        edges.renderOrder = 4;
+        container.add(edges);
+      }
 
       // — Sólido dual (opcional), con su propio grupo y orientación
       if (dualOn){
@@ -5051,13 +5055,35 @@ void main(){
           sub.add(dRahmen);
         }
 
-        const eGeo2  = new THREE.EdgesGeometry(dGeo);
-        const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
-        dEdges.renderOrder = 4;
-        sub.add(dEdges);
+        if (KEPLR_EDGES_ON){
+          const eGeo2  = new THREE.EdgesGeometry(dGeo);
+          const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
+          dEdges.renderOrder = 4;
+          sub.add(dEdges);
+        }
 
         container.add(sub);
       }
+    }
+
+    // Velocidad y eje de giro deterministas por permutación (rango Lehmer)
+    function keplrSpinParamsFor(pa, idx){
+      const r = (lehmerRank(pa) % 120);                 // 0..119
+      const seed = ((r * 1315423911) ^ (sceneSeed|0) ^ (S_global|0) ^ Math.imul((idx|0), 2654435761)) >>> 0;
+
+      // Eje en [-1,1]^3 desde el seed (normalizado)
+      const ax = (( seed        & 1023) / 511) - 1;     // ~[-1,1]
+      const ay = (((seed >>> 10) & 1023) / 511) - 1;
+      const az = (((seed >>> 20) & 1023) / 511) - 1;
+      const axis = new THREE.Vector3(ax, ay, az);
+      if (axis.lengthSq() < 1e-6) axis.set(0.7071, 0.0, 0.7071);
+      axis.normalize();
+
+      // Velocidad (rad/s) mapeada del rango (como BUILD: derivada del rango)
+      const VMIN = 0.25, VMAX = 0.95;
+      const vel  = VMIN + (r / 119) * (VMAX - VMIN);
+
+      return { axis, vel };
     }
 
     /* Builder principal */
@@ -5069,56 +5095,67 @@ void main(){
 
       const R_BASE = 14.2;
 
+      // Permutaciones activas → 1 sólido por permutación
       let perms = getSelectedPerms();
       if (!perms || !perms.length) perms = [[1,2,3,4,5]];
 
-      // semilla determinista sensible a: perms + attributeMapping + seeds
+      // Semilla de forma (no cromática) que ya tenías
       const H = keplrShapeSeedFromPerms(perms);
 
-      const pick = (n,off=0)=> Math.floor((((H >>> off) % n) + n) % n);
+      // Desfase determinista para repartir el tipo de sólido sin repetir hasta agotar catálogo
+      const START = H % KEPLR_SOLIDS.length; // 0..4
 
-      const KEPLR_SOLIDS = ['TETRA','CUBE','OCTA','DODE','ICOSA'];
-      const s1  = KEPLR_SOLIDS[ pick(5, 0) ];
-      const o1  = pick(60, 5);               // orientación discreta
-      const t1  = pick(6, 11);               // 0..5 (tramo)
-      const d1  = ((H >>> 17) & 1) === 1;    // dual on/off
-      const L   = 1 + pick(2, 23);           // profundidad: 1 o 2
+      // Contenedor + lista de rotadores
+      const container = new THREE.Group();
+      groupKEPLR.userData.rotators = [];
 
-      // elige permutación cromática específica para cada nivel
-      const pa1 = perms[ (H >>> 7)  % perms.length ];
-      const pa2 = perms[ (H >>> 13) % perms.length ];
+      perms.forEach((pa, i) => {
+        // Tipo de sólido: round-robin determinista, sin repetir hasta agotar los 5
+        const sName = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
 
-      const g = new THREE.Group();
+        // Parámetros deterministas por permutación
+        const r       = lehmerRank(pa) >>> 0;
+        const tIdx    = (r + i) % 6;                                  // tramo 0..5 (escala discreta)
+        const orientK = (Math.imul(H ^ r ^ Math.imul(i, 109), 1103515245) + 12345) >>> 0;
+        const oIdx    = orientK % 60;                                  // orientación discreta
+        const dualOn  = ((H >>> (7 + (i % 25))) & 1) === 1;            // dual determinista, barato
 
-      // contador de “unicidad” por sólido de la escena
-      let uniq = 0;
+        // Grupo por sólido (para rotación local)
+        const gS = new THREE.Group();
+        applyKeplrOrientation(gS, sName, oIdx, orientK);
 
-      // nivel 1
-      const g1 = new THREE.Group();
-      applyKeplrOrientation(g1, s1, o1, H);
-      buildKeplrSolid(s1, R_BASE, t1, d1, o1, pa1, g1, uniq++);   // ← uniq++
-      g.add(g1);
+        // Color único por sólido: usa tu función existente con uniq = i
+        buildKeplrSolid(sName, R_BASE, tIdx, dualOn, oIdx, pa, gS, i);
 
-      // nivel 2 (si procede), evitando repetir s1 cuando sea posible
-      if (L === 2){
-        let H2 = (Math.imul(H, 1103515245) + 12345) >>> 0;
-        let s2 = KEPLR_SOLIDS[ H2 % 5 ];
-        if (s2 === s1) s2 = KEPLR_SOLIDS[ (H2 + 1) % 5 ];
-        const o2 = (H2 >>> 5) % 60;
-        const t2 = (H2 >>> 11) % 6;
-        const d2 = ((H2 >>> 17) & 1) === 1;
+        // Giro por eje propio (determinista)
+        const spin = keplrSpinParamsFor(pa, i);
+        gS.userData.rotAxis = spin.axis;
+        gS.userData.rotVel  = spin.vel;
 
-        const g2 = new THREE.Group();
-        applyKeplrOrientation(g2, s2, o2, H2);
-        buildKeplrSolid(s2, R_BASE*0.78, t2, d2, o2, pa2, g2, uniq++);  // ← uniq++
-        g.add(g2);
-      }
+        container.add(gS);
+        groupKEPLR.userData.rotators.push(gS);
+      });
 
-      groupKEPLR.add(g);
+      groupKEPLR.add(container);
       scene.add(groupKEPLR);
 
-      // Evita culling agresivo con transparencias cruzadas (iOS/Safari agradece)
+      // Evita culling agresivo con transparencias cruzadas
       groupKEPLR.traverse(o => { o.frustumCulled = false; });
+
+      // Animación por frame: rota cada sólido alrededor de su eje propio
+      groupKEPLR.userData._lastT = performance.now();
+      groupKEPLR.onBeforeRender = function(){
+        const now = performance.now();
+        const dt  = (now - (this.userData._lastT || now)) / 1000;
+        this.userData._lastT = now;
+        const list = this.userData.rotators || [];
+        for (let j = 0; j < list.length; j++){
+          const n = list[j];
+          const ax = n.userData.rotAxis;
+          const w  = n.userData.rotVel;
+          if (ax && w) n.rotateOnAxis(ax, w * dt);
+        }
+      };
     }
 
     /* Exclusivo (como RAUM/13245/R5NOVA). Usa el “crispness boost” de RAUM */
