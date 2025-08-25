@@ -1642,6 +1642,20 @@ function evalProp(prop, args = [], fallback = 0){
 
     function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
+    /* === BUILD → paso angular por frame para una permutación (permStr "1,2,3,4,5") === */
+    function getBuildRotStep(permStr){
+      try{
+        if (!permutationGroup || !permutationGroup.children || !permStr) return 0;
+        for (let i = 0; i < permutationGroup.children.length; i++){
+          const m = permutationGroup.children[i];
+          if (m && m.userData && m.userData.permStr === permStr){
+            const s = m.userData.rotationSpeed;
+            return (typeof s === 'number') ? s : 0;   // Δθ por frame (mismo que BUILD)
+          }
+        }
+      }catch(_){ }
+      return 0;
+    }
     function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
     function getPermutations(arr){
@@ -2543,6 +2557,7 @@ function adjustR5NovaAfterBuild(){
           rebuild13245IfActive();                     // ← NUEVO
           rebuildR5NOVAIfActive();                    // ← NUEVO
           rebuildTMSLIfActive();                      // TMSL sigue cambios
+          if (isKEPLR) resyncKeplrRotSteps();
           // Post-ajustes específicos de R5NOVA (grosor y color del fondo)
           if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
           // cede un frame para asegurar que el build terminó y hay world matrices
@@ -3432,7 +3447,7 @@ function renderArchPanel(html){
             }
           });
         }
-        // === KEPLR · giro propio por frame (usa ω = max(F) − min(F)) =================
+        // === KEPLR · giro propio usando Δθ/frame de BUILD (fallback a rad/s) =========
         if (isKEPLR && groupKEPLR && groupKEPLR.userData && groupKEPLR.userData.rotators) {
           const now  = performance.now();
           const last = groupKEPLR.userData._lastT || now;
@@ -3441,10 +3456,26 @@ function renderArchPanel(html){
 
           const list = groupKEPLR.userData.rotators;
           for (let i = 0; i < list.length; i++) {
-            const g  = list[i];
-            const ax = g.userData && g.userData.rotAxis;
-            const w  = g.userData && g.userData.rotVel;
-            if (ax && w) g.rotateOnAxis(ax, w * dt);   // ← giro sobre su propio eje
+            const g     = list[i];
+            const ax    = g.userData && g.userData.rotAxis;
+            let   step  = g.userData && g.userData.rotStep;  // Δθ/frame (BUILD)
+            const w     = g.userData && g.userData.rotVel;   // rad/s (fallback)
+
+            // Si aún no está cacheado, intentalo una vez (por si se reconstruyó BUILD)
+            if ((step === undefined || step === 0) && g.userData && g.userData.permStr){
+              step = getBuildRotStep(g.userData.permStr);
+              if (step) g.userData.rotStep = step;
+            }
+
+            if (ax) {
+              if (typeof step === 'number' && step !== 0) {
+                // Igual que BUILD: mismo incremento angular por frame (independiente de dt)
+                g.rotateOnAxis(ax, step);
+              } else if (w) {
+                // Fallback: usa la velocidad por segundo actual de KEPLR
+                g.rotateOnAxis(ax, w * dt);
+              }
+            }
           }
         }
         controls.update();
@@ -4830,8 +4861,8 @@ void main(){
     // ──────────────────────────────
     // KEPLR · Platonic/Kepler interlock (L=1..2)
     // ──────────────────────────────
-    let isKEPLR    = false;
-    let groupKEPLR = null;
+    var isKEPLR    = false;
+    var groupKEPLR = null;
 
     /* Limpieza segura */
     function disposeGroupKEPLR(){
@@ -5163,6 +5194,9 @@ void main(){
         const spin = keplrSpinParamsFor(pa, i);
         gS.userData.rotAxis = spin.axis;
         gS.userData.rotVel  = spin.vel;
+        /* KEPLR: metadata de giro idéntica a BUILD */
+        gS.userData.permStr = pa.join(',');
+        gS.userData.rotStep = getBuildRotStep(gS.userData.permStr);
 
         container.add(gS);
         groupKEPLR.userData.rotators.push(gS);
@@ -5176,6 +5210,16 @@ void main(){
 
       // Inicializa marca temporal para el bucle RAF
       groupKEPLR.userData._lastT = performance.now();
+    }
+
+    function resyncKeplrRotSteps(){
+      if (!groupKEPLR || !groupKEPLR.userData || !groupKEPLR.userData.rotators) return;
+      groupKEPLR.userData.rotators.forEach(g=>{
+        if (g.userData && g.userData.permStr){
+          const s = getBuildRotStep(g.userData.permStr);
+          if (s) g.userData.rotStep = s;
+        }
+      });
     }
 
     /* Exclusivo (como RAUM/13245/R5NOVA). Usa el “crispness boost” de RAUM */
