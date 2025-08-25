@@ -3432,6 +3432,21 @@ function renderArchPanel(html){
             }
           });
         }
+        // === KEPLR · giro propio por frame (usa ω = max(F) − min(F)) =================
+        if (isKEPLR && groupKEPLR && groupKEPLR.userData && groupKEPLR.userData.rotators) {
+          const now  = performance.now();
+          const last = groupKEPLR.userData._lastT || now;
+          const dt   = (now - last) / 1000;
+          groupKEPLR.userData._lastT = now;
+
+          const list = groupKEPLR.userData.rotators;
+          for (let i = 0; i < list.length; i++) {
+            const g  = list[i];
+            const ax = g.userData && g.userData.rotAxis;
+            const w  = g.userData && g.userData.rotVel;
+            if (ax && w) g.rotateOnAxis(ax, w * dt);   // ← giro sobre su propio eje
+          }
+        }
         controls.update();
         renderer.render(scene,camera);
       }
@@ -5163,47 +5178,6 @@ void main(){
       groupKEPLR.userData._lastT = performance.now();
     }
 
-    // === KEPLR · Bucle de rotación per-frame (robusto incluso sin render loop global)
-    (function(){
-      let rafId = 0;
-
-      function tick(){
-        rafId = requestAnimationFrame(tick);
-        if (!window.isKEPLR || !window.groupKEPLR) return;
-
-        const now = performance.now();
-        const last = groupKEPLR.userData?._lastT || now;
-        const dt = (now - last) / 1000;
-        groupKEPLR.userData._lastT = now;
-
-        const list = groupKEPLR.userData?.rotators || [];
-        for (let i=0;i<list.length;i++){
-          const g = list[i];
-          const ax = g.userData?.rotAxis;
-          const w  = g.userData?.rotVel;
-          if (ax && w) g.rotateOnAxis(ax, w * dt);
-        }
-
-        // Forzar re-render si la app no tiene bucle de render activo
-        try {
-          if (typeof renderer?.render === 'function') renderer.render(scene, camera);
-          else if (typeof window.render === 'function') window.render();
-          else if (typeof controls?.update === 'function') controls.update();
-        } catch(_){ }
-      }
-
-      window.ensureKeplrSpinLoop = function(on){
-        if (on){
-          if (!rafId){
-            if (window.groupKEPLR && groupKEPLR.userData) groupKEPLR.userData._lastT = performance.now();
-            rafId = requestAnimationFrame(tick);
-          }
-        } else {
-          if (rafId){ cancelAnimationFrame(rafId); rafId = 0; }
-        }
-      };
-    })();
-
     /* Exclusivo (como RAUM/13245/R5NOVA). Usa el “crispness boost” de RAUM */
     function toggleKEPLR(){
       isKEPLR = !isKEPLR;
@@ -5222,7 +5196,6 @@ void main(){
         enterRaumRenderBoost();
 
         buildKEPLR();
-        ensureKeplrSpinLoop(true);   // ← ARRANCA giro KEPLR
 
         // Cámara nivelada; yaw/pan/zoom permitidos (pitch bloqueado)
         camera.up.set(0,1,0);
@@ -5250,7 +5223,6 @@ void main(){
         if (typeof lichtGroup !== 'undefined')        lichtGroup.visible = false;
 
       } else {
-        ensureKeplrSpinLoop(false);  // ← DETIENE giro KEPLR
         leaveRaumRenderBoost();
         disposeGroupKEPLR();
 
