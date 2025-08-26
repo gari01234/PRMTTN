@@ -615,6 +615,7 @@ window.Tilers = {
       <option value="13245">13245</option>
       <option value="KEPLR">KEPLR</option>
       <option value="R5NOVA">R5NOVA</option>
+      <option value="RAPHI">RAPHI</option>
     </select>
   </div>
 
@@ -1028,6 +1029,7 @@ function initSkySphere() {
       if (!isFRBN && is13245) toggle13245();
       if (!isFRBN && isR5NOVA) toggleR5NOVA();
       if (!isFRBN && isKEPLR) toggleKEPLR();
+      if (!isFRBN && isRAPHI) toggleRAPHI();
       if (!skySphere) initSkySphere();
 
       isFRBN = !isFRBN;
@@ -1259,6 +1261,7 @@ function buildLCHT() {
       if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
       if (!isLCHT && isTMSL)  toggleTMSL();
       if (!isLCHT && isKEPLR) toggleKEPLR();
+      if (!isLCHT && isRAPHI) toggleRAPHI();
       isLCHT = !isLCHT;
 
       if (isLCHT){
@@ -1331,6 +1334,7 @@ function buildLCHT() {
       if (is13245) toggle13245();     // ← NUEVO
       if (isR5NOVA) toggleR5NOVA();     // ← NUEVO
       if (isKEPLR) toggleKEPLR();     // ← NUEVO
+      if (isRAPHI) toggleRAPHI();
       enterBuildRenderBoost();        // PR/exposure para BUILD
 
       // Controles: ORBIT LIBRE en BUILD
@@ -2947,7 +2951,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
 
       // Detectar BUILD “puro” (ningún otro motor activado)
       const isBuild =
-        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isKEPLR && !isR5NOVA;
+        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isKEPLR && !isR5NOVA && !isRAPHI;
 
       if (isBuild || isLCHT){
         // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
@@ -3780,6 +3784,7 @@ void main(){
       if (isLCHT) toggleLCHT();
       if (isTMSL) toggleTMSL();
       if (isKEPLR) toggleKEPLR();
+      if (isRAPHI) toggleRAPHI();
 
       buildOFFNNG();
 
@@ -3824,6 +3829,7 @@ void main(){
       if (isFRBN) toggleFRBN();
       if (isLCHT) toggleLCHT();
       if (isKEPLR) toggleKEPLR();
+      if (isRAPHI) toggleRAPHI();
       if (!isOFFNNG) toggleOFFNNG();
     }
 
@@ -4275,6 +4281,7 @@ void main(){
         if (isLCHT)   toggleLCHT();
         if (isOFFNNG) toggleOFFNNG();
         if (isKEPLR)  toggleKEPLR();
+        if (isRAPHI)  toggleRAPHI();
 
         // Construye pared + halo
         buildTMSL();
@@ -4567,6 +4574,7 @@ void main(){
         if (is13245) toggle13245();
         if (isR5NOVA) toggleR5NOVA();
         if (isKEPLR) toggleKEPLR();
+        if (isRAPHI) toggleRAPHI();
 
         // Sal del boost de BUILD si venías de allí y entra al boost de RAUM
         leaveBuildRenderBoost();
@@ -4801,6 +4809,7 @@ void main(){
         if (isRAUM)  toggleRAUM();
         if (isR5NOVA) toggleR5NOVA();
         if (isKEPLR) toggleKEPLR();
+        if (isRAPHI) toggleRAPHI();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -5235,6 +5244,7 @@ void main(){
         try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
         try{ if (is13245)  toggle13245();  }catch(_){ }
         try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+        try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -5582,6 +5592,7 @@ void main(){
         if (isRAUM)  toggleRAUM();
         if (is13245) toggle13245();
         if (isKEPLR) toggleKEPLR();
+        if (isRAPHI) toggleRAPHI();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();   // nitidez como RAUM/13245
@@ -5634,6 +5645,207 @@ void main(){
     /* botón selector – sólo enciende, nunca apaga */
     function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
 
+    // ──────────────────────────────
+    // RAPHI · deterministic phyllotaxis field (exclusive)
+    // ──────────────────────────────
+    let isRAPHI = false;
+    let groupRAPHI = null;
+
+    function disposeGroupRAPHI(){
+      if (!groupRAPHI) return;
+      groupRAPHI.traverse(o => {
+        if (o.isMesh){
+          o.geometry?.dispose?.();
+          o.material?.dispose?.();
+        }
+      });
+      scene.remove(groupRAPHI);
+      groupRAPHI = null;
+    }
+
+    /* Color único por permutación (estilo BUILD/KEPLR) */
+    function raphiBaseColorFor(pa, uniq = 0){
+      const sig  = computeSignature(pa);
+      const r    = lehmerRank(pa);
+      const slot = (r + uniq) % 12;
+      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+      sI = (sI * PHI_S) % 12;
+      vI = (vI * PHI_V) % 12;
+
+      const {h,s,v} = idxToHSV(hI, sI, vI);
+      let rgb = hsvToRgb(h, s, v);
+      rgb = ensureContrastRGB(rgb);
+
+      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+      return applyBuildVibranceToColor(col);
+    }
+
+    /* Semilla de forma (no cromática), basada en ranks + sceneSeed + S_global */
+    function raphiShapeSeedFromPerms(perms){
+      let h = 2166136261 >>> 0; // FNV-1a
+      for (let i=0;i<perms.length;i++){
+        h ^= (lehmerRank(perms[i]) >>> 0);
+        h  = Math.imul(h, 16777619) >>> 0;
+      }
+      h ^= (sceneSeed|0) >>> 0;
+      h ^= (S_global|0) >>> 0;
+      h ^= h >>> 13; h = Math.imul(h, 3266489917) >>> 0; h ^= h >>> 16;
+      return h >>> 0;
+    }
+
+    function buildRAPHI(){
+      disposeGroupRAPHI();
+      groupRAPHI = new THREE.Group();
+
+      // Fondo acoplado (como el resto de motores “escultóricos”)
+      updateBackground(false);
+
+      // Permutaciones activas (fallback determinista)
+      let perms = (typeof getSelectedPerms === 'function') ? getSelectedPerms() : [];
+      if (!perms || !perms.length) perms = [[1,2,3,4,5]];
+
+      const H = raphiShapeSeedFromPerms(perms);
+      const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+      const half = (typeof halfCube === 'number' ? halfCube : 15);
+      const RMAX = half * 0.92; // margen para no tocar bordes del cubo 30×30×30
+
+      perms.forEach((pa, pIdx) => {
+        // nº de “semillas” por permutación → 220..379 (determinista)
+        const N = 220 + ((lehmerRank(pa) + H + pIdx) % 160);
+        const baseCol = raphiBaseColorFor(pa, pIdx);
+
+        // tamaño base (determinista, suave)
+        const baseSize = 0.42 + (((H >>> (pIdx % 27)) & 7) * 0.05); // 0.42..0.77
+
+        for (let j = 0; j < N; j++){
+          // phyllotaxis compacta hasta RMAX
+          const t = (j + 0.5) / (N + 0.5);
+          const r = Math.sqrt(t) * RMAX;
+          const a = j * GOLDEN;
+          const x = r * Math.cos(a);
+          const y = r * Math.sin(a);
+
+          // variación cromática 3-estados, conservando contraste global
+          const k = (j % 3);
+          const rgb0 = [Math.round(baseCol.r*255), Math.round(baseCol.g*255), Math.round(baseCol.b*255)];
+          let [hh, ss, vv] = rgbToHsv(rgb0[0], rgb0[1], rgb0[2]);
+          ss = Math.min(1, ss * (1.00 + 0.10*(k-1)));
+          vv = Math.min(1, vv * (0.98 + 0.10*(1-k)) + 0.02*k);
+          let rgb1 = hsvToRgb(hh, ss, vv);
+          rgb1 = ensureContrastRGB(rgb1);
+          const cVar = applyBuildVibranceToColor(new THREE.Color(rgb1[0]/255, rgb1[1]/255, rgb1[2]/255));
+
+          // tamaño decreciente radial → más fino hacia el exterior
+          const s = baseSize * (0.68 + 0.52 * Math.sqrt(1 - t)); // [~0.4..~0.8]
+          const geo = new THREE.BoxGeometry(s, s, s*0.20);
+
+          const mat = new THREE.MeshLambertMaterial({ color: cVar, dithering:true, side:THREE.DoubleSide });
+          mat.emissive = cVar.clone();
+          mat.emissiveIntensity = 0.10;
+
+          const m = new THREE.Mesh(geo, mat);
+          // micro-estratificación Z para evitar z-fighting (determinista)
+          const zLayer = ((j*937 + H) % 7) * 0.06; // 0..0.36
+          m.position.set(x, y, zLayer);
+
+          groupRAPHI.add(m);
+        }
+      });
+
+      // Evita culling agresivo
+      groupRAPHI.traverse(o => { o.frustumCulled = false; });
+
+      scene.add(groupRAPHI);
+    }
+
+    function rebuildRAPHIIfActive(){ if (isRAPHI) buildRAPHI(); }
+
+    function toggleRAPHI(){
+      isRAPHI = !isRAPHI;
+
+      if (isRAPHI){
+        // Exclusividad con otros motores
+        try{ if (isFRBN)   toggleFRBN();   }catch(_){}
+        try{ if (isLCHT)   toggleLCHT();   }catch(_){}
+        try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
+        try{ if (isTMSL)   toggleTMSL();   }catch(_){}
+        try{ if (isRAUM)   toggleRAUM();   }catch(_){}
+        try{ if (is13245)  toggle13245();  }catch(_){}
+        try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
+        try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+
+        leaveBuildRenderBoost();
+        enterRaumRenderBoost();
+
+        buildRAPHI();
+
+        // Cámara nivelada; yaw/pan/zoom permitido; pitch bloqueado
+        camera.up.set(0,1,0);
+        camera.fov = 55;
+        camera.updateProjectionMatrix();
+
+        const eyeY = (controls && controls.target) ? controls.target.y : 0;
+        camera.position.set(0, eyeY, 42);
+        controls.target.set(0, eyeY, 0);
+
+        controls.enabled            = true;
+        controls.enableRotate       = true;   // yaw
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minDistance        = 10;
+        controls.maxDistance        = 200;
+        controls.screenSpacePanning = true;
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.update();
+
+        // lectura “escultórica”
+        try{ if (cubeUniverse) cubeUniverse.visible = false; }catch(_){}
+        try{ permutationGroup.visible = false; }catch(_){}
+        try{ if (lichtGroup) lichtGroup.visible = false; }catch(_){}
+
+      } else {
+        leaveRaumRenderBoost();
+        disposeGroupRAPHI();
+
+        // restaurar cámara/controles por defecto
+        camera.fov = 75;
+        camera.updateProjectionMatrix();
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
+
+        try{ if (cubeUniverse) cubeUniverse.visible = true; }catch(_){}
+        try{ permutationGroup.visible = true; }catch(_){}
+        try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){}
+      }
+    }
+
+    function ensureOnlyRAPHI(){ if (!isRAPHI) toggleRAPHI(); }
+
+    /* Hook: rebuild tras cambios típicos (igual que KEPLR/R5NOVA) */
+    (function RAPHIHook(){
+      const run = ()=>{ try{ rebuildRAPHIIfActive(); }catch(_){ } };
+      [
+        'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+        'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+        'applyAttributeMapping','cycleAttributeMapping',
+        'applyPermutationSet','shufflePermutations','randomizePermutationCenterClick'
+      ].forEach(name=>{
+        const orig = window[name];
+        if (typeof orig === 'function' && !orig.__raphi_hooked){
+          window[name] = function(...args){
+            const res = orig.apply(this, args);
+            setTimeout(run, 0);
+            requestAnimationFrame(run);
+            return res;
+          };
+          window[name].__raphi_hooked = true;
+        }
+      });
+      window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+    })();
+
     // Enciende SOLO FRBN
     function ensureOnlyFRBN(){
       try{ if (isLCHT)   toggleLCHT();   }catch(_){}
@@ -5643,6 +5855,7 @@ void main(){
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
       try{ if (!isFRBN)  toggleFRBN();   }catch(_){}
     }
@@ -5656,6 +5869,7 @@ void main(){
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
       try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
     }
 
@@ -5667,6 +5881,7 @@ void main(){
       try{ if (isRAUM)   toggleRAUM();   }catch(_){}
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
 
       try{
         if (!isTMSL) toggleTMSL();
@@ -5691,6 +5906,7 @@ void main(){
       else if (is13245)  v = '13245';
       else if (isKEPLR)  v = 'KEPLR';     // ← NUEVO
       else if (isR5NOVA) v = 'R5NOVA';
+      else if (isRAPHI)  v = 'RAPHI';          // ← AÑADIR
       sel.value = v;
     }
 
@@ -5714,6 +5930,7 @@ void main(){
       if (val === '13245') { if (!is13245) toggle13245(); return; }
       if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }   // ← NUEVO
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
+      if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← AÑADIR
     }
 
     /* === Rueda de motores del botón “4” (sincroniza el menú) === */
@@ -5725,7 +5942,7 @@ void main(){
       };
 
       // Orden deseado:
-      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → R5NOVA → BUILD
+      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → R5NOVA → RAPHI → BUILD
 
       if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }   // FRBN  → LCHT
       if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }   // LCHT  → OFFNNG
@@ -5744,7 +5961,8 @@ void main(){
       if (isRAUM){    ensureOnly13245();  syncUI(); return; }   // RAUM  → 13245
       if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }   // 13245 → KEPLR   ← NUEVO
       if (isKEPLR){   ensureOnlyR5NOVA(); syncUI(); return; }   // KEPLR → R5NOVA  ← NUEVO
-      if (isR5NOVA){  switchToBuild();    syncUI(); return; }   // R5NOVA→ BUILD
+      if (isR5NOVA){  ensureOnlyRAPHI();  syncUI(); return; }   // R5NOVA→ RAPHI
+      if (isRAPHI){   switchToBuild();    syncUI(); return; }   // RAPHI→ BUILD
 
       // BUILD (o cualquier otro estado “ninguno”) → FRBN
       ensureOnlyFRBN();
