@@ -5342,81 +5342,6 @@ function disposeGroupRAPHI(){
   groupRAPHI = null;
 }
 
-function rebuildRAPHIIfActive(){ if (isRAPHI && typeof buildRAPHI === 'function') buildRAPHI(); }
-
-/* Exclusivo (como RAUM/13245/KEPLR/R5NOVA). Usa el “crispness boost” de RAUM */
-function toggleRAPHI(){
-  isRAPHI = !isRAPHI;
-
-  if (isRAPHI){
-    // Apaga motores excluyentes
-    try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
-    try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
-    try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
-    try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
-    try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
-    try{ if (is13245)  toggle13245();  }catch(_){ }
-    try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
-    try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
-
-    leaveBuildRenderBoost();
-    enterRaumRenderBoost();
-
-    if (typeof buildRAPHI === 'function') buildRAPHI();
-
-    // Cámara nivelada; yaw/pan/zoom; pitch bloqueado (verticales rectas)
-    camera.up.set(0,1,0);
-    camera.fov = 55;
-    camera.updateProjectionMatrix();
-
-    const eyeY = (controls && controls.target) ? controls.target.y : 0;
-    camera.position.set(0, eyeY, 42);
-    controls.target.set(0, eyeY, 0);
-
-    controls.enabled            = true;
-    controls.enableRotate       = true;   // yaw
-    controls.enablePan          = true;
-    controls.enableZoom         = true;
-    controls.minDistance        = 10;
-    controls.maxDistance        = 200;
-    controls.screenSpacePanning = true;
-    controls.minPolarAngle = Math.PI / 2;
-    controls.maxPolarAngle = Math.PI / 2;
-    controls.update();
-
-    // Oculta otros grupos para lectura “escultórica”
-    try{ if (cubeUniverse)      cubeUniverse.visible = false; }catch(_){ }
-    try{ if (permutationGroup)  permutationGroup.visible = false; }catch(_){ }
-    try{ if (lichtGroup)        lichtGroup.visible = false; }catch(_){ }
-
-    // Transparencia: asegura ordenado por objeto
-    try{ renderer.sortObjects = true; }catch(_){ }
-
-    // Parche de transparencia por si buildRAPHI fue asíncrono
-    setTimeout(applyRaphiTransparencyFix, 0);
-    requestAnimationFrame(applyRaphiTransparencyFix);
-
-  } else {
-    leaveRaumRenderBoost();
-    disposeGroupRAPHI();
-
-    // Restaurar ajustes por defecto
-    camera.fov = 75;
-    camera.updateProjectionMatrix();
-    controls.minPolarAngle      = 0;
-    controls.maxPolarAngle      = Math.PI;
-    controls.screenSpacePanning = false;
-
-    try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
-    try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
-    try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){ }
-  }
-}
-
-/* botón selector – sólo enciende, nunca apaga */
-function ensureOnlyRAPHI(){ if (!isRAPHI) toggleRAPHI(); }
-function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
-
 const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
 
 // Colores como BUILD/KEPLR
@@ -5536,105 +5461,10 @@ function raphiKingsChamberOverlay(sx, sy, sz, colorTHREE){
   return group;
 }
 
-/* ─────────────────────────────────────────────────────────────
- * RAPHI · Transparencia robusta para paralelepípedos
- *   - 2 pasadas por volumen: BackSide (opacidad menor) y FrontSide
- *   - depthWrite:false para ambas (evita artefactos al solapar)
- *   - polygonOffset para quitar z-fighting en coplanares
- *   - alphaToCoverage para bordes limpios (WebGL2/MSAA)
- *   - Reparación automática: convierte BoxGeometry+material opaco
- *     a doble pasada sin tocar tu lógica geométrica
- * ───────────────────────────────────────────────────────────── */
-
-const RAPHI_FACE_OPACITY = 0.82;   // pasada frontal
-const RAPHI_BACK_OPACITY = 0.52;   // pasada dorso
-
-function raphiFaceMaterials(colorTHREE){
-  const c = applyBuildVibranceToColor(colorTHREE);
-  const common = {
-    color: c,
-    roughness: 1.0,
-    metalness: 0.0,
-    transparent: true,
-    dithering: true,
-    depthTest: true,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1
-  };
-  const matBack  = new THREE.MeshStandardMaterial({ ...common, side: THREE.BackSide,  opacity: RAPHI_BACK_OPACITY });
-  const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: RAPHI_FACE_OPACITY });
-
-  matBack.emissive  = c.clone(); matBack.emissiveIntensity  = 0.05;
-  matFront.emissive = c.clone(); matFront.emissiveIntensity = 0.08;
-
-  // Mejora bordes si hay MSAA (WebGL2)
-  matBack.alphaToCoverage  = true;
-  matFront.alphaToCoverage = true;
-  return { matBack, matFront };
-}
-
-/* Convierte meshes de BoxGeometry de RAPHI a 2 pasadas.
-   No cambia posiciones ni escalas; reemplaza el mesh por un Group(back+front). */
-function applyRaphiTransparencyFix(){
-  try{
-    if (!window.groupRAPHI) return;
-    const toReplace = [];
-    groupRAPHI.traverse(o=>{
-      if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry') toReplace.push(o);
-    });
-    toReplace.forEach(m=>{
-      const parent = m.parent;
-      if (!parent) return;
-
-      const color = (m.material && m.material.color) ? m.material.color.clone() : new THREE.Color(1,1,1);
-      const { matBack, matFront } = raphiFaceMaterials(color);
-
-      const g = new THREE.Group();
-      const geoBack  = m.geometry.clone();
-      const geoFront = m.geometry.clone();
-
-      const back  = new THREE.Mesh(geoBack,  matBack);
-      const front = new THREE.Mesh(geoFront, matFront);
-
-      // heredar transformaciones del mesh original
-      [back, front].forEach(mm=>{
-        mm.position.copy(m.position);
-        mm.quaternion.copy(m.quaternion);
-        mm.scale.copy(m.scale);
-        mm.renderOrder = m.renderOrder;
-        mm.frustumCulled = false;
-      });
-
-      g.frustumCulled = false;
-      g.renderOrder = m.renderOrder + 0.1;
-      g.add(back, front);
-
-      parent.add(g);
-      parent.remove(m);
-
-      // liberar recursos antiguos si procede
-      try{ m.geometry.dispose(); }catch(_){ }
-      try{ m.material.dispose?.(); }catch(_){ }
-    });
-  }catch(e){
-    console.warn('[RAPHI] transparency fix:', e);
-  }
-}
-
-/* Hook: ejecuta el fix siempre que se reconstruye RAPHI */
-(function patchBuildRaphiForTransparency(){
-  const _orig = window.buildRAPHI;
-  if (typeof _orig === 'function' && !_orig.__raphi_transparency_patched){
-    window.buildRAPHI = function(...args){
-      const res = _orig.apply(this, args);
-      try{ applyRaphiTransparencyFix(); }catch(_){ }
-      return res;
-    };
-    window.buildRAPHI.__raphi_transparency_patched = true;
-  }
-})();
+// RAPHI · flags visuales
+const RAPHI_EDGES_ON      = false; // ← aristas apagadas por defecto
+const RAPHI_DIAGONALS_ON  = false; // ← “cruces”/diagonales apagadas por defecto
+const RAPHI_KINGS_OVERLAY = true;  // Cámara del Rey solo cuando n===2
 
 // Builder principal
 function buildRAPHI(){
@@ -5645,63 +5475,68 @@ function buildRAPHI(){
   const container = new THREE.Group();
   groupRAPHI.userData.rotators = [];
 
-  // Permutaciones activas
-  let perms = getSelectedPerms?.() || [];
+  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
 
-  // Semilla de forma (idéntica a KEPLR para coherencia de “H”)
   const H = raphiShapeSeedFromPerms(perms);
 
   perms.forEach((pa, i)=>{
-    const uniq = i;
-    const preset = raphiPresetFor(pa, uniq, H);  // {name,n,dims[],kings}
+    const uniq   = i;
+    const preset = raphiPresetFor(pa, uniq, H);              // {name,n,dims[],kings}
     const dims0  = preset.dims.slice();
     const dims   = raphiPermuteAxes(dims0, (H ^ (lehmerRank(pa)>>>0) ^ (i*109))>>>0);
 
-    // Escala para encajar en el cubo 30×30×30 (máx ≈ 24)
+    // Escala para encajar en 30×30×30 (máx ≈ 24)
     const MAX = 24;
     const s   = MAX / Math.max(dims[0], dims[1], dims[2]);
-    const sx  = dims[0]*s,  sy = dims[1]*s,  sz = dims[2]*s;
+    const sx = dims[0]*s, sy = dims[1]*s, sz = dims[2]*s;
 
     // Geometría del paralelepípedo
-    const geo  = new THREE.BoxGeometry(sx, sy, sz);
+    const geo = new THREE.BoxGeometry(sx, sy, sz);
 
-    // Colores (como BUILD/KEPLR)
+    // Colores (mismo mapeo que BUILD/KEPLR)
     const cFace = raphiFaceColor(pa, uniq);
     const cEdge = raphiEdgeFromFaceColor(cFace);
 
-    // Cuerpo
-    const mat = new THREE.MeshLambertMaterial({
-      color: cFace, dithering:true, side: THREE.FrontSide, transparent:false
-    });
-    mat.emissive = cFace.clone(); mat.emissiveIntensity = 0.07;
-    const body = new THREE.Mesh(geo, mat);
+    // —— CARAS: dos pasadas (igual que KEPLR) → transparencia correcta ——
+    const faceGroup = keplrBuildFaceGroup(geo, cFace); // usa MeshStandardMaterial back+front, depthWrite:false
+    faceGroup.renderOrder = 0;
 
-    // Aristas
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geo),
-      new THREE.LineBasicMaterial({
-        color: cEdge, transparent:true, opacity:0.95, depthTest:true, depthWrite:false
-      })
-    );
-
-    // Diagonales de cara en todas las caras
-    const faceDiags = raphiFaceDiagonals(sx, sy, sz, cEdge);
-
-    // Overlays especiales
-    const overlays = new THREE.Group();
-    if (preset.name === 'DS'){ // 1:1:2
-      overlays.add(raphiSpaceDiagonal(sx,sy,sz,cEdge));
+    // —— OPCIONAL: aristas (normalmente OFF) ——
+    let edges = null;
+    if (RAPHI_EDGES_ON){
+      const eGeo = new THREE.EdgesGeometry(geo);
+      const eMat = new THREE.LineBasicMaterial({
+        color: cEdge, transparent:true, opacity:0.65, depthTest:true, depthWrite:false
+      });
+      edges = new THREE.LineSegments(eGeo, eMat);
+      edges.renderOrder = 2;
     }
-    if (preset.kings === true){ // 1:ϕ:ϕ²
+
+    // —— OPCIONAL: “cruces” (diagonales de cara) – APAGADAS por defecto ——
+    let faceDiags = null;
+    if (RAPHI_DIAGONALS_ON){
+      faceDiags = raphiFaceDiagonals(sx, sy, sz, cEdge);
+      faceDiags.renderOrder = 1;
+    }
+
+    // —— Overlays especiales ——
+    const overlays = new THREE.Group();
+    if (RAPHI_KINGS_OVERLAY && preset.kings === true){
       overlays.add(raphiKingsChamberOverlay(sx,sy,sz,cEdge));
     }
+    if (preset.name === 'DS'){ // 1:1:2 → diagonal espacial (fina)
+      overlays.add(raphiSpaceDiagonal(sx,sy,sz,cEdge));
+    }
 
-    // Agrupar
+    // Agrupa todo (solo lo que esté ON)
     const g = new THREE.Group();
-    g.add(body, edges, faceDiags, overlays);
+    g.add(faceGroup);
+    if (edges)     g.add(edges);
+    if (faceDiags) g.add(faceDiags);
+    if (overlays.children.length) g.add(overlays);
 
-    // Giro determinista por permutación (igual que KEPLR)
+    // Giro determinista (idéntico a KEPLR)
     const spin = raphiSpinParamsFor(pa, i);
     g.userData.rotAxis = spin.axis;
     g.userData.rotVel  = spin.vel;
@@ -5714,12 +5549,13 @@ function buildRAPHI(){
 
   groupRAPHI.add(container);
   scene.add(groupRAPHI);
+  groupRAPHI.traverse(o => { o.frustumCulled = false; });
 
-  // Evita culling con líneas/trasparencias
-  groupRAPHI.traverse(o=>{ o.frustumCulled = false; });
-
-  // Marca temporal
+  // Marca temporal para RAF
   groupRAPHI.userData._lastT = performance.now();
+
+  // Asegura ordenado por objeto para transparencias
+  try { renderer.sortObjects = true; } catch(_){ }
 }
 
 // Hook para reconstruir ante cambios de patrón/mapping/perms (igual que KEPLR)
@@ -5751,14 +5587,14 @@ function toggleRAPHI(){
 
   if (isRAPHI){
     // exclusividad
-    try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
-    try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
-    try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
-    try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
-    try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
-    try{ if (is13245)  toggle13245();  }catch(_){ }
-    try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
-    try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+    try{ if (isFRBN)   toggleFRBN();   }catch(_){}
+    try{ if (isLCHT)   toggleLCHT();   }catch(_){}
+    try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
+    try{ if (isTMSL)   toggleTMSL();   }catch(_){}
+    try{ if (isRAUM)   toggleRAUM();   }catch(_){}
+    try{ if (is13245)  toggle13245();  }catch(_){}
+    try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
+    try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
 
     leaveBuildRenderBoost();
     enterRaumRenderBoost();
@@ -5786,9 +5622,9 @@ function toggleRAPHI(){
     controls.update();
 
     // Ocultar otros grupos “escultóricos”
-    try{ if (cubeUniverse)      cubeUniverse.visible = false; }catch(_){ }
-    try{ if (permutationGroup)  permutationGroup.visible = false; }catch(_){ }
-    try{ if (lichtGroup)        lichtGroup.visible = false; }catch(_){ }
+    try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){}
+    try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){}
+    try{ if (lichtGroup)       lichtGroup.visible = false; }catch(_){}
 
   } else {
     leaveRaumRenderBoost();
@@ -5800,9 +5636,9 @@ function toggleRAPHI(){
     controls.maxPolarAngle      = Math.PI;
     controls.screenSpacePanning = false;
 
-    try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
-    try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
-    try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){ }
+    try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){}
+    try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){}
+    try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){}
   }
 }
 
@@ -6070,21 +5906,21 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       isR5NOVA = !isR5NOVA;
 
       if (isR5NOVA){
-        // Exclusividad con otros motores
-        if (isFRBN)  toggleFRBN();
-        if (isLCHT)  toggleLCHT();
-        if (isOFFNNG)toggleOFFNNG();
-        if (isTMSL)  toggleTMSL();
-        if (isRAUM)  toggleRAUM();
-        if (is13245) toggle13245();
-        if (isKEPLR) toggleKEPLR();
+        // Exclusividad con otros motores (incluye RAPHI)
+        if (isFRBN)   toggleFRBN();
+        if (isLCHT)   toggleLCHT();
+        if (isOFFNNG) toggleOFFNNG();
+        if (isTMSL)   toggleTMSL();
+        if (isRAUM)   toggleRAUM();
+        if (is13245)  toggle13245();
+        if (isRAPHI)  toggleRAPHI();   // ← **ESTE FALTABA**
+        if (isKEPLR)  toggleKEPLR();
 
         leaveBuildRenderBoost();
-        enterRaumRenderBoost();   // nitidez como RAUM/13245
+        enterRaumRenderBoost();
 
         buildR5NOVA();
 
-        // Cámara nivelada; yaw/pan/zoom permitidos (pitch bloqueado)
         camera.up.set(0,1,0);
         camera.fov = 55;
         camera.updateProjectionMatrix();
@@ -6094,17 +5930,16 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw (clamp polar)
+        controls.enableRotate       = true;
         controls.enablePan          = true;
         controls.enableZoom         = true;
         controls.minDistance        = 10;
         controls.maxDistance        = 200;
         controls.screenSpacePanning = true;
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.minPolarAngle      = Math.PI / 2;
+        controls.maxPolarAngle      = Math.PI / 2;
         controls.update();
 
-        // Oculta cubo/BUILD/LCHT
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
@@ -6114,7 +5949,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         disposeGroupR5NOVA();
         groupR5NOVA = null;
 
-        // Restaurar ajustes por defecto al salir
         camera.fov = 75;
         camera.updateProjectionMatrix();
         controls.minPolarAngle      = 0;
@@ -6139,11 +5973,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
-      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
       try{ if (!isFRBN)  toggleFRBN();   }catch(_){}
     }
 
-    // Enciende SOLO LCHT
     function ensureOnlyLCHT(){
       try{ if (isFRBN)   toggleFRBN();   }catch(_){}
       try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
@@ -6152,10 +5985,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
       try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
     }
 
-    // Enciende SOLO TMSL (y fuerza un rebuild coalescido)
     function ensureOnlyTMSL(){
       try{ if (isFRBN)   toggleFRBN();   }catch(_){}
       try{ if (isLCHT)   toggleLCHT();   }catch(_){}
@@ -6163,10 +5996,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (isRAUM)   toggleRAUM();   }catch(_){}
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
-
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
       try{
         if (!isTMSL) toggleTMSL();
-        // solicita el rebuild del halo en el próximo frame
         if (typeof window.requestTMSLRebuild === 'function'){
           requestTMSLRebuild();
           requestAnimationFrame(requestTMSLRebuild);
