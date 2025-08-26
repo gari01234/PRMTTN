@@ -5007,6 +5007,11 @@ void main(){
       const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: KEPLR_FACE_OPACITY });
       matBack.emissive  = c.clone(); matBack.emissiveIntensity  = 0.05;
       matFront.emissive = c.clone(); matFront.emissiveIntensity = 0.08;
+
+      // ★ Nuevo: suaviza bordes de transparencias y elimina “costuras”/líneas blancas
+      matBack.alphaToCoverage  = true;
+      matFront.alphaToCoverage = true;
+
       return { matBack, matFront };
     }
 
@@ -5467,36 +5472,34 @@ const RAPHI_DIAGONALS_ON  = false; // ← “cruces”/diagonales apagadas por d
 const RAPHI_KINGS_OVERLAY = true;  // Cámara del Rey solo cuando n===2
 
 // ──────────────────────────────
-// RAPHI · RAHMEN (marcos por cara)
+// RAPHI · RAHMEN (marcos por cara) — versión con material de los volúmenes
 // ──────────────────────────────
-const RAPHI_RAHMEN_ON   = true;   // ← desactiva si no quieres marcos
-const RAPHI_FRAME_THICK = 0.10;   // grueso del marco como fracción de min(lados de la cara)
-const RAPHI_FRAME_D     = 0.50;   // profundidad física del marco (extrusión normal a la cara)
-const RAPHI_FRAME_PULL  = 0.06;   // leve separación respecto al plano de la cara
+const RAPHI_RAHMEN_ON   = true;
+const RAPHI_FRAME_THICK = 0.05;  // ← antes 0.10  (Breite a la mitad)
+const RAPHI_FRAME_D     = 0.50;  // Tiefe (igual)
+const RAPHI_FRAME_PULL  = 0.06;  // separación mínima para evitar z-fighting
 
-function raphiFrameMaterial(colorTHREE){
-  const c = applyBuildVibranceToColor(colorTHREE);
-  const m = new THREE.MeshLambertMaterial({
-    color: c,
-    dithering: true,
-    side: THREE.DoubleSide,
-    transparent: false,
-    depthTest: true,
-    depthWrite: true,
-    polygonOffset: true,           // tira hacia delante (complementa el pull)
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits:  -1
-  });
-  m.emissive = c.clone();
-  m.emissiveIntensity = 0.12;
-  return m;
+// Una barra de marco con el MISMO material de caras (dos pasadas + transparencia)
+function raphiBuildRahmenBar(w, h, d, colorTHREE){
+  const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
+  // ayuda anti-“costuras” en bordes con transparencias
+  matBack.alphaToCoverage  = true;
+  matFront.alphaToCoverage = true;
+
+  const geo   = new THREE.BoxGeometry(w, h, d);
+  const g     = new THREE.Group();
+  const back  = new THREE.Mesh(geo, matBack);  back.renderOrder  = 2;
+  const front = new THREE.Mesh(geo, matFront); front.renderOrder = 3;
+  g.add(back, front);
+  g.frustumCulled = false;
+  return g;
 }
 
 /* Construye un marco para UNA cara (4 barras), orientado y posicionado */
-function buildRahmenFace(sizeU, sizeV, sizeN, axis, sign, mat){
-  // Marco en coordenadas locales (normal +Z); luego se rota/traslada
+function buildRahmenFace(sizeU, sizeV, sizeN, axis, sign, colorTHREE){
+  // Marco en coords locales (normal +Z); luego se rota/traslada
   const tBase = Math.min(sizeU, sizeV) * RAPHI_FRAME_THICK;
-  const t = Math.max(0.12, Math.min(tBase, Math.min(sizeU,sizeV) * 0.33));  // límites de seguridad
+  const t = Math.max(0.06, Math.min(tBase, Math.min(sizeU,sizeV) * 0.33));  // más fino que antes
   const d = RAPHI_FRAME_D;
 
   const face = new THREE.Group();
@@ -5504,16 +5507,16 @@ function buildRahmenFace(sizeU, sizeV, sizeN, axis, sign, mat){
   const wU = Math.max(0.001, sizeU - 2*t);
   const hV = Math.max(0.001, sizeV - 2*t);
 
-  const top = new THREE.Mesh(new THREE.BoxGeometry(wU, t, d), mat);
+  const top = raphiBuildRahmenBar(wU, t, d, colorTHREE);
   top.position.set(0, +sizeV/2 - t/2, 0);
 
-  const bot = new THREE.Mesh(new THREE.BoxGeometry(wU, t, d), mat);
+  const bot = raphiBuildRahmenBar(wU, t, d, colorTHREE);
   bot.position.set(0, -sizeV/2 + t/2, 0);
 
-  const lef = new THREE.Mesh(new THREE.BoxGeometry(t, hV, d), mat);
+  const lef = raphiBuildRahmenBar(t, hV, d, colorTHREE);
   lef.position.set(-sizeU/2 + t/2, 0, 0);
 
-  const rig = new THREE.Mesh(new THREE.BoxGeometry(t, hV, d), mat);
+  const rig = raphiBuildRahmenBar(t, hV, d, colorTHREE);
   rig.position.set(+sizeU/2 - t/2, 0, 0);
 
   face.add(top, bot, lef, rig);
@@ -5533,27 +5536,26 @@ function buildRahmenFace(sizeU, sizeV, sizeN, axis, sign, mat){
                            : new THREE.Vector3(0,0,sign);
   face.position.copy(n.multiplyScalar(pull));
 
-  face.renderOrder = 4;         // por delante de las caras del cuerpo
+  face.renderOrder = 2.5;        // entre caras (0/1) y overlays (si los hubiera)
   face.frustumCulled = false;
   return face;
 }
 
 /* Marco completo (6 caras) para un paralelepípedo sx×sy×sz */
 function raphiBuildRahmenGroup(sx, sy, sz, colorTHREE){
-  const mat = raphiFrameMaterial(colorTHREE);
   const g = new THREE.Group();
   g.add(
     // Z ±
-    buildRahmenFace(sx, sy, sz, 'z', +1, mat),
-    buildRahmenFace(sx, sy, sz, 'z', -1, mat),
-    // X ±  (cara está en plano YZ → ejes tangentes: Z,U y Y,V)
-    buildRahmenFace(sz, sy, sx, 'x', +1, mat),
-    buildRahmenFace(sz, sy, sx, 'x', -1, mat),
-    // Y ±  (cara está en plano XZ → ejes tangentes: X,U y Z,V)
-    buildRahmenFace(sx, sz, sy, 'y', +1, mat),
-    buildRahmenFace(sx, sz, sy, 'y', -1, mat)
+    buildRahmenFace(sx, sy, sz, 'z', +1, colorTHREE),
+    buildRahmenFace(sx, sy, sz, 'z', -1, colorTHREE),
+    // X ±  (cara en plano YZ → ejes tangentes: Z,U y Y,V)
+    buildRahmenFace(sz, sy, sx, 'x', +1, colorTHREE),
+    buildRahmenFace(sz, sy, sx, 'x', -1, colorTHREE),
+    // Y ±  (cara en plano XZ → ejes tangentes: X,U y Z,V)
+    buildRahmenFace(sx, sz, sy, 'y', +1, colorTHREE),
+    buildRahmenFace(sx, sz, sy, 'y', -1, colorTHREE)
   );
-  g.renderOrder = 4;
+  g.renderOrder = 2.5;
   g.frustumCulled = false;
   return g;
 }
