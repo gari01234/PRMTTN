@@ -5323,12 +5323,13 @@ void main(){
 // RAPHI · Right-Angled Parallelepipeds 1:ϕ:ϕⁿ  (hermano de KEPLR)
 // n ∈ {0,1,2,3}  +  preset especial 1:1:2  + overlays (diagonales / King's Chamber)
 // ──────────────────────────────
-let isRAPHI    = false;
-let groupRAPHI = null;
 
-const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
+// ──────────────────────────────
+// RAPHI · Exclusivo y con cierre limpio
+// ──────────────────────────────
+let isRAPHI    = window.isRAPHI || false;
+let groupRAPHI = window.groupRAPHI || null;
 
-// Limpieza segura
 function disposeGroupRAPHI(){
   if (!groupRAPHI) return;
   groupRAPHI.traverse(o=>{
@@ -5340,6 +5341,83 @@ function disposeGroupRAPHI(){
   scene.remove(groupRAPHI);
   groupRAPHI = null;
 }
+
+function rebuildRAPHIIfActive(){ if (isRAPHI && typeof buildRAPHI === 'function') buildRAPHI(); }
+
+/* Exclusivo (como RAUM/13245/KEPLR/R5NOVA). Usa el “crispness boost” de RAUM */
+function toggleRAPHI(){
+  isRAPHI = !isRAPHI;
+
+  if (isRAPHI){
+    // Apaga motores excluyentes
+    try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+    try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+    try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+    try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+    try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+    try{ if (is13245)  toggle13245();  }catch(_){ }
+    try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+    try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+
+    leaveBuildRenderBoost();
+    enterRaumRenderBoost();
+
+    if (typeof buildRAPHI === 'function') buildRAPHI();
+
+    // Cámara nivelada; yaw/pan/zoom; pitch bloqueado (verticales rectas)
+    camera.up.set(0,1,0);
+    camera.fov = 55;
+    camera.updateProjectionMatrix();
+
+    const eyeY = (controls && controls.target) ? controls.target.y : 0;
+    camera.position.set(0, eyeY, 42);
+    controls.target.set(0, eyeY, 0);
+
+    controls.enabled            = true;
+    controls.enableRotate       = true;   // yaw
+    controls.enablePan          = true;
+    controls.enableZoom         = true;
+    controls.minDistance        = 10;
+    controls.maxDistance        = 200;
+    controls.screenSpacePanning = true;
+    controls.minPolarAngle = Math.PI / 2;
+    controls.maxPolarAngle = Math.PI / 2;
+    controls.update();
+
+    // Oculta otros grupos para lectura “escultórica”
+    try{ if (cubeUniverse)      cubeUniverse.visible = false; }catch(_){ }
+    try{ if (permutationGroup)  permutationGroup.visible = false; }catch(_){ }
+    try{ if (lichtGroup)        lichtGroup.visible = false; }catch(_){ }
+
+    // Transparencia: asegura ordenado por objeto
+    try{ renderer.sortObjects = true; }catch(_){ }
+
+    // Parche de transparencia por si buildRAPHI fue asíncrono
+    setTimeout(applyRaphiTransparencyFix, 0);
+    requestAnimationFrame(applyRaphiTransparencyFix);
+
+  } else {
+    leaveRaumRenderBoost();
+    disposeGroupRAPHI();
+
+    // Restaurar ajustes por defecto
+    camera.fov = 75;
+    camera.updateProjectionMatrix();
+    controls.minPolarAngle      = 0;
+    controls.maxPolarAngle      = Math.PI;
+    controls.screenSpacePanning = false;
+
+    try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
+    try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
+    try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){ }
+  }
+}
+
+/* botón selector – sólo enciende, nunca apaga */
+function ensureOnlyRAPHI(){ if (!isRAPHI) toggleRAPHI(); }
+function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
+
+const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
 
 // Colores como BUILD/KEPLR
 function raphiFaceColor(pa, uniq){
@@ -5457,6 +5535,106 @@ function raphiKingsChamberOverlay(sx, sy, sz, colorTHREE){
   group.add(edges, bigDiag);
   return group;
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * RAPHI · Transparencia robusta para paralelepípedos
+ *   - 2 pasadas por volumen: BackSide (opacidad menor) y FrontSide
+ *   - depthWrite:false para ambas (evita artefactos al solapar)
+ *   - polygonOffset para quitar z-fighting en coplanares
+ *   - alphaToCoverage para bordes limpios (WebGL2/MSAA)
+ *   - Reparación automática: convierte BoxGeometry+material opaco
+ *     a doble pasada sin tocar tu lógica geométrica
+ * ───────────────────────────────────────────────────────────── */
+
+const RAPHI_FACE_OPACITY = 0.82;   // pasada frontal
+const RAPHI_BACK_OPACITY = 0.52;   // pasada dorso
+
+function raphiFaceMaterials(colorTHREE){
+  const c = applyBuildVibranceToColor(colorTHREE);
+  const common = {
+    color: c,
+    roughness: 1.0,
+    metalness: 0.0,
+    transparent: true,
+    dithering: true,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1
+  };
+  const matBack  = new THREE.MeshStandardMaterial({ ...common, side: THREE.BackSide,  opacity: RAPHI_BACK_OPACITY });
+  const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: RAPHI_FACE_OPACITY });
+
+  matBack.emissive  = c.clone(); matBack.emissiveIntensity  = 0.05;
+  matFront.emissive = c.clone(); matFront.emissiveIntensity = 0.08;
+
+  // Mejora bordes si hay MSAA (WebGL2)
+  matBack.alphaToCoverage  = true;
+  matFront.alphaToCoverage = true;
+  return { matBack, matFront };
+}
+
+/* Convierte meshes de BoxGeometry de RAPHI a 2 pasadas.
+   No cambia posiciones ni escalas; reemplaza el mesh por un Group(back+front). */
+function applyRaphiTransparencyFix(){
+  try{
+    if (!window.groupRAPHI) return;
+    const toReplace = [];
+    groupRAPHI.traverse(o=>{
+      if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry') toReplace.push(o);
+    });
+    toReplace.forEach(m=>{
+      const parent = m.parent;
+      if (!parent) return;
+
+      const color = (m.material && m.material.color) ? m.material.color.clone() : new THREE.Color(1,1,1);
+      const { matBack, matFront } = raphiFaceMaterials(color);
+
+      const g = new THREE.Group();
+      const geoBack  = m.geometry.clone();
+      const geoFront = m.geometry.clone();
+
+      const back  = new THREE.Mesh(geoBack,  matBack);
+      const front = new THREE.Mesh(geoFront, matFront);
+
+      // heredar transformaciones del mesh original
+      [back, front].forEach(mm=>{
+        mm.position.copy(m.position);
+        mm.quaternion.copy(m.quaternion);
+        mm.scale.copy(m.scale);
+        mm.renderOrder = m.renderOrder;
+        mm.frustumCulled = false;
+      });
+
+      g.frustumCulled = false;
+      g.renderOrder = m.renderOrder + 0.1;
+      g.add(back, front);
+
+      parent.add(g);
+      parent.remove(m);
+
+      // liberar recursos antiguos si procede
+      try{ m.geometry.dispose(); }catch(_){ }
+      try{ m.material.dispose?.(); }catch(_){ }
+    });
+  }catch(e){
+    console.warn('[RAPHI] transparency fix:', e);
+  }
+}
+
+/* Hook: ejecuta el fix siempre que se reconstruye RAPHI */
+(function patchBuildRaphiForTransparency(){
+  const _orig = window.buildRAPHI;
+  if (typeof _orig === 'function' && !_orig.__raphi_transparency_patched){
+    window.buildRAPHI = function(...args){
+      const res = _orig.apply(this, args);
+      try{ applyRaphiTransparencyFix(); }catch(_){ }
+      return res;
+    };
+    window.buildRAPHI.__raphi_transparency_patched = true;
+  }
+})();
 
 // Builder principal
 function buildRAPHI(){
@@ -5996,23 +6174,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       }catch(_){ }
     }
     
-    /* === Actualiza el menú según el motor activo (asegura opción RAPHI) === */
+    /* === Actualiza el menú según el motor activo === */
     function updateEngineSelectUI(){
       const sel = document.getElementById('engineSelect');
       if (!sel) return;
-
-      // Asegura que exista la opción RAPHI (y las demás nuevas)
-      function ensureOpt(val, label){
-        if (![...sel.options].some(o=>o.value===val)){
-          const op = document.createElement('option');
-          op.value = val; op.textContent = label;
-          sel.appendChild(op);
-        }
-      }
-      ensureOpt('KEPLR',  'KEPLR');
-      ensureOpt('RAPHI',  'RAPHI');
-      ensureOpt('R5NOVA', 'R5NOVA');
-
       let v = 'BUILD';
       if (isFRBN)        v = 'FRBN';
       else if (isLCHT)   v = 'LCHT';
@@ -6021,14 +6186,13 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       else if (isRAUM)   v = 'RAUM';
       else if (is13245)  v = '13245';
       else if (isKEPLR)  v = 'KEPLR';
-      else if (isRAPHI)  v = 'RAPHI';     // ← NUEVO
+      else if (isRAPHI)  v = 'RAPHI';   // ← añadido
       else if (isR5NOVA) v = 'R5NOVA';
       sel.value = v;
     }
 
     /* === Cambia de motor cuando el usuario selecciona en el menú === */
     function applyEngineFromSelect(val){
-      // apaga todo y enciende el seleccionado
       if (val === 'BUILD') { switchToBuild(); return; }
       if (val === 'FRBN')  { if (!isFRBN)  toggleFRBN();  return; }
       if (val === 'LCHT')  { if (!isLCHT)  toggleLCHT();  return; }
@@ -6044,7 +6208,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       if (val === 'RAUM')  { if (!isRAUM)  toggleRAUM();  return; }
       if (val === '13245') { if (!is13245) toggle13245(); return; }
       if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }
-      if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← NUEVO
+      if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← añadido
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
     }
 
@@ -6056,14 +6220,13 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         requestAnimationFrame(updateEngineSelectUI);
       };
 
-      // Orden deseado actualizado:
+      // Orden:
       // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → RAPHI → R5NOVA → BUILD
 
-      if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }   // FRBN  → LCHT
-      if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }   // LCHT  → OFFNNG
-      if (isOFFNNG){  ensureOnlyTMSL();   syncUI(); return; }   // OFFNNG→ TMSL
+      if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }
+      if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }
+      if (isOFFNNG){  ensureOnlyTMSL();   syncUI(); return; }
 
-      // --- TMSL → RAUM (forzado)
       if (isTMSL){
         try { toggleRAUM(); } catch(_){ }
         setTimeout(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } }, 0);
@@ -6072,13 +6235,13 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         return;
       }
 
-      if (isRAUM){    ensureOnly13245();  syncUI(); return; }   // RAUM  → 13245
-      if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }   // 13245 → KEPLR
-      if (isKEPLR){   ensureOnlyRAPHI();  syncUI(); return; }   // KEPLR → RAPHI   ← NUEVO
-      if (isRAPHI){   ensureOnlyR5NOVA(); syncUI(); return; }   // RAPHI → R5NOVA  ← NUEVO
-      if (isR5NOVA){  switchToBuild();    syncUI(); return; }   // R5NOVA→ BUILD
+      if (isRAUM){    ensureOnly13245();  syncUI(); return; }
+      if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }
+      if (isKEPLR){   ensureOnlyRAPHI();  syncUI(); return; }  // KEPLR → RAPHI
+      if (isRAPHI){   ensureOnlyR5NOVA(); syncUI(); return; }  // RAPHI → R5NOVA
+      if (isR5NOVA){  switchToBuild();    syncUI(); return; }
 
-      // BUILD (o “ninguno”) → FRBN
+      // BUILD (o ninguno) → FRBN
       ensureOnlyFRBN();
       syncUI();
     }
