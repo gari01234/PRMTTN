@@ -5242,14 +5242,13 @@ void main(){
 
         buildKEPLR();
 
-        // Cámara nivelada; yaw/pan/zoom permitidos (pitch bloqueado)
+        // Cámara nivelada, centrada (Minimal UI); yaw/pan/zoom permitidos
         camera.up.set(0,1,0);
         camera.fov = 55;
         camera.updateProjectionMatrix();
 
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.position.set(0, eyeY, 42);
-        controls.target.set(0, eyeY, 0);
+        if (controls && controls.target) controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, 42);
 
         controls.enabled            = true;
         controls.enableRotate       = true;   // solo yaw
@@ -5664,17 +5663,16 @@ function toggleRAPHI(){
 
     buildRAPHI();
 
-    // Cámara nivelada (verticales rectas), yaw/pan/zoom ON
+    // Cámara nivelada (verticales rectas), centrada (Minimal UI), yaw/pan/zoom ON
     camera.up.set(0,1,0);
     camera.fov = 55;
     camera.updateProjectionMatrix();
 
-    const eyeY = (controls && controls.target) ? controls.target.y : 0;
-    camera.position.set(0, eyeY, 42);
-    controls.target.set(0, eyeY, 0);
+    if (controls && controls.target) controls.target.set(0, 0, 0);
+    camera.position.set(0, 0, 42);
 
     controls.enabled            = true;
-    controls.enableRotate       = true;   // solo yaw (clamp polar)
+    controls.enableRotate       = true;   // solo yaw (por el clamp polar)
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 10;
