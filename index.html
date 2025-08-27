@@ -5344,6 +5344,25 @@ function disposeGroupRAPHI(){
 
 const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
 
+// RAPHI · opacidades propias
+const RAPHI_FACE_OPACITY = 0.78;
+const RAPHI_BACK_OPACITY = 0.55;
+
+function raphiFaceMaterials(colorTHREE){
+  const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
+  matFront.opacity = RAPHI_FACE_OPACITY;
+  matBack.opacity  = RAPHI_BACK_OPACITY;
+  return { matBack, matFront };
+}
+function raphiBuildFaceGroup(geo, colorTHREE){
+  const { matBack, matFront } = raphiFaceMaterials(colorTHREE);
+  const g = new THREE.Group();
+  const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0;
+  const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1;
+  g.add(mBack, mFront);
+  return g;
+}
+
 // Colores como BUILD/KEPLR
 function raphiFaceColor(pa, uniq){
   return keplrUniqueFaceColor(pa, uniq|0); // reusa mapeo cromático de BUILD/KEPLR
@@ -5499,7 +5518,7 @@ function buildRAPHI(){
     const cEdge = raphiEdgeFromFaceColor(cFace);
 
     // —— CARAS: dos pasadas (igual que KEPLR) → transparencia correcta ——
-    const faceGroup = keplrBuildFaceGroup(geo, cFace); // usa MeshStandardMaterial back+front, depthWrite:false
+    const faceGroup = raphiBuildFaceGroup(geo, cFace); // usa MeshStandardMaterial back+front, depthWrite:false
     faceGroup.renderOrder = 0;
 
     // —— OPCIONAL: aristas (normalmente OFF) ——
