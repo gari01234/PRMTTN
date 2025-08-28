@@ -6713,15 +6713,48 @@ async function showPatternInfo(){
   })();
 
 /* ═══════════════════════════════════════════════════════════════
- * RAPHI · Animador de giro robusto (independiente del bucle BUILD)
- *  - Respeta getBuildRotStep si devuelve ±1 (o cualquier ≠ 0).
- *  - Si devuelve 0/NaN/undefined, usa 1 para que gire siempre.
- *  - Fuerza updateMatrix(World) por si matrixAutoUpdate estuviera OFF.
+ * RAPHI · Animador + puente de control de movimiento (BUILD ↔ RAPHI)
+ *  - Respeta getBuildRotStep (incluye 0 = pausa).
+ *  - Respeta pausa global (isBuildMotionPaused si existe) y bandera local __raphiPaused.
+ *  - Engancha pause/resume/reset del menú de BUILD para controlar RAPHI también.
+ *  - Evita saltos de tiempo cuando está en pausa (re-sincroniza _lastT).
  * ═══════════════════════════════════════════════════════════════ */
-(function installRAPHIAnimator(){
-  if (window.__raphiAnimatorInstalled2) return;
-  window.__raphiAnimatorInstalled2 = true;
+(function installRAPHIAnimatorAndBridge(){
+  if (window.__raphiAnimatorInstalled3) return;
+  window.__raphiAnimatorInstalled3 = true;
 
+  // ======== API pública RAPHI: pausa / toggle / reset ========
+  window.__raphiPaused = !!window.__raphiPaused;
+
+  window.pauseRaphiMotion = function(on = true){
+    window.__raphiPaused = !!on;
+    try{
+      const grp = window.groupRAPHI;
+      if (grp && grp.userData) grp.userData._lastT = performance.now(); // come el tiempo en pausa
+    }catch(_){ }
+  };
+
+  window.toggleRaphiPause = function(){
+    window.pauseRaphiMotion(!window.__raphiPaused);
+  };
+
+  window.resetRaphiMotion = function(){
+    try{
+      const grp = window.groupRAPHI;
+      if (!grp || !grp.userData || !Array.isArray(grp.userData.rotators)) return;
+      grp.userData.rotators.forEach(g=>{
+        if (!g) return;
+        // Reinicia orientación
+        g.rotation.set(0,0,0);
+        g.updateMatrix();
+        g.updateMatrixWorld(true);
+      });
+      // Re-sincroniza tiempo para evitar salto al siguiente frame
+      grp.userData._lastT = performance.now();
+    }catch(_){ }
+  };
+
+  // ======== Animador principal ========
   function updateRaphiSpin(){
     // Usa globals si existen; si no, cae al scope local del módulo
     const grp = (window.groupRAPHI || (typeof groupRAPHI !== 'undefined' ? groupRAPHI : null));
@@ -6730,7 +6763,22 @@ async function showPatternInfo(){
 
     const now  = performance.now();
     const last = grp.userData._lastT || now;
-    const dt   = Math.max(0, (now - last) / 1000);
+
+    // —— detección de pausa global (BUILD o RAPHI) —— //
+    let paused = !!window.__raphiPaused;
+    try{
+      if (!paused && typeof window.isBuildMotionPaused === 'function'){
+        paused = !!window.isBuildMotionPaused();
+      }
+    }catch(_){ }
+
+    if (paused){
+      // come el tiempo en pausa para evitar un dt gigante al reanudar
+      grp.userData._lastT = now;
+      return;
+    }
+
+    const dt = Math.max(0, (now - last) / 1000);
     grp.userData._lastT = now;
 
     const rotators = Array.isArray(grp.userData.rotators) ? grp.userData.rotators : [];
@@ -6738,21 +6786,21 @@ async function showPatternInfo(){
       const g = rotators[i];
       if (!g || !g.userData) continue;
 
+      // Paso de giro desde BUILD (acepta 0 = pausa por-perm)
       let s = null;
       if (typeof getBuildRotStep === 'function' && g.userData.permStr){
         try { s = getBuildRotStep(g.userData.permStr); } catch(_){ }
       }
-      if (typeof s === 'number') {
-        g.userData.rotStep = s;   // respeta 0 (pausa), fracciones y ±
-      } else if (typeof g.userData.rotStep !== 'number') {
-        g.userData.rotStep = 1;
-      }
+      if (typeof s === 'number') g.userData.rotStep = s; // incluye 0 = pausa
+      if (typeof g.userData.rotStep !== 'number') g.userData.rotStep = 1;
 
       const step = g.userData.rotStep;
+      if (!step) continue; // pausa por-perm
+
       const axis = g.userData.rotAxis;
       const vel  = g.userData.rotVel;
 
-      if (axis && typeof vel === 'number' && step){
+      if (axis && typeof vel === 'number'){
         g.rotateOnAxis(axis, vel * dt * step);
         if (!g.matrixAutoUpdate) g.updateMatrix();
         g.updateMatrixWorld(true);
@@ -6765,7 +6813,28 @@ async function showPatternInfo(){
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
+
+  // ======== Bridge: engancha los handlers del menú de BUILD ========
+  function wrap(name, after){
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__raphi_hooked){
+      window[name] = function(...args){
+        const out = orig.apply(this, args);
+        try{ after(); }catch(_){ }
+        return out;
+      };
+      window[name].__raphi_hooked = true;
+    }
+  }
+
+  // Si existen en tu código, quedarán “extendidos” para RAPHI también:
+  wrap('pauseMotion',        ()=> window.toggleRaphiPause());
+  wrap('resumeMotion',       ()=> window.pauseRaphiMotion(false));
+  wrap('toggleMotionPause',  ()=> window.toggleRaphiPause());
+  wrap('resetMotion',        ()=> window.resetRaphiMotion());
+
 })();
+
 </script>
 </body>
 </html>
