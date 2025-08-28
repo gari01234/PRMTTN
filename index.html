@@ -5576,50 +5576,6 @@ function buildRAPHI(){
   try { renderer.sortObjects = true; } catch(_){ }
 }
 
-/* ──────────────────────────────
- * RAPHI · Animador de giro (idéntico a BUILD/KEPLR)
- * Aplica: Δθ = ω · Δt · rotStep sobre el eje local fijo (rotateOnAxis)
- * ────────────────────────────── */
-(function installRAPHIAnimator(){
-  if (window.__raphiAnimatorInstalled) return;
-  window.__raphiAnimatorInstalled = true;
-
-  function tick(){
-    try{
-      if (window.isRAPHI && window.groupRAPHI && groupRAPHI.userData && Array.isArray(groupRAPHI.userData.rotators)){
-        const now  = performance.now();
-        const last = groupRAPHI.userData._lastT || now;
-        const dt   = Math.max(0, (now - last) / 1000);
-        groupRAPHI.userData._lastT = now;
-
-        const rotators = groupRAPHI.userData.rotators;
-        for (let i = 0; i < rotators.length; i++){
-          const g = rotators[i];
-          if (!g || !g.userData) continue;
-
-          // Mantén sincronía con BUILD (play/pausa/dirección por permutación)
-          if (typeof getBuildRotStep === 'function' && g.userData.permStr){
-            const s = getBuildRotStep(g.userData.permStr);
-            if (typeof s === 'number') g.userData.rotStep = s;
-          }
-
-          const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
-          const axis = g.userData.rotAxis;      // Vector3 unitario, fijo por volumen
-          const vel  = g.userData.rotVel;       // rad/s desde Signature Range
-
-          if (axis && typeof vel === 'number' && step !== 0){
-            g.rotateOnAxis(axis, vel * dt * step);
-          }
-        }
-      }
-    } catch(_) { /* noop */ }
-
-    requestAnimationFrame(tick);
-  }
-
-  requestAnimationFrame(tick);
-})();
-
 // Hook para reconstruir ante cambios de patrón/mapping/perms (igual que KEPLR)
 (function RAPHIHook(){
   const run = ()=>{ try{ rebuildRAPHIIfActive(); }catch(_){ } };
@@ -6734,6 +6690,52 @@ async function showPatternInfo(){
   (function(){
     if (window.__tmslAmbient) window.__tmslAmbient.intensity = 0.10; // o 0 para desactivarla
   })();
+
+/* ═══════════════════════════════════════════════════════════════
+ * ROTACIÓN POR-FRAME (solo RAPHI) – sincronizada con BUILD
+ *  - Usa getBuildRotStep(permStr) como BUILD (play/pausa/invertir).
+ *  - Se engancha a window.render (tu bucle de dibujado).
+ * ═══════════════════════════════════════════════════════════════ */
+(function installRaphiSpinHook(){
+  if (window.__raphiSpinHook) return;
+  window.__raphiSpinHook = true;
+
+  function updateRaphiSpin(){
+    if (!window.isRAPHI || !window.groupRAPHI || !groupRAPHI.userData) return;
+
+    const now  = performance.now();
+    const last = groupRAPHI.userData._lastT || now;
+    const dt   = Math.max(0, (now - last) / 1000);
+    groupRAPHI.userData._lastT = now;
+
+    const rotators = Array.isArray(groupRAPHI.userData.rotators) ? groupRAPHI.userData.rotators : [];
+    for (let i = 0; i < rotators.length; i++){
+      const g = rotators[i];
+      if (!g || !g.userData) continue;
+
+      // Sincronía con BUILD: dirección / pausa por permutación
+      if (typeof getBuildRotStep === 'function' && g.userData.permStr){
+        const s = getBuildRotStep(g.userData.permStr);
+        if (typeof s === 'number') g.userData.rotStep = s;
+      }
+
+      const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
+      const axis = g.userData.rotAxis;  // THREE.Vector3 normalizado
+      const vel  = g.userData.rotVel;   // rad/s (Signature Range)
+
+      if (axis && typeof vel === 'number' && step !== 0){
+        g.rotateOnAxis(axis, vel * dt * step);
+      }
+    }
+  }
+
+  // Envuelve tu render global: rota primero, luego dibuja
+  const prevRender = window.render || function(){};
+  window.render = function(...args){
+    try { updateRaphiSpin(); } catch(_){ }
+    return prevRender.apply(this, args);
+  };
+})();
 </script>
 </body>
 </html>
