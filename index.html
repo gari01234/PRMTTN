@@ -5339,6 +5339,7 @@ function disposeGroupRAPHI(){
   });
   scene.remove(groupRAPHI);
   groupRAPHI = null;
+  window.groupRAPHI = null;     // ← asegura coherencia con el animador
 }
 
 const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
@@ -5488,6 +5489,7 @@ const RAPHI_KINGS_OVERLAY = true;  // Cámara del Rey solo cuando n===2
 function buildRAPHI(){
   disposeGroupRAPHI();
   groupRAPHI = new THREE.Group();
+  window.groupRAPHI = groupRAPHI; // ← el animador lo leerá desde window
   updateBackground(false);
 
   const container = new THREE.Group();
@@ -5609,6 +5611,7 @@ function buildRAPHI(){
 // Exclusivo (como RAUM/13245/KEPLR/R5NOVA). Usa el “crispness boost” de RAUM.
 function toggleRAPHI(){
   isRAPHI = !isRAPHI;
+  window.isRAPHI = isRAPHI;
 
   if (isRAPHI){
     // exclusividad
@@ -5625,6 +5628,8 @@ function toggleRAPHI(){
     enterRaumRenderBoost();
 
     buildRAPHI();
+    window.isRAPHI = true;                 // redundante pero seguro
+    window.groupRAPHI = groupRAPHI;        // refuerza la referencia global
 
     // Cámara nivelada (verticales rectas), centrada (Minimal UI), yaw/pan/zoom ON
     camera.up.set(0,1,0);
@@ -5653,6 +5658,7 @@ function toggleRAPHI(){
   } else {
     leaveRaumRenderBoost();
     disposeGroupRAPHI();
+    window.isRAPHI = false;                // estado global coherente
 
     camera.fov = 75;
     camera.updateProjectionMatrix();
@@ -6709,19 +6715,22 @@ async function showPatternInfo(){
   window.__raphiAnimatorInstalled2 = true;
 
   function updateRaphiSpin(){
-    if (!window.isRAPHI || !window.groupRAPHI || !groupRAPHI.userData) return;
+    // Usa globals si existen; si no, cae al scope local del módulo
+    const grp = (window.groupRAPHI || (typeof groupRAPHI !== 'undefined' ? groupRAPHI : null));
+    const on  = (window.isRAPHI === true) || (typeof isRAPHI !== 'undefined' && isRAPHI === true);
+    if (!on || !grp || !grp.userData) return;
 
     const now  = performance.now();
-    const last = groupRAPHI.userData._lastT || now;
+    const last = grp.userData._lastT || now;
     const dt   = Math.max(0, (now - last) / 1000);
-    groupRAPHI.userData._lastT = now;
+    grp.userData._lastT = now;
 
-    const rotators = Array.isArray(groupRAPHI.userData.rotators) ? groupRAPHI.userData.rotators : [];
+    const rotators = Array.isArray(grp.userData.rotators) ? grp.userData.rotators : [];
     for (let i = 0; i < rotators.length; i++){
       const g = rotators[i];
       if (!g || !g.userData) continue;
 
-      // Lee el step de BUILD si existe; solo lo aplicamos si es NO-cero
+      // Respeta BUILD si devuelve ±1 (o cualquier ≠ 0); si no, mantenemos el valor previo (fallback=1 en build)
       let s = null;
       if (typeof getBuildRotStep === 'function' && g.userData.permStr){
         try { s = getBuildRotStep(g.userData.permStr); } catch(_){ }
@@ -6735,7 +6744,7 @@ async function showPatternInfo(){
 
       if (axis && typeof vel === 'number' && step){
         g.rotateOnAxis(axis, vel * dt * step);
-        if (!g.matrixAutoUpdate) { g.updateMatrix(); }
+        if (!g.matrixAutoUpdate) g.updateMatrix();
         g.updateMatrixWorld(true);
       }
     }
