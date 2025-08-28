@@ -5376,10 +5376,14 @@ function raphiShapeSeedFromPerms(perms){
   return keplrShapeSeedFromPerms(perms);
 }
 
-// Eje y velocidad (idéntico a KEPLR: “signature range”)
-function raphiSpinParamsFor(pa, idx){
-  return keplrSpinParamsFor(pa, idx);
-}
+  // Eje y velocidad para RAPHI: giro tipo “bailarina” sobre el eje Y local
+  function raphiSpinParamsFor(pa, idx){
+    // velocidad según “Signature Range” (misma fórmula que KEPLR)
+    const vel = keplrOmegaFromSignature(pa);
+    // eje fijo “de pie” (local Y)
+    const axis = new THREE.Vector3(0, 1, 0);
+    return { axis, vel };
+  }
 
 // Selección determinista del preset para una permutación
 //  - ~1/16 de los casos: preset especial 1:1:2 (doble-cuadrado)
@@ -5570,9 +5574,11 @@ function buildRAPHI(){
     try { __s = (typeof getBuildRotStep === 'function') ? getBuildRotStep(permStr) : null; } catch(_){ }
     g.userData.rotStep = (typeof __s === 'number' && __s !== 0) ? __s : 1;
 
-    container.add(g);
-    groupRAPHI.userData.rotators.push(g);
-  });
+      container.add(g);
+      groupRAPHI.userData.rotators.push(g);
+      // Asegura eje Y “bailarina” incluso si venías de una versión anterior
+      g.userData.rotAxis = new THREE.Vector3(0, 1, 0);
+    });
 
   groupRAPHI.add(container);
   scene.add(groupRAPHI);
