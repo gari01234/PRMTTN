@@ -5554,12 +5554,19 @@ function buildRAPHI(){
     if (faceDiags) g.add(faceDiags);
     if (overlays.children.length) g.add(overlays);
 
-    // Giro determinista (idéntico a KEPLR)
+    // Giro determinista (BUILD-like; fallback seguro si BUILD no está activo)
     const spin = raphiSpinParamsFor(pa, i);
+    g.matrixAutoUpdate = true;                       // fuerza actualización local
     g.userData.rotAxis = spin.axis;
     g.userData.rotVel  = spin.vel;
-    g.userData.permStr = pa.join(',');
-    g.userData.rotStep = getBuildRotStep(g.userData.permStr);
+
+    const permStr = pa.join(',');
+    g.userData.permStr = permStr;
+
+    // Toma el paso desde BUILD si existe y es NO-cero; si no, usa 1 (gira siempre)
+    let __s = null;
+    try { __s = (typeof getBuildRotStep === 'function') ? getBuildRotStep(permStr) : null; } catch(_){ }
+    g.userData.rotStep = (typeof __s === 'number' && __s !== 0) ? __s : 1;
 
     container.add(g);
     groupRAPHI.userData.rotators.push(g);
@@ -6692,13 +6699,14 @@ async function showPatternInfo(){
   })();
 
 /* ═══════════════════════════════════════════════════════════════
- * ROTACIÓN POR-FRAME (solo RAPHI) – sincronizada con BUILD
- *  - Usa getBuildRotStep(permStr) como BUILD (play/pausa/invertir).
- *  - Se engancha a window.render (tu bucle de dibujado).
+ * RAPHI · Animador de giro robusto (independiente del bucle BUILD)
+ *  - Respeta getBuildRotStep si devuelve ±1 (o cualquier ≠ 0).
+ *  - Si devuelve 0/NaN/undefined, mantiene o usa 1 para que gire.
+ *  - Fuerza updateMatrix(World) por si matrixAutoUpdate estuviera OFF.
  * ═══════════════════════════════════════════════════════════════ */
-(function installRaphiSpinHook(){
-  if (window.__raphiSpinHook) return;
-  window.__raphiSpinHook = true;
+(function installRAPHIAnimator(){
+  if (window.__raphiAnimatorInstalled2) return;
+  window.__raphiAnimatorInstalled2 = true;
 
   function updateRaphiSpin(){
     if (!window.isRAPHI || !window.groupRAPHI || !groupRAPHI.userData) return;
@@ -6713,28 +6721,31 @@ async function showPatternInfo(){
       const g = rotators[i];
       if (!g || !g.userData) continue;
 
-      // Sincronía con BUILD: dirección / pausa por permutación
+      // Lee el step de BUILD si existe; solo lo aplicamos si es NO-cero
+      let s = null;
       if (typeof getBuildRotStep === 'function' && g.userData.permStr){
-        const s = getBuildRotStep(g.userData.permStr);
-        if (typeof s === 'number') g.userData.rotStep = s;
+        try { s = getBuildRotStep(g.userData.permStr); } catch(_){ }
       }
+      if (typeof s === 'number' && s !== 0) g.userData.rotStep = s;
+      if (typeof g.userData.rotStep !== 'number') g.userData.rotStep = 1;
 
-      const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
-      const axis = g.userData.rotAxis;  // THREE.Vector3 normalizado
-      const vel  = g.userData.rotVel;   // rad/s (Signature Range)
+      const step = g.userData.rotStep;
+      const axis = g.userData.rotAxis;
+      const vel  = g.userData.rotVel;
 
-      if (axis && typeof vel === 'number' && step !== 0){
+      if (axis && typeof vel === 'number' && step){
         g.rotateOnAxis(axis, vel * dt * step);
+        if (!g.matrixAutoUpdate) { g.updateMatrix(); }
+        g.updateMatrixWorld(true);
       }
     }
   }
 
-  // Envuelve tu render global: rota primero, luego dibuja
-  const prevRender = window.render || function(){};
-  window.render = function(...args){
-    try { updateRaphiSpin(); } catch(_){ }
-    return prevRender.apply(this, args);
-  };
+  function tick(){
+    try{ updateRaphiSpin(); }catch(_){ }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 })();
 </script>
 </body>
