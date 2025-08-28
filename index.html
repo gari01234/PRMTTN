@@ -5556,14 +5556,14 @@ function buildRAPHI(){
 
     // Giro determinista (BUILD-like; fallback seguro si BUILD no está activo)
     const spin = raphiSpinParamsFor(pa, i);
-    g.matrixAutoUpdate = true;                       // fuerza actualización local
-    g.userData.rotAxis = spin.axis;
-    g.userData.rotVel  = spin.vel;
+    g.matrixAutoUpdate = true;                       // asegura actualización local
+    g.userData.rotAxis = spin.axis;                 // eje propio
+    g.userData.rotVel  = spin.vel;                  // velocidad (rad/s)
 
     const permStr = pa.join(',');
     g.userData.permStr = permStr;
 
-    // Toma el paso desde BUILD si existe y es NO-cero; si no, usa 1 (gira siempre)
+    // Paso de giro desde BUILD si existe; si devuelve 0/NaN/undefined → usa 1
     let __s = null;
     try { __s = (typeof getBuildRotStep === 'function') ? getBuildRotStep(permStr) : null; } catch(_){ }
     g.userData.rotStep = (typeof __s === 'number' && __s !== 0) ? __s : 1;
@@ -6701,7 +6701,7 @@ async function showPatternInfo(){
 /* ═══════════════════════════════════════════════════════════════
  * RAPHI · Animador de giro robusto (independiente del bucle BUILD)
  *  - Respeta getBuildRotStep si devuelve ±1 (o cualquier ≠ 0).
- *  - Si devuelve 0/NaN/undefined, mantiene o usa 1 para que gire.
+ *  - Si devuelve 0/NaN/undefined, usa 1 para que gire siempre.
  *  - Fuerza updateMatrix(World) por si matrixAutoUpdate estuviera OFF.
  * ═══════════════════════════════════════════════════════════════ */
 (function installRAPHIAnimator(){
