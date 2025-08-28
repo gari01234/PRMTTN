@@ -5347,6 +5347,8 @@ const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
 // RAPHI · opacidades propias
 const RAPHI_FACE_OPACITY = 0.78;
 const RAPHI_BACK_OPACITY = 0.55;
+// RAPHI · factor de velocidad angular (3×)
+const RAPHI_SPEED_MULT = 3.0;
 
 function raphiFaceMaterials(colorTHREE){
   const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
@@ -5379,7 +5381,7 @@ function raphiShapeSeedFromPerms(perms){
   // Eje y velocidad para RAPHI: giro tipo “bailarina” sobre el eje Y local
   function raphiSpinParamsFor(pa, idx){
     // velocidad según “Signature Range” (misma fórmula que KEPLR)
-    const vel = keplrOmegaFromSignature(pa);
+    const vel = keplrOmegaFromSignature(pa) * RAPHI_SPEED_MULT;
     // eje fijo “de pie” (local Y)
     const axis = new THREE.Vector3(0, 1, 0);
     return { axis, vel };
