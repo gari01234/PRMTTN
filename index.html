@@ -5572,7 +5572,7 @@ function buildRAPHI(){
     // Paso de giro desde BUILD si existe; si devuelve 0/NaN/undefined → usa 1
     let __s = null;
     try { __s = (typeof getBuildRotStep === 'function') ? getBuildRotStep(permStr) : null; } catch(_){ }
-    g.userData.rotStep = (typeof __s === 'number' && __s !== 0) ? __s : 1;
+    g.userData.rotStep = (typeof __s === 'number') ? __s : 1;  // acepta 0 (pausa), fracciones y ±
 
       container.add(g);
       groupRAPHI.userData.rotators.push(g);
@@ -6736,13 +6736,15 @@ async function showPatternInfo(){
       const g = rotators[i];
       if (!g || !g.userData) continue;
 
-      // Respeta BUILD si devuelve ±1 (o cualquier ≠ 0); si no, mantenemos el valor previo (fallback=1 en build)
       let s = null;
       if (typeof getBuildRotStep === 'function' && g.userData.permStr){
         try { s = getBuildRotStep(g.userData.permStr); } catch(_){ }
       }
-      if (typeof s === 'number' && s !== 0) g.userData.rotStep = s;
-      if (typeof g.userData.rotStep !== 'number') g.userData.rotStep = 1;
+      if (typeof s === 'number') {
+        g.userData.rotStep = s;   // respeta 0 (pausa), fracciones y ±
+      } else if (typeof g.userData.rotStep !== 'number') {
+        g.userData.rotStep = 1;
+      }
 
       const step = g.userData.rotStep;
       const axis = g.userData.rotAxis;
