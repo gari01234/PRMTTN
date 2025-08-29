@@ -5348,7 +5348,7 @@ const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
 const RAPHI_FACE_OPACITY = 0.78;
 const RAPHI_BACK_OPACITY = 0.55;
 // RAPHI · factor de velocidad angular (3×)
-const RAPHI_SPEED_MULT = 8.0;
+const RAPHI_SPEED_MULT = 3.0;
 
 function raphiFaceMaterials(colorTHREE){
   const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
@@ -6582,7 +6582,7 @@ async function showPatternInfo(){
           window.__tmslAmbient = null;
         }
       }
-    }catch(_){ }
+    }catch(_){}
   }
 
   // Cámara “segura” que siempre ve la pared frontal
@@ -6602,7 +6602,7 @@ async function showPatternInfo(){
         controls.maxPolarAngle = Math.PI;
         controls.update();
       }
-    }catch(_){ }
+    }catch(_){}
   };
 
   // Base mínima visible + FONDO NEGRO MATE para TMSL
@@ -6610,7 +6610,7 @@ async function showPatternInfo(){
     try{
       scene.background = new THREE.Color(TMSL_BG_HEX);
       if (renderer && renderer.setClearColor) renderer.setClearColor(TMSL_BG_HEX, 1);
-    }catch(_){ }
+    }catch(_){}
     try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
     try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
     try{ renderer.autoClear = true; }catch(_){ }
@@ -6713,30 +6713,28 @@ async function showPatternInfo(){
   })();
 
 /* ═══════════════════════════════════════════════════════════════
- * RAPHI · Animador + puente de control de movimiento (BUILD ↔ RAPHI)
- *  - Respeta getBuildRotStep (incluye 0 = pausa).
- *  - Respeta pausa global (isBuildMotionPaused si existe) y bandera local __raphiPaused.
- *  - Engancha pause/resume/reset del menú de BUILD para controlar RAPHI también.
- *  - Evita saltos de tiempo cuando está en pausa (re-sincroniza _lastT).
+ * RAPHI · Animador + puente de control (BUILD ↔ RAPHI) — Hook “a prueba de orden”
+ *  - Pausa/reanuda y reset para RAPHI.
+ *  - Si el UI de BUILD llama a pause/reset (ahora o MÁS TARDE), RAPHI se engancha.
+ *  - Respeta getBuildRotStep() (incluye 0 = pausa por-perm).
+ *  - Come el tiempo en pausa para evitar saltos al reanudar.
+ *  - Fallbacks: detecta “Pause motion / Reset Motion” también por eventos del DOM.
  * ═══════════════════════════════════════════════════════════════ */
 (function installRAPHIAnimatorAndBridge(){
-  if (window.__raphiAnimatorInstalled3) return;
-  window.__raphiAnimatorInstalled3 = true;
+  if (window.__raphiAnimatorInstalled4) return;
+  window.__raphiAnimatorInstalled4 = true;
 
-  // ======== API pública RAPHI: pausa / toggle / reset ========
+  // ===== API pública RAPHI =====
   window.__raphiPaused = !!window.__raphiPaused;
 
   window.pauseRaphiMotion = function(on = true){
     window.__raphiPaused = !!on;
     try{
       const grp = window.groupRAPHI;
-      if (grp && grp.userData) grp.userData._lastT = performance.now(); // come el tiempo en pausa
-    }catch(_){ }
+      if (grp && grp.userData) grp.userData._lastT = performance.now(); // come dt
+    }catch(_){}
   };
-
-  window.toggleRaphiPause = function(){
-    window.pauseRaphiMotion(!window.__raphiPaused);
-  };
+  window.toggleRaphiPause = function(){ window.pauseRaphiMotion(!window.__raphiPaused); };
 
   window.resetRaphiMotion = function(){
     try{
@@ -6744,37 +6742,33 @@ async function showPatternInfo(){
       if (!grp || !grp.userData || !Array.isArray(grp.userData.rotators)) return;
       grp.userData.rotators.forEach(g=>{
         if (!g) return;
-        // Reinicia orientación
         g.rotation.set(0,0,0);
         g.updateMatrix();
         g.updateMatrixWorld(true);
       });
-      // Re-sincroniza tiempo para evitar salto al siguiente frame
       grp.userData._lastT = performance.now();
-    }catch(_){ }
+    }catch(_){}
   };
 
-  // ======== Animador principal ========
+  // ===== Animación (tick independiente de BUILD) =====
   function updateRaphiSpin(){
-    // Usa globals si existen; si no, cae al scope local del módulo
-    const grp = (window.groupRAPHI || (typeof groupRAPHI !== 'undefined' ? groupRAPHI : null));
+    const grp = window.groupRAPHI || (typeof groupRAPHI !== 'undefined' ? groupRAPHI : null);
     const on  = (window.isRAPHI === true) || (typeof isRAPHI !== 'undefined' && isRAPHI === true);
     if (!on || !grp || !grp.userData) return;
 
     const now  = performance.now();
     const last = grp.userData._lastT || now;
 
-    // —— detección de pausa global (BUILD o RAPHI) —— //
+    // Pausa global (local RAPHI o posible flag de BUILD)
     let paused = !!window.__raphiPaused;
     try{
       if (!paused && typeof window.isBuildMotionPaused === 'function'){
         paused = !!window.isBuildMotionPaused();
       }
-    }catch(_){ }
+    }catch(_){}
 
     if (paused){
-      // come el tiempo en pausa para evitar un dt gigante al reanudar
-      grp.userData._lastT = now;
+      grp.userData._lastT = now; // come dt mientras está parado
       return;
     }
 
@@ -6789,13 +6783,13 @@ async function showPatternInfo(){
       // Paso de giro desde BUILD (acepta 0 = pausa por-perm)
       let s = null;
       if (typeof getBuildRotStep === 'function' && g.userData.permStr){
-        try { s = getBuildRotStep(g.userData.permStr); } catch(_){ }
+        try { s = getBuildRotStep(g.userData.permStr); } catch(_){}
       }
-      if (typeof s === 'number') g.userData.rotStep = s; // incluye 0 = pausa
+      if (typeof s === 'number') g.userData.rotStep = s;
       if (typeof g.userData.rotStep !== 'number') g.userData.rotStep = 1;
 
       const step = g.userData.rotStep;
-      if (!step) continue; // pausa por-perm
+      if (!step) continue;
 
       const axis = g.userData.rotAxis;
       const vel  = g.userData.rotVel;
@@ -6807,31 +6801,70 @@ async function showPatternInfo(){
       }
     }
   }
+  (function tick(){ try{ updateRaphiSpin(); }catch(_){ } requestAnimationFrame(tick); })();
 
-  function tick(){
-    try{ updateRaphiSpin(); }catch(_){ }
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-
-  // ======== Bridge: engancha los handlers del menú de BUILD ========
-  function wrap(name, after){
-    const orig = window[name];
-    if (typeof orig === 'function' && !orig.__raphi_hooked){
-      window[name] = function(...args){
-        const out = orig.apply(this, args);
-        try{ after(); }catch(_){ }
+  // ===== Hook de funciones GLOBALES con envoltorio + setter dinámico =====
+  function hookGlobalFunction(name, after){
+    // 1) Envoltura si ya existe
+    const wrap = (fn)=> {
+      if (typeof fn !== 'function' || fn.__raphi_hooked) return fn;
+      const w = function(...args){
+        const out = fn.apply(this, args);
+        try{ after(); }catch(_){}
         return out;
       };
-      window[name].__raphi_hooked = true;
-    }
+      w.__raphi_hooked = true;
+      return w;
+    };
+    if (typeof window[name] === 'function') window[name] = hookGlobalFunction[name] = wrap(window[name]);
+
+    // 2) Getter/Setter para capturar definiciones FUTURAS
+    const SYM = `__raphi_prop_hook_${name}`;
+    if (window[SYM]) return; // ya instalado
+
+    let _val = window[name];
+    Object.defineProperty(window, name, {
+      configurable: true, enumerable: true,
+      get(){ return _val; },
+      set(v){
+        _val = (typeof v === 'function') ? wrap(v) : v;
+      }
+    });
+    window[SYM] = true;
   }
 
-  // Si existen en tu código, quedarán “extendidos” para RAPHI también:
-  wrap('pauseMotion',        ()=> window.toggleRaphiPause());
-  wrap('resumeMotion',       ()=> window.pauseRaphiMotion(false));
-  wrap('toggleMotionPause',  ()=> window.toggleRaphiPause());
-  wrap('resetMotion',        ()=> window.resetRaphiMotion());
+  // Engancha nombres típicos usados por el menú de BUILD
+  // (si existen ahora o se definen más tarde, quedarán envueltos)
+  hookGlobalFunction('pauseMotion',       ()=> window.toggleRaphiPause());
+  hookGlobalFunction('resumeMotion',      ()=> window.pauseRaphiMotion(false));
+  hookGlobalFunction('toggleMotionPause', ()=> window.toggleRaphiPause());
+  hookGlobalFunction('resetMotion',       ()=> window.resetRaphiMotion());
+
+  // Variantes comunes en algunos builds (por si tu menú usa estos nombres)
+  hookGlobalFunction('pauseBuildMotion',        ()=> window.toggleRaphiPause());
+  hookGlobalFunction('resumeBuildMotion',       ()=> window.pauseRaphiMotion(false));
+  hookGlobalFunction('toggleBuildMotionPause',  ()=> window.toggleRaphiPause());
+  hookGlobalFunction('resetBuildMotion',        ()=> window.resetRaphiMotion());
+
+  // ===== Fallback: detectar clicks/changes en UI textual =====
+  // Soporta botones o <select> con opciones “Pause motion” / “Reset Motion”
+  function textOfTarget(t){
+    if (!t) return '';
+    if (t.tagName === 'OPTION') return (t.text || t.label || t.value || '').toString();
+    if (t.options && t.selectedIndex >= 0) {
+      const opt = t.options[t.selectedIndex];
+      return (opt && (opt.text || opt.label || opt.value)) || (t.value || '');
+    }
+    return (t.innerText || t.textContent || t.value || '').toString();
+  }
+  function maybeBridge(txt){
+    const s = (txt || '').trim();
+    if (!s) return;
+    if (/^pause\s*motion$/i.test(s)) { window.toggleRaphiPause(); return; }
+    if (/^reset\s*motion$/i.test(s)) { window.resetRaphiMotion();  return; }
+  }
+  document.addEventListener('click',  (e)=>{ try{ maybeBridge(textOfTarget(e.target)); }catch(_){ } }, true);
+  document.addEventListener('change', (e)=>{ try{ maybeBridge(textOfTarget(e.target)); }catch(_ ){} }, true);
 
 })();
 
