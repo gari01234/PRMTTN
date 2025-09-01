@@ -615,6 +615,7 @@ window.Tilers = {
       <option value="13245">13245</option>
       <option value="KEPLR">KEPLR</option>
       <option value="RAPHI">RAPHI</option>
+      <option value="GRVTY">GRVTY</option>
       <option value="R5NOVA">R5NOVA</option>
     </select>
   </div>
@@ -6057,6 +6058,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       else if (is13245)  v = '13245';
       else if (isKEPLR)  v = 'KEPLR';
       else if (isRAPHI)  v = 'RAPHI';   // ← añadido
+      else if (isGRVTY)  v = 'GRVTY';
       else if (isR5NOVA) v = 'R5NOVA';
       sel.value = v;
     }
@@ -6079,6 +6081,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       if (val === '13245') { if (!is13245) toggle13245(); return; }
       if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }
       if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← añadido
+      if (val === 'GRVTY'){ if (!isGRVTY) toggleGRVTY(); return; }
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
     }
 
@@ -6091,7 +6094,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       };
 
       // Orden:
-      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → RAPHI → R5NOVA → BUILD
+      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → RAPHI → GRVTY → R5NOVA → BUILD
 
       if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }
       if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }
@@ -6107,8 +6110,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
       if (isRAUM){    ensureOnly13245();  syncUI(); return; }
       if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }
-      if (isKEPLR){   ensureOnlyRAPHI();  syncUI(); return; }  // KEPLR → RAPHI
-      if (isRAPHI){   ensureOnlyR5NOVA(); syncUI(); return; }  // RAPHI → R5NOVA
+      if (isKEPLR){   ensureOnlyRAPHI();  syncUI(); return; }
+      if (isRAPHI){   ensureOnlyGRVTY();  syncUI(); return; }  // ← RAPHI → GRVTY
+      if (isGRVTY){   ensureOnlyR5NOVA(); syncUI(); return; }  // ← GRVTY → R5NOVA
       if (isR5NOVA){  switchToBuild();    syncUI(); return; }
 
       // BUILD (o ninguno) → FRBN
@@ -6869,5 +6873,416 @@ async function showPatternInfo(){
 })();
 
 </script>
+<script>
+/* ──────────────────────────────────────────────────────────────────────────
+ *  GRVTY · Gravity well (determinista, sin esfera, onda en vertex shader)
+ *  - 1..2 pozos: centros, amplitudes y suavizados desde π-set + semillas
+ *  - Colores deterministas (PATTERNS) + modulación por curvatura
+ *  - Animación “respiración” suave (pausable / reseteable via menú BUILD)
+ * ────────────────────────────────────────────────────────────────────────── */
+
+let isGRVTY    = window.isGRVTY || false;
+let groupGRVTY = window.groupGRVTY || null;
+
+function disposeGroupGRVTY(){
+  if (!groupGRVTY) return;
+  groupGRVTY.traverse(o=>{
+    if (o.isMesh || o.isLineSegments){
+      o.geometry?.dispose?.();
+      o.material?.dispose?.();
+    }
+  });
+  scene.remove(groupGRVTY);
+  groupGRVTY = null;
+  window.groupGRVTY = null;
+}
+
+/* ====== Parámetros del plano y wells ====== */
+const GRVTY_W = 60.0, GRVTY_D = 60.0;     // tamaño de la “lona”
+const GRVTY_RES_DESKTOP = 200;            // subdivisiones (desktop)
+const GRVTY_RES_MOBILE  = 140;            // subdivisiones (móvil)
+const GRVTY_MAX_WELLS   = 2;              // fijo (1 o 2, determinista)
+
+/* ====== Utilidades deterministas (reusamos tus fórmulas) ====== */
+function grvtySeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
+
+/* Devuelve 1 ó 2, determinista con H */
+function grvtyWellCount(H){
+  // bit bajo de H: 0 -> 1 pozo, 1 -> 2 pozos
+  return ((H & 1) ? 2 : 1);
+}
+
+/* Centro determinista en [-W/2+M, +W/2-M]×[-D/2+M, +D/2-M] */
+function grvtyCenterFor(pa, H, margin = 6.0){
+  const r = lehmerRank(pa) >>> 0;
+  const u1 = (((37*r + 13*(sceneSeed|0) + (S_global|0)) % 997) / 997);
+  const u2 = (((53*r + 17*(sceneSeed|0) + (S_global|0)) % 991) / 991);
+  const x  = (-GRVTY_W/2 + margin) + (GRVTY_W - 2*margin) * u1;
+  const z  = (-GRVTY_D/2 + margin) + (GRVTY_D - 2*margin) * u2;
+  return [x, z];
+}
+
+/* Amplitud base (profundidad) desde omega (igual que KEPLR) */
+function grvtyAmplitudeFor(pa){
+  // ω ∈ [0.25, 1.10] rad/s → A ∈ [6, 14] (en unidades de la escena)
+  const w = keplrOmegaFromSignature(pa);
+  return 6.0 + (w - 0.25) * (14.0 - 6.0) / (1.10 - 0.25);
+}
+
+/* Suavizado ε (evita singularidad), determinista por r/H */
+function grvtyEpsilonFor(pa, H){
+  const r = lehmerRank(pa) >>> 0;
+  const k = (((r ^ H) >>> 0) % 1000) / 1000;    // 0..1
+  return 3.0 + k * (10.0 - 3.0);                // [3,10]
+}
+
+/* Frecuencia de “respiración” (usa la misma omega) y fase determinista */
+function grvtyOmegaFor(pa){ return keplrOmegaFromSignature(pa); }
+function grvtyPhaseFor(pa, H){
+  const r = lehmerRank(pa) >>> 0;
+  const s = Math.imul((r ^ H) >>> 0, 1103515245) + 12345;
+  return ((s >>> 0) % 6283) / 1000.0;           // [0, 2π) ≈ 6.283
+}
+
+/* Paleta determinista (dos tonos) desde la primera permutación */
+function grvtyColorsFromPerm(pa){
+  const base  = keplrUniqueFaceColor(pa, 0);    // color “cara”
+  const edgeC = keplrEdgeFromFaceColor(base);   // color contrastado
+  const c1 = applyBuildVibranceToColor(base);
+  const c2 = applyBuildVibranceToColor(edgeC);
+  return [c1, c2];  // c1 = grid principal, c2 = mezcla por curvatura
+}
+
+/* ====== Shaders (grid procedural + desplazamiento) ====== */
+const GRVTY_VS = `
+uniform float uTime;
+uniform int   uN;
+uniform vec2  uC[${GRVTY_MAX_WELLS}];
+uniform float uA[${GRVTY_MAX_WELLS}];
+uniform float uE[${GRVTY_MAX_WELLS}];
+uniform float uW[${GRVTY_MAX_WELLS}];
+uniform float uP[${GRVTY_MAX_WELLS}];
+uniform float uStep;           // factor global (BUILD rot step promedio)
+uniform float uBreath;         // 0..1 amplitud de respiración
+
+varying vec2 vUv;
+varying vec3 vPos;             // pos local ya rotada a XZ
+varying float vSlope;          // |∇h| aprox para coloración
+
+void main(){
+  vUv  = uv;
+  vec3 p = position;           // geometría ya está en plano XZ (rotateX aplicado)
+  float y = 0.0;
+  float gx = 0.0, gz = 0.0;    // gradiente para slope
+
+  for (int i=0;i<${GRVTY_MAX_WELLS};i++){
+    if (i >= uN) break;
+    vec2 d = vec2(p.x - uC[i].x, p.z - uC[i].y);
+    float r2 = dot(d,d);
+    float f  = sqrt(r2 + uE[i]*uE[i]);
+    float A  = uA[i] * (1.0 + uBreath * sin(uW[i]*uTime*uStep + uP[i]));
+    // Altura (pozo negativo)
+    y += -A / f;
+    // Derivadas analíticas para pendiente
+    float f3 = f*f*f;
+    gx +=  A * d.x / f3;
+    gz +=  A * d.y / f3;
+  }
+
+  p.y += y;
+  vPos = p;
+  vSlope = clamp(length(vec2(gx,gz)) * 12.0, 0.0, 1.0); // escala para uso visual
+
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}
+`;
+
+const GRVTY_FS = `
+precision highp float;
+
+uniform vec3  uCol1;          // color grid base
+uniform vec3  uCol2;          // color por curvatura
+uniform float uGridScale;     // densidad de líneas
+uniform float uLineWidth;     // grosor relativo
+
+varying vec2 vUv;
+varying float vSlope;
+
+float gridLine(float x, float scale, float width){
+  // Línea nítida con derivatives
+  float gx = fract(x*scale);
+  float dx = fwidth(x*scale);
+  float d  = min(gx, 1.0 - gx);         // distancia a borde de celda
+  float a  = smoothstep(width+dx, width, d);
+  return a;
+}
+
+void main(){
+  // Grid ortogonal en UV
+  float g1 = gridLine(vUv.x, uGridScale, uLineWidth);
+  float g2 = gridLine(vUv.y, uGridScale, uLineWidth);
+  float g  = max(g1, g2);
+
+  // Mezcla por “curvatura” (slope)
+  vec3 base = mix(uCol1, uCol2, vSlope);
+
+  // Composita: fondo tenue + líneas más marcadas
+  vec3 bg   = base * 0.22;
+  vec3 line = base * 0.95;
+  vec3 col  = mix(bg, line, g);
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ====== Builder principal ====== */
+function buildGRVTY(){
+  disposeGroupGRVTY();
+  groupGRVTY = new THREE.Group();
+  window.groupGRVTY = groupGRVTY;
+
+  updateBackground(false);
+
+  // Permutaciones activas (fallback determinista)
+  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
+  if (!perms.length) perms = [[1,2,3,4,5]];
+  const H = grvtySeedFromPerms(perms);
+
+  const N  = Math.min(GRVTY_MAX_WELLS, grvtyWellCount(H));
+  const wells = [];
+  for (let i=0;i<N;i++){
+    const pa = perms[i % perms.length];
+    const [cx, cz] = grvtyCenterFor(pa, H);
+    const A  = grvtyAmplitudeFor(pa);
+    const E  = grvtyEpsilonFor(pa, H);
+    const W  = grvtyOmegaFor(pa);
+    const P  = grvtyPhaseFor(pa, H);
+    wells.push({cx, cz, A, E, W, P, permStr: pa.join(',')});
+  }
+
+  // Colores deterministas desde la primera permutación
+  const [C1, C2] = grvtyColorsFromPerm(perms[0]);
+
+  // Geometría: plano en XZ (rotado a nivel de geometría)
+  const RES = (window.devicePixelRatio > 1.25 ? GRVTY_RES_DESKTOP : GRVTY_RES_MOBILE);
+  const geo = new THREE.PlaneGeometry(GRVTY_W, GRVTY_D, RES, RES);
+  geo.rotateX(-Math.PI/2);  // ahora position.xz son el plano, y es vertical
+
+  // Uniforms
+  const uniforms = {
+    uTime:      { value: 0.0 },
+    uN:         { value: N },
+    uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
+                      wells[i]?.cx || 0, wells[i]?.cz || 0)) },
+    uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0]) },
+    uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1]) },
+    uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0]) },
+    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) },
+    uStep:      { value: 1.0 },
+    uBreath:    { value: 0.08 }, // respiración muy sutil (8 %)
+    uCol1:      { value: C1 },   // grid base
+    uCol2:      { value: C2 },   // mezcla por curvatura
+    uGridScale: { value: 36.0 }, // densidad de líneas
+    uLineWidth: { value: 0.08 }  // grosor relativo
+  };
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader:   GRVTY_VS,
+    fragmentShader: GRVTY_FS,
+    transparent: false,
+    depthTest: true,
+    depthWrite: true,
+    dithering: true,
+    side: THREE.DoubleSide
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+
+  // Metadata para animación/bridge
+  groupGRVTY.userData._lastT = performance.now();
+  groupGRVTY.userData.uniforms = uniforms;
+  groupGRVTY.userData.permStrs = wells.map(w => w.permStr); // para getBuildRotStep promedio
+
+  groupGRVTY.add(mesh);
+  scene.add(groupGRVTY);
+}
+
+/* ====== Exclusivo + cámara nivelada tipo RAUM/KEPLR/RAPHI ====== */
+function toggleGRVTY(){
+  isGRVTY = !isGRVTY;
+  window.isGRVTY = isGRVTY;
+
+  if (isGRVTY){
+    try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+    try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+    try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+    try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+    try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+    try{ if (is13245)  toggle13245();  }catch(_){ }
+    try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+    try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+    try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+
+    leaveBuildRenderBoost();
+    enterRaumRenderBoost();
+
+    buildGRVTY();
+
+    // Cámara nivelada
+    camera.up.set(0,1,0);
+    camera.fov = 55;
+    camera.updateProjectionMatrix();
+
+    if (controls && controls.target) controls.target.set(0, 0, 0);
+    camera.position.set(0, 0, 42);
+
+    controls.enabled            = true;
+    controls.enableRotate       = true;   // solo yaw
+    controls.enablePan          = true;
+    controls.enableZoom         = true;
+    controls.minDistance        = 10;
+    controls.maxDistance        = 200;
+    controls.screenSpacePanning = true;
+    controls.minPolarAngle      = Math.PI / 2;
+    controls.maxPolarAngle      = Math.PI / 2;
+    controls.update();
+
+    try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
+    try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
+    try{ if (lichtGroup)       lichtGroup.visible = false; }catch(_){ }
+
+  } else {
+    leaveRaumRenderBoost();
+    disposeGroupGRVTY();
+    window.isGRVTY = false;
+
+    camera.fov = 75;
+    camera.updateProjectionMatrix();
+    controls.minPolarAngle      = 0;
+    controls.maxPolarAngle      = Math.PI;
+    controls.screenSpacePanning = false;
+
+    try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
+    try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
+    try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){ }
+  }
+}
+
+function rebuildGRVTYIfActive(){ if (isGRVTY) buildGRVTY(); }
+function ensureOnlyGRVTY(){ if (!isGRVTY) toggleGRVTY(); }
+function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
+
+/* ====== Hooks de rebuild (igual patrón que KEPLR/RAPHI) ====== */
+(function GRVTYHook(){
+  const run = ()=>{ try{ rebuildGRVTYIfActive(); }catch(_){ } };
+  [
+    'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+    'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+    'applyAttributeMapping','cycleAttributeMapping',
+    'applyPermutationSet','shufflePermutations','randomizePermutationCenterClick'
+  ].forEach(name=>{
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__grvty_hooked){
+      window[name] = function(...args){
+        const res = orig.apply(this, args);
+        setTimeout(run,0);
+        requestAnimationFrame(run);
+        return res;
+      };
+      window[name].__grvty_hooked = true;
+    }
+  });
+  window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+})();
+
+/* ═══════════════ Animador + bridge (Pause/Reset del menú BUILD) ═══════════════ */
+(function installGRVTYAnimatorAndBridge(){
+  if (window.__grvtyAnimatorInstalled) return;
+  window.__grvtyAnimatorInstalled = true;
+
+  window.__grvtyPaused = !!window.__grvtyPaused;
+
+  window.pauseGrvtyMotion = function(on = true){
+    window.__grvtyPaused = !!on;
+    try{
+      const g = window.groupGRVTY;
+      if (g && g.userData) g.userData._lastT = performance.now();
+    }catch(_){ }
+  };
+  window.toggleGrvtyPause = function(){ window.pauseGrvtyMotion(!window.__grvtyPaused); };
+  window.resetGrvtyMotion = function(){
+    try{
+      const g = window.groupGRVTY;
+      if (!g || !g.userData || !g.userData.uniforms) return;
+      // “Reiniciar” tiempo: simplemente resetea uTime y marca _lastT
+      g.userData.uniforms.uTime.value = 0.0;
+      g.userData._lastT = performance.now();
+    }catch(_){ }
+  };
+
+  function avgBuildRotStepForGrvty(){
+    try{
+      const g = window.groupGRVTY;
+      const arr = (g && g.userData && Array.isArray(g.userData.permStrs)) ? g.userData.permStrs : [];
+      if (!arr.length || typeof getBuildRotStep !== 'function') return 1.0;
+      let sum = 0, n = 0;
+      for (let i=0;i<arr.length;i++){
+        let s = getBuildRotStep(arr[i]);
+        if (typeof s === 'number'){ sum += s; n++; }
+      }
+      if (!n) return 1.0;
+      return sum / n;
+    }catch(_){ return 1.0; }
+  }
+
+  function tickGrvty(){
+    try{
+      const on  = (window.isGRVTY === true);
+      const grp = window.groupGRVTY;
+      if (!on || !grp || !grp.userData || !grp.userData.uniforms){ requestAnimationFrame(tickGrvty); return; }
+
+      // Pausa global (BUILD o local)
+      let paused = !!window.__grvtyPaused;
+      try{ if (!paused && typeof window.isBuildMotionPaused === 'function') paused = !!window.isBuildMotionPaused(); }catch(_){ }
+
+      const now  = performance.now();
+      const last = grp.userData._lastT || now;
+
+      if (paused){
+        grp.userData._lastT = now;
+      } else {
+        const dt = Math.max(0, (now - last) / 1000);
+        grp.userData._lastT = now;
+
+        const u = grp.userData.uniforms;
+        u.uTime.value += dt;
+        u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0 ⇒ respira congelado
+      }
+    }catch(_){ }
+    requestAnimationFrame(tickGrvty);
+  }
+  requestAnimationFrame(tickGrvty);
+
+  // Bridge con handlers del menú BUILD (si existen)
+  function wrap(name, after){
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__grvty_hooked){
+      window[name] = function(...args){
+        const out = orig.apply(this, args);
+        try{ after(); }catch(_){ }
+        return out;
+      };
+      window[name].__grvty_hooked = true;
+    }
+  }
+  wrap('pauseMotion',        ()=> window.toggleGrvtyPause());
+  wrap('resumeMotion',       ()=> window.pauseGrvtyMotion(false));
+  wrap('toggleMotionPause',  ()=> window.toggleGrvtyPause());
+  wrap('resetMotion',        ()=> window.resetGrvtyMotion());
+})();
+</script>
+
 </body>
 </html>
