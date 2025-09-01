@@ -7,6 +7,18 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script>
+// Bootstrap GRVTY flags to avoid ReferenceError before its script loads
+if (typeof window.isGRVTY === 'undefined') window.isGRVTY = false;
+// Optional no-ops so calls won't crash if invoked early
+if (typeof window.ensureOnlyGRVTY === 'undefined') window.ensureOnlyGRVTY = function(){
+  if (!window.isGRVTY && typeof window.toggleGRVTY === 'function') window.toggleGRVTY();
+};
+if (typeof window.ensureOnlyGRVTYFromUI === 'undefined') window.ensureOnlyGRVTYFromUI = function(){
+  window.ensureOnlyGRVTY(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI();
+};
+if (typeof window.rebuildGRVTYIfActive === 'undefined') window.rebuildGRVTYIfActive = function(){};
+  </script>
   <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
     <script type="module">
 /* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
@@ -6058,7 +6070,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       else if (is13245)  v = '13245';
       else if (isKEPLR)  v = 'KEPLR';
       else if (isRAPHI)  v = 'RAPHI';   // ← añadido
-      else if (isGRVTY)  v = 'GRVTY';
+      else if (typeof window.isGRVTY !== 'undefined' && window.isGRVTY) v = 'GRVTY';
       else if (isR5NOVA) v = 'R5NOVA';
       sel.value = v;
     }
@@ -6081,7 +6093,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       if (val === '13245') { if (!is13245) toggle13245(); return; }
       if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }
       if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← añadido
-      if (val === 'GRVTY'){ if (!isGRVTY) toggleGRVTY(); return; }
+      if (val === 'GRVTY'){ if (!(typeof window.isGRVTY!=='undefined' && window.isGRVTY) && typeof window.toggleGRVTY==='function') toggleGRVTY(); return; }
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
     }
 
