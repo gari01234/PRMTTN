@@ -5957,15 +5957,16 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       isR5NOVA = !isR5NOVA;
 
       if (isR5NOVA){
-        // Exclusividad con otros motores (incluye RAPHI)
-        if (isFRBN)   toggleFRBN();
-        if (isLCHT)   toggleLCHT();
-        if (isOFFNNG) toggleOFFNNG();
-        if (isTMSL)   toggleTMSL();
-        if (isRAUM)   toggleRAUM();
-        if (is13245)  toggle13245();
-        if (isRAPHI)  toggleRAPHI();   // ← **ESTE FALTABA**
-        if (isKEPLR)  toggleKEPLR();
+        // Exclusividad con TODOS los motores (incluye GRVTY)
+        try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+        try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+        try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+        try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+        try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+        try{ if (is13245)  toggle13245();  }catch(_){ }
+        try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+        try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+        try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -5977,8 +5978,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         camera.updateProjectionMatrix();
 
         const eyeY = (controls && controls.target) ? controls.target.y : 0;
+        if (controls && controls.target) controls.target.set(0, eyeY, 0);
         camera.position.set(0, eyeY, 42);
-        controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
         controls.enableRotate       = true;
@@ -5991,14 +5992,14 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         controls.maxPolarAngle      = Math.PI / 2;
         controls.update();
 
-        cubeUniverse.visible     = false;
-        permutationGroup.visible = false;
-        if (lichtGroup) lichtGroup.visible = false;
+        try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
+        try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
+        try{ if (lichtGroup)       lichtGroup.visible = false; }catch(_){ }
 
       } else {
         leaveRaumRenderBoost();
-        disposeGroupR5NOVA();
-        groupR5NOVA = null;
+        try{ disposeGroupR5NOVA?.(); }catch(_){ }
+        try{ groupR5NOVA = null; }catch(_){ }
 
         camera.fov = 75;
         camera.updateProjectionMatrix();
@@ -6006,48 +6007,62 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         controls.maxPolarAngle      = Math.PI;
         controls.screenSpacePanning = false;
 
-        cubeUniverse.visible     = true;
-        permutationGroup.visible = true;
-        if (lichtGroup && isLCHT) lichtGroup.visible = true;
+        try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
+        try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
+        try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){ }
       }
     }
     
     /* botón selector – sólo enciende, nunca apaga */
-    function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
+    function ensureOnlyR5NOVA(){
+      try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+      try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+      try{ if (is13245)  toggle13245();  }catch(_){ }
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }  // ← **NUEVO**
+      try{ if (!isR5NOVA) toggleR5NOVA(); }catch(_){ }
+    }
 
     // Enciende SOLO FRBN
     function ensureOnlyFRBN(){
-      try{ if (isLCHT)   toggleLCHT();   }catch(_){}
-      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
-      try{ if (isTMSL)   toggleTMSL();   }catch(_){}
-      try{ if (isRAUM)   toggleRAUM();   }catch(_){}
-      try{ if (is13245)  toggle13245();  }catch(_){}
-      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
-      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
-      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
-      try{ if (!isFRBN)  toggleFRBN();   }catch(_){}
+      try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+      try{ if (is13245)  toggle13245();  }catch(_){ }
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }  // ← **NUEVO**
+      try{ if (!isFRBN)  toggleFRBN();   }catch(_){ }
     }
 
     function ensureOnlyLCHT(){
-      try{ if (isFRBN)   toggleFRBN();   }catch(_){}
-      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
-      try{ if (isTMSL)   toggleTMSL();   }catch(_){}
-      try{ if (isRAUM)   toggleRAUM();   }catch(_){}
-      try{ if (is13245)  toggle13245();  }catch(_){}
-      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
-      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
-      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
-      try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
+      try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+      try{ if (is13245)  toggle13245();  }catch(_){ }
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }  // ← **NUEVO**
+      try{ if (!isLCHT)  toggleLCHT();   }catch(_){ }
     }
 
     function ensureOnlyTMSL(){
-      try{ if (isFRBN)   toggleFRBN();   }catch(_){}
-      try{ if (isLCHT)   toggleLCHT();   }catch(_){}
-      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){}
-      try{ if (isRAUM)   toggleRAUM();   }catch(_){}
-      try{ if (is13245)  toggle13245();  }catch(_){}
-      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
-      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
+      try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+      try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+      try{ if (is13245)  toggle13245();  }catch(_){ }
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }  // ← **NUEVO**
       try{
         if (!isTMSL) toggleTMSL();
         if (typeof window.requestTMSLRebuild === 'function'){
