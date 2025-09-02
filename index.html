@@ -5957,16 +5957,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       isR5NOVA = !isR5NOVA;
 
       if (isR5NOVA){
-        // Exclusividad con TODOS los motores (incluye GRVTY)
-        try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
-        try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
-        try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
-        try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
-        try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
-        try{ if (is13245)  toggle13245();  }catch(_){ }
-        try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
-        try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
-        try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }   // ← **NUEVO**
+        // Exclusividad con otros motores (incluye RAPHI)
+        if (isFRBN)   toggleFRBN();
+        if (isLCHT)   toggleLCHT();
+        if (isOFFNNG) toggleOFFNNG();
+        if (isTMSL)   toggleTMSL();
+        if (isRAUM)   toggleRAUM();
+        if (is13245)  toggle13245();
+        if (isRAPHI)  toggleRAPHI();   // ← **ESTE FALTABA**
+        if (isKEPLR)  toggleKEPLR();
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
@@ -5978,8 +5977,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         camera.updateProjectionMatrix();
 
         const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        if (controls && controls.target) controls.target.set(0, eyeY, 0);
         camera.position.set(0, eyeY, 42);
+        controls.target.set(0, eyeY, 0);
 
         controls.enabled            = true;
         controls.enableRotate       = true;
@@ -5992,14 +5991,14 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         controls.maxPolarAngle      = Math.PI / 2;
         controls.update();
 
-        try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
-        try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
-        try{ if (lichtGroup)       lichtGroup.visible = false; }catch(_){ }
+        cubeUniverse.visible     = false;
+        permutationGroup.visible = false;
+        if (lichtGroup) lichtGroup.visible = false;
 
       } else {
         leaveRaumRenderBoost();
-        try{ disposeGroupR5NOVA?.(); }catch(_){ }
-        try{ groupR5NOVA = null; }catch(_){ }
+        disposeGroupR5NOVA();
+        groupR5NOVA = null;
 
         camera.fov = 75;
         camera.updateProjectionMatrix();
@@ -6007,25 +6006,14 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         controls.maxPolarAngle      = Math.PI;
         controls.screenSpacePanning = false;
 
-        try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
-        try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
-        try{ if (lichtGroup && isLCHT) lichtGroup.visible = true; }catch(_){ }
+        cubeUniverse.visible     = true;
+        permutationGroup.visible = true;
+        if (lichtGroup && isLCHT) lichtGroup.visible = true;
       }
     }
     
     /* botón selector – sólo enciende, nunca apaga */
-    function ensureOnlyR5NOVA(){
-      try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
-      try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
-      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
-      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
-      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
-      try{ if (is13245)  toggle13245();  }catch(_){ }
-      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
-      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
-      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }  // ← **NUEVO**
-      try{ if (!isR5NOVA) toggleR5NOVA(); }catch(_){ }
-    }
+    function ensureOnlyR5NOVA(){ if (!isR5NOVA) toggleR5NOVA(); }
 
     // Enciende SOLO FRBN
     function ensureOnlyFRBN(){
@@ -6037,7 +6025,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
       try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
-      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){}  // ← **NUEVO**
       try{ if (!isFRBN)  toggleFRBN();   }catch(_){}
     }
 
@@ -6050,7 +6037,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){}
       try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
-      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){}  // ← **NUEVO**
       try{ if (!isLCHT)  toggleLCHT();   }catch(_){}
     }
 
@@ -6062,7 +6048,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (is13245)  toggle13245();  }catch(_){}
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){}
       try{ if (isRAPHI)  toggleRAPHI();  }catch(_){}
-      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){}  // ← **NUEVO**
       try{
         if (!isTMSL) toggleTMSL();
         if (typeof window.requestTMSLRebuild === 'function'){
@@ -6925,11 +6910,10 @@ function disposeGroupGRVTY(){
 }
 
 /* ====== Parámetros del plano y wells ====== */
-// const GRVTY_W = 60.0, GRVTY_D = 60.0;
-const GRVTY_W = 180.0, GRVTY_D = 120.0;   // 3× a lo ancho, 2× a lo profundo
-const GRVTY_RES_DESKTOP = 200;
-const GRVTY_RES_MOBILE  = 140;
-const GRVTY_MAX_WELLS   = 2;
+const GRVTY_W = 60.0, GRVTY_D = 60.0;     // tamaño de la “lona”
+const GRVTY_RES_DESKTOP = 200;            // subdivisiones (desktop)
+const GRVTY_RES_MOBILE  = 140;            // subdivisiones (móvil)
+const GRVTY_MAX_WELLS   = 2;              // fijo (1 o 2, determinista)
 
 /* ====== Utilidades deterministas (reusamos tus fórmulas) ====== */
 function grvtySeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
@@ -6992,7 +6976,6 @@ uniform float uW[${GRVTY_MAX_WELLS}];
 uniform float uP[${GRVTY_MAX_WELLS}];
 uniform float uStep;           // factor global (BUILD rot step promedio)
 uniform float uBreath;         // 0..1 amplitud de respiración
-uniform float uAmpScale;       // NUEVO: escala global de profundidad
 
 varying vec2 vUv;
 varying vec3 vPos;             // pos local ya rotada a XZ
@@ -7009,7 +6992,7 @@ void main(){
     vec2 d = vec2(p.x - uC[i].x, p.z - uC[i].y);
     float r2 = dot(d,d);
     float f  = sqrt(r2 + uE[i]*uE[i]);
-    float A  = uAmpScale * uA[i] * (1.0 + uBreath * sin(uW[i]*uTime*uStep + uP[i]));
+    float A  = uA[i] * (1.0 + uBreath * sin(uW[i]*uTime*uStep + uP[i]));
     // Altura (pozo negativo)
     y += -A / f;
     // Derivadas analíticas para pendiente
@@ -7029,93 +7012,38 @@ void main(){
 const GRVTY_FS = `
 precision highp float;
 
-uniform float uHueDrift;       // deriva global de H a lo largo de X→Y
-uniform float uSat;            // saturación base
-uniform float uVal;            // valor (brightness) base
-uniform float uVibrance;       // realce exponencial de saturación/valor
-uniform float uSlopeTint;      // cuánto tiñe la curvatura
-uniform float uRasterSoftness; // 0..1, 0 = hard steps, 1 = muy suave
-uniform int   uCellsX;
-uniform int   uCellsY;
-uniform float uEdgeFade;       // 0..0.25 margen de fade alpha en UV
+uniform vec3  uCol1;          // color grid base
+uniform vec3  uCol2;          // color por curvatura
+uniform float uGridScale;     // densidad de líneas
+uniform float uLineWidth;     // grosor relativo
 
 varying vec2 vUv;
 varying float vSlope;
 
-/* --- utilidades de color --- */
-vec3 hsv2rgb(vec3 c){
-  vec3 p = abs(fract(c.x + vec3(0.,2.,4.)/6.)*6. - 3.);
-  return c.z * mix(vec3(1.0), clamp(p-1.0,0.0,1.0), c.y);
-}
-
-/* perturbación leve para romper bandas muy regulares */
-float hash12(vec2 p){
-  // hash baratísimo, determinista
-  vec3 p3  = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
+float gridLine(float x, float scale, float width){
+  // Línea nítida con derivatives
+  float gx = fract(x*scale);
+  float dx = fwidth(x*scale);
+  float d  = min(gx, 1.0 - gx);         // distancia a borde de celda
+  float a  = smoothstep(width+dx, width, d);
+  return a;
 }
 
 void main(){
-  // celdas base
-  vec2 g  = vec2(float(uCellsX), float(uCellsY));
-  vec2 uv = clamp(vUv, 0.0, 1.0);
+  // Grid ortogonal en UV
+  float g1 = gridLine(vUv.x, uGridScale, uLineWidth);
+  float g2 = gridLine(vUv.y, uGridScale, uLineWidth);
+  float g  = max(g1, g2);
 
-  // índice entero de celda
-  vec2  ij   = floor(uv * g);
-  vec2  f    = fract(uv * g);              // posición dentro de la celda
-  float s    = mix(0.0, 0.5, clamp(uRasterSoftness,0.0,1.0));  // radio de suavizado en celdas
+  // Mezcla por “curvatura” (slope)
+  vec3 base = mix(uCol1, uCol2, vSlope);
 
-  // vecinos para bilinear (bordes clamp)
-  vec2 i0 = ij;
-  vec2 i1 = min(ij + vec2(1.0,0.0), g-1.0);
-  vec2 j0 = ij;
-  vec2 j1 = min(ij + vec2(0.0,1.0), g-1.0);
+  // Composita: fondo tenue + líneas más marcadas
+  vec3 bg   = base * 0.22;
+  vec3 line = base * 0.95;
+  vec3 col  = mix(bg, line, g);
 
-  // 4 esquinas
-  vec2 c00 = i0 + vec2(0.0,0.0);
-  vec2 c10 = i1 + vec2(0.0,0.0);
-  vec2 c01 = j1 + vec2(0.0,0.0);
-  vec2 c11 = min(i1 + vec2(0.0,1.0), g-1.0);
-
-  // base de hue en [0,1) con deriva suave a lo largo de X→Y
-  float d  = uHueDrift;                    // ≈ 0.18 recomendado
-  float h00 = (c00.x/g.x + d * c00.y/g.y);
-  float h10 = (c10.x/g.x + d * c10.y/g.y);
-  float h01 = (c01.x/g.x + d * c01.y/g.y);
-  float h11 = (c11.x/g.x + d * c11.y/g.y);
-
-  // micro-jitter para evitar banding duro
-  float jtr = 0.012;
-  h00 += jtr * (hash12(c00) - 0.5);
-  h10 += jtr * (hash12(c10) - 0.5);
-  h01 += jtr * (hash12(c01) - 0.5);
-  h11 += jtr * (hash12(c11) - 0.5);
-
-  // saturación / valor con vibrance
-  float S = pow(clamp(uSat,0.0,1.0), 1.0/uVibrance);
-  float V = pow(clamp(uVal,0.0,1.0), 1.0/uVibrance);
-
-  // colores HSV → RGB en vértices de la celda
-  vec3 c0 = hsv2rgb(vec3(fract(h00), S, V));
-  vec3 c1 = hsv2rgb(vec3(fract(h10), S, V));
-  vec3 c2 = hsv2rgb(vec3(fract(h01), S, V));
-  vec3 c3 = hsv2rgb(vec3(fract(h11), S, V));
-
-  // mezcla bilineal (bordes redondeados por s)
-  vec2 w = smoothstep(vec2(s), vec2(1.0-s), f);
-  vec3 cx0 = mix(c0, c1, w.x);
-  vec3 cx1 = mix(c2, c3, w.x);
-  vec3 col = mix(cx0, cx1, w.y);
-
-  // tinte por curvatura (hace visibles los pozos)
-  col = mix(col, vec3(1.0) - col, uSlopeTint * vSlope);
-
-  // fade de bordes para “horizonte infinito”
-  float ed = min(min(uv.x,1.0-uv.x), min(uv.y,1.0-uv.y));
-  float alpha = smoothstep(0.0, uEdgeFade, ed);
-
-  gl_FragColor = vec4(col, alpha);
+  gl_FragColor = vec4(col, 1.0);
 }
 `;
 
@@ -7144,47 +7072,39 @@ function buildGRVTY(){
     wells.push({cx, cz, A, E, W, P, permStr: pa.join(',')});
   }
 
+  // Colores deterministas desde la primera permutación
+  const [C1, C2] = grvtyColorsFromPerm(perms[0]);
+
   // Geometría: plano en XZ (rotado a nivel de geometría)
   const RES = (window.devicePixelRatio > 1.25 ? GRVTY_RES_DESKTOP : GRVTY_RES_MOBILE);
   const geo = new THREE.PlaneGeometry(GRVTY_W, GRVTY_D, RES, RES);
   geo.rotateX(-Math.PI/2);  // ahora position.xz son el plano, y es vertical
-
-  // Colores extremos deterministas
-  const [C1, C2] = grvtyColorsFromPerm(perms[0] || [1,2,3,4,5]);
 
   // Uniforms
   const uniforms = {
     uTime:      { value: 0.0 },
     uN:         { value: N },
     uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
-                    wells[i]?.cx || 0, wells[i]?.cz || 0)) },
+                      wells[i]?.cx || 0, wells[i]?.cz || 0)) },
     uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0]) },
     uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1]) },
     uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0]) },
     uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) },
     uStep:      { value: 1.0 },
-    uBreath:    { value: 0.18 },            // respiración más visible
-    uAmpScale:  { value: 1.35 },            // pozos 35% más profundos
-
-    // --- parámetros cromáticos Jeff-Davis-like ---
-    uHueDrift:       { value: 0.18 },       // deriva global H x→y
-    uSat:            { value: 0.92 },       // base de saturación
-    uVal:            { value: 0.98 },       // base de valor (brillo)
-    uVibrance:       { value: 1.25 },       // realce
-    uSlopeTint:      { value: 0.25 },       // contraste por curvatura
-    uRasterSoftness: { value: 0.60 },       // bordes suaves
-    uCellsX:         { value: 48 },
-    uCellsY:         { value: 32 },
-    uEdgeFade:       { value: 0.12 }        // fade de bordes (horizonte)
+    uBreath:    { value: 0.08 }, // respiración muy sutil (8 %)
+    uCol1:      { value: C1 },   // grid base
+    uCol2:      { value: C2 },   // mezcla por curvatura
+    uGridScale: { value: 36.0 }, // densidad de líneas
+    uLineWidth: { value: 0.08 }  // grosor relativo
   };
 
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader:   GRVTY_VS,
     fragmentShader: GRVTY_FS,
-    transparent: true,          // ← necesario para el fade de bordes
+    transparent: false,
     depthTest: true,
-    depthWrite: false,          // ← evita halos en el horizonte
+    depthWrite: true,
     dithering: true,
     side: THREE.DoubleSide
   });
@@ -7222,26 +7142,23 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara tipo horizonte
+    // Cámara nivelada
     camera.up.set(0,1,0);
-    camera.fov  = 35;         // menos perspectiva para sensación de “lejanía”
-    camera.near = 0.1;
-    camera.far  = 3000;
+    camera.fov = 55;
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 6, 90);  // altura baja, lejos → horizonte
+    camera.position.set(0, 0, 42);
 
     controls.enabled            = true;
-    controls.enableRotate       = true;
+    controls.enableRotate       = true;   // solo yaw
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 10;
-    controls.maxDistance        = 800;
+    controls.maxDistance        = 200;
     controls.screenSpacePanning = true;
-    // restringe pitch cerca del horizonte
-    controls.minPolarAngle      = Math.PI * 0.48;
-    controls.maxPolarAngle      = Math.PI * 0.54;
+    controls.minPolarAngle      = Math.PI / 2;
+    controls.maxPolarAngle      = Math.PI / 2;
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
