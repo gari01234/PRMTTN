@@ -6992,6 +6992,7 @@ uniform float uW[${GRVTY_MAX_WELLS}];
 uniform float uP[${GRVTY_MAX_WELLS}];
 uniform float uStep;           // factor global (BUILD rot step promedio)
 uniform float uBreath;         // 0..1 amplitud de respiración
+uniform float uAmpScale;       // NUEVO: escala global de profundidad
 
 varying vec2 vUv;
 varying vec3 vPos;             // pos local ya rotada a XZ
@@ -7008,7 +7009,7 @@ void main(){
     vec2 d = vec2(p.x - uC[i].x, p.z - uC[i].y);
     float r2 = dot(d,d);
     float f  = sqrt(r2 + uE[i]*uE[i]);
-    float A  = uA[i] * (1.0 + uBreath * sin(uW[i]*uTime*uStep + uP[i]));
+    float A  = uAmpScale * uA[i] * (1.0 + uBreath * sin(uW[i]*uTime*uStep + uP[i]));
     // Altura (pozo negativo)
     y += -A / f;
     // Derivadas analíticas para pendiente
@@ -7028,92 +7029,93 @@ void main(){
 const GRVTY_FS = `
 precision highp float;
 
-uniform float uCellsX;
-uniform float uCellsY;
-uniform float uSoftness;     // 0 = duro por celda, 1 = borde muy suave
-uniform float uHueX;         // deriva global de H a lo largo de X
-uniform float uHueY;         // deriva global de H a lo largo de Y
-uniform float uSatBoost;     // >1 = más saturación
-uniform float uValBoost;     // >1 = más brillo
-uniform float uGamma;        // corrección gamma (≈1.0–1.6)
-uniform vec3  uColA;         // color base A (RGB)
-uniform vec3  uColB;         // color base B (RGB)
+uniform float uHueDrift;       // deriva global de H a lo largo de X→Y
+uniform float uSat;            // saturación base
+uniform float uVal;            // valor (brightness) base
+uniform float uVibrance;       // realce exponencial de saturación/valor
+uniform float uSlopeTint;      // cuánto tiñe la curvatura
+uniform float uRasterSoftness; // 0..1, 0 = hard steps, 1 = muy suave
+uniform int   uCellsX;
+uniform int   uCellsY;
+uniform float uEdgeFade;       // 0..0.25 margen de fade alpha en UV
 
 varying vec2 vUv;
-varying float vSlope;        // ya la calculamos en el VS: sirve para añadir un sutil “pop”
+varying float vSlope;
 
-/* === utilidades HSV/RGB === */
-vec3 rgb2hsv(vec3 c){
-  vec4 K = vec4(0., -1./3., 2./3., -1.);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  float e = 1.0e-10;
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)),
-              d / (q.x + e),
-              q.x);
-}
+/* --- utilidades de color --- */
 vec3 hsv2rgb(vec3 c){
-  vec4 K = vec4(1., 2./3., 1./3., 3.);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6. - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0., 1.), c.y);
+  vec3 p = abs(fract(c.x + vec3(0.,2.,4.)/6.)*6. - 3.);
+  return c.z * mix(vec3(1.0), clamp(p-1.0,0.0,1.0), c.y);
 }
 
-/* === gradiente “Davis”: mosaico con deriva H(X,Y) y mezcla bilineal === */
-vec3 paletteAt(vec2 gxy){ // gxy en coordenadas de celda normalizadas [0,1]
-  // colores extremos convertidos a HSV
-  vec3 ha = rgb2hsv(uColA);
-  vec3 hb = rgb2hsv(uColB);
-
-  // mezcla base A→B siguiendo una diagonal (peso 0.6 X, 0.4 Y)
-  float t = clamp(0.6 * gxy.x + 0.4 * gxy.y, 0.0, 1.0);
-  vec3 h  = mix(ha, hb, t);
-
-  // deriva de tono global (hue drift) a lo largo de X e Y
-  h.x = fract(h.x + uHueX * gxy.x + uHueY * gxy.y);
-
-  // boost de radiancia
-  h.y = clamp(h.y * uSatBoost, 0.0, 1.0);
-  h.z = clamp(h.z * uValBoost, 0.0, 1.0);
-
-  return hsv2rgb(h);
+/* perturbación leve para romper bandas muy regulares */
+float hash12(vec2 p){
+  // hash baratísimo, determinista
+  vec3 p3  = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 void main(){
-  // coordenadas de celda
-  vec2 C = vec2(uCellsX, uCellsY);
-  vec2 g = vUv * C;                 // coordenadas en la grilla
-  vec2 ij = floor(g);               // índice de celda actual
-  vec2 f  = fract(g);               // coords dentro de la celda [0,1)
+  // celdas base
+  vec2 g  = vec2(float(uCellsX), float(uCellsY));
+  vec2 uv = clamp(vUv, 0.0, 1.0);
 
-  // posiciones de los 4 vecinos en espacio “grilla normalizada” (0..1)
-  vec2 g00 = (ij + vec2(0.5,0.5)) / C;
-  vec2 g10 = (ij + vec2(1.5,0.5)) / C;
-  vec2 g01 = (ij + vec2(0.5,1.5)) / C;
-  vec2 g11 = (ij + vec2(1.5,1.5)) / C;
+  // índice entero de celda
+  vec2  ij   = floor(uv * g);
+  vec2  f    = fract(uv * g);              // posición dentro de la celda
+  float s    = mix(0.0, 0.5, clamp(uRasterSoftness,0.0,1.0));  // radio de suavizado en celdas
 
-  // colores deterministas en los centros de las celdas vecinas
-  vec3 c00 = paletteAt(g00);
-  vec3 c10 = paletteAt(g10);
-  vec3 c01 = paletteAt(g01);
-  vec3 c11 = paletteAt(g11);
+  // vecinos para bilinear (bordes clamp)
+  vec2 i0 = ij;
+  vec2 i1 = min(ij + vec2(1.0,0.0), g-1.0);
+  vec2 j0 = ij;
+  vec2 j1 = min(ij + vec2(0.0,1.0), g-1.0);
 
-  // bilineal “suave” dentro de la celda (sin líneas)
-  // suavizamos f con smoothstep controlado por uSoftness
-  float s = clamp(uSoftness, 0.0, 1.0);
-  vec2 ff = mix(f, smoothstep(0.0, 1.0, f), s);
+  // 4 esquinas
+  vec2 c00 = i0 + vec2(0.0,0.0);
+  vec2 c10 = i1 + vec2(0.0,0.0);
+  vec2 c01 = j1 + vec2(0.0,0.0);
+  vec2 c11 = min(i1 + vec2(0.0,1.0), g-1.0);
 
-  vec3 cx0 = mix(c00, c10, ff.x);
-  vec3 cx1 = mix(c01, c11, ff.x);
-  vec3 col = mix(cx0, cx1, ff.y);
+  // base de hue en [0,1) con deriva suave a lo largo de X→Y
+  float d  = uHueDrift;                    // ≈ 0.18 recomendado
+  float h00 = (c00.x/g.x + d * c00.y/g.y);
+  float h10 = (c10.x/g.x + d * c10.y/g.y);
+  float h01 = (c01.x/g.x + d * c01.y/g.y);
+  float h11 = (c11.x/g.x + d * c11.y/g.y);
 
-  // pequeño énfasis con la curvatura del pozo (vSlope) para dar “vida”
-  col = mix(col, col * (1.0 + 0.15 * vSlope), 0.35);
+  // micro-jitter para evitar banding duro
+  float jtr = 0.012;
+  h00 += jtr * (hash12(c00) - 0.5);
+  h10 += jtr * (hash12(c10) - 0.5);
+  h01 += jtr * (hash12(c01) - 0.5);
+  h11 += jtr * (hash12(c11) - 0.5);
 
-  // gamma para vibrancia final
-  col = pow(col, vec3(1.0 / max(0.001, uGamma)));
+  // saturación / valor con vibrance
+  float S = pow(clamp(uSat,0.0,1.0), 1.0/uVibrance);
+  float V = pow(clamp(uVal,0.0,1.0), 1.0/uVibrance);
 
-  gl_FragColor = vec4(col, 1.0);
+  // colores HSV → RGB en vértices de la celda
+  vec3 c0 = hsv2rgb(vec3(fract(h00), S, V));
+  vec3 c1 = hsv2rgb(vec3(fract(h10), S, V));
+  vec3 c2 = hsv2rgb(vec3(fract(h01), S, V));
+  vec3 c3 = hsv2rgb(vec3(fract(h11), S, V));
+
+  // mezcla bilineal (bordes redondeados por s)
+  vec2 w = smoothstep(vec2(s), vec2(1.0-s), f);
+  vec3 cx0 = mix(c0, c1, w.x);
+  vec3 cx1 = mix(c2, c3, w.x);
+  vec3 col = mix(cx0, cx1, w.y);
+
+  // tinte por curvatura (hace visibles los pozos)
+  col = mix(col, vec3(1.0) - col, uSlopeTint * vSlope);
+
+  // fade de bordes para “horizonte infinito”
+  float ed = min(min(uv.x,1.0-uv.x), min(uv.y,1.0-uv.y));
+  float alpha = smoothstep(0.0, uEdgeFade, ed);
+
+  gl_FragColor = vec4(col, alpha);
 }
 `;
 
@@ -7152,46 +7154,37 @@ function buildGRVTY(){
 
   // Uniforms
   const uniforms = {
-    // (se mantiene uTime/uStep/uBreath porque el VS respira la lona)
-    uTime:   { value: 0.0 },
-    uStep:   { value: 1.0 },
-    uBreath: { value: 0.08 },
-
-    // parámetros de la grilla de “mosaico”
-    uCellsX:    { value: 24.0 },   // # celdas en X (ajústalo si quieres)
-    uCellsY:    { value: 16.0 },   // # celdas en Y (proporcional al plano)
-    uSoftness:  { value: 0.85 },   // 0..1 – bordes muy suaves “Jeff Davis”
-
-    // deriva de tono global (en vueltas de H)
-    uHueX:      { value: 0.18 },   // 0.18 ≈ ~65° a lo largo de X
-    uHueY:      { value: -0.05 },  // leve deriva inversa en Y
-
-    // radiancia
-    uSatBoost:  { value: 1.25 },   // +25% saturación
-    uValBoost:  { value: 1.12 },   // +12% brillo
-    uGamma:     { value: 1.35 },   // empuja medios tonos
-
-    // colores extremos A/B: tomamos los dos deterministas ya calculados
-    uColA:      { value: C1 },
-    uColB:      { value: C2 },
-
-    // (uniformes VS existentes – pozos)
+    uTime:      { value: 0.0 },
     uN:         { value: N },
     uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
-                      wells[i]?.cx || 0, wells[i]?.cz || 0)) },
+                    wells[i]?.cx || 0, wells[i]?.cz || 0)) },
     uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0]) },
     uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1]) },
     uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0]) },
-    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) }
+    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) },
+    uStep:      { value: 1.0 },
+    uBreath:    { value: 0.18 },            // respiración más visible
+    uAmpScale:  { value: 1.35 },            // pozos 35% más profundos
+
+    // --- parámetros cromáticos Jeff-Davis-like ---
+    uHueDrift:       { value: 0.18 },       // deriva global H x→y
+    uSat:            { value: 0.92 },       // base de saturación
+    uVal:            { value: 0.98 },       // base de valor (brillo)
+    uVibrance:       { value: 1.25 },       // realce
+    uSlopeTint:      { value: 0.25 },       // contraste por curvatura
+    uRasterSoftness: { value: 0.60 },       // bordes suaves
+    uCellsX:         { value: 48 },
+    uCellsY:         { value: 32 },
+    uEdgeFade:       { value: 0.12 }        // fade de bordes (horizonte)
   };
 
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader:   GRVTY_VS,
     fragmentShader: GRVTY_FS,
-    transparent: false,
+    transparent: true,          // ← necesario para el fade de bordes
     depthTest: true,
-    depthWrite: true,
+    depthWrite: false,          // ← evita halos en el horizonte
     dithering: true,
     side: THREE.DoubleSide
   });
@@ -7229,23 +7222,26 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara nivelada
+    // Cámara tipo horizonte
     camera.up.set(0,1,0);
-    camera.fov = 55;
+    camera.fov  = 35;         // menos perspectiva para sensación de “lejanía”
+    camera.near = 0.1;
+    camera.far  = 3000;
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 42);
+    camera.position.set(0, 6, 90);  // altura baja, lejos → horizonte
 
     controls.enabled            = true;
-    controls.enableRotate       = true;   // solo yaw
+    controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 10;
-    controls.maxDistance        = 200;
+    controls.maxDistance        = 800;
     controls.screenSpacePanning = true;
-    controls.minPolarAngle      = Math.PI / 2;
-    controls.maxPolarAngle      = Math.PI / 2;
+    // restringe pitch cerca del horizonte
+    controls.minPolarAngle      = Math.PI * 0.48;
+    controls.maxPolarAngle      = Math.PI * 0.54;
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
