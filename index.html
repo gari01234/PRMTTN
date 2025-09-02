@@ -6925,10 +6925,11 @@ function disposeGroupGRVTY(){
 }
 
 /* ====== Parámetros del plano y wells ====== */
-const GRVTY_W = 60.0, GRVTY_D = 60.0;     // tamaño de la “lona”
-const GRVTY_RES_DESKTOP = 200;            // subdivisiones (desktop)
-const GRVTY_RES_MOBILE  = 140;            // subdivisiones (móvil)
-const GRVTY_MAX_WELLS   = 2;              // fijo (1 o 2, determinista)
+// const GRVTY_W = 60.0, GRVTY_D = 60.0;
+const GRVTY_W = 180.0, GRVTY_D = 120.0;   // 3× a lo ancho, 2× a lo profundo
+const GRVTY_RES_DESKTOP = 200;
+const GRVTY_RES_MOBILE  = 140;
+const GRVTY_MAX_WELLS   = 2;
 
 /* ====== Utilidades deterministas (reusamos tus fórmulas) ====== */
 function grvtySeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
@@ -7027,81 +7028,90 @@ void main(){
 const GRVTY_FS = `
 precision highp float;
 
-uniform vec3  uPalette[12];   // 12 colores ya vibranceados/contrastados desde JS
-uniform int   uBase;          // base determinista 0..11
-uniform int   uSeed;          // semilla entera extra (sceneSeed/S_global/lehmer)
-uniform int   uPrime;         // 7 (primo pequeño para mezclar i/j)
-uniform int   uCellsX;        // nº columnas en UV.x
-uniform int   uCellsY;        // nº filas en UV.y
-uniform float uSoftness;      // 0 = duro (nearest), 1 = bilineal suave
-uniform float uHueSlopeX;     // peso de deriva por X (suave)
-uniform float uHueSlopeY;     // peso de deriva por Y (suave)
-uniform float uHueDrift;      // amplitud de deriva en “slots” (p.ej. 0.75)
+uniform float uCellsX;
+uniform float uCellsY;
+uniform float uSoftness;     // 0 = duro por celda, 1 = borde muy suave
+uniform float uHueX;         // deriva global de H a lo largo de X
+uniform float uHueY;         // deriva global de H a lo largo de Y
+uniform float uSatBoost;     // >1 = más saturación
+uniform float uValBoost;     // >1 = más brillo
+uniform float uGamma;        // corrección gamma (≈1.0–1.6)
+uniform vec3  uColA;         // color base A (RGB)
+uniform vec3  uColB;         // color base B (RGB)
 
 varying vec2 vUv;
-varying float vSlope;         // disponible si quisieras una modulación sutil
+varying float vSlope;        // ya la calculamos en el VS: sirve para añadir un sutil “pop”
 
-// Mezcla circular entre dos slots de la paleta (slot+frac)
-vec3 paletteLerp(float slotf){
-  float s = mod(slotf, 12.0);
-  int s0 = int(floor(s));
-  int s1 = int(mod(float(s0 + 1), 12.0));
-  float t = fract(s);
-  return mix(uPalette[s0], uPalette[s1], t);
+/* === utilidades HSV/RGB === */
+vec3 rgb2hsv(vec3 c){
+  vec4 K = vec4(0., -1./3., 2./3., -1.);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  float e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)),
+              d / (q.x + e),
+              q.x);
+}
+vec3 hsv2rgb(vec3 c){
+  vec4 K = vec4(1., 2./3., 1./3., 3.);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6. - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0., 1.), c.y);
 }
 
-// Índice de color determinista por celda (i,j)
-int cellSlot(int i, int j){
-  // (((uBase + i + j*uPrime) ^ uSeed) % 12 + 12) % 12
-  int v = (uBase + i + j * uPrime);
-  v = v ^ uSeed;
-  int m = v % 12;
-  return (m < 0) ? (m + 12) : m;
-}
+/* === gradiente “Davis”: mosaico con deriva H(X,Y) y mezcla bilineal === */
+vec3 paletteAt(vec2 gxy){ // gxy en coordenadas de celda normalizadas [0,1]
+  // colores extremos convertidos a HSV
+  vec3 ha = rgb2hsv(uColA);
+  vec3 hb = rgb2hsv(uColB);
 
-// Color del centro de la celda (i,j) con deriva de hue suave en función de UV
-vec3 cellColorWithDrift(int i, int j, vec2 uv){
-  int baseSlot = cellSlot(i, j);
-  // deriva continua en “slots” (0..11) según uv; no altera determinismo base
-  float drift = uHueDrift * (uHueSlopeX * uv.x + uHueSlopeY * uv.y);
-  float slotf = float(baseSlot) + drift;
-  return paletteLerp(slotf);
+  // mezcla base A→B siguiendo una diagonal (peso 0.6 X, 0.4 Y)
+  float t = clamp(0.6 * gxy.x + 0.4 * gxy.y, 0.0, 1.0);
+  vec3 h  = mix(ha, hb, t);
+
+  // deriva de tono global (hue drift) a lo largo de X e Y
+  h.x = fract(h.x + uHueX * gxy.x + uHueY * gxy.y);
+
+  // boost de radiancia
+  h.y = clamp(h.y * uSatBoost, 0.0, 1.0);
+  h.z = clamp(h.z * uValBoost, 0.0, 1.0);
+
+  return hsv2rgb(h);
 }
 
 void main(){
-  // Cuantización a celdas
-  float cx = float(uCellsX);
-  float cy = float(uCellsY);
-  float fx = vUv.x * cx;
-  float fy = vUv.y * cy;
+  // coordenadas de celda
+  vec2 C = vec2(uCellsX, uCellsY);
+  vec2 g = vUv * C;                 // coordenadas en la grilla
+  vec2 ij = floor(g);               // índice de celda actual
+  vec2 f  = fract(g);               // coords dentro de la celda [0,1)
 
-  int ix = int(floor(fx));
-  int iy = int(floor(fy));
+  // posiciones de los 4 vecinos en espacio “grilla normalizada” (0..1)
+  vec2 g00 = (ij + vec2(0.5,0.5)) / C;
+  vec2 g10 = (ij + vec2(1.5,0.5)) / C;
+  vec2 g01 = (ij + vec2(0.5,1.5)) / C;
+  vec2 g11 = (ij + vec2(1.5,1.5)) / C;
 
-  // Fracciones dentro de la celda (para pesos bilineales)
-  float tx = fract(fx);
-  float ty = fract(fy);
+  // colores deterministas en los centros de las celdas vecinas
+  vec3 c00 = paletteAt(g00);
+  vec3 c10 = paletteAt(g10);
+  vec3 c01 = paletteAt(g01);
+  vec3 c11 = paletteAt(g11);
 
-  // Colores de las 4 celdas vecinas (clamp para evitar out-of-range)
-  int ix1 = min(ix + 1, uCellsX - 1);
-  int iy1 = min(iy + 1, uCellsY - 1);
+  // bilineal “suave” dentro de la celda (sin líneas)
+  // suavizamos f con smoothstep controlado por uSoftness
+  float s = clamp(uSoftness, 0.0, 1.0);
+  vec2 ff = mix(f, smoothstep(0.0, 1.0, f), s);
 
-  vec3 c00 = cellColorWithDrift(ix , iy , vUv);
-  vec3 c10 = cellColorWithDrift(ix1, iy , vUv);
-  vec3 c01 = cellColorWithDrift(ix , iy1, vUv);
-  vec3 c11 = cellColorWithDrift(ix1, iy1, vUv);
+  vec3 cx0 = mix(c00, c10, ff.x);
+  vec3 cx1 = mix(c01, c11, ff.x);
+  vec3 col = mix(cx0, cx1, ff.y);
 
-  // Bilinear clásico (suave)
-  vec3 c_bi = mix( mix(c00, c10, tx),
-                   mix(c01, c11, tx), ty );
+  // pequeño énfasis con la curvatura del pozo (vSlope) para dar “vida”
+  col = mix(col, col * (1.0 + 0.15 * vSlope), 0.35);
 
-  // Nearest (duro) para uSoftness=0
-  int inx = (tx < 0.5) ? ix : ix1;
-  int iny = (ty < 0.5) ? iy : iy1;
-  vec3 c_nr = cellColorWithDrift(inx, iny, vUv);
-
-  // Interpola entre duro ↔ suave
-  vec3 col = mix(c_nr, c_bi, clamp(uSoftness, 0.0, 1.0));
+  // gamma para vibrancia final
+  col = pow(col, vec3(1.0 / max(0.001, uGamma)));
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -7137,65 +7147,42 @@ function buildGRVTY(){
   const geo = new THREE.PlaneGeometry(GRVTY_W, GRVTY_D, RES, RES);
   geo.rotateX(-Math.PI/2);  // ahora position.xz son el plano, y es vertical
 
-  // ——— Paleta de 12 colores con tus utilidades (PATTERNS → HSV → RGB → contraste → vibrance)
-  function grvtyBuildPalette(perms){
-    // Usamos la primera permutación para el “sig” (como en otros motores)
-    const pa0 = perms[0] || [1,2,3,4,5];
-    const sig = computeSignature(pa0);
-    const out = [];
-    for (let slot = 0; slot < 12; slot++){
-      let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-      sI = (sI * PHI_S) % 12;
-      vI = (vI * PHI_V) % 12;
-      const {h,s,v} = idxToHSV(hI, sI, vI);
-      let rgb = hsvToRgb(h, s, v);
-      rgb = ensureContrastRGB(rgb);
-      let c = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-      c = applyBuildVibranceToColor(c);
-      out.push(c);
-    }
-    return out;
-  }
-
-  // Semillas deterministas para el indexado por celda
-  const pa0 = perms[0];
-  const r0  = (lehmerRank(pa0) >>> 0);
-  const uBase = ( (sceneSeed|0) + (S_global|0) + (r0 % 12) ) % 12;
-  const uSeed = ((r0 ^ (sceneSeed|0) ^ (S_global|0)) >>> 0);
-
-  // Paleta (12 colores vec3)
-  const palette = grvtyBuildPalette(perms);
+  // Colores extremos deterministas
+  const [C1, C2] = grvtyColorsFromPerm(perms[0] || [1,2,3,4,5]);
 
   // Uniforms
   const uniforms = {
-    // tiempo y “step” siguen igual para la respiración
+    // (se mantiene uTime/uStep/uBreath porque el VS respira la lona)
     uTime:   { value: 0.0 },
     uStep:   { value: 1.0 },
     uBreath: { value: 0.08 },
 
-    // wells (igual que antes)
-    uN:   { value: N },
-    uC:   { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(wells[i]?.cx || 0, wells[i]?.cz || 0)) },
-    uA:   { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0]) },
-    uE:   { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1]) },
-    uW:   { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0]) },
-    uP:   { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) },
+    // parámetros de la grilla de “mosaico”
+    uCellsX:    { value: 24.0 },   // # celdas en X (ajústalo si quieres)
+    uCellsY:    { value: 16.0 },   // # celdas en Y (proporcional al plano)
+    uSoftness:  { value: 0.85 },   // 0..1 – bordes muy suaves “Jeff Davis”
 
-    // ——— NUEVO: paleta + raster
-    uPalette: { value: palette },    // Array<THREE.Color> de 12
-    uBase:    { value: uBase|0 },
-    uSeed:    { value: uSeed|0 },
-    uPrime:   { value: 7 },          // primo pequeño para mezclar i/j
+    // deriva de tono global (en vueltas de H)
+    uHueX:      { value: 0.18 },   // 0.18 ≈ ~65° a lo largo de X
+    uHueY:      { value: -0.05 },  // leve deriva inversa en Y
 
-    // Resolución del mosaico (ajusta a gusto)
-    uCellsX:  { value: 36 },         // columnas
-    uCellsY:  { value: 20 },         // filas
-    uSoftness:{ value: 0.35 },       // 0 duro ↔ 1 bilineal (0.25–0.45 da look Jeff Davis)
+    // radiancia
+    uSatBoost:  { value: 1.25 },   // +25% saturación
+    uValBoost:  { value: 1.12 },   // +12% brillo
+    uGamma:     { value: 1.35 },   // empuja medios tonos
 
-    // Deriva de hue global (suave)
-    uHueSlopeX: { value: 1.0 },      // peso X
-    uHueSlopeY: { value: 0.65 },     // peso Y
-    uHueDrift:  { value: 0.75 }      // en “slots”; 0.5–1.0 funciona bien
+    // colores extremos A/B: tomamos los dos deterministas ya calculados
+    uColA:      { value: C1 },
+    uColB:      { value: C2 },
+
+    // (uniformes VS existentes – pozos)
+    uN:         { value: N },
+    uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
+                      wells[i]?.cx || 0, wells[i]?.cz || 0)) },
+    uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0]) },
+    uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1]) },
+    uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0]) },
+    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) }
   };
 
   const mat = new THREE.ShaderMaterial({
