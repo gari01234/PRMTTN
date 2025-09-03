@@ -6911,6 +6911,15 @@ async function showPatternInfo(){
 let isGRVTY    = window.isGRVTY || false;
 let groupGRVTY = window.groupGRVTY || null;
 
+// === Fondo FRBN como “backdrop” (sin activar el motor FRBN) ===
+function grvtyUseFRBNBackdrop(){
+  try{
+    if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
+    if (typeof buildGanzfeld  === 'function') buildGanzfeld();  // sincroniza colores K
+    if (window.skySphere) window.skySphere.visible = true;
+  }catch(_){ }
+}
+
 function disposeGroupGRVTY(){
   if (!groupGRVTY) return;
   groupGRVTY.traverse(o=>{
@@ -7086,7 +7095,7 @@ function buildGRVTY(){
   groupGRVTY = new THREE.Group();
   window.groupGRVTY = groupGRVTY;
 
-  updateBackground(false);
+  grvtyUseFRBNBackdrop();   // fondo como FRBN (cielo/esfera), no BUILD
 
   // Permutaciones activas (fallback determinista)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
@@ -7168,70 +7177,91 @@ function buildGRVTY(){
   groupGRVTY.add(mesh);
   scene.add(groupGRVTY);
 
-  // SÓLIDOS KEPLR flotando sobre los pozos (si existen)
-  try { addKeplrProbesOverWells(wells); } catch(_){ }
+  // 1 sólido KEPLR por pozo (sin superposiciones)
+  try { addKeplrSolidsOverWells(wells); } catch(_){ }
 }
 
-function addKeplrProbesOverWells(wells){
-  if (!groupGRVTY) return;
-  // Limpia anterior
+// === Un sólido KEPLR por pozo (sin superposiciones) ===
+function addKeplrSolidsOverWells(wells){
+  if (!groupGRVTY || !Array.isArray(wells) || !wells.length) return;
+
+  // Limpia anteriores
   if (groupGRVTY.__probes){
-    groupGRVTY.__probes.traverse(o=>{
-      if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
-    });
+    groupGRVTY.__probes.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
     groupGRVTY.remove(groupGRVTY.__probes);
     groupGRVTY.__probes = null;
   }
+
   const probes = new THREE.Group();
   probes.name = '__grvtyProbes';
+  probes.renderOrder = 3;
   groupGRVTY.__probes = probes;
   groupGRVTY.add(probes);
 
-  // Fuente: objetos de KEPLR si están ya construidos
-  const pool = [];
-  try{
-    (function collect(o){
-      if (!o) return;
-      if (o.isMesh) pool.push(o);
-      if (o.children) for (let i=0;i<o.children.length;i++) collect(o.children[i]);
-    })(window.groupKEPLR);
-  }catch(_){ }
+  // Permutaciones activas (fallback determinista)
+  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
+  if (!perms.length) perms = [[1,2,3,4,5]];
 
-  if (!pool.length) return; // si no hay KEPLR, sal silenciosamente
+  // Semillas deterministas (reusa KEPLR)
+  const H     = keplrShapeSeedFromPerms(perms);
+  const START = H % KEPLR_SOLIDS.length; // reparte el tipo de sólido
 
-  // Selección determinista estable
-  const H = (window.sceneSeed|0) ^ (window.S_global|0);
-  const pick = (idx)=> pool[(idx*1103515245 + 12345 + H) >>> 0 % pool.length];
+  // Si existe builder de KEPLR, lo usamos; si no, clona un sólido completo de KEPLR si está activo
+  const canBuild = (typeof buildKeplrSolid === 'function') &&
+                   (typeof keplrGeometry   === 'function') &&
+                   (typeof applyKeplrOrientation === 'function') &&
+                   Array.isArray(KEPLR_SOLIDS);
 
-  const M = Math.min(5, wells.length); // hasta 5 sólidos
-  for (let i=0;i<M;i++){
-    const src = pick(i+1);
-    if (!src) continue;
-    const mesh = src.clone(true);
-    // Material propio para no afectar KEPLR
-    if (mesh.material) mesh.material = mesh.material.clone();
+  // Fallback: coger grupos completos (rotators) de KEPLR si ya existe en escena
+  const fallbackSolids = (window.groupKEPLR && window.groupKEPLR.userData && Array.isArray(window.groupKEPLR.userData.rotators))
+    ? window.groupKEPLR.userData.rotators : [];
 
-    // Escala según A del pozo (coherencia visual)
-    const A = wells[i].A;
-    const s = THREE.MathUtils.clamp(A / 8.0, 0.6, 2.5);
-    mesh.scale.setScalar(s);
+  const M = Math.min(wells.length, 5); // tope 5
+  for (let i=0; i<M; i++){
+    const pa   = perms[i % perms.length];
+    const A    = wells[i].A;
+    const cx   = wells[i].cx;
+    const cz   = wells[i].cz;
 
-    // Posición: sobre el centro del pozo, flotando (altura = fracción de A)
-    mesh.position.set(wells[i].cx, A * 0.45 + 1.0, wells[i].cz);
+    let solidGroup = null;
 
-    // Orientación estable
-    mesh.rotation.y = ((H >>> (i*3)) % 360) * Math.PI / 180;
+    if (canBuild){
+      // === Construir un sólido KEPLR “limpio” (sin dual, sin edges) ===
+      const sName    = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
+      const rBase    = 12.0;                                    // tamaño base del sólido
+      const tIdx     = 0;                                       // tramo geométrico (fijo)
+      const dualOn   = false;                                   // ← SIN dual
+      const orientK  = (Math.imul((lehmerRank(pa)>>>0) ^ (H + i*109), 1103515245) + 12345)>>>0;
+      const oIdx     = orientK % 60;                            // orientación discreta estable
+      const uniq     = i;                                       // color único por sólido
 
-    // Suaviza material (opcional)
-    try{
-      mesh.material.transparent = true;
-      mesh.material.opacity = 0.95;
-      mesh.material.depthWrite = true;
-      mesh.material.metalness = Math.min(0.6, mesh.material.metalness || 0);
-      mesh.material.roughness = 0.4;
-    }catch(_){ }
+      solidGroup = new THREE.Group();
+      buildKeplrSolid(sName, rBase, tIdx, dualOn, oIdx, pa, solidGroup, uniq);
+    } else if (fallbackSolids.length){
+      // === Clonar un GRUPO completo de KEPLR como fallback ===
+      const src = fallbackSolids[i % fallbackSolids.length];
+      solidGroup = src.clone(true);
+    }
 
-    probes.add(mesh);
+    if (!solidGroup) continue;
+
+    // Escala ligada a la “profundidad” del pozo (A)
+    const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
+    solidGroup.scale.setScalar(s);
+
+    // Posición y orientación (suave y coherente)
+    solidGroup.position.set(cx, 2.0 + A*0.45, cz);
+    solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
+
+    // Transparencias/orden seguros
+    solidGroup.traverse(o=>{
+      if (o.isMesh){
+        o.frustumCulled = false;
+        if (o.material){ o.material.transparent = true; o.material.depthWrite = false; o.material.needsUpdate = true; }
+      }
+    });
+
+    probes.add(solidGroup);
   }
 }
 
@@ -7241,6 +7271,7 @@ function toggleGRVTY(){
   window.isGRVTY = isGRVTY;
 
   if (isGRVTY){
+    grvtyUseFRBNBackdrop();   // muestra el cielo FRBN como fondo
     try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
     try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
     try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
@@ -7289,6 +7320,11 @@ camera.far  = 3000;
   } else {
     leaveRaumRenderBoost();
     disposeGroupGRVTY();
+    try{
+      if (window.skySphere && !(typeof isFRBN !== 'undefined' && isFRBN)){
+        window.skySphere.visible = false;  // oculta el cielo FRBN si FRBN no está activo
+      }
+    }catch(_){ }
     window.isGRVTY = false;
 
     camera.fov = 75;
