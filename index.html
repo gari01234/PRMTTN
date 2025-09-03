@@ -7257,8 +7257,10 @@ function toggleGRVTY(){
     buildGRVTY();
 
     // Cámara “horizonte”
-    camera.up.set(0,1,0);
-    camera.fov = 40;                 // más tele para horizonte marcado
+camera.up.set(0,1,0);
+camera.fov  = 17;         // menos perspectiva para sensación de “lejanía”
+camera.near = 0.1;
+camera.far  = 3000;
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
