@@ -6925,18 +6925,19 @@ function disposeGroupGRVTY(){
 }
 
 /* ====== Parámetros del plano y wells ====== */
-const GRVTY_W = 60.0, GRVTY_D = 60.0;     // tamaño de la “lona”
-const GRVTY_RES_DESKTOP = 200;            // subdivisiones (desktop)
-const GRVTY_RES_MOBILE  = 140;            // subdivisiones (móvil)
-const GRVTY_MAX_WELLS   = 2;              // fijo (1 o 2, determinista)
+const GRVTY_W = 360.0, GRVTY_D = 480.0;   // malla muy amplia tipo horizonte
+const GRVTY_RES_DESKTOP = 360;            // más subdivisiones para ondulación suave
+const GRVTY_RES_MOBILE  = 220;
+const GRVTY_MAX_WELLS   = 5;              // ← subimos a 5
 
 /* ====== Utilidades deterministas (reusamos tus fórmulas) ====== */
 function grvtySeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
 
-/* Devuelve 1 ó 2, determinista con H */
+/* 1..5 pozos deterministas desde H */
 function grvtyWellCount(H){
-  // bit bajo de H: 0 -> 1 pozo, 1 -> 2 pozos
-  return ((H & 1) ? 2 : 1);
+  // Distribuye 1..5 con ligera preferencia por 2–4
+  const k = ((H >>> 0) % 1007);
+  return 1 + (k % GRVTY_MAX_WELLS);        // 1..5
 }
 
 /* Centro determinista en [-W/2+M, +W/2-M]×[-D/2+M, +D/2-M] */
@@ -7027,36 +7028,53 @@ void main(){
 const GRVTY_FS = `
 precision highp float;
 
-uniform vec3  uCol1;          // color grid base
-uniform vec3  uCol2;          // color por curvatura
+uniform vec3  uCol1;          // color grid base (para líneas)
+uniform vec3  uCol2;          // color por curvatura (para líneas)
 uniform float uGridScale;     // densidad de líneas
 uniform float uLineWidth;     // grosor relativo
+
+// Gradiente determinista (tipo Jeff Davis)
+uniform float uHueBase;       // [0,1)
+uniform float uHueDriftX;     // deriva de H a lo largo de X
+uniform float uHueDriftY;     // deriva de H a lo largo de Y
+uniform float uSat;           // saturación
+uniform float uVal;           // valor
 
 varying vec2 vUv;
 varying float vSlope;
 
 float gridLine(float x, float scale, float width){
-  // Línea nítida con derivatives
   float gx = fract(x*scale);
   float dx = fwidth(x*scale);
-  float d  = min(gx, 1.0 - gx);         // distancia a borde de celda
+  float d  = min(gx, 1.0 - gx);
   float a  = smoothstep(width+dx, width, d);
   return a;
 }
 
+// HSV → RGB
+vec3 hsv2rgb(vec3 c){
+  vec3 p = abs(fract(c.xxx + vec3(0., 2./6., 4./6.)) * 6. - 3.);
+  vec3 rgb = clamp(p - 1., 0., 1.);
+  return c.z * mix(vec3(1.), rgb, c.y);
+}
+
 void main(){
-  // Grid ortogonal en UV
+  // LÍNEAS de grilla (como antes)
   float g1 = gridLine(vUv.x, uGridScale, uLineWidth);
   float g2 = gridLine(vUv.y, uGridScale, uLineWidth);
   float g  = max(g1, g2);
 
-  // Mezcla por “curvatura” (slope)
+  // Color base para las líneas (mezcla por curvatura)
   vec3 base = mix(uCol1, uCol2, vSlope);
+  vec3 bg   = base * 0.22;    // fondo bajo las líneas
+  vec3 line = base * 0.95;    // color de las líneas
 
-  // Composita: fondo tenue + líneas más marcadas
-  vec3 bg   = base * 0.22;
-  vec3 line = base * 0.95;
-  vec3 col  = mix(bg, line, g);
+  // CENTROS: gradiente Jeff-Davis-like (suave X→Y con deriva)
+  float h = fract(uHueBase + vUv.x * uHueDriftX + vUv.y * uHueDriftY);
+  vec3 center = hsv2rgb(vec3(h, uSat, uVal));
+
+  // Compositing: donde hay línea, gana "line"; si no, el gradiente de los centros
+  vec3 col = mix(center, line, g);
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -7073,44 +7091,58 @@ function buildGRVTY(){
   // Permutaciones activas (fallback determinista)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
-  const H = grvtySeedFromPerms(perms);
+  const H = grvtySeedFromPerms(perms) >>> 0;
 
+  // 1..5 pozos
   const N  = Math.min(GRVTY_MAX_WELLS, grvtyWellCount(H));
   const wells = [];
   for (let i=0;i<N;i++){
     const pa = perms[i % perms.length];
-    const [cx, cz] = grvtyCenterFor(pa, H);
+    const [cx, cz] = grvtyCenterFor(pa, H + i*1315423911);
     const A  = grvtyAmplitudeFor(pa);
-    const E  = grvtyEpsilonFor(pa, H);
+    const E  = grvtyEpsilonFor(pa, H + i*2654435761);
     const W  = grvtyOmegaFor(pa);
-    const P  = grvtyPhaseFor(pa, H);
+    const P  = grvtyPhaseFor(pa, H + i*374761393);
     wells.push({cx, cz, A, E, W, P, permStr: pa.join(',')});
   }
 
-  // Colores deterministas desde la primera permutación
+  // Colores deterministas para LÍNEAS (como antes)
   const [C1, C2] = grvtyColorsFromPerm(perms[0]);
 
-  // Geometría: plano en XZ (rotado a nivel de geometría)
+  // Geometría: plano gigante tipo horizonte
   const RES = (window.devicePixelRatio > 1.25 ? GRVTY_RES_DESKTOP : GRVTY_RES_MOBILE);
   const geo = new THREE.PlaneGeometry(GRVTY_W, GRVTY_D, RES, RES);
-  geo.rotateX(-Math.PI/2);  // ahora position.xz son el plano, y es vertical
+  geo.rotateX(-Math.PI/2);
 
-  // Uniforms
+  // Uniforms (incluye gradiente tipo Jeff Davis para CENTROS)
+  const hueBase   = ((H % 360) / 360.0);
+  const hueDriftX = 0.18 + ((H >> 8) & 63) / 1024.0;  // ≈ 0.18..0.241
+  const hueDriftY = 0.08 + ((H >> 16)& 63) / 1024.0;  // ≈ 0.08..0.141
+  const sat       = 0.80 + ((H >> 24)& 31) / 160.0;   // ≈ 0.80..0.993
+  const val       = 0.80 + ((H >> 20)& 31) / 160.0;   // ≈ 0.80..0.993
+
   const uniforms = {
     uTime:      { value: 0.0 },
     uN:         { value: N },
     uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
                       wells[i]?.cx || 0, wells[i]?.cz || 0)) },
-    uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0]) },
-    uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1]) },
-    uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0]) },
-    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0]) },
+    uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0, wells[2]?.A||0, wells[3]?.A||0, wells[4]?.A||0]) },
+    uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1, wells[2]?.E||1, wells[3]?.E||1, wells[4]?.E||1]) },
+    uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0, wells[2]?.W||0, wells[3]?.W||0, wells[4]?.W||0]) },
+    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0, wells[2]?.P||0, wells[3]?.P||0, wells[4]?.P||0]) },
     uStep:      { value: 1.0 },
-    uBreath:    { value: 0.08 }, // respiración muy sutil (8 %)
-    uCol1:      { value: C1 },   // grid base
-    uCol2:      { value: C2 },   // mezcla por curvatura
-    uGridScale: { value: 36.0 }, // densidad de líneas
-    uLineWidth: { value: 0.08 }  // grosor relativo
+    uBreath:    { value: 0.08 },
+    uCol1:      { value: C1 },
+    uCol2:      { value: C2 },
+    uGridScale: { value: 36.0 },
+    uLineWidth: { value: 0.08 },
+
+    // Gradiente centros
+    uHueBase:   { value: hueBase },
+    uHueDriftX: { value: hueDriftX },
+    uHueDriftY: { value: hueDriftY },
+    uSat:       { value: sat },
+    uVal:       { value: val }
   };
 
   const mat = new THREE.ShaderMaterial({
@@ -7130,10 +7162,77 @@ function buildGRVTY(){
   // Metadata para animación/bridge
   groupGRVTY.userData._lastT = performance.now();
   groupGRVTY.userData.uniforms = uniforms;
-  groupGRVTY.userData.permStrs = wells.map(w => w.permStr); // para getBuildRotStep promedio
+  groupGRVTY.userData.permStrs = wells.map(w => w.permStr);
+  groupGRVTY.userData.wells    = wells;
 
   groupGRVTY.add(mesh);
   scene.add(groupGRVTY);
+
+  // SÓLIDOS KEPLR flotando sobre los pozos (si existen)
+  try { addKeplrProbesOverWells(wells); } catch(_){ }
+}
+
+function addKeplrProbesOverWells(wells){
+  if (!groupGRVTY) return;
+  // Limpia anterior
+  if (groupGRVTY.__probes){
+    groupGRVTY.__probes.traverse(o=>{
+      if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
+    });
+    groupGRVTY.remove(groupGRVTY.__probes);
+    groupGRVTY.__probes = null;
+  }
+  const probes = new THREE.Group();
+  probes.name = '__grvtyProbes';
+  groupGRVTY.__probes = probes;
+  groupGRVTY.add(probes);
+
+  // Fuente: objetos de KEPLR si están ya construidos
+  const pool = [];
+  try{
+    (function collect(o){
+      if (!o) return;
+      if (o.isMesh) pool.push(o);
+      if (o.children) for (let i=0;i<o.children.length;i++) collect(o.children[i]);
+    })(window.groupKEPLR);
+  }catch(_){ }
+
+  if (!pool.length) return; // si no hay KEPLR, sal silenciosamente
+
+  // Selección determinista estable
+  const H = (window.sceneSeed|0) ^ (window.S_global|0);
+  const pick = (idx)=> pool[(idx*1103515245 + 12345 + H) >>> 0 % pool.length];
+
+  const M = Math.min(5, wells.length); // hasta 5 sólidos
+  for (let i=0;i<M;i++){
+    const src = pick(i+1);
+    if (!src) continue;
+    const mesh = src.clone(true);
+    // Material propio para no afectar KEPLR
+    if (mesh.material) mesh.material = mesh.material.clone();
+
+    // Escala según A del pozo (coherencia visual)
+    const A = wells[i].A;
+    const s = THREE.MathUtils.clamp(A / 8.0, 0.6, 2.5);
+    mesh.scale.setScalar(s);
+
+    // Posición: sobre el centro del pozo, flotando (altura = fracción de A)
+    mesh.position.set(wells[i].cx, A * 0.45 + 1.0, wells[i].cz);
+
+    // Orientación estable
+    mesh.rotation.y = ((H >>> (i*3)) % 360) * Math.PI / 180;
+
+    // Suaviza material (opcional)
+    try{
+      mesh.material.transparent = true;
+      mesh.material.opacity = 0.95;
+      mesh.material.depthWrite = true;
+      mesh.material.metalness = Math.min(0.6, mesh.material.metalness || 0);
+      mesh.material.roughness = 0.4;
+    }catch(_){ }
+
+    probes.add(mesh);
+  }
 }
 
 /* ====== Exclusivo + cámara nivelada tipo RAUM/KEPLR/RAPHI ====== */
@@ -7157,23 +7256,28 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara nivelada
+    // Cámara “horizonte”
     camera.up.set(0,1,0);
-    camera.fov = 55;
+    camera.fov = 40;                 // más tele para horizonte marcado
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 42);
+    // Lejos y baja para que el plano se pierda en el horizonte
+    camera.position.set(0, 10, 240);
 
     controls.enabled            = true;
-    controls.enableRotate       = true;   // solo yaw
+    controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
-    controls.minDistance        = 10;
-    controls.maxDistance        = 200;
+    controls.minDistance        = 20;
+    controls.maxDistance        = 600;
     controls.screenSpacePanning = true;
-    controls.minPolarAngle      = Math.PI / 2;
-    controls.maxPolarAngle      = Math.PI / 2;
+
+    // Rango estrecho alrededor del plano (ligeramente por encima de 90°)
+    const aMin = Math.PI * 0.48;
+    const aMax = Math.PI * 0.56;
+    controls.minPolarAngle      = aMin;
+    controls.maxPolarAngle      = aMax;
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
