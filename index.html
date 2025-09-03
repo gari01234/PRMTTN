@@ -7,21 +7,38 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script>
-// Flags y helpers GRVTY
-if (typeof window.isGRVTY === 'undefined') window.isGRVTY = false;
-if (typeof window.groupGRVTY === 'undefined') window.groupGRVTY = null;
+    <script>
+// ===== Bootstrap universal de flags de motores (evita ReferenceError) =====
+(function bootstrapEngineFlags(){
+  var names = [
+    'isFRBN','isLCHT','isOFFNNG','isTMSL','isRAUM','is13245',
+    'isKEPLR','isR5NOVA','isRAPHI','isGRVTY'
+  ];
+  for (var i=0;i<names.length;i++){
+    var k = names[i];
+    if (typeof window[k] === 'undefined') window[k] = false;
+  }
 
-// Cambia el motor activo exclusivamente a GRVTY
-window.ensureOnlyGRVTY = function(){
-  if (!window.isGRVTY && typeof window.toggleGRVTY === 'function') window.toggleGRVTY();
-};
-window.ensureOnlyGRVTYFromUI = function(){
-  window.ensureOnlyGRVTY(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI();
-};
-// No-op para compat previa
-window.rebuildGRVTYIfActive = function(){ if (window.isGRVTY && typeof buildGRVTY==='function') buildGRVTY(); };
-  </script>
+  // Shims no-ops para toggles aún no cargados (no hacen nada si no existen)
+  var toggles = [
+    'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
+    'toggle13245','toggleKEPLR','toggleR5NOVA','toggleRAPHI','toggleGRVTY'
+  ];
+  for (var j=0;j<toggles.length;j++){
+    var t = toggles[j];
+    if (typeof window[t] === 'undefined') window[t] = function(){};
+  }
+
+  // Helpers GRVTY usados por el UI antes de que cargue su script concreto
+  if (typeof window.ensureOnlyGRVTY === 'undefined') window.ensureOnlyGRVTY = function(){
+    if (!window.isGRVTY && typeof window.toggleGRVTY === 'function') window.toggleGRVTY();
+  };
+  if (typeof window.ensureOnlyGRVTYFromUI === 'undefined') window.ensureOnlyGRVTYFromUI = function(){
+    window.ensureOnlyGRVTY(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI();
+  };
+  if (typeof window.rebuildGRVTYIfActive === 'undefined') window.rebuildGRVTYIfActive = function(){};
+})();
+    </script>
   <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
     <script type="module">
 /* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
@@ -6084,80 +6101,125 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       }catch(_){ }
     }
     
-    /* === Actualiza el menú según el motor activo === */
-    function updateEngineSelectUI(){
-      const sel = document.getElementById('engineSelect');
-      if (!sel) return;
-      if (window.isGRVTY){ sel.value = 'GRVTY'; return; }
-      let v = 'BUILD';
-      if (isFRBN)        v = 'FRBN';
-      else if (isLCHT)   v = 'LCHT';
-      else if (isOFFNNG) v = 'OFFNNG';
-      else if (isTMSL)   v = 'TMSL';
-      else if (isRAUM)   v = 'RAUM';
-      else if (is13245)  v = '13245';
-      else if (isKEPLR)  v = 'KEPLR';
-      else if (isRAPHI)  v = 'RAPHI';   // ← añadido
-      else if (isR5NOVA) v = 'R5NOVA';
-      sel.value = v;
-    }
+      /* === UI seguro: nunca lee flags sin comprobarlos === */
+      function updateEngineSelectUI(){
+        var sel = document.getElementById('engineSelect');
+        if (!sel) return;
 
-    /* === Cambia de motor cuando el usuario selecciona en el menú === */
-    function applyEngineFromSelect(val){
-      if (val === 'BUILD') { switchToBuild(); return; }
-      if (val === 'FRBN')  { if (!isFRBN)  toggleFRBN();  return; }
-      if (val === 'LCHT')  { if (!isLCHT)  toggleLCHT();  return; }
-      if (val === 'OFFNNG'){ if (!isOFFNNG)toggleOFFNNG();return; }
-      if (val === 'TMSL')  {
-        if (!isTMSL) toggleTMSL();
-        if (typeof window.requestTMSLRebuild === 'function'){
-          requestTMSLRebuild();
-          requestAnimationFrame(requestTMSLRebuild);
+        // Lee estados con typeof para evitar ReferenceError si algún motor no cargó aún
+        var v = 'BUILD';
+        if (typeof window.isFRBN   !== 'undefined' && window.isFRBN)   v = 'FRBN';
+        else if (typeof window.isLCHT  !== 'undefined' && window.isLCHT)  v = 'LCHT';
+        else if (typeof window.isOFFNNG!== 'undefined' && window.isOFFNNG) v = 'OFFNNG';
+        else if (typeof window.isTMSL  !== 'undefined' && window.isTMSL)  v = 'TMSL';
+        else if (typeof window.isRAUM  !== 'undefined' && window.isRAUM)  v = 'RAUM';
+        else if (typeof window.is13245 !== 'undefined' && window.is13245) v = '13245';
+        else if (typeof window.isKEPLR !== 'undefined' && window.isKEPLR) v = 'KEPLR';
+        else if (typeof window.isRAPHI !== 'undefined' && window.isRAPHI) v = 'RAPHI';
+        else if (typeof window.isR5NOVA!== 'undefined' && window.isR5NOVA) v = 'R5NOVA';
+        else if (typeof window.isGRVTY !== 'undefined' && window.isGRVTY) v = 'GRVTY';
+        else v = 'BUILD';
+
+        sel.value = v;
+      }
+
+      /* === Selector de motores seguro === */
+      function applyEngineFromSelect(val){
+        // Apaga/enciende solo si existe el toggle correspondiente; todos los checks con typeof
+        if (val === 'BUILD'){
+          // Sal de otros motores si estuvieran activos
+          if (typeof window.isFRBN   !== 'undefined' && window.isFRBN)    window.toggleFRBN();
+          if (typeof window.isLCHT   !== 'undefined' && window.isLCHT)    window.toggleLCHT();
+          if (typeof window.isOFFNNG !== 'undefined' && window.isOFFNNG)  window.toggleOFFNNG();
+          if (typeof window.isTMSL   !== 'undefined' && window.isTMSL)    window.toggleTMSL();
+          if (typeof window.isRAUM   !== 'undefined' && window.isRAUM)    window.toggleRAUM();
+          if (typeof window.is13245  !== 'undefined' && window.is13245)   window.toggle13245();
+          if (typeof window.isKEPLR  !== 'undefined' && window.isKEPLR)   window.toggleKEPLR();
+          if (typeof window.isRAPHI  !== 'undefined' && window.isRAPHI)   window.toggleRAPHI();
+          if (typeof window.isR5NOVA !== 'undefined' && window.isR5NOVA)  window.toggleR5NOVA();
+          if (typeof window.isGRVTY  !== 'undefined' && window.isGRVTY)   window.toggleGRVTY();
+          updateEngineSelectUI();
+          return;
         }
-        return;
-      }
-      if (val === 'RAUM')  { if (!isRAUM)  toggleRAUM();  return; }
-      if (val === '13245') { if (!is13245) toggle13245(); return; }
-      if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }
-      if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← añadido
-      if (val === 'GRVTY'){ ensureOnlyGRVTY(); return; }
-      if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
-    }
 
-    /* === Rueda de motores del botón “4” (sincroniza el menú) === */
-    function cycleEngine(){
-      const syncUI = () => {
+        if (val === 'FRBN'   && typeof window.toggleFRBN   === 'function') { if (!window.isFRBN)   window.toggleFRBN();   updateEngineSelectUI(); return; }
+        if (val === 'LCHT'   && typeof window.toggleLCHT   === 'function') { if (!window.isLCHT)   window.toggleLCHT();   updateEngineSelectUI(); return; }
+        if (val === 'OFFNNG' && typeof window.toggleOFFNNG === 'function') { if (!window.isOFFNNG) window.toggleOFFNNG(); updateEngineSelectUI(); return; }
+        if (val === 'TMSL'   && typeof window.toggleTMSL   === 'function') { if (!window.isTMSL)   window.toggleTMSL();   updateEngineSelectUI(); return; }
+        if (val === 'RAUM'   && typeof window.toggleRAUM   === 'function') { if (!window.isRAUM)   window.toggleRAUM();   updateEngineSelectUI(); return; }
+        if (val === '13245'  && typeof window.toggle13245  === 'function') { if (!window.is13245)  window.toggle13245();  updateEngineSelectUI(); return; }
+        if (val === 'KEPLR'  && typeof window.toggleKEPLR  === 'function') { if (!window.isKEPLR)  window.toggleKEPLR();  updateEngineSelectUI(); return; }
+        if (val === 'RAPHI'  && typeof window.toggleRAPHI  === 'function') { if (!window.isRAPHI)  window.toggleRAPHI();  updateEngineSelectUI(); return; }
+        if (val === 'R5NOVA' && typeof window.toggleR5NOVA === 'function') { if (!window.isR5NOVA) window.toggleR5NOVA(); updateEngineSelectUI(); return; }
+        if (val === 'GRVTY'  && typeof window.toggleGRVTY  === 'function') { if (!window.isGRVTY)  window.toggleGRVTY();  updateEngineSelectUI(); return; }
+
+        // Si cae aquí, el toggle aún no está cargado → no hagas nada, pero sincroniza UI
         updateEngineSelectUI();
-        setTimeout(updateEngineSelectUI, 0);
-        requestAnimationFrame(updateEngineSelectUI);
-      };
-
-      // Orden:
-      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → RAPHI → GRVTY → R5NOVA → BUILD
-
-      if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }
-      if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }
-      if (isOFFNNG){  ensureOnlyTMSL();   syncUI(); return; }
-
-      if (isTMSL){
-        try { toggleRAUM(); } catch(_){ }
-        setTimeout(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } }, 0);
-        requestAnimationFrame(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } });
-        updateEngineSelectUI();
-        return;
       }
 
-      if (isRAUM){    ensureOnly13245();  syncUI(); return; }
-      if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }
-      if (isKEPLR){   ensureOnlyRAPHI();  syncUI(); return; }
-      if (isRAPHI){   ensureOnlyGRVTY();  syncUI(); return; }  // ← RAPHI → GRVTY
-      if (isGRVTY){   ensureOnlyR5NOVA(); syncUI(); return; }  // ← GRVTY → R5NOVA
-      if (isR5NOVA){  switchToBuild();    syncUI(); return; }
+      /* === Rueda de motores del botón “4” (sincroniza el menú) === */
+      function cycleEngine(){
+        const syncUI = () => {
+          updateEngineSelectUI();
+          setTimeout(updateEngineSelectUI, 0);
+          requestAnimationFrame(updateEngineSelectUI);
+        };
 
-      // BUILD (o ninguno) → FRBN
-      ensureOnlyFRBN();
-      syncUI();
-    }
+        // Orden:
+        // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → RAPHI → GRVTY → R5NOVA → BUILD
+
+        if (typeof window.isFRBN !== 'undefined' && window.isFRBN){
+          if (typeof window.ensureOnlyLCHT === 'function') window.ensureOnlyLCHT();
+          syncUI(); return;
+        }
+        if (typeof window.isLCHT !== 'undefined' && window.isLCHT){
+          if (typeof window.ensureOnlyOFFNNG === 'function') window.ensureOnlyOFFNNG();
+          syncUI(); return;
+        }
+        if (typeof window.isOFFNNG !== 'undefined' && window.isOFFNNG){
+          if (typeof window.ensureOnlyTMSL === 'function') window.ensureOnlyTMSL();
+          syncUI(); return;
+        }
+
+        if (typeof window.isTMSL !== 'undefined' && window.isTMSL){
+          if (typeof window.toggleRAUM === 'function'){
+            try { window.toggleRAUM(); } catch(_){ }
+            setTimeout(()=>{ if (typeof window.isRAUM !== 'undefined' && !window.isRAUM) { try{ window.toggleRAUM(); }catch(_){ } } }, 0);
+            requestAnimationFrame(()=>{ if (typeof window.isRAUM !== 'undefined' && !window.isRAUM) { try{ window.toggleRAUM(); }catch(_){ } } });
+          }
+          updateEngineSelectUI();
+          return;
+        }
+
+        if (typeof window.isRAUM !== 'undefined' && window.isRAUM){
+          if (typeof window.ensureOnly13245 === 'function') window.ensureOnly13245();
+          syncUI(); return;
+        }
+        if (typeof window.is13245 !== 'undefined' && window.is13245){
+          if (typeof window.ensureOnlyKEPLR === 'function') window.ensureOnlyKEPLR();
+          syncUI(); return;
+        }
+        if (typeof window.isKEPLR !== 'undefined' && window.isKEPLR){
+          if (typeof window.ensureOnlyRAPHI === 'function') window.ensureOnlyRAPHI();
+          syncUI(); return;
+        }
+        if (typeof window.isRAPHI !== 'undefined' && window.isRAPHI){
+          if (typeof window.ensureOnlyGRVTY === 'function') window.ensureOnlyGRVTY();
+          syncUI(); return;  // ← RAPHI → GRVTY
+        }
+        if (typeof window.isGRVTY !== 'undefined' && window.isGRVTY){
+          if (typeof window.ensureOnlyR5NOVA === 'function') window.ensureOnlyR5NOVA();
+          syncUI(); return;  // ← GRVTY → R5NOVA
+        }
+        if (typeof window.isR5NOVA !== 'undefined' && window.isR5NOVA){
+          if (typeof window.switchToBuild === 'function') window.switchToBuild();
+          syncUI(); return;
+        }
+
+        // BUILD (o ninguno) → FRBN
+        if (typeof window.ensureOnlyFRBN === 'function') window.ensureOnlyFRBN();
+        syncUI();
+      }
 
     init();
 
