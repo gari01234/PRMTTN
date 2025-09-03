@@ -6897,8 +6897,51 @@ async function showPatternInfo(){
   document.addEventListener('click',  (e)=>{ try{ maybeBridge(textOfTarget(e.target)); }catch(_){ } }, true);
   document.addEventListener('change', (e)=>{ try{ maybeBridge(textOfTarget(e.target)); }catch(_ ){} }, true);
 
-})();
+  })();
 
+</script>
+<script>
+// ===== FRBN BACKDROP para GRVTY (sin encender el motor FRBN) =====
+(function(){
+  // tick autónomo (no depende de isFRBN)
+  function startFrbnTick(){
+    if (window.__frbnStandaloneTick) return;
+    window.__frbnStandaloneTick = true;
+    let last = performance.now();
+    (function loop(){
+      if (!window.__frbnStandaloneTick){ return; }
+      const now = performance.now(), dt = (now - last)/1000; last = now;
+      try{
+        // uniforms típicos del cielo FRBN
+        const m = (window.skySphere && window.skySphere.material) ? window.skySphere.material : null;
+        const u = (m && m.uniforms) ? m.uniforms : null;
+        if (u){
+          if (u.uTime)  u.uTime.value  += dt;
+          if (u.uPhase) u.uPhase.value += dt * 0.25;
+          if (m.needsUpdate !== undefined) m.needsUpdate = true;
+        }
+      }catch(_){ }
+      requestAnimationFrame(loop);
+    })();
+  }
+
+  // Asegura esfera + colores FRBN y la hace visible
+  window.ensureFrbnBackdropForGRVTY = function(){
+    try{
+      if (!window.skySphere && typeof initSkySphere === 'function') initSkySphere();
+      if (typeof buildGanzfeld === 'function') buildGanzfeld(); // sincroniza paleta/semillas
+      if (window.skySphere){ window.skySphere.visible = true; }
+      startFrbnTick();
+    }catch(_){ }
+  };
+
+  // Apaga el cielo si sales de GRVTY y FRBN no está activo
+  window.hideFrbnBackdropIfSafe = function(){
+    try{
+      if (!window.isFRBN && window.skySphere){ window.skySphere.visible = false; }
+    }catch(_){ }
+  };
+})();
 </script>
 <script>
 /* ──────────────────────────────────────────────────────────────────────────
@@ -6910,42 +6953,6 @@ async function showPatternInfo(){
 
 let isGRVTY    = window.isGRVTY || false;
 let groupGRVTY = window.groupGRVTY || null;
-
-// === Fondo FRBN como “backdrop” (visible y ANIMADO) ===
-function grvtyUseFRBNBackdrop(){
-  try{
-    // Crea la cúpula de FRBN si no existe y sincroniza su material
-    if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-    if (typeof buildGanzfeld  === 'function') buildGanzfeld();
-    if (window.skySphere) window.skySphere.visible = true;
-  }catch(_){ }
-
-  // Tick ligero para animar el shader del cielo mientras estés en GRVTY
-  if (!window.__grvtyFrbnTickInstalled){
-    window.__grvtyFrbnTickInstalled = true;
-    let _last = performance.now();
-    (function tick(){
-      try{
-        const on = (window.isGRVTY === true);
-        const sph = window.skySphere;
-        const now = performance.now();
-        const dt  = Math.max(0, (now - _last)/1000);
-        _last = now;
-
-        if (on && sph && sph.material && sph.material.uniforms){
-          const U = sph.material.uniforms;
-          // avanza el tiempo si existen uniformes típicos
-          if (U.uTime)      U.uTime.value += dt * 1.0;
-          else if (U.time)  U.time.value  += dt * 1.0;
-          else if (U.iTime) U.iTime.value += dt * 1.0;
-          sph.rotation.y += dt * 0.02; // micro-deriva agradable
-        }
-      }catch(_){ }
-      requestAnimationFrame(tick);
-    })();
-  }
-}
-
 function disposeGroupGRVTY(){
   if (!groupGRVTY) return;
   groupGRVTY.traverse(o=>{
@@ -7120,8 +7127,8 @@ function buildGRVTY(){
   disposeGroupGRVTY();
   groupGRVTY = new THREE.Group();
   window.groupGRVTY = groupGRVTY;
-
-  grvtyUseFRBNBackdrop();   // fondo como FRBN (cielo/esfera), no BUILD
+  // Fondo FRBN real para GRVTY
+  try { ensureFrbnBackdropForGRVTY(); } catch(_){ }
 
   // Permutaciones activas (fallback determinista)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
@@ -7204,18 +7211,47 @@ function buildGRVTY(){
   scene.add(groupGRVTY);
 
   // 1 sólido KEPLR por pozo (sin superposiciones)
-  try { addKeplrSolidsOverWells(wells); } catch(_){ }
+  try { addKeplrProbesOverWells(wells); } catch(_){ }
 }
+function addKeplrProbesOverWells(wells){
+  if (!groupGRVTY) return;
 
-// === Un sólido KEPLR por pozo (sin superposiciones), opaco y girando ===
-function addKeplrSolidsOverWells(wells){
-  if (!groupGRVTY || !Array.isArray(wells) || !wells.length) return;
-
-  // Limpia anteriores
+  // Limpieza previa
   if (groupGRVTY.__probes){
-    groupGRVTY.__probes.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+    groupGRVTY.__probes.traverse(o=>{
+      if (o.isMesh){
+        o.geometry?.dispose?.();
+        if (Array.isArray(o.material)) o.material.forEach(m=>m?.dispose?.());
+        else o.material?.dispose?.();
+      }
+    });
     groupGRVTY.remove(groupGRVTY.__probes);
     groupGRVTY.__probes = null;
+  }
+
+  // ====== Fuente segura: usa los "rotators" de KEPLR (1 grupo por sólido) ======
+  let pool = [];
+  try{
+    if (window.groupKEPLR && window.groupKEPLR.userData && Array.isArray(window.groupKEPLR.userData.rotators)){
+      pool = window.groupKEPLR.userData.rotators.slice(); // grupos completos (cara/dual/edges ya resueltos)
+    }else if (window.groupKEPLR){
+      // Fallback: recoge solo grupos con alguna "pista" de sólido
+      window.groupKEPLR.traverse(o=>{
+        if (o && o.isGroup && o.userData && (o.userData.permStr || o.userData.rotVel !== undefined)) pool.push(o);
+      });
+    }
+  }catch(_){ }
+
+  if (!pool.length) return; // si no hay KEPLR, sal silenciosamente
+
+  // ====== Selección determinista SIN repetición ======
+  const H = ((window.sceneSeed|0) ^ (window.S_global|0)) >>> 0;
+  const idxs = pool.map((_,i)=>i);
+  // LCG shuffle
+  let s = (H || 1)>>>0;
+  for (let i=idxs.length-1;i>0;i--){
+    s = (Math.imul(s,1664525) + 1013904223) >>> 0;
+    const j = s % (i+1); const t = idxs[i]; idxs[i]=idxs[j]; idxs[j]=t;
   }
 
   const probes = new THREE.Group();
@@ -7224,93 +7260,61 @@ function addKeplrSolidsOverWells(wells){
   groupGRVTY.__probes = probes;
   groupGRVTY.add(probes);
 
-  // Permutaciones (fallback determinista)
-  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
-  if (!perms.length) perms = [[1,2,3,4,5]];
+  // ====== Instancia 1:1 pozo ←→ sólido ======
+  const M = Math.min(wells.length, idxs.length, 5);
+  for (let i=0;i<M;i++){
+    const src = pool[idxs[i]];
+    if (!src) continue;
 
-  const H     = keplrShapeSeedFromPerms(perms);
-  const START = H % KEPLR_SOLIDS.length;
+    // Clonamos el GRUPO completo del sólido; lo metemos dentro de un "holder" para rotarlo limpio
+    const holder = new THREE.Group();
+    const g = src.clone(true);
+    holder.add(g);
 
-  const canBuild = (typeof buildKeplrSolid === 'function') &&
-                   (typeof keplrGeometry   === 'function') &&
-                   (typeof applyKeplrOrientation === 'function') &&
-                   Array.isArray(KEPLR_SOLIDS);
-
-  // Fallback: clonar rotators de KEPLR si existen
-  const fallbackSolids = (window.groupKEPLR && window.groupKEPLR.userData && Array.isArray(window.groupKEPLR.userData.rotators))
-    ? window.groupKEPLR.userData.rotators : [];
-
-  const M = Math.min(wells.length, 5);
-  for (let i=0; i<M; i++){
-    const pa   = perms[i % perms.length];
-    const A    = wells[i].A;
-    const cx   = wells[i].cx;
-    const cz   = wells[i].cz;
-
-    let solidGroup = null;
-
-    if (canBuild){
-      // Construye “limpio” (sin dual, sin edges)
-      const sName    = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
-      const rBase    = 12.0;
-      const tIdx     = 0;
-      const dualOn   = false;
-      const orientK  = (Math.imul((lehmerRank(pa)>>>0) ^ (H + i*109), 1103515245) + 12345)>>>0;
-      const oIdx     = orientK % 60;
-      const uniq     = i;
-
-      solidGroup = new THREE.Group();
-      buildKeplrSolid(sName, rBase, tIdx, dualOn, oIdx, pa, solidGroup, uniq);
-    } else if (fallbackSolids.length){
-      solidGroup = fallbackSolids[i % fallbackSolids.length].clone(true);
-    }
-
-    if (!solidGroup) continue;
-
-    // Escala en función de A
-    const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
-    solidGroup.scale.setScalar(s);
-
-    // SUBE altura para que no “muerda” el grid
-    // (antes: 2.0 + A*0.45) → ahora: 4.0 + A*0.65
-    solidGroup.position.set(cx, 4.0 + A*0.65, cz);
-
-    // Orientación base estable
-    solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
-
-    // Materiales: 100% opacos (sin transparencia)
-    solidGroup.traverse(o=>{
+    // Opaco y sin transparencias
+    holder.traverse(o=>{
       if (o.isMesh){
-        o.frustumCulled = false;
-        if (o.material){
-          if (Array.isArray(o.material)){
-            o.material.forEach(m => { if (m){ m.transparent = false; m.opacity = 1; m.depthWrite = true; m.needsUpdate = true; }});
-          } else {
-            o.material.transparent = false;
-            o.material.opacity = 1;
-            o.material.depthWrite = true;
-            o.material.needsUpdate = true;
-          }
+        if (Array.isArray(o.material)){
+          o.material.forEach(m=>{ if (!m) return; m.transparent=false; m.opacity=1; m.depthWrite=true; m.needsUpdate=true; });
+        }else if (o.material){
+          o.material.transparent=false; o.material.opacity=1; o.material.depthWrite=true; o.material.needsUpdate=true;
         }
+        o.frustumCulled = false;
       }
     });
 
-    // ==== SPIN como en KEPLR (eje+velocidad deterministas) ====
-    try{
-      const spin = keplrSpinParamsFor(pa, i); // {axis, vel}
-      solidGroup.userData.rotAxis = spin.axis || new THREE.Vector3(0,1,0);
-      solidGroup.userData.rotVel  = spin.vel  || 0.6;
-      const permStr = pa.join(',');
-      let step = 1;
-      if (typeof getBuildRotStep === 'function'){
-        const s = getBuildRotStep(permStr);
-        if (typeof s === 'number') step = s;
-      }
-      solidGroup.userData.rotStep = step; // acepta 0 = pausa por-perm
-      solidGroup.userData.permStr = permStr;
-    }catch(_){ }
+    // Escala/posición determinista por pozo
+    const A = wells[i].A;
+    const sScale = THREE.MathUtils.clamp(0.9 + A/22.0, 0.9, 2.2);
+    holder.scale.setScalar(sScale);
 
-    probes.add(solidGroup);
+    // Altura clara (más alta de lo anterior para evitar tocar el grid)
+    const Y_CLEAR = 2.25;      // despeje mínimo
+    holder.position.set(wells[i].cx, Y_CLEAR + A*0.60, wells[i].cz);
+
+    // Giro determinista como KEPLR (usa la perm del pozo)
+    let pa = [];
+    try { pa = wells[i].permStr ? wells[i].permStr.split(',').map(Number) : []; } catch(_){ }
+    try{
+      const spin = keplrSpinParamsFor(pa, i);
+      holder.userData.rotAxis = spin.axis || new THREE.Vector3(0,1,0);
+      holder.userData.rotVel  = spin.vel  || 0.5;
+      // paso (step) desde BUILD; acepta 0 ⇒ pausa
+      const ps = wells[i].permStr || (pa.join(','));
+      let step = 1;
+      try { step = (typeof getBuildRotStep==='function') ? (getBuildRotStep(ps)||1) : 1; }catch(_){ }
+      holder.userData.rotStep = step;
+      holder.userData.permStr = ps;
+    }catch(_){
+      holder.userData.rotAxis = new THREE.Vector3(0,1,0);
+      holder.userData.rotVel  = 0.5;
+      holder.userData.rotStep = 1;
+    }
+
+    // Orientación inicial estable
+    holder.rotation.y = (((H >>> (5*i)) % 360) * Math.PI/180);
+
+    probes.add(holder);
   }
 }
 
@@ -7320,7 +7324,6 @@ function toggleGRVTY(){
   window.isGRVTY = isGRVTY;
 
   if (isGRVTY){
-    grvtyUseFRBNBackdrop();   // muestra el cielo FRBN como fondo
     try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
     try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
     try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
@@ -7334,32 +7337,31 @@ function toggleGRVTY(){
     leaveBuildRenderBoost();
     enterRaumRenderBoost();
 
+    try { ensureFrbnBackdropForGRVTY(); } catch(_){ }
     buildGRVTY();
 
-    // Cámara “horizonte”
-camera.up.set(0,1,0);
-camera.fov  = 17;         // menos perspectiva para sensación de “lejanía”
-camera.near = 0.1;
-camera.far  = 3000;
+    camera.up.set(0,1,0);
+    camera.fov  = 38;
+    camera.near = 0.1;
+    camera.far  = 5000;
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    // Lejos y baja para que el plano se pierda en el horizonte
-    camera.position.set(0, 10, 240);
+    camera.position.set(0, 18, 210);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
-    controls.minDistance        = 20;
-    controls.maxDistance        = 600;
+    controls.minDistance        = 80;
+    controls.maxDistance        = 900;
     controls.screenSpacePanning = true;
 
-    // Rango estrecho alrededor del plano (ligeramente por encima de 90°)
-    const aMin = Math.PI * 0.48;
-    const aMax = Math.PI * 0.56;
-    controls.minPolarAngle      = aMin;
-    controls.maxPolarAngle      = aMax;
+    const aMid = Math.PI * 0.5, delta = 0.06 * Math.PI;
+    controls.minPolarAngle = aMid - delta;
+    controls.maxPolarAngle = aMid + delta;
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle =  Infinity;
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
@@ -7369,11 +7371,7 @@ camera.far  = 3000;
   } else {
     leaveRaumRenderBoost();
     disposeGroupGRVTY();
-    try{
-      if (window.skySphere && !(typeof isFRBN !== 'undefined' && isFRBN)){
-        window.skySphere.visible = false;  // oculta el cielo FRBN si FRBN no está activo
-      }
-    }catch(_){ }
+    try { hideFrbnBackdropIfSafe(); } catch(_){ }
     window.isGRVTY = false;
 
     camera.fov = 75;
@@ -7444,10 +7442,9 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
     try{
       const on  = (window.isGRVTY === true);
       const grp = window.groupGRVTY;
-
       if (!on || !grp || !grp.userData){ requestAnimationFrame(tickGrvty); return; }
 
-      // === Pausa global (BUILD o local)
+      // Pausa global (BUILD o local)
       let paused = !!window.__grvtyPaused;
       try{ if (!paused && typeof window.isBuildMotionPaused === 'function') paused = !!window.isBuildMotionPaused(); }catch(_){ }
 
@@ -7460,46 +7457,41 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         const dt = Math.max(0, (now - last) / 1000);
         grp.userData._lastT = now;
 
-        // 1) Respiración del terreno (si hay uniforms)
+        // 1) Respiración del terreno (como ya tenías)
         if (grp.userData.uniforms){
           const u = grp.userData.uniforms;
           u.uTime.value += dt;
-          // usa paso medio de BUILD si existe (no es crítico)
+          // promedio de rotStep (si existe la API)
+          let avg = 1.0;
           try{
-            if (typeof getBuildRotStep === 'function' && Array.isArray(grp.userData.permStrs)){
-              let sum=0,n=0;
-              for (let i=0;i<grp.userData.permStrs.length;i++){
-                const s = getBuildRotStep(grp.userData.permStrs[i]);
-                if (typeof s==='number'){ sum+=s; n++; }
-              }
-              u.uStep.value = n? (sum/n) : 1;
+            const arr = (Array.isArray(grp.userData.permStrs)?grp.userData.permStrs:[]);
+            if (arr.length && typeof getBuildRotStep==='function'){
+              let sum=0,n=0; for (let i=0;i<arr.length;i++){ const s = getBuildRotStep(arr[i]); if (typeof s==='number'){ sum+=s; n++; } }
+              avg = n? (sum/n) : 1.0;
             }
           }catch(_){ }
+          u.uStep.value = avg;
         }
 
-        // 2) Giro de sólidos KEPLR sobre los pozos
-        if (groupGRVTY.__probes && groupGRVTY.__probes.children){
-          for (let i=0;i<groupGRVTY.__probes.children.length;i++){
-            const g = groupGRVTY.__probes.children[i];
-            if (!g || !g.userData) continue;
-
-            // refresca step por-perm si existe
+        // 2) Giro de sólidos KEPLR (holders dentro de __probes)
+        const probes = grp.__probes;
+        if (probes && probes.children && probes.children.length){
+          for (let i=0;i<probes.children.length;i++){
+            const h = probes.children[i];
+            if (!h || !h.userData) continue;
+            // refresca rotStep por-perm si existe API (permite pausas por perm)
             try{
-              if (typeof getBuildRotStep === 'function' && g.userData.permStr){
-                const s = getBuildRotStep(g.userData.permStr);
-                if (typeof s === 'number') g.userData.rotStep = s;
+              if (typeof getBuildRotStep==='function' && h.userData.permStr){
+                const s = getBuildRotStep(h.userData.permStr);
+                if (typeof s === 'number') h.userData.rotStep = s;
               }
             }catch(_){ }
-
-            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
+            const step = (typeof h.userData.rotStep==='number') ? h.userData.rotStep : 1;
             if (!step) continue;
-
-            const axis = g.userData.rotAxis || new THREE.Vector3(0,1,0);
-            const vel  = (typeof g.userData.rotVel === 'number') ? g.userData.rotVel : 0.6;
-
-            g.rotateOnAxis(axis, vel * dt * step);
-            if (!g.matrixAutoUpdate) g.updateMatrix();
-            g.updateMatrixWorld(true);
+            const axis = h.userData.rotAxis || new THREE.Vector3(0,1,0);
+            const vel  = (typeof h.userData.rotVel==='number') ? h.userData.rotVel : 0.5;
+            h.rotateOnAxis(axis, vel * dt * step);
+            h.updateMatrixWorld(true);
           }
         }
       }
