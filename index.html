@@ -6925,17 +6925,16 @@ function disposeGroupGRVTY(){
 }
 
 /* ====== Parámetros del plano y wells ====== */
-const GRVTY_W = 360.0, GRVTY_D = 480.0;   // malla muy amplia tipo horizonte
-const GRVTY_RES_DESKTOP = 360;            // más subdivisiones para ondulación suave
-const GRVTY_RES_MOBILE  = 220;
-const GRVTY_MAX_WELLS   = 5;              // ← subimos a 5
+const GRVTY_W = 1200.0, GRVTY_D = 1800.0; // sobredimensionado para cubrir esquinas
+const GRVTY_RES_DESKTOP = 420;            // más subdivisiones
+const GRVTY_RES_MOBILE  = 260;
+const GRVTY_MAX_WELLS   = 5;
 
 /* ====== Utilidades deterministas (reusamos tus fórmulas) ====== */
 function grvtySeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
 
-/* 1..5 pozos deterministas desde H */
+/* 1..5 pozos */
 function grvtyWellCount(H){
-  // Distribuye 1..5 con ligera preferencia por 2–4
   const k = ((H >>> 0) % 1007);
   return 1 + (k % GRVTY_MAX_WELLS);        // 1..5
 }
@@ -6979,6 +6978,23 @@ function grvtyColorsFromPerm(pa){
   const c1 = applyBuildVibranceToColor(base);
   const c2 = applyBuildVibranceToColor(edgeC);
   return [c1, c2];  // c1 = grid principal, c2 = mezcla por curvatura
+}
+
+// === Fondo estilo FRBN (determinista, vibrante) ===
+function applyFRBNBackgroundLike(perms){
+  // color base estable desde la primera permutación
+  const base = keplrUniqueFaceColor(perms[0], 0);  // THREE.Color
+  const c = base.clone();
+
+  // “Vibrance” similar a FRBN: subir valor y algo de saturación
+  // (aprovechamos tus helpers si existen)
+  try { applyBuildVibranceToColor(c); } catch(_){ }
+
+  // Suavizar un poco para el cielo
+  c.offsetHSL(0, -0.10, 0.10); // menos saturación, un poco más claro
+
+  scene.background = c;
+  try{ renderer.setClearColor(c, 1); }catch(_){ }
 }
 
 /* ====== Shaders (grid procedural + desplazamiento) ====== */
@@ -7086,12 +7102,13 @@ function buildGRVTY(){
   groupGRVTY = new THREE.Group();
   window.groupGRVTY = groupGRVTY;
 
-  updateBackground(false);
-
   // Permutaciones activas (fallback determinista)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
   const H = grvtySeedFromPerms(perms) >>> 0;
+
+  // Fondo estilo FRBN (no BUILD)
+  applyFRBNBackgroundLike(perms);
 
   // 1..5 pozos
   const N  = Math.min(GRVTY_MAX_WELLS, grvtyWellCount(H));
@@ -7174,67 +7191,85 @@ function buildGRVTY(){
 
 function addKeplrProbesOverWells(wells){
   if (!groupGRVTY) return;
+
   // Limpia anterior
   if (groupGRVTY.__probes){
     groupGRVTY.__probes.traverse(o=>{
-      if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
+      if (o.isMesh){ o.geometry?.dispose?.(); try{o.material?.dispose?.();}catch(_){ } }
     });
     groupGRVTY.remove(groupGRVTY.__probes);
     groupGRVTY.__probes = null;
   }
   const probes = new THREE.Group();
   probes.name = '__grvtyProbes';
+  probes.renderOrder = 2;
   groupGRVTY.__probes = probes;
   groupGRVTY.add(probes);
 
-  // Fuente: objetos de KEPLR si están ya construidos
-  const pool = [];
-  try{
-    (function collect(o){
-      if (!o) return;
-      if (o.isMesh) pool.push(o);
-      if (o.children) for (let i=0;i<o.children.length;i++) collect(o.children[i]);
-    })(window.groupKEPLR);
-  }catch(_){ }
+  // 1) Intentar usar meshes de KEPLR ya existentes
+  let pool = [];
+  (function collect(o){
+    if (!o) return;
+    if (o.isMesh) pool.push(o);
+    if (o.children) for (let i=0;i<o.children.length;i++) collect(o.children[i]);
+  })(window.groupKEPLR);
 
-  if (!pool.length) return; // si no hay KEPLR, sal silenciosamente
+  // 2) Si no hay KEPLR, encenderlo brevemente para clonar y volver
+  if (!pool.length && typeof window.toggleKEPLR === 'function'){
+    const wasGRV  = !!window.isGRVTY;
+    const wasKEP  = !!window.isKEPLR;
+    try{
+      if (!wasKEP) window.toggleKEPLR();      // entra a KEPLR
+      (function collect2(o){
+        if (!o) return;
+        if (o.isMesh) pool.push(o);
+        if (o.children) for (let i=0;i<o.children.length;i++) collect2(o.children[i]);
+      })(window.groupKEPLR);
+    }catch(_){ }
+    try{
+      if (!wasKEP) window.toggleKEPLR();      // salir de KEPLR
+      if (wasGRV && !window.isGRVTY) window.toggleGRVTY(); // volver a GRVTY
+    }catch(_){ }
+  }
+
+  if (!pool.length) return; // si aun no hay, sal silenciosamente
 
   // Selección determinista estable
-  const H = (window.sceneSeed|0) ^ (window.S_global|0);
-  const pick = (idx)=> pool[(idx*1103515245 + 12345 + H) >>> 0 % pool.length];
+  const H = ((window.sceneSeed|0) ^ (window.S_global|0)) >>> 0;
+  const pick = (idx)=> pool[(Math.imul(idx,1103515245) + 12345 + H) >>> 0 % pool.length];
 
-  const M = Math.min(5, wells.length); // hasta 5 sólidos
+  const M = Math.min(5, wells.length);
   for (let i=0;i<M;i++){
     const src = pick(i+1);
     if (!src) continue;
-    const mesh = src.clone(true);
-    // Material propio para no afectar KEPLR
-    if (mesh.material) mesh.material = mesh.material.clone();
+    const m = src.clone(true);
 
-    // Escala según A del pozo (coherencia visual)
-    const A = wells[i].A;
-    const s = THREE.MathUtils.clamp(A / 8.0, 0.6, 2.5);
-    mesh.scale.setScalar(s);
-
-    // Posición: sobre el centro del pozo, flotando (altura = fracción de A)
-    mesh.position.set(wells[i].cx, A * 0.45 + 1.0, wells[i].cz);
-
-    // Orientación estable
-    mesh.rotation.y = ((H >>> (i*3)) % 360) * Math.PI / 180;
-
-    // Suaviza material (opcional)
+    // Material propio para no interferir con KEPLR
     try{
-      mesh.material.transparent = true;
-      mesh.material.opacity = 0.95;
-      mesh.material.depthWrite = true;
-      mesh.material.metalness = Math.min(0.6, mesh.material.metalness || 0);
-      mesh.material.roughness = 0.4;
+      if (m.material) m.material = m.material.clone();
+      if (m.material){
+        m.material.transparent = true;
+        m.material.opacity     = 0.95;
+        m.material.depthTest   = true;
+        m.material.depthWrite  = true;
+      }
     }catch(_){ }
 
-    probes.add(mesh);
+    m.frustumCulled = false;
+    m.renderOrder = 3;
+
+    // Escala/posición deterministas según pozo
+    const A = wells[i].A;
+    const s = THREE.MathUtils.clamp(A / 8.0, 0.6, 2.5);
+    m.scale.setScalar(s);
+
+    // Altura “flotando” sobre el mínimo de la depresión
+    m.position.set(wells[i].cx, A * 0.55 + 1.0, wells[i].cz);
+    m.rotation.y = ((H >>> (i*5)) % 360) * Math.PI / 180;
+
+    probes.add(m);
   }
 }
-
 /* ====== Exclusivo + cámara nivelada tipo RAUM/KEPLR/RAPHI ====== */
 function toggleGRVTY(){
   isGRVTY = !isGRVTY;
@@ -7255,30 +7290,39 @@ function toggleGRVTY(){
     enterRaumRenderBoost();
 
     buildGRVTY();
+      // Cámara “horizonte” (sin huecos en bordes)
+      camera.up.set(0,1,0);
+      camera.fov = 38;                 // un poco más “tele” para comprimir horizonte
+      camera.near = 0.1;
+      camera.far  = 5000;
+      camera.updateProjectionMatrix();
 
-    // Cámara “horizonte”
-    camera.up.set(0,1,0);
-    camera.fov = 40;                 // más tele para horizonte marcado
-    camera.updateProjectionMatrix();
+      // Objetivo al nivel del plano
+      if (controls && controls.target) controls.target.set(0, 0, 0);
 
-    if (controls && controls.target) controls.target.set(0, 0, 0);
-    // Lejos y baja para que el plano se pierda en el horizonte
-    camera.position.set(0, 10, 240);
+      // Posición baja y lejana
+      camera.position.set(0, 14, 700);
 
-    controls.enabled            = true;
-    controls.enableRotate       = true;
-    controls.enablePan          = true;
-    controls.enableZoom         = true;
-    controls.minDistance        = 20;
-    controls.maxDistance        = 600;
-    controls.screenSpacePanning = true;
+      // OrbitControls muy estrecho alrededor del horizonte
+      controls.enabled            = true;
+      controls.enableRotate       = true;
+      controls.enablePan          = true;
+      controls.enableZoom         = true;
+      controls.minDistance        = 50;
+      controls.maxDistance        = 1600;
+      controls.screenSpacePanning = true;
 
-    // Rango estrecho alrededor del plano (ligeramente por encima de 90°)
-    const aMin = Math.PI * 0.48;
-    const aMax = Math.PI * 0.56;
-    controls.minPolarAngle      = aMin;
-    controls.maxPolarAngle      = aMax;
-    controls.update();
+      // Rango de pitch muy pequeño para evitar ver fuera del plano
+      const aMid = Math.PI * 0.50;   // ≈ 90°
+      const delta = 0.025 * Math.PI; // ventana ±4.5°
+      controls.minPolarAngle      = aMid - delta;
+      controls.maxPolarAngle      = aMid + delta;
+
+      // Limitar yaw suavemente (opcional: comenta si no lo quieres)
+      controls.minAzimuthAngle    = -Infinity;
+      controls.maxAzimuthAngle    =  Infinity;
+
+      controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
     try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
