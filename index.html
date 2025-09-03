@@ -4,41 +4,35 @@
   <meta charset="UTF-8">
   <title>PRMTTN</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+// ===== Guardas universales (evitan ReferenceError si scripts cargan desordenados) =====
+(function(){
+  // Flags de motores
+  ['isFRBN','isLCHT','isOFFNNG','isTMSL','isRAUM','is13245',
+   'isKEPLR','isR5NOVA','isRAPHI','isGRVTY'].forEach(k=>{
+    if (typeof window[k] === 'undefined') window[k] = false;
+  });
+
+  // Toggles no-op
+  ['toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
+   'toggle13245','toggleKEPLR','toggleR5NOVA','toggleRAPHI','toggleGRVTY']
+  .forEach(t=>{ if (typeof window[t] === 'undefined') window[t] = function(){}; });
+
+  // Shims GRVTY usados por el UI
+  if (typeof window.ensureOnlyGRVTY === 'undefined')
+    window.ensureOnlyGRVTY = function(){ if (!window.isGRVTY && typeof window.toggleGRVTY==='function') window.toggleGRVTY(); };
+  if (typeof window.ensureOnlyGRVTYFromUI === 'undefined')
+    window.ensureOnlyGRVTYFromUI = function(){ window.ensureOnlyGRVTY(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI(); };
+  if (typeof window.rebuildGRVTYIfActive === 'undefined')
+    window.rebuildGRVTYIfActive = function(){};
+
+  // init() seguro: si alguien lo invoca y aún no existe, que sea no-op
+  if (typeof window.init !== 'function') window.init = function(){};
+})();
+</script>
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script>
-// ===== Bootstrap universal de flags de motores (evita ReferenceError) =====
-(function bootstrapEngineFlags(){
-  var names = [
-    'isFRBN','isLCHT','isOFFNNG','isTMSL','isRAUM','is13245',
-    'isKEPLR','isR5NOVA','isRAPHI','isGRVTY'
-  ];
-  for (var i=0;i<names.length;i++){
-    var k = names[i];
-    if (typeof window[k] === 'undefined') window[k] = false;
-  }
-
-  // Shims no-ops para toggles aún no cargados (no hacen nada si no existen)
-  var toggles = [
-    'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
-    'toggle13245','toggleKEPLR','toggleR5NOVA','toggleRAPHI','toggleGRVTY'
-  ];
-  for (var j=0;j<toggles.length;j++){
-    var t = toggles[j];
-    if (typeof window[t] === 'undefined') window[t] = function(){};
-  }
-
-  // Helpers GRVTY usados por el UI antes de que cargue su script concreto
-  if (typeof window.ensureOnlyGRVTY === 'undefined') window.ensureOnlyGRVTY = function(){
-    if (!window.isGRVTY && typeof window.toggleGRVTY === 'function') window.toggleGRVTY();
-  };
-  if (typeof window.ensureOnlyGRVTYFromUI === 'undefined') window.ensureOnlyGRVTYFromUI = function(){
-    window.ensureOnlyGRVTY(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI();
-  };
-  if (typeof window.rebuildGRVTYIfActive === 'undefined') window.rebuildGRVTYIfActive = function(){};
-})();
-    </script>
   <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
     <script type="module">
 /* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
@@ -6101,12 +6095,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       }catch(_){ }
     }
     
-      /* === UI seguro: nunca lee flags sin comprobarlos === */
       function updateEngineSelectUI(){
         var sel = document.getElementById('engineSelect');
         if (!sel) return;
-
-        // Lee estados con typeof para evitar ReferenceError si algún motor no cargó aún
         var v = 'BUILD';
         if (typeof window.isFRBN   !== 'undefined' && window.isFRBN)   v = 'FRBN';
         else if (typeof window.isLCHT  !== 'undefined' && window.isLCHT)  v = 'LCHT';
@@ -6118,30 +6109,23 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         else if (typeof window.isRAPHI !== 'undefined' && window.isRAPHI) v = 'RAPHI';
         else if (typeof window.isR5NOVA!== 'undefined' && window.isR5NOVA) v = 'R5NOVA';
         else if (typeof window.isGRVTY !== 'undefined' && window.isGRVTY) v = 'GRVTY';
-        else v = 'BUILD';
-
         sel.value = v;
       }
 
-      /* === Selector de motores seguro === */
       function applyEngineFromSelect(val){
-        // Apaga/enciende solo si existe el toggle correspondiente; todos los checks con typeof
         if (val === 'BUILD'){
-          // Sal de otros motores si estuvieran activos
-          if (typeof window.isFRBN   !== 'undefined' && window.isFRBN)    window.toggleFRBN();
-          if (typeof window.isLCHT   !== 'undefined' && window.isLCHT)    window.toggleLCHT();
-          if (typeof window.isOFFNNG !== 'undefined' && window.isOFFNNG)  window.toggleOFFNNG();
-          if (typeof window.isTMSL   !== 'undefined' && window.isTMSL)    window.toggleTMSL();
-          if (typeof window.isRAUM   !== 'undefined' && window.isRAUM)    window.toggleRAUM();
-          if (typeof window.is13245  !== 'undefined' && window.is13245)   window.toggle13245();
-          if (typeof window.isKEPLR  !== 'undefined' && window.isKEPLR)   window.toggleKEPLR();
-          if (typeof window.isRAPHI  !== 'undefined' && window.isRAPHI)   window.toggleRAPHI();
-          if (typeof window.isR5NOVA !== 'undefined' && window.isR5NOVA)  window.toggleR5NOVA();
-          if (typeof window.isGRVTY  !== 'undefined' && window.isGRVTY)   window.toggleGRVTY();
-          updateEngineSelectUI();
-          return;
+          if (typeof window.isFRBN   !== 'undefined' && window.isFRBN)   window.toggleFRBN();
+          if (typeof window.isLCHT   !== 'undefined' && window.isLCHT)   window.toggleLCHT();
+          if (typeof window.isOFFNNG !== 'undefined' && window.isOFFNNG) window.toggleOFFNNG();
+          if (typeof window.isTMSL   !== 'undefined' && window.isTMSL)   window.toggleTMSL();
+          if (typeof window.isRAUM   !== 'undefined' && window.isRAUM)   window.toggleRAUM();
+          if (typeof window.is13245  !== 'undefined' && window.is13245)  window.toggle13245();
+          if (typeof window.isKEPLR  !== 'undefined' && window.isKEPLR)  window.toggleKEPLR();
+          if (typeof window.isRAPHI  !== 'undefined' && window.isRAPHI)  window.toggleRAPHI();
+          if (typeof window.isR5NOVA !== 'undefined' && window.isR5NOVA) window.toggleR5NOVA();
+          if (typeof window.isGRVTY  !== 'undefined' && window.isGRVTY)  window.toggleGRVTY();
+          updateEngineSelectUI(); return;
         }
-
         if (val === 'FRBN'   && typeof window.toggleFRBN   === 'function') { if (!window.isFRBN)   window.toggleFRBN();   updateEngineSelectUI(); return; }
         if (val === 'LCHT'   && typeof window.toggleLCHT   === 'function') { if (!window.isLCHT)   window.toggleLCHT();   updateEngineSelectUI(); return; }
         if (val === 'OFFNNG' && typeof window.toggleOFFNNG === 'function') { if (!window.isOFFNNG) window.toggleOFFNNG(); updateEngineSelectUI(); return; }
@@ -6152,8 +6136,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         if (val === 'RAPHI'  && typeof window.toggleRAPHI  === 'function') { if (!window.isRAPHI)  window.toggleRAPHI();  updateEngineSelectUI(); return; }
         if (val === 'R5NOVA' && typeof window.toggleR5NOVA === 'function') { if (!window.isR5NOVA) window.toggleR5NOVA(); updateEngineSelectUI(); return; }
         if (val === 'GRVTY'  && typeof window.toggleGRVTY  === 'function') { if (!window.isGRVTY)  window.toggleGRVTY();  updateEngineSelectUI(); return; }
-
-        // Si cae aquí, el toggle aún no está cargado → no hagas nada, pero sincroniza UI
         updateEngineSelectUI();
       }
 
@@ -6976,33 +6958,47 @@ async function showPatternInfo(){
 </script>
 <script>
 /* ════════════════════════════════════════════════════════════════
- * GRVTY v2 — plano ondulado con pozos, fondo FRBN y probes KEPLR
+ * GRVTY limpio: plano ondulado + fondo FRBN + probes KEPLR
+ * (sin dependencias frágiles, sin placeholders)
  * ════════════════════════════════════════════════════════════════ */
-let isGRVTY = window.isGRVTY || false;
+let isGRVTY   = !!window.isGRVTY;
 let groupGRVTY = window.groupGRVTY || null;
 
-// Parámetros: plano no exagerado (con detalle visible)
-const GRVTY_W = 360.0;           // ancho mundo
-const GRVTY_D = 540.0;           // profundidad mundo
-const GRVTY_RES_X = 220;         // subdivisiones: detalle sin matar FPS
-const GRVTY_RES_Z = 320;
-
-const GRVTY_MAX_WELLS = 5;
-const GRVTY_MIN_WELLS = 1;
-const GRVTY_WELL_R   = 48.0;     // radio de influencia
-const GRVTY_WELL_A   = 14.0;     // amplitud base
-const GRVTY_WELL_NOISE = 0.25;   // ondulación secundaria
-
-// PRNG determinista (independiente del resto)
-function grvtyRandU32(u32){
-  let t = (u32 >>> 0) + 0x6D2B79F5;
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0);
+/* ---------- util de limpieza ---------- */
+function disposeGroupGRVTY(){
+  if (!groupGRVTY) return;
+  try{
+    groupGRVTY.traverse(o=>{
+      if (o.isMesh){
+        o.geometry && o.geometry.dispose && o.geometry.dispose();
+        if (Array.isArray(o.material)) o.material.forEach(m=>m&&m.dispose&&m.dispose());
+        else o.material && o.material.dispose && o.material.dispose();
+      }
+    });
+  }catch(_){ }
+  scene.remove(groupGRVTY);
+  groupGRVTY = null; window.groupGRVTY = null;
 }
-function grvtyFract(u32){ return (grvtyRandU32(u32) % 100000) / 100000; }
 
-// semilla estable a partir de la escena
+/* ---------- fondo FRBN “prestado” ---------- */
+function applyFRBNBackdropInGRVTY(){
+  try{
+    if (!window.skySphere) window.initSkySphere && window.initSkySphere();
+    window.buildGanzfeld && window.buildGanzfeld();
+    if (window.skySphere) window.skySphere.visible = true;
+  }catch(_){ }
+}
+
+/* ---------- PRNG determinista local ---------- */
+function grvtyRandU32(u32){
+  let t = (u32>>>0) + 0x6D2B79F5;
+  t = Math.imul(t ^ (t>>>15), t|1);
+  t ^= t + Math.imul(t ^ (t>>>7), t|61);
+  return (t ^ (t>>>14))>>>0;
+}
+function grvtyFract(u32){ return (grvtyRandU32(u32)%100000)/100000; }
+
+/* ---------- semilla desde set activo ---------- */
 function grvtySeedFromPerms(perms){
   let acc = 2166136261>>>0;
   for (const p of perms){
@@ -7016,23 +7012,15 @@ function grvtySeedFromPerms(perms){
   return acc>>>0;
 }
 
-/* ===== Fondo: reutiliza el shader FRBN =====
-   — Sin activar FRBN como motor; solo mostramos su “cielo”. */
-function applyFRBNBackdropInGRVTY(){
-  try{
-    if (!skySphere) initSkySphere();
-    buildGanzfeld();           // sincroniza colores + rate
-    skySphere.visible = true;  // usar el fondo de FRBN
-  }catch(_){ }
-}
+/* ---------- parámetros del terreno ---------- */
+const GRVTY_W = 360.0, GRVTY_D = 540.0;
+const GRVTY_RES_X = 220, GRVTY_RES_Z = 320;
+const GRVTY_MAX_WELLS = 5, GRVTY_MIN_WELLS = 1;
+const GRVTY_WELL_R = 48.0, GRVTY_WELL_A = 14.0, GRVTY_WELL_NOISE = 0.25;
 
-/* ===== Pool KEPLR seguro (sin tocar BUILD) =====
-   – Usa meshes de groupKEPLR si existen.
-   – Si no, intenta construir un fallback geométrico (icosa/dodeca/torus).
-*/
+/* ---------- recoge meshes de KEPLR o crea fallback ---------- */
 function getKeplrPoolSafe(){
   const pool = [];
-  // 1) coger del grupo KEPLR si ya existe
   if (window.groupKEPLR){
     (function collect(o){
       if (!o) return;
@@ -7040,242 +7028,164 @@ function getKeplrPoolSafe(){
       if (o.children) for (let i=0;i<o.children.length;i++) collect(o.children[i]);
     })(window.groupKEPLR);
   }
-  // 2) fallback: tres sólidos estilizados
-  if (!pool.length && typeof THREE !== 'undefined'){
-    const g1 = new THREE.IcosahedronGeometry(6, 1);
-    const g2 = new THREE.DodecahedronGeometry(7, 0);
-    const g3 = new THREE.TorusKnotGeometry(5, 1.6, 96, 16);
-    const mats = [
-      new THREE.MeshLambertMaterial({color:0xffffff, dithering:true}),
-      new THREE.MeshLambertMaterial({color:0xffffff, dithering:true}),
-      new THREE.MeshLambertMaterial({color:0xffffff, dithering:true})
-    ];
-    pool.push(new THREE.Mesh(g1, mats[0]));
-    pool.push(new THREE.Mesh(g2, mats[1]));
-    pool.push(new THREE.Mesh(g3, mats[2]));
+  if (!pool.length && typeof THREE!=='undefined'){
+    const g1 = new THREE.IcosahedronGeometry(6,1);
+    const g2 = new THREE.DodecahedronGeometry(7,0);
+    const g3 = new THREE.TorusKnotGeometry(5,1.6,96,16);
+    const m1 = new THREE.MeshLambertMaterial({color:0xffffff,dithering:true});
+    const m2 = m1.clone(), m3 = m1.clone();
+    pool.push(new THREE.Mesh(g1,m1), new THREE.Mesh(g2,m2), new THREE.Mesh(g3,m3));
   }
   return pool;
 }
 
-// Añade 1..5 probes KEPLR sobre los pozos
+/* ---------- probes KEPLR sobre pozos ---------- */
 function addKeplrProbesOverWells(wells){
   if (!groupGRVTY) return;
-
-  // limpia probes previos
   if (groupGRVTY.__probes){
     groupGRVTY.__probes.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
     groupGRVTY.remove(groupGRVTY.__probes);
     groupGRVTY.__probes = null;
   }
-
-  const poolSrc = getKeplrPoolSafe();
-  if (!poolSrc.length) return;
+  const src = getKeplrPoolSafe();
+  if (!src.length) return;
 
   const probes = new THREE.Group();
-  probes.name = '__grvtyProbes';
-  probes.renderOrder = 3;
-  groupGRVTY.__probes = probes;
-  groupGRVTY.add(probes);
+  probes.renderOrder = 3; groupGRVTY.__probes = probes; groupGRVTY.add(probes);
 
   const H = ((sceneSeed|0) ^ (S_global|0))>>>0;
-  const M = Math.max(GRVTY_MIN_WELLS, Math.min(GRVTY_MAX_WELLS, wells.length));
-  for (let i=0;i<M;i++){
-    const src = poolSrc[i % poolSrc.length];
-    const m   = src.clone(true);
+  const n = Math.max(GRVTY_MIN_WELLS, Math.min(GRVTY_MAX_WELLS, wells.length));
+  for (let i=0;i<n;i++){
+    const m = src[i%src.length].clone(true);
     try{ if (m.material) m.material = m.material.clone(); }catch(_){ }
-    if (m.material){
-      m.material.transparent = true;
-      m.material.opacity     = 0.95;
-      m.material.depthTest   = true;
-      m.material.depthWrite  = true;
-      m.material.needsUpdate = true;
-    }
-    m.frustumCulled = false;
-    // escala/pos rot: ligadas al área (A) del pozo
-    const A = wells[i].A;
-    const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
+    if (m.material){ m.material.transparent=true; m.material.opacity=0.95; m.material.needsUpdate=true; }
+    const A = wells[i].A; const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
     m.scale.setScalar(s);
     m.position.set(wells[i].cx, 2.0 + A*0.45, wells[i].cz);
     m.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
+    m.frustumCulled = false;
     probes.add(m);
   }
 }
 
-/* ===== Construcción del plano ondulado ===== */
+/* ---------- cámara horizonte ---------- */
+function setupGRVTYCamera(){
+  camera.up.set(0,1,0);
+  camera.fov=38; camera.near=0.1; camera.far=5000; camera.updateProjectionMatrix();
+  if (controls && controls.target) controls.target.set(0,0,0);
+  camera.position.set(0,18,210);
+  controls.enabled=true; controls.enableRotate=true; controls.enablePan=true; controls.enableZoom=true;
+  controls.minDistance=80; controls.maxDistance=900; controls.screenSpacePanning=true;
+  const aMid = Math.PI*0.5, awin = 0.06*Math.PI;     // ±~10.8°
+  controls.minPolarAngle = aMid - awin;
+  controls.maxPolarAngle = aMid + awin;
+  controls.minAzimuthAngle = -Infinity; controls.maxAzimuthAngle = Infinity;
+  controls.update();
+}
+
+/* ---------- builder principal ---------- */
 function buildGRVTY(){
   disposeGroupGRVTY();
-  groupGRVTY = new THREE.Group();
-  window.groupGRVTY = groupGRVTY;
+  groupGRVTY = new THREE.Group(); window.groupGRVTY = groupGRVTY;
 
-  // 1) Perms + semilla estable
-  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
+  // set + semilla
+  let perms = (typeof getSelectedPerms==='function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
   const SEED = grvtySeedFromPerms(perms);
 
-  // 2) Fondo FRBN “real”
+  // fondo FRBN
   applyFRBNBackdropInGRVTY();
 
-  // 3) Geometría del plano
+  // plano
   const geo = new THREE.PlaneGeometry(GRVTY_W, GRVTY_D, GRVTY_RES_X, GRVTY_RES_Z);
-  geo.rotateX(-Math.PI/2); // y-up
+  geo.rotateX(-Math.PI/2);
 
-  // 4) Wells bien centrados (nunca en extremos)
+  // pozos centrados (margen 5%)
   const wells = [];
-  const nW = (GRVTY_MIN_WELLS + (SEED % (GRVTY_MAX_WELLS - GRVTY_MIN_WELLS + 1)));
+  const nW = GRVTY_MIN_WELLS + (SEED % (GRVTY_MAX_WELLS - GRVTY_MIN_WELLS + 1));
   for (let i=0;i<nW;i++){
-    const h = grvtyRandU32(SEED + 97*i);
-    const ux = (grvtyFract(h+11) * 0.70 - 0.35); // -0.35..0.35
-    const uz = (grvtyFract(h+23) * 0.70 - 0.35);
-    const cx = ux * (GRVTY_W * 0.9);            // margen 5%
-    const cz = uz * (GRVTY_D * 0.9);
-    const A  = GRVTY_WELL_A * (0.55 + 0.9*grvtyFract(h+41));  // 7.7..23.8
-    const R  = GRVTY_WELL_R * (0.75 + 0.5*grvtyFract(h+59));  // 36..60
-    wells.push({cx, cz, A, R});
+    const h  = grvtyRandU32(SEED + 97*i);
+    const ux = grvtyFract(h+11)*0.70 - 0.35;
+    const uz = grvtyFract(h+23)*0.70 - 0.35;
+    const cx = ux * (GRVTY_W*0.9), cz = uz * (GRVTY_D*0.9);
+    const A  = GRVTY_WELL_A * (0.55 + 0.9*grvtyFract(h+41));
+    const R  = GRVTY_WELL_R * (0.75 + 0.5*grvtyFract(h+59));
+    wells.push({cx,cz,A,R});
   }
 
-  // 5) Deformación (CPU simple: suficiente y estable)
+  // deformación CPU suave (y visible)
   const pos = geo.attributes.position;
   for (let i=0;i<pos.count;i++){
     const x = pos.getX(i), z = pos.getZ(i);
     let y = 0;
-    for (let w=0; w<wells.length; w++){
-      const dx = x - wells[w].cx;
-      const dz = z - wells[w].cz;
-      const d  = Math.sqrt(dx*dx + dz*dz);
-      const fall = Math.exp( - (d*d) / (2*wells[w].R*wells[w].R) );
-      y -= wells[w].A * fall * (1.0 + GRVTY_WELL_NOISE * Math.cos(d*0.12 + w));
+    for (let k=0;k<wells.length;k++){
+      const dx=x-wells[k].cx, dz=z-wells[k].cz, d=Math.sqrt(dx*dx+dz*dz);
+      const fall = Math.exp(-(d*d)/(2*wells[k].R*wells[k].R));
+      y -= wells[k].A * fall * (1.0 + GRVTY_WELL_NOISE*Math.cos(d*0.12 + k));
     }
     pos.setY(i, y);
   }
-  pos.needsUpdate = true;
-  geo.computeVertexNormals();
+  pos.needsUpdate = true; geo.computeVertexNormals();
 
-  // 6) Material “arena” con color derivado del volumen HSV (coherente con tu sistema)
-  const baseCol = colorFromVolume(new THREE.Vector3(0,0,0)); // usa tu idxToHSV/hsvToRgb
+  // color base coherente con tu paleta (volumen HSV ya existente)
+  const baseCol = (typeof colorFromVolume==='function')
+    ? colorFromVolume(new THREE.Vector3(0,0,0))
+    : new THREE.Color(0xf0f0f0);
   const mat = new THREE.MeshLambertMaterial({
-    color: baseCol,
-    emissive: baseCol.clone().multiplyScalar(0.06),
-    dithering: true
+    color: baseCol, emissive: baseCol.clone().multiplyScalar(0.06), dithering: true
   });
-
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.receiveShadow = false;
-  mesh.castShadow = false;
-  mesh.renderOrder = 1;
+  mesh.renderOrder = 1; mesh.castShadow = false; mesh.receiveShadow = false;
   groupGRVTY.add(mesh);
 
-  // 7) Probes KEPLR
+  // probes keplr
   addKeplrProbesOverWells(wells);
 
-  // 8) Visibilidad escena
-  if (permutationGroup) permutationGroup.visible = false;  // escondemos BUILD
-  if (cubeUniverse)     cubeUniverse.visible     = false;
-  if (lichtGroup)       lichtGroup.visible       = false;
+  // visibilidad: ocultar BUILD/LCHT si estaban
+  try{ if (permutationGroup) permutationGroup.visible=false; }catch(_){ }
+  try{ if (cubeUniverse)     cubeUniverse.visible=false; }catch(_){ }
+  try{ if (lichtGroup)       lichtGroup.visible=false; }catch(_){ }
 
-  // 9) Añadir al mundo
   scene.add(groupGRVTY);
 }
 
-/* ===== Cámara horizonte (sin huecos) ===== */
-function setupGRVTYCamera(){
-  camera.up.set(0,1,0);
-  camera.fov  = 38;
-  camera.near = 0.1;
-  camera.far  = 5000;
-  camera.updateProjectionMatrix();
-
-  if (controls && controls.target) controls.target.set(0, 0, 0);
-
-  // posición “playa” mirando al horizonte
-  camera.position.set(0, 18, 210);
-
-  // OrbitControls restringidos
-  controls.enabled            = true;
-  controls.enableRotate       = true;
-  controls.enablePan          = true;
-  controls.enableZoom         = true;
-  controls.minDistance        = 80;
-  controls.maxDistance        = 900;
-  controls.screenSpacePanning = true;
-
-  const aMid   = Math.PI * 0.5;
-  const window = 0.06 * Math.PI;     // ± ~10.8°
-  controls.minPolarAngle = aMid - window;
-  controls.maxPolarAngle = aMid + window;
-
-  controls.minAzimuthAngle = -Infinity;
-  controls.maxAzimuthAngle =  Infinity;
-
-  controls.update();
-}
-
-/* ===== Limpieza ===== */
-function disposeGroupGRVTY(){
-  if (!groupGRVTY) return;
-  try{
-    groupGRVTY.traverse(o=>{
-      if (o.isMesh){
-        o.geometry?.dispose?.();
-        if (Array.isArray(o.material)) o.material.forEach(m=>m?.dispose?.());
-        else o.material?.dispose?.();
-      }
-    });
-  }catch(_){ }
-  scene.remove(groupGRVTY);
-  groupGRVTY = null;
-  window.groupGRVTY = null;
-}
-
-/* ===== Toggle principal ===== */
+/* ---------- toggle exclusivo ---------- */
 function toggleGRVTY(){
-  // Exclusividad manual con otros motores “escénicos”
   if (!isGRVTY){
-    if (typeof leaveBuildRenderBoost === 'function') leaveBuildRenderBoost();
-    if (typeof isFRBN  !== 'undefined' && isFRBN)  { try{ toggleFRBN(); }catch(_){ } }
-    if (typeof isLCHT  !== 'undefined' && isLCHT)  { try{ toggleLCHT(); }catch(_){ } }
-    if (typeof isOFFNNG!== 'undefined' && isOFFNNG){ try{ toggleOFFNNG(); }catch(_){ } }
-    if (typeof isTMSL  !== 'undefined' && isTMSL)  { try{ toggleTMSL(); }catch(_){ } }
-    if (typeof isRAUM  !== 'undefined' && isRAUM)  { try{ toggleRAUM(); }catch(_){ } }
-    if (typeof is13245 !== 'undefined' && is13245){ try{ toggle13245(); }catch(_){ } }
-    if (typeof isR5NOVA!== 'undefined' && isR5NOVA){ try{ toggleR5NOVA(); }catch(_){ } }
-    if (typeof isKEPLR !== 'undefined' && isKEPLR) { try{ toggleKEPLR(); }catch(_){ } }
+    // exclusividad suave
+    try{ leaveBuildRenderBoost && leaveBuildRenderBoost(); }catch(_){ }
+    try{ if (typeof isFRBN!=='undefined' && isFRBN)   toggleFRBN();   }catch(_){ }
+    try{ if (typeof isLCHT!=='undefined' && isLCHT)   toggleLCHT();   }catch(_){ }
+    try{ if (typeof isOFFNNG!=='undefined' && isOFFNNG) toggleOFFNNG(); }catch(_){ }
+    try{ if (typeof isTMSL!=='undefined' && isTMSL)   toggleTMSL();   }catch(_){ }
+    try{ if (typeof isRAUM!=='undefined' && isRAUM)   toggleRAUM();   }catch(_){ }
+    try{ if (typeof is13245!=='undefined' && is13245) toggle13245();  }catch(_){ }
+    try{ if (typeof isR5NOVA!=='undefined' && isR5NOVA) toggleR5NOVA(); }catch(_){ }
+    try{ if (typeof isKEPLR!=='undefined' && isKEPLR) toggleKEPLR();  }catch(_){ }
 
-    isGRVTY = true;
-    window.isGRVTY = true;
-
-    // Fondo FRBN visible (sin “entrar” a FRBN)
+    isGRVTY = true; window.isGRVTY = true;
     applyFRBNBackdropInGRVTY();
-    if (skySphere) skySphere.visible = true;
-
     setupGRVTYCamera();
     buildGRVTY();
   } else {
-    // salir de GRVTY
-    isGRVTY = false;
-    window.isGRVTY = false;
-
-    // ocultar backdrop FRBN solo si FRBN no está activo
-    if (skySphere && (typeof isFRBN==='undefined' || !isFRBN)) skySphere.visible = false;
-
+    isGRVTY = false; window.isGRVTY = false;
+    // ocultar fondo FRBN solo si FRBN no está activo
+    try{ if (window.skySphere && !(typeof isFRBN!=='undefined' && isFRBN)) window.skySphere.visible=false; }catch(_){ }
     disposeGroupGRVTY();
-
-    // Restaura escena estándar (BUILD visible, sin cambiar a BUILD)
-    if (cubeUniverse)     cubeUniverse.visible     = true;
-    if (permutationGroup) permutationGroup.visible = true;
-
-    // Deja controles en modo “libre”
-    controls.enabled            = true;
-    controls.enableRotate       = true;
-    controls.enablePan          = true;
-    controls.enableZoom         = true;
-    controls.minPolarAngle      = 0;
-    controls.maxPolarAngle      = Math.PI;
-    controls.screenSpacePanning = false;
-    controls.update();
+    // restaurar BUILD visible
+    try{ if (cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
+    try{ if (permutationGroup) permutationGroup.visible = true; }catch(_){ }
+    // controles libres
+    try{
+      controls.enabled=true; controls.enableRotate=true; controls.enablePan=true; controls.enableZoom=true;
+      controls.minPolarAngle=0; controls.maxPolarAngle=Math.PI; controls.screenSpacePanning=false; controls.update();
+    }catch(_){ }
   }
-
   if (typeof updateEngineSelectUI==='function') updateEngineSelectUI();
 }
+
+/* ---------- hooks mínimos ---------- */
+function rebuildGRVTYIfActive(){ if (isGRVTY) buildGRVTY(); }
 </script>
 
 </body>
