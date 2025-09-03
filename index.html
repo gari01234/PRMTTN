@@ -6911,13 +6911,39 @@ async function showPatternInfo(){
 let isGRVTY    = window.isGRVTY || false;
 let groupGRVTY = window.groupGRVTY || null;
 
-// === Fondo FRBN como “backdrop” (sin activar el motor FRBN) ===
+// === Fondo FRBN como “backdrop” (visible y ANIMADO) ===
 function grvtyUseFRBNBackdrop(){
   try{
+    // Crea la cúpula de FRBN si no existe y sincroniza su material
     if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-    if (typeof buildGanzfeld  === 'function') buildGanzfeld();  // sincroniza colores K
+    if (typeof buildGanzfeld  === 'function') buildGanzfeld();
     if (window.skySphere) window.skySphere.visible = true;
   }catch(_){ }
+
+  // Tick ligero para animar el shader del cielo mientras estés en GRVTY
+  if (!window.__grvtyFrbnTickInstalled){
+    window.__grvtyFrbnTickInstalled = true;
+    let _last = performance.now();
+    (function tick(){
+      try{
+        const on = (window.isGRVTY === true);
+        const sph = window.skySphere;
+        const now = performance.now();
+        const dt  = Math.max(0, (now - _last)/1000);
+        _last = now;
+
+        if (on && sph && sph.material && sph.material.uniforms){
+          const U = sph.material.uniforms;
+          // avanza el tiempo si existen uniformes típicos
+          if (U.uTime)      U.uTime.value += dt * 1.0;
+          else if (U.time)  U.time.value  += dt * 1.0;
+          else if (U.iTime) U.iTime.value += dt * 1.0;
+          sph.rotation.y += dt * 0.02; // micro-deriva agradable
+        }
+      }catch(_){ }
+      requestAnimationFrame(tick);
+    })();
+  }
 }
 
 function disposeGroupGRVTY(){
@@ -7181,7 +7207,7 @@ function buildGRVTY(){
   try { addKeplrSolidsOverWells(wells); } catch(_){ }
 }
 
-// === Un sólido KEPLR por pozo (sin superposiciones) ===
+// === Un sólido KEPLR por pozo (sin superposiciones), opaco y girando ===
 function addKeplrSolidsOverWells(wells){
   if (!groupGRVTY || !Array.isArray(wells) || !wells.length) return;
 
@@ -7198,25 +7224,23 @@ function addKeplrSolidsOverWells(wells){
   groupGRVTY.__probes = probes;
   groupGRVTY.add(probes);
 
-  // Permutaciones activas (fallback determinista)
+  // Permutaciones (fallback determinista)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
 
-  // Semillas deterministas (reusa KEPLR)
   const H     = keplrShapeSeedFromPerms(perms);
-  const START = H % KEPLR_SOLIDS.length; // reparte el tipo de sólido
+  const START = H % KEPLR_SOLIDS.length;
 
-  // Si existe builder de KEPLR, lo usamos; si no, clona un sólido completo de KEPLR si está activo
   const canBuild = (typeof buildKeplrSolid === 'function') &&
                    (typeof keplrGeometry   === 'function') &&
                    (typeof applyKeplrOrientation === 'function') &&
                    Array.isArray(KEPLR_SOLIDS);
 
-  // Fallback: coger grupos completos (rotators) de KEPLR si ya existe en escena
+  // Fallback: clonar rotators de KEPLR si existen
   const fallbackSolids = (window.groupKEPLR && window.groupKEPLR.userData && Array.isArray(window.groupKEPLR.userData.rotators))
     ? window.groupKEPLR.userData.rotators : [];
 
-  const M = Math.min(wells.length, 5); // tope 5
+  const M = Math.min(wells.length, 5);
   for (let i=0; i<M; i++){
     const pa   = perms[i % perms.length];
     const A    = wells[i].A;
@@ -7226,40 +7250,65 @@ function addKeplrSolidsOverWells(wells){
     let solidGroup = null;
 
     if (canBuild){
-      // === Construir un sólido KEPLR “limpio” (sin dual, sin edges) ===
+      // Construye “limpio” (sin dual, sin edges)
       const sName    = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
-      const rBase    = 12.0;                                    // tamaño base del sólido
-      const tIdx     = 0;                                       // tramo geométrico (fijo)
-      const dualOn   = false;                                   // ← SIN dual
+      const rBase    = 12.0;
+      const tIdx     = 0;
+      const dualOn   = false;
       const orientK  = (Math.imul((lehmerRank(pa)>>>0) ^ (H + i*109), 1103515245) + 12345)>>>0;
-      const oIdx     = orientK % 60;                            // orientación discreta estable
-      const uniq     = i;                                       // color único por sólido
+      const oIdx     = orientK % 60;
+      const uniq     = i;
 
       solidGroup = new THREE.Group();
       buildKeplrSolid(sName, rBase, tIdx, dualOn, oIdx, pa, solidGroup, uniq);
     } else if (fallbackSolids.length){
-      // === Clonar un GRUPO completo de KEPLR como fallback ===
-      const src = fallbackSolids[i % fallbackSolids.length];
-      solidGroup = src.clone(true);
+      solidGroup = fallbackSolids[i % fallbackSolids.length].clone(true);
     }
 
     if (!solidGroup) continue;
 
-    // Escala ligada a la “profundidad” del pozo (A)
+    // Escala en función de A
     const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
     solidGroup.scale.setScalar(s);
 
-    // Posición y orientación (suave y coherente)
-    solidGroup.position.set(cx, 2.0 + A*0.45, cz);
+    // SUBE altura para que no “muerda” el grid
+    // (antes: 2.0 + A*0.45) → ahora: 4.0 + A*0.65
+    solidGroup.position.set(cx, 4.0 + A*0.65, cz);
+
+    // Orientación base estable
     solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
 
-    // Transparencias/orden seguros
+    // Materiales: 100% opacos (sin transparencia)
     solidGroup.traverse(o=>{
       if (o.isMesh){
         o.frustumCulled = false;
-        if (o.material){ o.material.transparent = true; o.material.depthWrite = false; o.material.needsUpdate = true; }
+        if (o.material){
+          if (Array.isArray(o.material)){
+            o.material.forEach(m => { if (m){ m.transparent = false; m.opacity = 1; m.depthWrite = true; m.needsUpdate = true; }});
+          } else {
+            o.material.transparent = false;
+            o.material.opacity = 1;
+            o.material.depthWrite = true;
+            o.material.needsUpdate = true;
+          }
+        }
       }
     });
+
+    // ==== SPIN como en KEPLR (eje+velocidad deterministas) ====
+    try{
+      const spin = keplrSpinParamsFor(pa, i); // {axis, vel}
+      solidGroup.userData.rotAxis = spin.axis || new THREE.Vector3(0,1,0);
+      solidGroup.userData.rotVel  = spin.vel  || 0.6;
+      const permStr = pa.join(',');
+      let step = 1;
+      if (typeof getBuildRotStep === 'function'){
+        const s = getBuildRotStep(permStr);
+        if (typeof s === 'number') step = s;
+      }
+      solidGroup.userData.rotStep = step; // acepta 0 = pausa por-perm
+      solidGroup.userData.permStr = permStr;
+    }catch(_){ }
 
     probes.add(solidGroup);
   }
@@ -7391,28 +7440,14 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
     }catch(_){ }
   };
 
-  function avgBuildRotStepForGrvty(){
-    try{
-      const g = window.groupGRVTY;
-      const arr = (g && g.userData && Array.isArray(g.userData.permStrs)) ? g.userData.permStrs : [];
-      if (!arr.length || typeof getBuildRotStep !== 'function') return 1.0;
-      let sum = 0, n = 0;
-      for (let i=0;i<arr.length;i++){
-        let s = getBuildRotStep(arr[i]);
-        if (typeof s === 'number'){ sum += s; n++; }
-      }
-      if (!n) return 1.0;
-      return sum / n;
-    }catch(_){ return 1.0; }
-  }
-
   function tickGrvty(){
     try{
       const on  = (window.isGRVTY === true);
       const grp = window.groupGRVTY;
-      if (!on || !grp || !grp.userData || !grp.userData.uniforms){ requestAnimationFrame(tickGrvty); return; }
 
-      // Pausa global (BUILD o local)
+      if (!on || !grp || !grp.userData){ requestAnimationFrame(tickGrvty); return; }
+
+      // === Pausa global (BUILD o local)
       let paused = !!window.__grvtyPaused;
       try{ if (!paused && typeof window.isBuildMotionPaused === 'function') paused = !!window.isBuildMotionPaused(); }catch(_){ }
 
@@ -7425,9 +7460,48 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         const dt = Math.max(0, (now - last) / 1000);
         grp.userData._lastT = now;
 
-        const u = grp.userData.uniforms;
-        u.uTime.value += dt;
-        u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0 ⇒ respira congelado
+        // 1) Respiración del terreno (si hay uniforms)
+        if (grp.userData.uniforms){
+          const u = grp.userData.uniforms;
+          u.uTime.value += dt;
+          // usa paso medio de BUILD si existe (no es crítico)
+          try{
+            if (typeof getBuildRotStep === 'function' && Array.isArray(grp.userData.permStrs)){
+              let sum=0,n=0;
+              for (let i=0;i<grp.userData.permStrs.length;i++){
+                const s = getBuildRotStep(grp.userData.permStrs[i]);
+                if (typeof s==='number'){ sum+=s; n++; }
+              }
+              u.uStep.value = n? (sum/n) : 1;
+            }
+          }catch(_){ }
+        }
+
+        // 2) Giro de sólidos KEPLR sobre los pozos
+        if (groupGRVTY.__probes && groupGRVTY.__probes.children){
+          for (let i=0;i<groupGRVTY.__probes.children.length;i++){
+            const g = groupGRVTY.__probes.children[i];
+            if (!g || !g.userData) continue;
+
+            // refresca step por-perm si existe
+            try{
+              if (typeof getBuildRotStep === 'function' && g.userData.permStr){
+                const s = getBuildRotStep(g.userData.permStr);
+                if (typeof s === 'number') g.userData.rotStep = s;
+              }
+            }catch(_){ }
+
+            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
+            if (!step) continue;
+
+            const axis = g.userData.rotAxis || new THREE.Vector3(0,1,0);
+            const vel  = (typeof g.userData.rotVel === 'number') ? g.userData.rotVel : 0.6;
+
+            g.rotateOnAxis(axis, vel * dt * step);
+            if (!g.matrixAutoUpdate) g.updateMatrix();
+            g.updateMatrixWorld(true);
+          }
+        }
       }
     }catch(_){ }
     requestAnimationFrame(tickGrvty);
