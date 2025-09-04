@@ -6915,8 +6915,19 @@ let groupGRVTY = window.groupGRVTY || null;
 function grvtyUseFRBNBackdrop(){
   try{
     if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-    if (typeof buildGanzfeld  === 'function') buildGanzfeld();  // sincroniza colores K
-    if (window.skySphere) window.skySphere.visible = true;
+    if (typeof buildGanzfeld === 'function') buildGanzfeld(); // colores deterministas FRBN
+    if (window.skySphere) {
+      window.skySphere.visible = true;
+      // Forzar que siga animando aunque FRBN no esté activo
+      if (typeof animateFRBN === 'function') {
+        (function tickFRBN(){
+          if (window.isGRVTY && window.skySphere?.visible){
+            try{ animateFRBN(); }catch(_){ }
+            requestAnimationFrame(tickFRBN);
+          }
+        })();
+      }
+    }
   }catch(_){ }
 }
 
@@ -7223,6 +7234,19 @@ function addKeplrSolidsOverWells(wells){
     const cx   = wells[i].cx;
     const cz   = wells[i].cz;
 
+    // evitar superposición: si hay otro sólido demasiado cerca, saltar
+    let tooClose = false;
+    for (let k=0;k<probes.children.length;k++){
+      const prev = probes.children[k];
+      if (!prev.position) continue;
+      const dx = prev.position.x - cx;
+      const dz = prev.position.z - cz;
+      if (dx*dx + dz*dz < 64) { // distancia < 8 unidades
+        tooClose = true; break;
+      }
+    }
+    if (tooClose) continue;
+
     let solidGroup = null;
 
     if (canBuild){
@@ -7250,7 +7274,7 @@ function addKeplrSolidsOverWells(wells){
     solidGroup.scale.setScalar(s);
 
     // Posición y orientación (suave y coherente)
-    solidGroup.position.set(cx, 2.0 + A*0.45, cz);
+    solidGroup.position.set(cx, 4.0 + A*0.55, cz); // más alto para que floten
     solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
 
     // Transparencias/orden seguros
@@ -7262,6 +7286,23 @@ function addKeplrSolidsOverWells(wells){
     });
 
     probes.add(solidGroup);
+
+    // === Rotación determinista estilo KEPLR ===
+    if (!probes.userData.rotators) probes.userData.rotators = [];
+    const axisSeed = ((H >>> (i*7)) ^ lehmerRank(pa)) >>> 0;
+    const axis = new THREE.Vector3(
+      ((axisSeed & 1) ? 1 : 0),
+      ((axisSeed & 2) ? 1 : 0),
+      ((axisSeed & 4) ? 1 : 0)
+    );
+    if (axis.lengthSq() === 0) axis.set(0,1,0);
+    axis.normalize();
+
+    const vel = ((axisSeed % 37) / 37.0) * 0.8 + 0.2; // 0.2–1.0 rad/s
+    solidGroup.userData.rotAxis = axis;
+    solidGroup.userData.rotVel  = vel;
+    solidGroup.userData.rotStep = 1;
+    probes.userData.rotators.push(solidGroup);
   }
 }
 
@@ -7428,6 +7469,25 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         const u = grp.userData.uniforms;
         u.uTime.value += dt;
         u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0 ⇒ respira congelado
+
+        // Girar sólidos KEPLR sobre los pozos
+        const probes = grp.__probes;
+        if (probes && Array.isArray(probes.userData.rotators)){
+          const rotators = probes.userData.rotators;
+          for (let j=0;j<rotators.length;j++){
+            const g = rotators[j];
+            if (!g || !g.userData) continue;
+            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
+            if (!step) continue;
+            const axis = g.userData.rotAxis;
+            const vel  = g.userData.rotVel;
+            if (axis && typeof vel === 'number'){
+              g.rotateOnAxis(axis, vel * dt * step);
+              if (!g.matrixAutoUpdate) g.updateMatrix();
+              g.updateMatrixWorld(true);
+            }
+          }
+        }
       }
     }catch(_){ }
     requestAnimationFrame(tickGrvty);
