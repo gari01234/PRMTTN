@@ -7276,29 +7276,30 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara “horizonte” — más cielo
+    // Cámara “horizonte” — corregida para ver MÁS cielo
     camera.up.set(0,1,0);
-    camera.fov  = 16;         // un toque menos de perspectiva para enfatizar cielo
+    camera.fov  = 15;        // un poco más “tele” → el cielo ocupa más altura
     camera.near = 0.1;
     camera.far  = 3200;
     camera.updateProjectionMatrix();
 
-    if (controls && controls.target) controls.target.set(0, 0, 0);
+    // Apunta ligeramente POR ENCIMA del horizonte (sube el target)
+    if (controls && controls.target) controls.target.set(0, 3.0, 0);
 
-    // Más lejos y muy baja ⇒ el plano queda abajo, domina el cielo FRBN
-    camera.position.set(0, 2.6, 320);
+    // Muy baja y un pelín más lejos → el plano queda más abajo en pantalla
+    camera.position.set(0, 1.4, 340);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 20;
-    controls.maxDistance        = 800;
+    controls.maxDistance        = 900;
     controls.screenSpacePanning = true;
 
-    // Permite mirar un poco por ENCIMA y por DEBAJO del horizonte (más cielo)
-    controls.minPolarAngle      = Math.PI * 0.46;  // ≈ 82.8°
-    controls.maxPolarAngle      = Math.PI * 0.52;  // ≈ 93.6°
+    // Ventana angular centrada por ENCIMA del horizonte (más cielo, menos suelo)
+    controls.minPolarAngle      = Math.PI * 0.40;  // ≈ 72°
+    controls.maxPolarAngle      = Math.PI * 0.50;  // = 90°
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
