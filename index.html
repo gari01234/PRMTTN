@@ -7001,36 +7001,65 @@ function grvtyColorsFromPerm(pa){
   return [c1, c2];  // c1 = grid principal, c2 = mezcla por curvatura
 }
 
+/* Velocidad determinista (dirección + módulo) para cada pozo */
+function grvtyVelocityFor(pa, H){
+  const r = (lehmerRank(pa) >>> 0);
+  const seed = (Math.imul((r ^ (H>>>0)) >>> 0, 1664525) + 1013904223) >>> 0;
+  // ángulo en [0, 2π)
+  const ang = ((seed & 0xFFFF) / 65535) * 6.283185307179586;
+  // velocidad en unidades/seg (rango 6..18)
+  const spd = 6.0 + (((seed >>> 16) & 0xFFFF) / 65535) * (18.0 - 6.0);
+  return [ Math.cos(ang) * spd, Math.sin(ang) * spd ]; // [vx, vz]
+}
+
 /* ====== Shaders (grid procedural + desplazamiento) ====== */
 const GRVTY_VS = `
 uniform float uTime;
 uniform int   uN;
 uniform vec2  uC[${GRVTY_MAX_WELLS}];
+uniform vec2  uV[${GRVTY_MAX_WELLS}]; // ← velocidad por pozo (x,z)
 uniform float uA[${GRVTY_MAX_WELLS}];
 uniform float uE[${GRVTY_MAX_WELLS}];
 uniform float uW[${GRVTY_MAX_WELLS}];
 uniform float uP[${GRVTY_MAX_WELLS}];
 uniform float uStep;           // factor global (BUILD rot step promedio)
 uniform float uBreath;         // 0..1 amplitud de respiración
+uniform vec2  uHalf;           // semiejes útiles para rebote (W/2 - m, D/2 - m)
 
 varying vec2 vUv;
 varying vec3 vPos;             // pos local ya rotada a XZ
 varying float vSlope;          // |∇h| aprox para coloración
+
+float reflect1D(float x, float a, float b){
+  // Movimiento tipo "rebote" en [a,b]
+  float L = b - a;
+  float y = mod(x - a, 2.0*L);
+  return (y <= L) ? (a + y) : (a + 2.0*L - y);
+}
 
 void main(){
   vUv  = uv;
   vec3 p = position;           // geometría ya está en plano XZ (rotateX aplicado)
   float y = 0.0;
   float gx = 0.0, gz = 0.0;    // gradiente para slope
+  float t = uTime * uStep;
 
   for (int i=0;i<${GRVTY_MAX_WELLS};i++){
     if (i >= uN) break;
-    vec2 d = vec2(p.x - uC[i].x, p.z - uC[i].y);
+
+    // Centro animado con rebote en rectángulo [-uHalf.x,+uHalf.x]×[-uHalf.y,+uHalf.y]
+    vec2 c0 = uC[i] + uV[i] * t;
+    float cx = reflect1D(c0.x, -uHalf.x, uHalf.x);
+    float cz = reflect1D(c0.y, -uHalf.y, uHalf.y);
+
+    vec2 d = vec2(p.x - cx, p.z - cz);
     float r2 = dot(d,d);
     float f  = sqrt(r2 + uE[i]*uE[i]);
     float A  = uA[i] * (1.0 + uBreath * sin(uW[i]*uTime*uStep + uP[i]));
+
     // Altura (pozo negativo)
     y += -A / f;
+
     // Derivadas analíticas para pendiente
     float f3 = f*f*f;
     gx +=  A * d.x / f3;
@@ -7126,6 +7155,14 @@ function buildGRVTY(){
     wells.push({cx, cz, A, E, W, P, permStr: pa.join(',')});
   }
 
+  // Velocidades deterministas por pozo
+  const vels = [];
+  for (let i=0;i<N;i++){
+    const pa = perms[i % perms.length];
+    const v  = grvtyVelocityFor(pa, H + i*41537);
+    vels.push({ vx: v[0], vz: v[1] });
+  }
+
   // Colores deterministas para LÍNEAS (como antes)
   const [C1, C2] = grvtyColorsFromPerm(perms[0]);
 
@@ -7145,7 +7182,9 @@ function buildGRVTY(){
     uTime:      { value: 0.0 },
     uN:         { value: N },
     uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
-                      wells[i]?.cx || 0, wells[i]?.cz || 0)) },
+                    wells[i]?.cx || 0, wells[i]?.cz || 0)) },
+    uV:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
+                    vels[i]?.vx || 0, vels[i]?.vz || 0)) }, // ← NUEVO
     uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0, wells[2]?.A||0, wells[3]?.A||0, wells[4]?.A||0]) },
     uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1, wells[2]?.E||1, wells[3]?.E||1, wells[4]?.E||1]) },
     uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0, wells[2]?.W||0, wells[3]?.W||0, wells[4]?.W||0]) },
@@ -7162,7 +7201,10 @@ function buildGRVTY(){
     uHueDriftX: { value: hueDriftX },
     uHueDriftY: { value: hueDriftY },
     uSat:       { value: sat },
-    uVal:       { value: val }
+    uVal:       { value: val },
+
+    // Rebote dentro del plano útil (margen 6.0 usado en grvtyCenterFor)
+    uHalf:      { value: new THREE.Vector2(GRVTY_W*0.5 - 6.0, GRVTY_D*0.5 - 6.0) }
   };
 
   const mat = new THREE.ShaderMaterial({
@@ -7173,7 +7215,8 @@ function buildGRVTY(){
     depthTest: true,
     depthWrite: true,
     dithering: true,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    extensions: { derivatives: true }
   });
 
   const mesh = new THREE.Mesh(geo, mat);
@@ -7188,123 +7231,12 @@ function buildGRVTY(){
   groupGRVTY.add(mesh);
   scene.add(groupGRVTY);
 
-  // 1 sólido KEPLR por pozo (sin superposiciones)
-  try { addKeplrSolidsOverWells(wells); } catch(_){ }
+  // KEPLR solids disabled in GRVTY
 }
 
 // === Un sólido KEPLR por pozo (sin superposiciones) ===
-function addKeplrSolidsOverWells(wells){
-  if (!groupGRVTY || !Array.isArray(wells) || !wells.length) return;
+function addKeplrSolidsOverWells(wells){ /* disabled in GRVTY */ }
 
-  // Limpia anteriores
-  if (groupGRVTY.__probes){
-    groupGRVTY.__probes.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
-    groupGRVTY.remove(groupGRVTY.__probes);
-    groupGRVTY.__probes = null;
-  }
-
-  const probes = new THREE.Group();
-  probes.name = '__grvtyProbes';
-  probes.renderOrder = 3;
-  groupGRVTY.__probes = probes;
-  groupGRVTY.add(probes);
-
-  // Permutaciones activas (fallback determinista)
-  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
-  if (!perms.length) perms = [[1,2,3,4,5]];
-
-  // Semillas deterministas (reusa KEPLR)
-  const H     = keplrShapeSeedFromPerms(perms);
-  const START = H % KEPLR_SOLIDS.length; // reparte el tipo de sólido
-
-  // Si existe builder de KEPLR, lo usamos; si no, clona un sólido completo de KEPLR si está activo
-  const canBuild = (typeof buildKeplrSolid === 'function') &&
-                   (typeof keplrGeometry   === 'function') &&
-                   (typeof applyKeplrOrientation === 'function') &&
-                   Array.isArray(KEPLR_SOLIDS);
-
-  // Fallback: coger grupos completos (rotators) de KEPLR si ya existe en escena
-  const fallbackSolids = (window.groupKEPLR && window.groupKEPLR.userData && Array.isArray(window.groupKEPLR.userData.rotators))
-    ? window.groupKEPLR.userData.rotators : [];
-
-  const M = Math.min(wells.length, 5); // tope 5
-  for (let i=0; i<M; i++){
-    const pa   = perms[i % perms.length];
-    const A    = wells[i].A;
-    const cx   = wells[i].cx;
-    const cz   = wells[i].cz;
-
-    // evitar superposición: si hay otro sólido demasiado cerca, saltar
-    let tooClose = false;
-    for (let k=0;k<probes.children.length;k++){
-      const prev = probes.children[k];
-      if (!prev.position) continue;
-      const dx = prev.position.x - cx;
-      const dz = prev.position.z - cz;
-      if (dx*dx + dz*dz < 64) { // distancia < 8 unidades
-        tooClose = true; break;
-      }
-    }
-    if (tooClose) continue;
-
-    let solidGroup = null;
-
-    if (canBuild){
-      // === Construir un sólido KEPLR “limpio” (sin dual, sin edges) ===
-      const sName    = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
-      const rBase    = 12.0;                                    // tamaño base del sólido
-      const tIdx     = 0;                                       // tramo geométrico (fijo)
-      const dualOn   = false;                                   // ← SIN dual
-      const orientK  = (Math.imul((lehmerRank(pa)>>>0) ^ (H + i*109), 1103515245) + 12345)>>>0;
-      const oIdx     = orientK % 60;                            // orientación discreta estable
-      const uniq     = i;                                       // color único por sólido
-
-      solidGroup = new THREE.Group();
-      buildKeplrSolid(sName, rBase, tIdx, dualOn, oIdx, pa, solidGroup, uniq);
-    } else if (fallbackSolids.length){
-      // === Clonar un GRUPO completo de KEPLR como fallback ===
-      const src = fallbackSolids[i % fallbackSolids.length];
-      solidGroup = src.clone(true);
-    }
-
-    if (!solidGroup) continue;
-
-    // Escala ligada a la “profundidad” del pozo (A)
-    const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
-    solidGroup.scale.setScalar(s);
-
-    // Posición y orientación (suave y coherente)
-    solidGroup.position.set(cx, 4.0 + A*0.55, cz); // más alto para que floten
-    solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
-
-    // Transparencias/orden seguros
-    solidGroup.traverse(o=>{
-      if (o.isMesh){
-        o.frustumCulled = false;
-        if (o.material){ o.material.transparent = true; o.material.depthWrite = false; o.material.needsUpdate = true; }
-      }
-    });
-
-    probes.add(solidGroup);
-
-    // === Rotación determinista estilo KEPLR ===
-    if (!probes.userData.rotators) probes.userData.rotators = [];
-    const axisSeed = ((H >>> (i*7)) ^ lehmerRank(pa)) >>> 0;
-    const axis = new THREE.Vector3(
-      ((axisSeed & 1) ? 1 : 0),
-      ((axisSeed & 2) ? 1 : 0),
-      ((axisSeed & 4) ? 1 : 0)
-    );
-    if (axis.lengthSq() === 0) axis.set(0,1,0);
-    axis.normalize();
-
-    const vel = ((axisSeed % 37) / 37.0) * 0.8 + 0.2; // 0.2–1.0 rad/s
-    solidGroup.userData.rotAxis = axis;
-    solidGroup.userData.rotVel  = vel;
-    solidGroup.userData.rotStep = 1;
-    probes.userData.rotators.push(solidGroup);
-  }
-}
 
 /* ====== Exclusivo + cámara nivelada tipo RAUM/KEPLR/RAPHI ====== */
 function toggleGRVTY(){
@@ -7469,25 +7401,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         const u = grp.userData.uniforms;
         u.uTime.value += dt;
         u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0 ⇒ respira congelado
-
-        // Girar sólidos KEPLR sobre los pozos
-        const probes = grp.__probes;
-        if (probes && Array.isArray(probes.userData.rotators)){
-          const rotators = probes.userData.rotators;
-          for (let j=0;j<rotators.length;j++){
-            const g = rotators[j];
-            if (!g || !g.userData) continue;
-            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
-            if (!step) continue;
-            const axis = g.userData.rotAxis;
-            const vel  = g.userData.rotVel;
-            if (axis && typeof vel === 'number'){
-              g.rotateOnAxis(axis, vel * dt * step);
-              if (!g.matrixAutoUpdate) g.updateMatrix();
-              g.updateMatrixWorld(true);
-            }
-          }
-        }
       }
     }catch(_){ }
     requestAnimationFrame(tickGrvty);
