@@ -6948,16 +6948,18 @@ function disposeGroupGRVTY(){
 const GRVTY_W = 360.0, GRVTY_D = 480.0;   // malla muy amplia tipo horizonte
 const GRVTY_RES_DESKTOP = 360;            // más subdivisiones para ondulación suave
 const GRVTY_RES_MOBILE  = 220;
-const GRVTY_MAX_WELLS   = 5;              // ← subimos a 5
+/* Tope alto seguro para WebGL (sumatorio de uniforms): 64 pozos máx por draw */
+const GRVTY_MAX_WELLS   = 64;
 
 /* ====== Utilidades deterministas (reusamos tus fórmulas) ====== */
 function grvtySeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
 
-/* 1..5 pozos deterministas desde H */
-function grvtyWellCount(H){
-  // Distribuye 1..5 con ligera preferencia por 2–4
-  const k = ((H >>> 0) % 1007);
-  return 1 + (k % GRVTY_MAX_WELLS);        // 1..5
+/* Profundidad desde rango Lehmer (0..119) → amplitud en [6, 14] */
+function grvtyAmplitudeFromRank(pa){
+  const r = (lehmerRank(pa) >>> 0) % 120;      // 5! = 120
+  const t = r / 119.0;                         // normaliza 0..1
+  const A_MIN = 6.0, A_MAX = 14.0;
+  return A_MIN + t * (A_MAX - A_MIN);
 }
 
 /* Centro determinista en [-W/2+M, +W/2-M]×[-D/2+M, +D/2-M] */
@@ -7143,25 +7145,22 @@ function buildGRVTY(){
   if (!perms.length) perms = [[1,2,3,4,5]];
   const H = grvtySeedFromPerms(perms) >>> 0;
 
-  // 1..5 pozos
-  const N  = Math.min(GRVTY_MAX_WELLS, grvtyWellCount(H));
-  const wells = [];
-  for (let i=0;i<N;i++){
-    const pa = perms[i % perms.length];
+  // Número de pozos = número de permutaciones (clamp al tope GLSL)
+  const N = Math.min(perms.length, GRVTY_MAX_WELLS);
+
+  // Construcción de wells a partir de CADA permutación
+  const wells = new Array(N);
+  const vels  = new Array(N);
+  for (let i=0; i<N; i++){
+    const pa = perms[i];
     const [cx, cz] = grvtyCenterFor(pa, H + i*1315423911);
-    const A  = grvtyAmplitudeFor(pa);
+    const A  = grvtyAmplitudeFromRank(pa);         // ← profundidad por RANK
     const E  = grvtyEpsilonFor(pa, H + i*2654435761);
     const W  = grvtyOmegaFor(pa);
     const P  = grvtyPhaseFor(pa, H + i*374761393);
-    wells.push({cx, cz, A, E, W, P, permStr: pa.join(',')});
-  }
-
-  // Velocidades deterministas por pozo
-  const vels = [];
-  for (let i=0;i<N;i++){
-    const pa = perms[i % perms.length];
     const v  = grvtyVelocityFor(pa, H + i*41537);
-    vels.push({ vx: v[0], vz: v[1] });
+    wells[i] = { cx, cz, A, E, W, P, permStr: pa.join(',') };
+    vels[i]  = { vx: v[0], vz: v[1] };
   }
 
   // Colores deterministas para LÍNEAS (como antes)
@@ -7174,22 +7173,38 @@ function buildGRVTY(){
 
   // Uniforms (incluye gradiente tipo Jeff Davis para CENTROS)
   const hueBase   = ((H % 360) / 360.0);
-  const hueDriftX = 0.18 + ((H >> 8) & 63) / 1024.0;  // ≈ 0.18..0.241
-  const hueDriftY = 0.08 + ((H >> 16)& 63) / 1024.0;  // ≈ 0.08..0.141
-  const sat       = 0.80 + ((H >> 24)& 31) / 160.0;   // ≈ 0.80..0.993
-  const val       = 0.80 + ((H >> 20)& 31) / 160.0;   // ≈ 0.80..0.993
+  const hueDriftX = 0.18 + ((H >> 8) & 63) / 1024.0;
+  const hueDriftY = 0.08 + ((H >> 16)& 63) / 1024.0;
+  const sat       = 0.80 + ((H >> 24)& 31) / 160.0;
+  const val       = 0.80 + ((H >> 20)& 31) / 160.0;
+
+  // Buffers de uniforms dimensionados a GRVTY_MAX_WELLS
+  const uC = new Array(GRVTY_MAX_WELLS).fill(0).map(()=> new THREE.Vector2(0,0));
+  const uV = new Array(GRVTY_MAX_WELLS).fill(0).map(()=> new THREE.Vector2(0,0));
+  const uA = new Float32Array(GRVTY_MAX_WELLS);
+  const uE = new Float32Array(GRVTY_MAX_WELLS);
+  const uW = new Float32Array(GRVTY_MAX_WELLS);
+  const uP = new Float32Array(GRVTY_MAX_WELLS);
+
+  for (let i=0; i<N; i++){
+    uC[i].set(wells[i].cx, wells[i].cz);
+    uV[i].set(vels[i].vx,  vels[i].vz);
+    uA[i] = wells[i].A;
+    uE[i] = wells[i].E;
+    uW[i] = wells[i].W;
+    uP[i] = wells[i].P;
+  }
+  // (los slots > N quedan en 0 para no afectar el shader)
 
   const uniforms = {
     uTime:      { value: 0.0 },
     uN:         { value: N },
-    uC:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
-                    wells[i]?.cx || 0, wells[i]?.cz || 0)) },
-    uV:         { value: new Array(GRVTY_MAX_WELLS).fill(0).map((_,i)=> new THREE.Vector2(
-                    vels[i]?.vx || 0, vels[i]?.vz || 0)) }, // ← NUEVO
-    uA:         { value: new Float32Array([wells[0]?.A||0, wells[1]?.A||0, wells[2]?.A||0, wells[3]?.A||0, wells[4]?.A||0]) },
-    uE:         { value: new Float32Array([wells[0]?.E||1, wells[1]?.E||1, wells[2]?.E||1, wells[3]?.E||1, wells[4]?.E||1]) },
-    uW:         { value: new Float32Array([wells[0]?.W||0, wells[1]?.W||0, wells[2]?.W||0, wells[3]?.W||0, wells[4]?.W||0]) },
-    uP:         { value: new Float32Array([wells[0]?.P||0, wells[1]?.P||0, wells[2]?.P||0, wells[3]?.P||0, wells[4]?.P||0]) },
+    uC:         { value: uC },
+    uV:         { value: uV },
+    uA:         { value: uA },
+    uE:         { value: uE },
+    uW:         { value: uW },
+    uP:         { value: uP },
     uStep:      { value: 1.0 },
     uBreath:    { value: 0.08 },
     uCol1:      { value: C1 },
@@ -7261,30 +7276,29 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara “horizonte”
-camera.up.set(0,1,0);
-camera.fov  = 17;         // menos perspectiva para sensación de “lejanía”
-camera.near = 0.1;
-camera.far  = 3000;
+    // Cámara “horizonte” — más cielo
+    camera.up.set(0,1,0);
+    camera.fov  = 16;         // un toque menos de perspectiva para enfatizar cielo
+    camera.near = 0.1;
+    camera.far  = 3200;
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    // Lejos y baja para que el plano se pierda en el horizonte
-    camera.position.set(0, 10, 240);
+
+    // Más lejos y muy baja ⇒ el plano queda abajo, domina el cielo FRBN
+    camera.position.set(0, 2.6, 320);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 20;
-    controls.maxDistance        = 600;
+    controls.maxDistance        = 800;
     controls.screenSpacePanning = true;
 
-    // Rango estrecho alrededor del plano (ligeramente por encima de 90°)
-    const aMin = Math.PI * 0.48;
-    const aMax = Math.PI * 0.56;
-    controls.minPolarAngle      = aMin;
-    controls.maxPolarAngle      = aMax;
+    // Permite mirar un poco por ENCIMA y por DEBAJO del horizonte (más cielo)
+    controls.minPolarAngle      = Math.PI * 0.46;  // ≈ 82.8°
+    controls.maxPolarAngle      = Math.PI * 0.52;  // ≈ 93.6°
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
