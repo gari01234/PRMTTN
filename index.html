@@ -19,6 +19,13 @@ if (typeof window.ensureOnlyGRVTYFromUI === 'undefined') window.ensureOnlyGRVTYF
 };
 if (typeof window.rebuildGRVTYIfActive === 'undefined') window.rebuildGRVTYIfActive = function(){};
   </script>
+  <script>
+// Stubs seguros (no hacen nada si ya existen)
+window.initSkySphere  = window.initSkySphere  || function(){};
+window.buildGanzfeld  = window.buildGanzfeld  || function(){};
+window.TMSL_BG_HEX = (typeof window.TMSL_BG_HEX === 'number') ? window.TMSL_BG_HEX : 0x000000;
+window.adjustR5NovaAfterBuild = window.adjustR5NovaAfterBuild || function(){};
+  </script>
   <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
     <script type="module">
 /* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
@@ -3834,11 +3841,17 @@ void main(){
     }
 
     /* ────────── botón dedicado: OFFNNG siempre en solitario ───────── */
-    function ensureOnlyOFFNNG () {
-      if (isFRBN) toggleFRBN();
-      if (isLCHT) toggleLCHT();
-      if (isKEPLR) toggleKEPLR();
-      if (!isOFFNNG) toggleOFFNNG();
+    function ensureOnlyOFFNNG(){
+      try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
+      try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
+      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+      try{ if (is13245)  toggle13245();  }catch(_){ }
+      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
+      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
+      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
+      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }
+      try{ if (!isOFFNNG) toggleOFFNNG(); }catch(_){ }
     }
 
     /* Calidad: ya NO reducimos el pixelRatio (evita blur); solo variamos uSteps */
@@ -4333,11 +4346,47 @@ void main(){
         window.isTMSL = false;
       }
     }
-    function clearGroup(g){
-      if (!g) return;
-      g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
-      scene.remove(g);
+function clearGroup(g){
+  if (!g) return;
+  g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
+  scene.remove(g);
+}
+
+function raumPermsSafe(){
+  try{
+    const p = (typeof getSelectedPerms === 'function') ? getSelectedPerms() : [];
+    return (p && p.length) ? p : [[1,2,3,4,5]];
+  }catch(_){ return [[1,2,3,4,5]]; }
+}
+function raumColorCell(pa, uniq){
+  // Usa el mismo mapeo cromático (contraste + vibrance BUILD)
+  const c = keplrUniqueFaceColor(pa, uniq|0);
+  return applyBuildVibranceToColor(c);
+}
+function raumAddBackGrid3x3(raumGroup, W,H,D,g){
+  const perms = raumPermsSafe();
+  const zBack = -D/2 + g/2 + 0.01; // pegado al fondo interior
+  const INS_W = W - 2*g, INS_H = H - 2*g;
+  const GAP   = 0.6;
+  const cols=3, rows=3;
+  const cellW = (INS_W - (cols - 1) * GAP) / cols;
+  const cellH = (INS_H - (rows - 1) * GAP) / rows;
+
+  for (let j=0;j<rows;j++){
+    for (let i=0;i<cols;i++){
+      const cx = -W/2 + g + i*(cellW+GAP) + cellW/2;
+      const cy = -H/2 + g + j*(cellH+GAP) + cellH/2;
+      const pa = perms[(j*cols+i) % perms.length];
+      const col = raumColorCell(pa, (j*cols+i));
+      const geo = new THREE.BoxGeometry(cellW, cellH, 0.06);
+      const mat = new THREE.MeshLambertMaterial({ color: col, dithering:true });
+      mat.emissive = col.clone(); mat.emissiveIntensity = 0.10;
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(cx, cy, zBack);
+      raumGroup.add(m);
     }
+  }
+}
 
       function buildRAUM(){
         // —— limpia versión previa
@@ -4565,6 +4614,9 @@ void main(){
         wallB.position.set(xB, 0, zB);
         raumGroup.add(wallB);
 
+        // Panel 3×3 en pared de fondo (decorativo, no interfiere con muros)
+        try{ raumAddBackGrid3x3(raumGroup, W,H,D,g); }catch(_){ }
+
         // —— añadir grupo a escena
         scene.add(raumGroup);
       }
@@ -4658,8 +4710,8 @@ void main(){
 
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
-    const SLAB_EXTRA_X = 90.00; // ← ya existente (45u por lado en X)
-    const SLAB_EXTRA_Z = 90.00; // ← NUEVO (45u al frente y 45u atrás en Z)
+    const SLAB_EXTRA_X = 90.00; // extiende a izquierda/derecha
+    const SLAB_EXTRA_Z = 0.00;  // no extender en profundidad
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
@@ -5364,6 +5416,8 @@ const RAPHI_FACE_OPACITY = 0.78;
 const RAPHI_BACK_OPACITY = 0.55;
 // RAPHI · factor de velocidad angular (3×)
 const RAPHI_SPEED_MULT = 3.0;
+// Velocidad uniforme (mediana del rango actual: (0.25+1.10)/2 * 3 = 2.025 rad/s)
+const RAPHI_UNIFORM_VEL = 2.025;
 
 function raphiFaceMaterials(colorTHREE){
   const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
@@ -5395,10 +5449,8 @@ function raphiShapeSeedFromPerms(perms){
 
   // Eje y velocidad para RAPHI: giro tipo “bailarina” sobre el eje Y local
   function raphiSpinParamsFor(pa, idx){
-    // velocidad según “Signature Range” (misma fórmula que KEPLR)
-    const vel = keplrOmegaFromSignature(pa) * RAPHI_SPEED_MULT;
-    // eje fijo “de pie” (local Y)
-    const axis = new THREE.Vector3(0, 1, 0);
+    const axis = new THREE.Vector3(0, 1, 0); // giro "bailarina" sobre Y
+    const vel  = RAPHI_UNIFORM_VEL;          // velocidad uniforme
     return { axis, vel };
   }
 
@@ -5778,7 +5830,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-    // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
+    // ——— R5NOVA · rejilla 3×3 determinista con gap mínimo ———
     function r5novaAssembleRects(){
       // Interior visible: restamos el grosor de muros/piso/techo (R5_G)
       const INS_X0 = -R5_W/2 + R5_G;
@@ -5796,19 +5848,21 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         h: Math.max(0.001, INS_H - 2 * BORDER)
       };
 
-      const seed = computeLayoutSeed();
+      // Rejilla 3×3 uniforme con separación R5_GAP entre celdas (gap mínimo)
+      const cols = 3, rows = 3;
+      const cellW = (bbox.w - (cols - 1) * R5_GAP) / cols;
+      const cellH = (bbox.h - (rows - 1) * R5_GAP) / rows;
 
-      const rects = window.Tilers.assemble(bbox, null, {
-        engine    : 'bsp',
-        rndSeed   : seed,
-        minCell   : R5N_MIN_CELL,
-        ratioMin  : 0.42,
-        ratioMax  : 0.58,
-        targetN   : R5N_TARGETN,
-        mergeProb : R5N_MERGE
-      });
+      const rects = [];
+      for (let j = 0; j < rows; j++){
+        for (let i = 0; i < cols; i++){
+          const x = bbox.x + i * (cellW + R5_GAP);
+          const y = bbox.y + j * (cellH + R5_GAP);
+          rects.push({ x, y, w: cellW, h: cellH, tag: 'grid3x3' });
+        }
+      }
 
-      // Recorte determinista: área desc → x asc → y asc, tope R5N_MAX_TILES
+      // Determinismo estable: orden por área desc → x asc → y asc (aunque todas iguales)
       return rects
         .slice()
         .sort((a, b) => {
@@ -5817,7 +5871,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           if (a.x !== b.x) return a.x - b.x;
           return a.y - b.y;
         })
-        .slice(0, R5N_MAX_TILES);
+        .slice(0, 9);
     }
 
     /* Construye la escena R5NOVA:
@@ -6156,7 +6210,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
-     * Title: "PRMMTN – Architecture for thought without words"
+     * Title: "PRMTTN – Architecture for thought without words"
      * Ends with: "work in progress"
      * ============================================================ */
 
@@ -6378,7 +6432,7 @@ async function showFRBNInfo(){
         const certHTML =
 `<!doctype html>
 <meta charset="utf-8">
-<title>PRMMTN · Edition Certificate</title>
+<title>PRMTTN · Edition Certificate</title>
 <style>
   body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin:32px; color:#111;}
   h1{font-weight:600; margin:0 0 4px;}
@@ -6391,7 +6445,7 @@ async function showFRBNInfo(){
   .sig{margin-top:28px; display:flex; gap:48px;}
   .sig div{border-top:1px solid #000; padding-top:6px; width:260px; text-align:center;}
 </style>
-<h1>PRMMTN · Edition Certificate</h1>
+<h1>PRMTTN · Edition Certificate</h1>
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
   <div>Chromatic pattern: ${activePatternId}</div>
@@ -6400,7 +6454,7 @@ async function showFRBNInfo(){
 
 <h2>Image (A2)</h2>
 <div class="box">
-  <img src="${pngDataURL}" alt="PRMMTN A2 snapshot">
+  <img src="${pngDataURL}" alt="PRMTTN A2 snapshot">
   <div style="font-size:12px;color:#444">Resolution: 7016×4961 px (A2 landscape)</div>
 </div>
 
@@ -6440,7 +6494,7 @@ openssl dgst -sha256 prmttn_config.json</pre>
 
 <p style="margin-top:24px;color:#777;font-size:12px">This certificate is self‑contained (image + data). Work in progress.</p>`;
         // 4) Descargas (3 archivos + hash opcional)
-        downloadBlob('PRMMTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
+        downloadBlob('PRMTTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
         downloadBlob('PRMTTN_A2.png', pngBlob);
         downloadBlob('prmttn_config.json', new Blob([canonicalJSON], {type:'application/json'}));
         downloadBlob('prmttn_hash.txt', new Blob([`sha256  prmttn_config.json\n${hashHex}\n`], {type:'text/plain'}));
@@ -6449,10 +6503,22 @@ openssl dgst -sha256 prmttn_config.json</pre>
       }catch(err){
         console.error(err);
         showPopup("Error generando certificado", 4000);
-      }
     }
+  }
 
- 
+  async function exportConfigJSONOnly(){
+    try{
+      const cfg = exportCurrentConfiguration();
+      const canonicalJSON = stableStringify(cfg);
+      downloadBlob('prmttn_config.json', new Blob([canonicalJSON], {type:'application/json'}));
+      showPopup("JSON exportado: prmttn_config.json", 2000);
+    }catch(err){
+      console.error(err);
+      showPopup("Error exportando JSON", 3000);
+    }
+  }
+
+
 // ── R5NOVA · hook + watchdog para asegurar la ejecución ─────────────────────
 (function R5NovaHook(){
   // 1) Detección robusta de motor activo
@@ -7205,7 +7271,8 @@ function buildGRVTY(){
     depthTest: true,
     depthWrite: true,
     dithering: true,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    extensions: { derivatives: true }
   });
 
   const mesh = new THREE.Mesh(geo, mat);
@@ -7299,6 +7366,46 @@ function addKeplrSolidsOverWells(wells){
     return m;
   }
 
+  // DODE: 12 pentágonos → 12 materiales (MeshPhong opaco, flat)
+  function meshDodecaTwelveFaces(R, pa, startIdx){
+    const geo = new THREE.DodecahedronGeometry(R, 0);
+
+    // PolyhedronGeometry triangula cada pentágono en 3 triángulos, contiguos.
+    // 12 pentágonos × 3 triángulos = 36 triángulos → 108 índices.
+    if (!geo.index || geo.index.count % 9 !== 0){
+      // fallback: colores por triángulo si no hay index o no cuadra
+      return meshTriPerFace(geo, pa, startIdx);
+    }
+
+    // borra grupos previos y crea 12 grupos (uno por pentágono)
+    geo.clearGroups();
+    const trisPerPent = 3;                 // 3 triángulos por pentágono
+    const idxPerTri   = 3;                 // 3 índices por triángulo
+    for (let f = 0; f < 12; f++){
+      const start = f * trisPerPent * idxPerTri; // 0, 9, 18, ...
+      const count = trisPerPent * idxPerTri;     // 9 índices
+      geo.addGroup(start, count, f);             // materialIndex = f
+    }
+
+    // 12 materiales con colores únicos y flatShading
+    const mats = [];
+    for (let i = 0; i < 12; i++){
+      const col = keplrUniqueFaceColor(pa, startIdx + i);
+      const mat = new THREE.MeshPhongMaterial({
+        color: applyBuildVibranceToColor(col),
+        flatShading: true,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true,
+        dithering: true
+      });
+      mats.push(mat);
+    }
+
+    const mesh = new THREE.Mesh(geo, mats);
+    return mesh;
+  }
+
   const M = Math.min(wells.length, 5);
   for (let i=0; i<M; i++){
     const pa   = perms[i % perms.length];
@@ -7314,10 +7421,10 @@ function addKeplrSolidsOverWells(wells){
     let mesh = null;
 
     if (sName === 'CUBE'){
-      // caja: 6 caras = 6 colores
       mesh = meshCubeSixFaces((2*rBase/Math.sqrt(3)), pa, uniq*100);
+    } else if (sName === 'DODE'){
+      mesh = meshDodecaTwelveFaces(rBase, pa, uniq*100);   // 12 caras → 12 colores
     } else {
-      // sólidos triangulares: un color por triángulo = una cara
       const geo = keplrGeometry(sName, rBase);
       mesh = meshTriPerFace(geo, pa, uniq*100);
     }
@@ -7388,8 +7495,8 @@ function toggleGRVTY(){
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
 
-    // Muy baja y alejada → la grilla queda abajo y el cielo domina
-    camera.position.set(0, 2.2, 320);
+    // Más baja y un poco más lejos → más cielo
+    camera.position.set(0, 1.35, 340);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
@@ -7400,8 +7507,8 @@ function toggleGRVTY(){
     controls.screenSpacePanning = true;
 
     // estrecho alrededor de 90° (ligeramente por encima)
-    controls.minPolarAngle      = Math.PI * 0.505;
-    controls.maxPolarAngle      = Math.PI * 0.535;
+    controls.minPolarAngle      = Math.PI * 0.49;
+    controls.maxPolarAngle      = Math.PI * 0.525;
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
