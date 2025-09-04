@@ -7007,8 +7007,8 @@ function grvtyVelocityFor(pa, H){
   const seed = (Math.imul((r ^ (H>>>0)) >>> 0, 1664525) + 1013904223) >>> 0;
   // ángulo en [0, 2π)
   const ang = ((seed & 0xFFFF) / 65535) * 6.283185307179586;
-  // velocidad en unidades/seg (rango 6..18)
-  const spd = 6.0 + (((seed >>> 16) & 0xFFFF) / 65535) * (18.0 - 6.0);
+  // velocidad en unidades/seg (rango 12..36)
+  const spd = 12.0 + (((seed >>> 16) & 0xFFFF) / 65535) * (36.0 - 12.0);
   return [ Math.cos(ang) * spd, Math.sin(ang) * spd ]; // [vx, vz]
 }
 
@@ -7042,13 +7042,14 @@ void main(){
   vec3 p = position;           // geometría ya está en plano XZ (rotateX aplicado)
   float y = 0.0;
   float gx = 0.0, gz = 0.0;    // gradiente para slope
-  float t = uTime * uStep;
+  // Tiempo de MOVIMIENTO independiente del "step" de BUILD
+  float tMove = uTime;
 
   for (int i=0;i<${GRVTY_MAX_WELLS};i++){
     if (i >= uN) break;
 
     // Centro animado con rebote en rectángulo [-uHalf.x,+uHalf.x]×[-uHalf.y,+uHalf.y]
-    vec2 c0 = uC[i] + uV[i] * t;
+    vec2 c0 = uC[i] + uV[i] * tMove;
     float cx = reflect1D(c0.x, -uHalf.x, uHalf.x);
     float cz = reflect1D(c0.y, -uHalf.y, uHalf.y);
 
