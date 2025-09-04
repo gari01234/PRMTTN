@@ -7276,32 +7276,32 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara “horizonte” — ajuste para ocultar franja inferior y ver MÁS cielo
+    // Cámara “horizonte” — AJUSTE: más cielo y sin color bajo la grilla
     camera.up.set(0,1,0);
-    camera.fov  = 14;        // un poco más “tele” para comprimir suelo y ganar cielo
+    camera.fov  = 16;      // un pelín más cerrado: empuja el horizonte y da más cielo
     camera.near = 0.1;
-    camera.far  = 3400;
+    camera.far  = 4000;
     camera.updateProjectionMatrix();
 
-    // Mira ligeramente hacia ABAJO (target por debajo de la cámara) para que la grilla
-    // ocupe el borde inferior de la pantalla y desaparezca la franja rosa inferior.
-    if (controls && controls.target) controls.target.set(0, 0.8, 0);
+    // Mira ligeramente por encima del plano para bajar la grilla en pantalla
+    if (controls && controls.target) controls.target.set(0, 6, 0);
 
-    // Sube y aléjate un poco: el horizonte baja en la imagen → más cielo arriba
-    camera.position.set(0, 4.6, 360);
+    // Coloca la cámara dentro del plano (z < GRVTY_D/2 = 240) para que el plano cubra el borde inferior
+    camera.position.set(0, 6, 160);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
-    controls.minDistance        = 20;
-    controls.maxDistance        = 900;
+    // No permitimos acercarse tanto como para “salirse” por delante del borde del plano
+    controls.minDistance        = 90;
+    controls.maxDistance        = 600;
     controls.screenSpacePanning = true;
 
-    // Ventana angular centrada LIGERAMENTE por debajo de 90° (mirada un poco hacia abajo)
-    // → la grilla “baja” y tapa el borde inferior; el cielo domina la mitad superior.
-    controls.minPolarAngle      = Math.PI * 0.45;  // ≈ 81°
-    controls.maxPolarAngle      = Math.PI * 0.505; // ≈ 91°
+    // Ángulo restringido: leve inclinación hacia arriba → más cielo, grilla abajo
+    controls.minPolarAngle      = Math.PI * 0.49;
+    controls.maxPolarAngle      = Math.PI * 0.525;
+
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
