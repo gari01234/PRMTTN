@@ -19,13 +19,6 @@ if (typeof window.ensureOnlyGRVTYFromUI === 'undefined') window.ensureOnlyGRVTYF
 };
 if (typeof window.rebuildGRVTYIfActive === 'undefined') window.rebuildGRVTYIfActive = function(){};
   </script>
-  <script>
-// Stubs seguros (no hacen nada si ya existen)
-window.initSkySphere  = window.initSkySphere  || function(){};
-window.buildGanzfeld  = window.buildGanzfeld  || function(){};
-window.TMSL_BG_HEX = (typeof window.TMSL_BG_HEX === 'number') ? window.TMSL_BG_HEX : 0x000000;
-window.adjustR5NovaAfterBuild = window.adjustR5NovaAfterBuild || function(){};
-  </script>
   <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
     <script type="module">
 /* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
@@ -3841,17 +3834,11 @@ void main(){
     }
 
     /* ────────── botón dedicado: OFFNNG siempre en solitario ───────── */
-    function ensureOnlyOFFNNG(){
-      try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
-      try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
-      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
-      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
-      try{ if (is13245)  toggle13245();  }catch(_){ }
-      try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
-      try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
-      try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
-      try{ if (isGRVTY)  toggleGRVTY();  }catch(_){ }
-      try{ if (!isOFFNNG) toggleOFFNNG(); }catch(_){ }
+    function ensureOnlyOFFNNG () {
+      if (isFRBN) toggleFRBN();
+      if (isLCHT) toggleLCHT();
+      if (isKEPLR) toggleKEPLR();
+      if (!isOFFNNG) toggleOFFNNG();
     }
 
     /* Calidad: ya NO reducimos el pixelRatio (evita blur); solo variamos uSteps */
@@ -4346,47 +4333,11 @@ void main(){
         window.isTMSL = false;
       }
     }
-function clearGroup(g){
-  if (!g) return;
-  g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
-  scene.remove(g);
-}
-
-function raumPermsSafe(){
-  try{
-    const p = (typeof getSelectedPerms === 'function') ? getSelectedPerms() : [];
-    return (p && p.length) ? p : [[1,2,3,4,5]];
-  }catch(_){ return [[1,2,3,4,5]]; }
-}
-function raumColorCell(pa, uniq){
-  // Usa el mismo mapeo cromático (contraste + vibrance BUILD)
-  const c = keplrUniqueFaceColor(pa, uniq|0);
-  return applyBuildVibranceToColor(c);
-}
-function raumAddBackGrid3x3(raumGroup, W,H,D,g){
-  const perms = raumPermsSafe();
-  const zBack = -D/2 + g/2 + 0.01; // pegado al fondo interior
-  const INS_W = W - 2*g, INS_H = H - 2*g;
-  const GAP   = 0.6;
-  const cols=3, rows=3;
-  const cellW = (INS_W - (cols - 1) * GAP) / cols;
-  const cellH = (INS_H - (rows - 1) * GAP) / rows;
-
-  for (let j=0;j<rows;j++){
-    for (let i=0;i<cols;i++){
-      const cx = -W/2 + g + i*(cellW+GAP) + cellW/2;
-      const cy = -H/2 + g + j*(cellH+GAP) + cellH/2;
-      const pa = perms[(j*cols+i) % perms.length];
-      const col = raumColorCell(pa, (j*cols+i));
-      const geo = new THREE.BoxGeometry(cellW, cellH, 0.06);
-      const mat = new THREE.MeshLambertMaterial({ color: col, dithering:true });
-      mat.emissive = col.clone(); mat.emissiveIntensity = 0.10;
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(cx, cy, zBack);
-      raumGroup.add(m);
+    function clearGroup(g){
+      if (!g) return;
+      g.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
+      scene.remove(g);
     }
-  }
-}
 
       function buildRAUM(){
         // —— limpia versión previa
@@ -4614,9 +4565,6 @@ function raumAddBackGrid3x3(raumGroup, W,H,D,g){
         wallB.position.set(xB, 0, zB);
         raumGroup.add(wallB);
 
-        // Panel 3×3 en pared de fondo (decorativo, no interfiere con muros)
-        try{ raumAddBackGrid3x3(raumGroup, W,H,D,g); }catch(_){ }
-
         // —— añadir grupo a escena
         scene.add(raumGroup);
       }
@@ -4710,8 +4658,8 @@ function raumAddBackGrid3x3(raumGroup, W,H,D,g){
 
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
-    const SLAB_EXTRA_X = 90.00; // extiende a izquierda/derecha
-    const SLAB_EXTRA_Z = 0.00;  // no extender en profundidad
+    const SLAB_EXTRA_X = 90.00; // ← ya existente (45u por lado en X)
+    const SLAB_EXTRA_Z = 90.00; // ← NUEVO (45u al frente y 45u atrás en Z)
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
@@ -5293,7 +5241,6 @@ function raumAddBackGrid3x3(raumGroup, W,H,D,g){
       isKEPLR = !isKEPLR;
 
       if (isKEPLR){
-        ensureFRBNBackdrop(true);
         // Exclusividad con otros motores
         try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
         try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
@@ -5333,7 +5280,6 @@ function raumAddBackGrid3x3(raumGroup, W,H,D,g){
         if (typeof lichtGroup !== 'undefined')        lichtGroup.visible = false;
 
       } else {
-        ensureFRBNBackdrop(false);
         leaveRaumRenderBoost();
         disposeGroupKEPLR();
 
@@ -5416,8 +5362,6 @@ const RAPHI_FACE_OPACITY = 0.78;
 const RAPHI_BACK_OPACITY = 0.55;
 // RAPHI · factor de velocidad angular (3×)
 const RAPHI_SPEED_MULT = 3.0;
-// Velocidad uniforme (mediana del rango actual: (0.25+1.10)/2 * 3 = 2.025 rad/s)
-const RAPHI_UNIFORM_VEL = 2.025;
 
 function raphiFaceMaterials(colorTHREE){
   const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
@@ -5449,8 +5393,10 @@ function raphiShapeSeedFromPerms(perms){
 
   // Eje y velocidad para RAPHI: giro tipo “bailarina” sobre el eje Y local
   function raphiSpinParamsFor(pa, idx){
-    const axis = new THREE.Vector3(0, 1, 0); // giro "bailarina" sobre Y
-    const vel  = RAPHI_UNIFORM_VEL;          // velocidad uniforme
+    // velocidad según “Signature Range” (misma fórmula que KEPLR)
+    const vel = keplrOmegaFromSignature(pa) * RAPHI_SPEED_MULT;
+    // eje fijo “de pie” (local Y)
+    const axis = new THREE.Vector3(0, 1, 0);
     return { axis, vel };
   }
 
@@ -5689,7 +5635,6 @@ function toggleRAPHI(){
   window.isRAPHI = isRAPHI;
 
   if (isRAPHI){
-    ensureFRBNBackdrop(true);
     // exclusividad
     try{ if (isFRBN)   toggleFRBN();   }catch(_){}
     try{ if (isLCHT)   toggleLCHT();   }catch(_){}
@@ -5732,7 +5677,6 @@ function toggleRAPHI(){
     try{ if (lichtGroup)       lichtGroup.visible = false; }catch(_){}
 
   } else {
-    ensureFRBNBackdrop(false);
     leaveRaumRenderBoost();
     disposeGroupRAPHI();
     window.isRAPHI = false;                // estado global coherente
@@ -5830,7 +5774,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-    // ——— R5NOVA · rejilla 3×3 determinista con gap mínimo ———
+    // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
     function r5novaAssembleRects(){
       // Interior visible: restamos el grosor de muros/piso/techo (R5_G)
       const INS_X0 = -R5_W/2 + R5_G;
@@ -5848,21 +5792,19 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         h: Math.max(0.001, INS_H - 2 * BORDER)
       };
 
-      // Rejilla 3×3 uniforme con separación R5_GAP entre celdas (gap mínimo)
-      const cols = 3, rows = 3;
-      const cellW = (bbox.w - (cols - 1) * R5_GAP) / cols;
-      const cellH = (bbox.h - (rows - 1) * R5_GAP) / rows;
+      const seed = computeLayoutSeed();
 
-      const rects = [];
-      for (let j = 0; j < rows; j++){
-        for (let i = 0; i < cols; i++){
-          const x = bbox.x + i * (cellW + R5_GAP);
-          const y = bbox.y + j * (cellH + R5_GAP);
-          rects.push({ x, y, w: cellW, h: cellH, tag: 'grid3x3' });
-        }
-      }
+      const rects = window.Tilers.assemble(bbox, null, {
+        engine    : 'bsp',
+        rndSeed   : seed,
+        minCell   : R5N_MIN_CELL,
+        ratioMin  : 0.42,
+        ratioMax  : 0.58,
+        targetN   : R5N_TARGETN,
+        mergeProb : R5N_MERGE
+      });
 
-      // Determinismo estable: orden por área desc → x asc → y asc (aunque todas iguales)
+      // Recorte determinista: área desc → x asc → y asc, tope R5N_MAX_TILES
       return rects
         .slice()
         .sort((a, b) => {
@@ -5871,7 +5813,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           if (a.x !== b.x) return a.x - b.x;
           return a.y - b.y;
         })
-        .slice(0, 9);
+        .slice(0, R5N_MAX_TILES);
     }
 
     /* Construye la escena R5NOVA:
@@ -6210,7 +6152,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
-     * Title: "PRMTTN – Architecture for thought without words"
+     * Title: "PRMMTN – Architecture for thought without words"
      * Ends with: "work in progress"
      * ============================================================ */
 
@@ -6432,7 +6374,7 @@ async function showFRBNInfo(){
         const certHTML =
 `<!doctype html>
 <meta charset="utf-8">
-<title>PRMTTN · Edition Certificate</title>
+<title>PRMMTN · Edition Certificate</title>
 <style>
   body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin:32px; color:#111;}
   h1{font-weight:600; margin:0 0 4px;}
@@ -6445,7 +6387,7 @@ async function showFRBNInfo(){
   .sig{margin-top:28px; display:flex; gap:48px;}
   .sig div{border-top:1px solid #000; padding-top:6px; width:260px; text-align:center;}
 </style>
-<h1>PRMTTN · Edition Certificate</h1>
+<h1>PRMMTN · Edition Certificate</h1>
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
   <div>Chromatic pattern: ${activePatternId}</div>
@@ -6454,7 +6396,7 @@ async function showFRBNInfo(){
 
 <h2>Image (A2)</h2>
 <div class="box">
-  <img src="${pngDataURL}" alt="PRMTTN A2 snapshot">
+  <img src="${pngDataURL}" alt="PRMMTN A2 snapshot">
   <div style="font-size:12px;color:#444">Resolution: 7016×4961 px (A2 landscape)</div>
 </div>
 
@@ -6494,7 +6436,7 @@ openssl dgst -sha256 prmttn_config.json</pre>
 
 <p style="margin-top:24px;color:#777;font-size:12px">This certificate is self‑contained (image + data). Work in progress.</p>`;
         // 4) Descargas (3 archivos + hash opcional)
-        downloadBlob('PRMTTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
+        downloadBlob('PRMMTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
         downloadBlob('PRMTTN_A2.png', pngBlob);
         downloadBlob('prmttn_config.json', new Blob([canonicalJSON], {type:'application/json'}));
         downloadBlob('prmttn_hash.txt', new Blob([`sha256  prmttn_config.json\n${hashHex}\n`], {type:'text/plain'}));
@@ -6503,22 +6445,10 @@ openssl dgst -sha256 prmttn_config.json</pre>
       }catch(err){
         console.error(err);
         showPopup("Error generando certificado", 4000);
+      }
     }
-  }
 
-  async function exportConfigJSONOnly(){
-    try{
-      const cfg = exportCurrentConfiguration();
-      const canonicalJSON = stableStringify(cfg);
-      downloadBlob('prmttn_config.json', new Blob([canonicalJSON], {type:'application/json'}));
-      showPopup("JSON exportado: prmttn_config.json", 2000);
-    }catch(err){
-      console.error(err);
-      showPopup("Error exportando JSON", 3000);
-    }
-  }
-
-
+ 
 // ── R5NOVA · hook + watchdog para asegurar la ejecución ─────────────────────
 (function R5NovaHook(){
   // 1) Detección robusta de motor activo
@@ -6984,23 +6914,20 @@ let groupGRVTY = window.groupGRVTY || null;
 // === Fondo FRBN como “backdrop” (sin activar el motor FRBN) ===
 function grvtyUseFRBNBackdrop(){
   try{
-    // Crea/actualiza el cielo FRBN (Ganzfeld)
     if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-    if (typeof buildGanzfeld  === 'function') buildGanzfeld();  // sincroniza colores/animación
-
-    // Asegura que el cielo se vea SIEMPRE detrás de todo
-    if (window.skySphere){
+    if (typeof buildGanzfeld === 'function') buildGanzfeld(); // colores deterministas FRBN
+    if (window.skySphere) {
       window.skySphere.visible = true;
-      if (window.skySphere.material){
-        window.skySphere.material.depthWrite = false; // no escribe z
-        window.skySphere.material.needsUpdate = true;
+      // Forzar que siga animando aunque FRBN no esté activo
+      if (typeof animateFRBN === 'function') {
+        (function tickFRBN(){
+          if (window.isGRVTY && window.skySphere?.visible){
+            try{ animateFRBN(); }catch(_){ }
+            requestAnimationFrame(tickFRBN);
+          }
+        })();
       }
-      window.skySphere.renderOrder = -1000;           // dibuja primero
     }
-
-    // Elimina el color de fondo para que se vea la esfera
-    if (typeof renderer?.setClearColor === 'function') renderer.setClearColor(0x000000, 0); // alpha 0
-    if (typeof scene !== 'undefined') scene.background = null;
   }catch(_){ }
 }
 
@@ -7015,31 +6942,6 @@ function disposeGroupGRVTY(){
   scene.remove(groupGRVTY);
   groupGRVTY = null;
   window.groupGRVTY = null;
-}
-
-// ===== Fondo FRBN (Ganzfeld) como “sky” global, sin activar el motor FRBN =====
-function ensureFRBNBackdrop(on){
-  try{
-    if(on){
-      if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-      if (typeof buildGanzfeld  === 'function') buildGanzfeld();
-      if (window.skySphere){
-        // asegúrate de que el cielo se vea por detrás de TODO
-        window.skySphere.visible = true;
-        window.skySphere.renderOrder = -9999;
-      }
-      // fondo transparente para no tapar el skySphere
-      if (renderer && renderer.setClearColor) renderer.setClearColor(0x000000, 0);
-      scene.background = null;
-    }else{
-      // apaga el cielo solo si FRBN no está activo
-      if (window.skySphere && !(typeof isFRBN !== 'undefined' && isFRBN)){
-        window.skySphere.visible = false;
-      }
-      // restaurar clear alfa opaco
-      if (renderer && renderer.setClearColor) renderer.setClearColor(0x000000, 1);
-    }
-  }catch(_){}
 }
 
 /* ====== Parámetros del plano y wells ====== */
@@ -7204,7 +7106,7 @@ function buildGRVTY(){
   groupGRVTY = new THREE.Group();
   window.groupGRVTY = groupGRVTY;
 
-  ensureFRBNBackdrop(true);   // fondo como FRBN (cielo/esfera), no BUILD
+  grvtyUseFRBNBackdrop();   // fondo como FRBN (cielo/esfera), no BUILD
 
   // Permutaciones activas (fallback determinista)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
@@ -7271,8 +7173,7 @@ function buildGRVTY(){
     depthTest: true,
     depthWrite: true,
     dithering: true,
-    side: THREE.DoubleSide,
-    extensions: { derivatives: true }
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geo, mat);
@@ -7291,7 +7192,7 @@ function buildGRVTY(){
   try { addKeplrSolidsOverWells(wells); } catch(_){ }
 }
 
-// === Un sólido KEPLR por pozo — opaco, por-cara, con giro propio ===
+// === Un sólido KEPLR por pozo (sin superposiciones) ===
 function addKeplrSolidsOverWells(wells){
   if (!groupGRVTY || !Array.isArray(wells) || !wells.length) return;
 
@@ -7312,154 +7213,96 @@ function addKeplrSolidsOverWells(wells){
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
 
+  // Semillas deterministas (reusa KEPLR)
   const H     = keplrShapeSeedFromPerms(perms);
-  const START = H % KEPLR_SOLIDS.length;
+  const START = H % KEPLR_SOLIDS.length; // reparte el tipo de sólido
 
-  // utilidades de color determinista
-  function colorAt(pa, baseIndex){
-    const c = keplrUniqueFaceColor(pa, baseIndex|0);
-    return applyBuildVibranceToColor(c);
-  }
+  // Si existe builder de KEPLR, lo usamos; si no, clona un sólido completo de KEPLR si está activo
+  const canBuild = (typeof buildKeplrSolid === 'function') &&
+                   (typeof keplrGeometry   === 'function') &&
+                   (typeof applyKeplrOrientation === 'function') &&
+                   Array.isArray(KEPLR_SOLIDS);
 
-  // Crea mesh opaco “por-cara” para sólidos triangulares
-  function meshTriPerFace(geo, pa, startIdx){
-    // material único con vertexColors
-    const mat = new THREE.MeshPhongMaterial({
-      vertexColors: true,
-      flatShading: true,
-      transparent: false,
-      depthWrite: true,
-      depthTest: true,
-      dithering: true
-    });
-    // atributo de color por vértice
-    const pos = geo.attributes.position;
-    const triCount = pos.count / 3; // 3 vértices por tri
-    const colors = new Float32Array(pos.count * 3);
-    let k = 0;
-    for(let t=0; t<triCount; t++){
-      const col = colorAt(pa, startIdx + t);
-      const r = col.r, g = col.g, b = col.b;
-      for(let v=0; v<3; v++){
-        colors[(k*3)  ] = r;
-        colors[(k*3)+1] = g;
-        colors[(k*3)+2] = b;
-        k++;
-      }
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    return new THREE.Mesh(geo, mat);
-  }
+  // Fallback: coger grupos completos (rotators) de KEPLR si ya existe en escena
+  const fallbackSolids = (window.groupKEPLR && window.groupKEPLR.userData && Array.isArray(window.groupKEPLR.userData.rotators))
+    ? window.groupKEPLR.userData.rotators : [];
 
-  // Crea mesh opaco “6 caras” para CUBE
-  function meshCubeSixFaces(size, pa, startIdx){
-    const geo = new THREE.BoxGeometry(size, size, size);
-    // seis materiales (una cara cada uno)
-    const matsFront = [];
-    for (let i=0;i<6;i++){
-      const c = colorAt(pa, startIdx + i);
-      matsFront.push(new THREE.MeshPhongMaterial({
-        color: c, flatShading: true, transparent: false, depthWrite: true, depthTest: true, dithering: true
-      }));
-    }
-    const m = new THREE.Mesh(geo, matsFront);
-    return m;
-  }
-
-  // DODE: 12 pentágonos → 12 materiales (MeshPhong opaco, flat)
-  function meshDodecaTwelveFaces(R, pa, startIdx){
-    const geo = new THREE.DodecahedronGeometry(R, 0);
-
-    // PolyhedronGeometry triangula cada pentágono en 3 triángulos, contiguos.
-    // 12 pentágonos × 3 triángulos = 36 triángulos → 108 índices.
-    if (!geo.index || geo.index.count % 9 !== 0){
-      // fallback: colores por triángulo si no hay index o no cuadra
-      return meshTriPerFace(geo, pa, startIdx);
-    }
-
-    // borra grupos previos y crea 12 grupos (uno por pentágono)
-    geo.clearGroups();
-    const trisPerPent = 3;                 // 3 triángulos por pentágono
-    const idxPerTri   = 3;                 // 3 índices por triángulo
-    for (let f = 0; f < 12; f++){
-      const start = f * trisPerPent * idxPerTri; // 0, 9, 18, ...
-      const count = trisPerPent * idxPerTri;     // 9 índices
-      geo.addGroup(start, count, f);             // materialIndex = f
-    }
-
-    // 12 materiales con colores únicos y flatShading
-    const mats = [];
-    for (let i = 0; i < 12; i++){
-      const col = keplrUniqueFaceColor(pa, startIdx + i);
-      const mat = new THREE.MeshPhongMaterial({
-        color: applyBuildVibranceToColor(col),
-        flatShading: true,
-        transparent: false,
-        depthWrite: true,
-        depthTest: true,
-        dithering: true
-      });
-      mats.push(mat);
-    }
-
-    const mesh = new THREE.Mesh(geo, mats);
-    return mesh;
-  }
-
-  const M = Math.min(wells.length, 5);
+  const M = Math.min(wells.length, 5); // tope 5
   for (let i=0; i<M; i++){
     const pa   = perms[i % perms.length];
     const A    = wells[i].A;
     const cx   = wells[i].cx;
     const cz   = wells[i].cz;
 
-    const sName = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
-    const uniq  = i;
+    // evitar superposición: si hay otro sólido demasiado cerca, saltar
+    let tooClose = false;
+    for (let k=0;k<probes.children.length;k++){
+      const prev = probes.children[k];
+      if (!prev.position) continue;
+      const dx = prev.position.x - cx;
+      const dz = prev.position.z - cz;
+      if (dx*dx + dz*dz < 64) { // distancia < 8 unidades
+        tooClose = true; break;
+      }
+    }
+    if (tooClose) continue;
 
-    // tamaño base y geometría
-    const rBase = 12.0;
-    let mesh = null;
+    let solidGroup = null;
 
-    if (sName === 'CUBE'){
-      mesh = meshCubeSixFaces((2*rBase/Math.sqrt(3)), pa, uniq*100);
-    } else if (sName === 'DODE'){
-      mesh = meshDodecaTwelveFaces(rBase, pa, uniq*100);   // 12 caras → 12 colores
-    } else {
-      const geo = keplrGeometry(sName, rBase);
-      mesh = meshTriPerFace(geo, pa, uniq*100);
+    if (canBuild){
+      // === Construir un sólido KEPLR “limpio” (sin dual, sin edges) ===
+      const sName    = KEPLR_SOLIDS[(START + i) % KEPLR_SOLIDS.length];
+      const rBase    = 12.0;                                    // tamaño base del sólido
+      const tIdx     = 0;                                       // tramo geométrico (fijo)
+      const dualOn   = false;                                   // ← SIN dual
+      const orientK  = (Math.imul((lehmerRank(pa)>>>0) ^ (H + i*109), 1103515245) + 12345)>>>0;
+      const oIdx     = orientK % 60;                            // orientación discreta estable
+      const uniq     = i;                                       // color único por sólido
+
+      solidGroup = new THREE.Group();
+      buildKeplrSolid(sName, rBase, tIdx, dualOn, oIdx, pa, solidGroup, uniq);
+    } else if (fallbackSolids.length){
+      // === Clonar un GRUPO completo de KEPLR como fallback ===
+      const src = fallbackSolids[i % fallbackSolids.length];
+      solidGroup = src.clone(true);
     }
 
-    const solidGroup = new THREE.Group();
-    solidGroup.add(mesh);
+    if (!solidGroup) continue;
 
-    // giro determinista (mitad de velocidad)
-    const spin = keplrSpinParamsFor(pa, i);
-    solidGroup.userData.rotAxis = spin.axis;
-    solidGroup.userData.rotVel  = (spin.vel * 0.5); // ← mitad de velocidad
-    solidGroup.userData.rotStep = 1;
+    // Escala ligada a la “profundidad” del pozo (A)
+    const s = THREE.MathUtils.clamp(0.7 + A/20.0, 0.8, 2.4);
+    solidGroup.scale.setScalar(s);
 
-    // escala y colocación (2/3 del tamaño + altura según pozo)
-    const scale = THREE.MathUtils.clamp(0.66 * (0.7 + A/20.0), 0.5, 1.6);
-    solidGroup.scale.setScalar(scale);
-    solidGroup.position.set(cx, 2.0 + A*0.45, cz);
+    // Posición y orientación (suave y coherente)
+    solidGroup.position.set(cx, 4.0 + A*0.55, cz); // más alto para que floten
+    solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
 
-    // orientación estable
-    const orientK = (Math.imul((lehmerRank(pa)>>>0) ^ (H + i*109), 1103515245) + 12345)>>>0;
-    solidGroup.rotation.y = (orientK % 360) * Math.PI/180;
-
-    // materiales opacos (garantía)
+    // Transparencias/orden seguros
     solidGroup.traverse(o=>{
-      if (o.isMesh && o.material){
-        if (Array.isArray(o.material)){
-          o.material.forEach(m=>{ m.transparent=false; m.depthWrite=true; m.needsUpdate=true; });
-        }else{
-          o.material.transparent=false; o.material.depthWrite=true; o.material.needsUpdate=true;
-        }
+      if (o.isMesh){
         o.frustumCulled = false;
+        if (o.material){ o.material.transparent = true; o.material.depthWrite = false; o.material.needsUpdate = true; }
       }
     });
 
     probes.add(solidGroup);
+
+    // === Rotación determinista estilo KEPLR ===
+    if (!probes.userData.rotators) probes.userData.rotators = [];
+    const axisSeed = ((H >>> (i*7)) ^ lehmerRank(pa)) >>> 0;
+    const axis = new THREE.Vector3(
+      ((axisSeed & 1) ? 1 : 0),
+      ((axisSeed & 2) ? 1 : 0),
+      ((axisSeed & 4) ? 1 : 0)
+    );
+    if (axis.lengthSq() === 0) axis.set(0,1,0);
+    axis.normalize();
+
+    const vel = ((axisSeed % 37) / 37.0) * 0.8 + 0.2; // 0.2–1.0 rad/s
+    solidGroup.userData.rotAxis = axis;
+    solidGroup.userData.rotVel  = vel;
+    solidGroup.userData.rotStep = 1;
+    probes.userData.rotators.push(solidGroup);
   }
 }
 
@@ -7469,6 +7312,7 @@ function toggleGRVTY(){
   window.isGRVTY = isGRVTY;
 
   if (isGRVTY){
+    grvtyUseFRBNBackdrop();   // muestra el cielo FRBN como fondo
     try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
     try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
     try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
@@ -7484,31 +7328,30 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Fondo FRBN activo y cámara “horizonte” baja
-    ensureFRBNBackdrop(true);
-
-    camera.up.set(0,1,0);
-    camera.fov  = 18;        // poca perspectiva
-    camera.near = 0.1;
-    camera.far  = 4000;
+    // Cámara “horizonte”
+camera.up.set(0,1,0);
+camera.fov  = 17;         // menos perspectiva para sensación de “lejanía”
+camera.near = 0.1;
+camera.far  = 3000;
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-
-    // Más baja y un poco más lejos → más cielo
-    camera.position.set(0, 1.35, 340);
+    // Lejos y baja para que el plano se pierda en el horizonte
+    camera.position.set(0, 10, 240);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 20;
-    controls.maxDistance        = 800;
+    controls.maxDistance        = 600;
     controls.screenSpacePanning = true;
 
-    // estrecho alrededor de 90° (ligeramente por encima)
-    controls.minPolarAngle      = Math.PI * 0.49;
-    controls.maxPolarAngle      = Math.PI * 0.525;
+    // Rango estrecho alrededor del plano (ligeramente por encima de 90°)
+    const aMin = Math.PI * 0.48;
+    const aMax = Math.PI * 0.56;
+    controls.minPolarAngle      = aMin;
+    controls.maxPolarAngle      = aMax;
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
@@ -7516,10 +7359,14 @@ function toggleGRVTY(){
     try{ if (lichtGroup)       lichtGroup.visible = false; }catch(_){ }
 
   } else {
-    ensureFRBNBackdrop(false);
-    window.isGRVTY = false;
     leaveRaumRenderBoost();
     disposeGroupGRVTY();
+    try{
+      if (window.skySphere && !(typeof isFRBN !== 'undefined' && isFRBN)){
+        window.skySphere.visible = false;  // oculta el cielo FRBN si FRBN no está activo
+      }
+    }catch(_){ }
+    window.isGRVTY = false;
 
     camera.fov = 75;
     camera.updateProjectionMatrix();
@@ -7621,19 +7468,22 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
 
         const u = grp.userData.uniforms;
         u.uTime.value += dt;
-        u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0
+        u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0 ⇒ respira congelado
 
-        // === ROTACIÓN de los sólidos de GRVTY (si existen) ===
-        if (grp.__probes && grp.__probes.children){
-          for (let i=0;i<grp.__probes.children.length;i++){
-            const g = grp.__probes.children[i];
+        // Girar sólidos KEPLR sobre los pozos
+        const probes = grp.__probes;
+        if (probes && Array.isArray(probes.userData.rotators)){
+          const rotators = probes.userData.rotators;
+          for (let j=0;j<rotators.length;j++){
+            const g = rotators[j];
             if (!g || !g.userData) continue;
+            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
+            if (!step) continue;
             const axis = g.userData.rotAxis;
             const vel  = g.userData.rotVel;
-            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
-            if (axis && typeof vel === 'number' && step){
-              g.rotateOnAxis(axis, vel * dt * (u.uStep.value || 1));
-              g.updateMatrix();
+            if (axis && typeof vel === 'number'){
+              g.rotateOnAxis(axis, vel * dt * step);
+              if (!g.matrixAutoUpdate) g.updateMatrix();
               g.updateMatrixWorld(true);
             }
           }
