@@ -7276,18 +7276,19 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara “horizonte” — corregida para ver MÁS cielo
+    // Cámara “horizonte” — ajuste para ocultar franja inferior y ver MÁS cielo
     camera.up.set(0,1,0);
-    camera.fov  = 15;        // un poco más “tele” → el cielo ocupa más altura
+    camera.fov  = 14;        // un poco más “tele” para comprimir suelo y ganar cielo
     camera.near = 0.1;
-    camera.far  = 3200;
+    camera.far  = 3400;
     camera.updateProjectionMatrix();
 
-    // Apunta ligeramente POR ENCIMA del horizonte (sube el target)
-    if (controls && controls.target) controls.target.set(0, 3.0, 0);
+    // Mira ligeramente hacia ABAJO (target por debajo de la cámara) para que la grilla
+    // ocupe el borde inferior de la pantalla y desaparezca la franja rosa inferior.
+    if (controls && controls.target) controls.target.set(0, 0.8, 0);
 
-    // Muy baja y un pelín más lejos → el plano queda más abajo en pantalla
-    camera.position.set(0, 1.4, 340);
+    // Sube y aléjate un poco: el horizonte baja en la imagen → más cielo arriba
+    camera.position.set(0, 4.6, 360);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
@@ -7297,9 +7298,10 @@ function toggleGRVTY(){
     controls.maxDistance        = 900;
     controls.screenSpacePanning = true;
 
-    // Ventana angular centrada por ENCIMA del horizonte (más cielo, menos suelo)
-    controls.minPolarAngle      = Math.PI * 0.40;  // ≈ 72°
-    controls.maxPolarAngle      = Math.PI * 0.50;  // = 90°
+    // Ventana angular centrada LIGERAMENTE por debajo de 90° (mirada un poco hacia abajo)
+    // → la grilla “baja” y tapa el borde inferior; el cielo domina la mitad superior.
+    controls.minPolarAngle      = Math.PI * 0.45;  // ≈ 81°
+    controls.maxPolarAngle      = Math.PI * 0.505; // ≈ 91°
     controls.update();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
