@@ -6912,31 +6912,32 @@ let isGRVTY    = window.isGRVTY || false;
 let groupGRVTY = window.groupGRVTY || null;
 
 // === Fondo FRBN real y animado como backdrop para GRVTY ===
+// === FRBN Ganzfeld vivo como backdrop del motor GRVTY ===
 function grvtyUseFRBNBackdrop(){
   try{
     if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-    if (typeof buildGanzfeld === 'function') buildGanzfeld(); // sincroniza K/colores
+    if (typeof buildGanzfeld  === 'function') buildGanzfeld();
     if (window.skySphere){
       window.skySphere.visible = true;
-      window.skySphere.renderOrder = -1000; // siempre detrás
-    }
-    // Bucle de animación del fondo FRBN aunque FRBN no sea el motor activo
-    if (!window.__frbnBackdropTick){
-      window.__frbnBackdropTick = true;
-      (function tickFRBN(){
-        if (window.isGRVTY){
-          try{
-            if (typeof animateFRBN === 'function') animateFRBN();
-            // Si tu build no expone animateFRBN, intenta estas rutas comunes:
-            else if (typeof updateGanzfeld === 'function') updateGanzfeld(performance.now()*0.001);
-          }catch(_){ }
-          requestAnimationFrame(tickFRBN);
-        } else {
-          window.__frbnBackdropTick = false;
-        }
-      })();
+      window.skySphere.renderOrder = -1000;
     }
   }catch(_){ }
+
+  // Animación del fondo mientras GRVTY esté ON
+  if (!window.__frbnBackdropTick){
+    window.__frbnBackdropTick = true;
+    (function tick(){
+      if (window.isGRVTY){
+        try{
+          if (typeof animateFRBN === 'function') animateFRBN();
+          else if (typeof updateGanzfeld === 'function') updateGanzfeld(performance.now()*0.001);
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }else{
+        window.__frbnBackdropTick = false;
+      }
+    })();
+  }
 }
 
 function disposeGroupGRVTY(){
@@ -7200,24 +7201,26 @@ function buildGRVTY(){
   try { addKeplrSolidsOverWells(wells); } catch(_){ }
 }
 
-// === Colorea por-caras (determinista) en cualquier BufferGeometry ===
+// === Coloreado por-cara (determinista) + material opaco ===
 function grvtyColorizeGeometryPerFace(geo, pa, uniqBase){
-  // Asegura no indexado para poder asignar color por triángulo
+  // A plano: sin índice para poder asignar un color a cada triángulo
   let g = geo.index ? geo.toNonIndexed() : geo;
+
+  // Asegura normales (Lambert/Standard las necesitan)
+  try { g.computeVertexNormals(); } catch(_) {}
+
   const pos = g.attributes.position;
   const triCount = Math.floor(pos.count / 3);
   const colArr = new Float32Array(pos.count * 3);
 
   for (let f = 0; f < triCount; f++){
-    // color determinista por cara (usa el mismo mapeo cromático de BUILD/KEPLR)
     const c = keplrUniqueFaceColor(pa, (uniqBase|0) + f);
-    const r = c.r, gC = c.g, b = c.b;
+    const r = c.r, gg = c.g, b = c.b;
 
-    // asigna el mismo color a los 3 vértices del triángulo f
     const i0 = f*3, i1 = i0+1, i2 = i0+2;
-    colArr[i0*3+0] = r; colArr[i0*3+1] = gC; colArr[i0*3+2] = b;
-    colArr[i1*3+0] = r; colArr[i1*3+1] = gC; colArr[i1*3+2] = b;
-    colArr[i2*3+0] = r; colArr[i2*3+1] = gC; colArr[i2*3+2] = b;
+    colArr[i0*3+0] = r; colArr[i0*3+1] = gg; colArr[i0*3+2] = b;
+    colArr[i1*3+0] = r; colArr[i1*3+1] = gg; colArr[i1*3+2] = b;
+    colArr[i2*3+0] = r; colArr[i2*3+1] = gg; colArr[i2*3+2] = b;
   }
 
   g.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
@@ -7225,23 +7228,20 @@ function grvtyColorizeGeometryPerFace(geo, pa, uniqBase){
   return g;
 }
 
-// Rematerializa un mesh para usar vertexColors OPAQUE
 function grvtyMakeMeshPerFaceColored(mesh, pa, uniqBase){
   if (!mesh || !mesh.geometry) return;
   const newGeo = grvtyColorizeGeometryPerFace(mesh.geometry, pa, uniqBase);
-  // Material opaco, sin doble pasada
   const newMat = new THREE.MeshLambertMaterial({
     vertexColors: true,
     transparent: false,
     depthWrite: true,
-    side: THREE.FrontSide,
+    side: THREE.DoubleSide, // seguro para todas las caras
     dithering: true
   });
-  // Limpia materiales antiguos
-  try{ mesh.material?.dispose?.(); }catch(_){ }
+  try { mesh.material?.dispose?.(); } catch(_){ }
   mesh.geometry = newGeo;
   mesh.material = newMat;
-  // Asegura flags
+  mesh.material.needsUpdate = true;
   mesh.frustumCulled = false;
 }
 
@@ -7330,33 +7330,23 @@ function addKeplrSolidsOverWells(wells){
     solidGroup.position.set(cx, 4.0 + A*0.55, cz); // más alto para que floten
     solidGroup.rotation.y = ((H >>> (5*i)) % 360) * Math.PI/180;
 
-    // Recolorea por-caras (opaco) todas las mallas del sólido
+    // Giro determinista (igual que KEPLR) pero a mitad de velocidad
+    try{
+      const spin = keplrSpinParamsFor(pa, i);
+      solidGroup.userData.rotAxis = spin.axis;
+      solidGroup.userData.rotVel  = spin.vel * 0.5; // ← mitad
+    }catch(_){ }
+
+    // Recolorea por-cara TODO el sólido (opaco)
     let faceIdxBase = 0;
     solidGroup.traverse(o=>{
       if (o.isMesh){
-        grvtyMakeMeshPerFaceColored(o, pa, (uniq|0) * 1000 + faceIdxBase);
-        faceIdxBase += 10000; // separa rangos para evitar repetición de caras entre submeshes
+        grvtyMakeMeshPerFaceColored(o, pa, (i*100000) + faceIdxBase);
+        faceIdxBase += 10000; // evita repetir índices entre submeshes
       }
     });
 
     probes.add(solidGroup);
-
-    // === Rotación determinista estilo KEPLR ===
-    if (!probes.userData.rotators) probes.userData.rotators = [];
-    const axisSeed = ((H >>> (i*7)) ^ lehmerRank(pa)) >>> 0;
-    const axis = new THREE.Vector3(
-      ((axisSeed & 1) ? 1 : 0),
-      ((axisSeed & 2) ? 1 : 0),
-      ((axisSeed & 4) ? 1 : 0)
-    );
-    if (axis.lengthSq() === 0) axis.set(0,1,0);
-    axis.normalize();
-
-    const vel = ( ((axisSeed % 37) / 37.0) * 0.8 + 0.2 ) * 0.5; // 0.1–0.5 rad/s (mitad)
-    solidGroup.userData.rotAxis = axis;
-    solidGroup.userData.rotVel  = vel;
-    solidGroup.userData.rotStep = 1;
-    probes.userData.rotators.push(solidGroup);
   }
 }
 
@@ -7366,7 +7356,6 @@ function toggleGRVTY(){
   window.isGRVTY = isGRVTY;
 
   if (isGRVTY){
-    grvtyUseFRBNBackdrop();   // muestra el cielo FRBN como fondo
     try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
     try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
     try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
@@ -7381,30 +7370,31 @@ function toggleGRVTY(){
     enterRaumRenderBoost();
 
     buildGRVTY();
-    grvtyUseFRBNBackdrop(); // fuerza el cielo FRBN visible + animación
+    grvtyUseFRBNBackdrop();  // FRBN vivo ON
 
     // Cámara “horizonte”
-camera.up.set(0,1,0);
-camera.fov  = 16;   // un pelín menos de perspectiva
-camera.near = 0.1;
-camera.far  = 5000; // más lejos por el nuevo Z
+    camera.up.set(0,1,0);
+    camera.fov  = 16;   // menos perspectiva
+    camera.near = 0.1;
+    camera.far  = 5000;
+
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    // Lejos y baja para que el plano se pierda en el horizonte
-    camera.position.set(0, 12, 360); // alejada (antes 240)
+    // Más lejos y MÁS BAJO (para ver más horizonte)
+    camera.position.set(0, 6, 360);
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
     controls.minDistance        = 20;
-    controls.maxDistance        = 600;
+    controls.maxDistance        = 800;
     controls.screenSpacePanning = true;
 
-    // Rango estrecho alrededor del plano (ligeramente por encima de 90°)
-    const aMin = Math.PI * 0.48;
-    const aMax = Math.PI * 0.56;
+    // Clamp estrecho en torno a 90°, un poco más bajo
+    const aMin = Math.PI * 0.495;
+    const aMax = Math.PI * 0.505;
     controls.minPolarAngle      = aMin;
     controls.maxPolarAngle      = aMax;
     controls.update();
@@ -7525,24 +7515,20 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         u.uTime.value += dt;
         u.uStep.value  = avgBuildRotStepForGrvty(); // acepta 0 ⇒ respira congelado
 
-        // Girar sólidos KEPLR sobre los pozos
-        const probes = grp.__probes;
-        if (probes && Array.isArray(probes.userData.rotators)){
-          const rotators = probes.userData.rotators;
-          for (let j=0;j<rotators.length;j++){
-            const g = rotators[j];
-            if (!g || !g.userData) continue;
-            const step = (typeof g.userData.rotStep === 'number') ? g.userData.rotStep : 1;
-            if (!step) continue;
-            const axis = g.userData.rotAxis;
-            const vel  = g.userData.rotVel;
-            if (axis && typeof vel === 'number'){
-              g.rotateOnAxis(axis, vel * dt * step);
-              if (!g.matrixAutoUpdate) g.updateMatrix();
-              g.updateMatrixWorld(true);
+        // Rotar probes KEPLR sobre los pozos (si existen)
+        try{
+          const pr = grp.__probes;
+          if (pr){
+            const step = u.uStep.value; // respeta el paso del BUILD (0 = pausa)
+            for (let k = 0; k < pr.children.length; k++){
+              const s = pr.children[k];
+              if (s && s.userData && s.userData.rotAxis && typeof s.userData.rotVel === 'number' && step){
+                s.rotateOnAxis(s.userData.rotAxis, s.userData.rotVel * dt * step);
+                s.updateMatrixWorld(true);
+              }
             }
           }
-        }
+        }catch(_){ }
       }
     }catch(_){ }
     requestAnimationFrame(tickGrvty);
