@@ -4973,7 +4973,7 @@ void main(){
     const KEPLR_RAHMEN_SHRINK = 0.985;   // 1.5% más pequeño → línea “inset”
     const KEPLR_RAHMEN_ALPHA  = 0.95;    // casi opaco
 
-    /* === KEPLR · Raw shader (estilo demo de referencia) =================== */
+    /* === KEPLR · Raw shader estilo demo (espacio de cámara) ================= */
     const KEPLR_RAW_VS = `
 precision mediump float;
 precision mediump int;
@@ -4984,13 +4984,14 @@ uniform mat4 projectionMatrix;
 attribute vec3 position;
 attribute vec4 color;
 
-varying vec3 vPosition;
 varying vec4 vColor;
+varying vec3 vViewPos;  // posición en espacio de cámara
 
 void main(){
-  vPosition = position;
-  vColor    = color;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vColor   = color;
+  vec4 mv  = modelViewMatrix * vec4(position, 1.0);
+  vViewPos = mv.xyz;
+  gl_Position = projectionMatrix * mv;
 }
 `;
 
@@ -5000,13 +5001,14 @@ precision mediump int;
 
 uniform float time;
 
-varying vec3 vPosition;
 varying vec4 vColor;
+varying vec3 vViewPos;
 
 void main(){
   vec4 color = vColor;
-  // mismo gesto del ejemplo: bandas sobre X, animadas por "time"
-  color.r += sin(vPosition.x * 10.0 + time) * 0.5;
+  // franjas suaves como el demo; frecuencia baja y sin quemados
+  float stripe = sin(vViewPos.x * 0.25 + time) * 0.25;
+  color.r = clamp(color.r + stripe, 0.0, 1.0);
   gl_FragColor = color;
 }
 `;
@@ -5044,46 +5046,37 @@ void main(){
       return [cFace, cEdge, cDual];
     }
 
-    // === REEMPLAZO: materialidad "Raw Shader" tipo demo =====================
+    // === REEMPLAZO · Materialidad RawShader estilo demo =====================
 
-    // Construye un atributo 'color' RGBA (Uint8 normalizado) con un mismo
-    // color por vértice, usando la opacidad de KEPLR_FACE_OPACITY.
+    // Rellena 'color' RGBA (Uint8 normalizado) con el color de la cara
     function keplrApplyVertexColorsRGBA(geo, colorTHREE){
-      const r = Math.round(THREE.MathUtils.clamp(colorTHREE.r, 0, 1) * 255);
-      const g = Math.round(THREE.MathUtils.clamp(colorTHREE.g, 0, 1) * 255);
-      const b = Math.round(THREE.MathUtils.clamp(colorTHREE.b, 0, 1) * 255);
-      const a = Math.round(THREE.MathUtils.clamp(KEPLR_FACE_OPACITY, 0, 1) * 255);
-
-      const count = geo.attributes.position.count;
-      const rgba  = new Uint8Array(count * 4);
-      for (let i=0;i<count;i++){
-        const j = i*4;
-        rgba[j+0] = r;
-        rgba[j+1] = g;
-        rgba[j+2] = b;
-        rgba[j+3] = a;
+      const r = Math.round(THREE.MathUtils.clamp(colorTHREE.r,0,1)*255);
+      const g = Math.round(THREE.MathUtils.clamp(colorTHREE.g,0,1)*255);
+      const b = Math.round(THREE.MathUtils.clamp(colorTHREE.b,0,1)*255);
+      const a = Math.round(THREE.MathUtils.clamp(KEPLR_FACE_OPACITY,0,1)*255);
+      const n = geo.attributes.position.count;
+      const data = new Uint8Array(n*4);
+      for (let i=0;i<n;i++){
+        const j=i*4; data[j]=r; data[j+1]=g; data[j+2]=b; data[j+3]=a;
       }
-      const attr = new THREE.Uint8BufferAttribute(rgba, 4);
-      attr.normalized = true;          // 0..255 → 0..1 en shader
+      const attr = new THREE.Uint8BufferAttribute(data,4);
+      attr.normalized = true;
       geo.setAttribute('color', attr);
     }
 
-    // Devuelve un Mesh con RawShaderMaterial (DoubleSide + transparente)
-    // como en el ejemplo de referencia.
+    // Devuelve un Mesh con RawShaderMaterial (DoubleSide, transparente)
     function keplrBuildRawFaceMesh(geo, colorTHREE){
       const geo2 = geo.clone();
       keplrApplyVertexColorsRGBA(geo2, applyBuildVibranceToColor(colorTHREE));
 
       const mat = new THREE.RawShaderMaterial({
-        uniforms: {
-          time: { value: 0.0 }
-        },
+        uniforms: { time: { value: 0.0 } },
         vertexShader:   KEPLR_RAW_VS,
         fragmentShader: KEPLR_RAW_FS,
         side: THREE.DoubleSide,
         transparent: true,
         depthTest: true,
-        depthWrite: false,    // transparencia más limpia con solapes
+        depthWrite: false,
         dithering: true
       });
 
@@ -5092,8 +5085,7 @@ void main(){
       return mesh;
     }
 
-    // Mantén la firma usada por buildKeplrSolid,
-    // pero ahora devolvemos un Group con un único mesh "raw".
+    // Mantén la misma firma que usa buildKeplrSolid()
     function keplrBuildFaceGroup(geo, colorTHREE){
       const g = new THREE.Group();
       g.add(keplrBuildRawFaceMesh(geo, colorTHREE));
@@ -5294,6 +5286,28 @@ void main(){
       groupKEPLR.userData._lastT = performance.now();
     }
 
+    /* === Animación de 'time' para RawShader (como el demo) ================== */
+    (function installKeplrRawTimer(){
+      if (window.__keplrRawTimerInstalled) return;
+      window.__keplrRawTimerInstalled = true;
+
+      function tick(){
+        try{
+          if (isKEPLR && groupKEPLR){
+            const t = performance.now() * 0.005; // idéntico al ejemplo
+            groupKEPLR.traverse(o=>{
+              const m = o && o.material;
+              if (o.isMesh && m && m.isRawShaderMaterial && m.uniforms && m.uniforms.time){
+                m.uniforms.time.value = t;
+              }
+            });
+          }
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+
     function resyncKeplrRotSteps(){
       if (!groupKEPLR || !groupKEPLR.userData || !groupKEPLR.userData.rotators) return;
       groupKEPLR.userData.rotators.forEach(g=>{
@@ -5397,34 +5411,6 @@ void main(){
       window.addEventListener('resize', ()=>{ setTimeout(run,0); });
     })();
 
-    /* === Animador de "time" para los RawShaderMaterial de KEPLR ============ */
-    (function installKeplrRawShaderTimer(){
-      if (window.__keplrRawTimerInstalled) return;
-      window.__keplrRawTimerInstalled = true;
-
-      function tick(){
-        try{
-          if (isKEPLR && groupKEPLR){
-            const now  = performance.now();
-            const last = groupKEPLR.userData._lastRawT || now;
-            const dt   = Math.max(0, (now - last) / 1000); // segundos
-            groupKEPLR.userData._lastRawT = now;
-
-            // Velocidad visual parecida al ejemplo: ~ time(ms)*0.005
-            const add = dt * 5.0;
-
-            groupKEPLR.traverse(o=>{
-              const m = o && o.material;
-              if (o.isMesh && m && m.isRawShaderMaterial && m.uniforms && m.uniforms.time){
-                m.uniforms.time.value += add;
-              }
-            });
-          }
-        }catch(_){ }
-        requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
-    })();
     </script>
 
     <script>
