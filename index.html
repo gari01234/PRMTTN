@@ -4974,6 +4974,8 @@ void main(){
     const KEPLR_RAHMEN_ALPHA  = 0.95;    // casi opaco
 
     /* === KEPLR · Raw shader estilo demo (espacio de cámara) ================= */
+    /* Velocidad de desplazamiento de franjas (antes era 0.005) */
+    const KEPLR_STRIPE_SPEED = 0.0018; // ~3× más lento. Sube/baja este número a gusto.
     const KEPLR_RAW_VS = `
 precision mediump float;
 precision mediump int;
@@ -5294,7 +5296,7 @@ void main(){
       function tick(){
         try{
           if (isKEPLR && groupKEPLR){
-            const t = performance.now() * 0.005; // idéntico al ejemplo
+            const t = performance.now() * KEPLR_STRIPE_SPEED; // ← usa la constante lenta
             groupKEPLR.traverse(o=>{
               const m = o && o.material;
               if (o.isMesh && m && m.isRawShaderMaterial && m.uniforms && m.uniforms.time){
