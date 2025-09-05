@@ -4889,6 +4889,8 @@ void main(){
         }
       });
       scene.remove(groupKEPLR);
+      groupKEPLR.__floor = null;
+      groupKEPLR.__rects = null;
       groupKEPLR = null;
     }
 
@@ -5163,6 +5165,82 @@ void main(){
       return { axis, vel };
     }
 
+    /* === KEPLR · Piso + RectAreaLights deterministas =========================== */
+
+    /* Inicializa el UniformsLib de RectAreaLight si existe en el build */
+    (function ensureRectAreaLightLib(){
+      try{
+        if (!window.__rectAreaInit && THREE.RectAreaLightUniformsLib){
+          THREE.RectAreaLightUniformsLib.init();
+          window.__rectAreaInit = true;
+        }
+      }catch(_){ }
+    })();
+
+    /* Convierte THREE.Color → entero hex para luces/materiales */
+    function __colorToHexInt(c){
+      const r = Math.round(THREE.MathUtils.clamp(c.r,0,1) * 255);
+      const g = Math.round(THREE.MathUtils.clamp(c.g,0,1) * 255);
+      const b = Math.round(THREE.MathUtils.clamp(c.b,0,1) * 255);
+      return (r<<16) | (g<<8) | b;
+    }
+
+    /* Crea piso + 3 RectAreaLight con colores deterministas del patrón */
+    function keplrBuildFloorAndLights(perms, H){
+      // --- Piso: grande, pulido (recibe bien el “baño” de color de las RectArea) ---
+      const FLOOR_SIZE = 2000;
+      const floorGeo   = new THREE.BoxGeometry(FLOOR_SIZE, 0.1, FLOOR_SIZE);
+      const floorMat   = new THREE.MeshStandardMaterial({
+        color: 0xbcbcbc,
+        roughness: 0.12,   // un poco pulido
+        metalness: 0.0,    // no metálico (como el ejemplo)
+        dithering: true
+      });
+      const floor = new THREE.Mesh(floorGeo, floorMat);
+      floor.name = '__keplrFloor';
+      floor.position.set(0, -18, 0);  // un poco por debajo del origin
+      floor.receiveShadow = false;    // RectAreaLight no usa sombras
+      groupKEPLR.add(floor);
+      groupKEPLR.__floor = floor;
+
+      // --- Colores deterministas para las 3 luces (derivados del patrón) ---
+      // Usamos la 1ª permutación como base; si no hay, fallback estable.
+      const pa0 = (Array.isArray(perms) && perms.length) ? perms[0] : [1,2,3,4,5];
+      const cA  = keplrUniqueFaceColor(pa0, 100);
+      const cB  = keplrUniqueFaceColor(pa0, 101);
+      const cC  = keplrUniqueFaceColor(pa0, 102);
+
+      const hexA = __colorToHexInt(cA);
+      const hexB = __colorToHexInt(cB);
+      const hexC = __colorToHexInt(cC);
+
+      // --- Tres RectAreaLight frontales, arriba del piso, mirando al origen ---
+      const SZ_W = 42;  // ancho panel
+      const SZ_H = 96;  // alto panel
+      // Intensidad determinista suave desde H (≈ 14..22)
+      const I0 = 14 + ((H >>> 13) % 9);
+
+      function buildRect(x, y, z, colorHex, intensity){
+        const L = new THREE.RectAreaLight(colorHex, intensity, SZ_W, SZ_H);
+        L.position.set(x, y, z);
+        L.lookAt(0, 0, 0);
+        return L;
+      }
+
+      const rects = new THREE.Group();
+      rects.name = '__keplrRectLights';
+      const y = 36;         // altura de los paneles
+      const z = 64;         // delante de los sólidos, mirando al centro
+      const dx = 52;        // separación lateral
+
+      rects.add(buildRect(-dx, y, z, hexA, I0));
+      rects.add(buildRect(  0, y, z, hexB, I0 + 2));
+      rects.add(buildRect( dx, y, z, hexC, I0 + 4));
+
+      groupKEPLR.add(rects);
+      groupKEPLR.__rects = rects;
+    }
+
     /* Builder principal */
     function buildKEPLR(){
       disposeGroupKEPLR();
@@ -5178,6 +5256,9 @@ void main(){
 
       // Semilla de forma (no cromática)
       const H = keplrShapeSeedFromPerms(perms);
+
+      // === PISO + LUCES (nuevo) ===
+      keplrBuildFloorAndLights(perms, H);
 
       // Desfase determinista para repartir el tipo de sólido sin repetir hasta agotar catálogo
       const START = H % KEPLR_SOLIDS.length; // 0..4
