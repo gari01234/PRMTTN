@@ -5008,6 +5008,17 @@ void main(){
       return [cFace, cEdge, cDual];
     }
 
+    /* Congela matrices locales de sub-objetos estáticos para abaratar el giro del grupo padre */
+    function __freezeStatic(o){
+      if (!o) return;
+      o.traverse(n=>{
+        if (n !== o && (n.isMesh || n.isLineSegments || n.isGroup)){
+          n.updateMatrix();
+          n.matrixAutoUpdate = false;
+        }
+      });
+    }
+
     // — Caras en dos pasadas: primero dorso (BackSide), luego frente (FrontSide).
     //   Esto evita “huecos”, mejora la mezcla y quita artefactos en iOS/Safari.
     function keplrFaceMaterials(colorTHREE){
@@ -5031,6 +5042,11 @@ void main(){
       const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0;
       const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1;
       g.add(mBack, mFront);
+      // ↓↓↓ optimización: matrices locales estáticas (el giro ocurre en el padre)
+      mBack.updateMatrix();  mBack.matrixAutoUpdate  = false;
+      mFront.updateMatrix(); mFront.matrixAutoUpdate = false;
+      g.updateMatrix();      g.matrixAutoUpdate      = false;
+
       return g;
     }
 
@@ -5082,12 +5098,14 @@ void main(){
       const faceGroup = keplrBuildFaceGroup(geo, cFace);
       faceGroup.renderOrder = 0;               // antes que marcos y edges
       container.add(faceGroup);
+      __freezeStatic(faceGroup); // ← OPTIMIZACIÓN
 
       // Rahmen (apagado por flag)
       if (KEPLR_RAHMEN_ON){
         const rahmen = keplrBuildRahmen(geo, cEdge);
         rahmen.renderOrder = 3;
         container.add(rahmen);
+        __freezeStatic(rahmen); // ← OPTIMIZACIÓN
       }
 
       // Aristas exteriores (OPCIONAL, normalmente OFF)
@@ -5096,6 +5114,7 @@ void main(){
         const edges = new THREE.LineSegments(eGeo, keplrEdgeMaterial(cEdge));
         edges.renderOrder = 4;
         container.add(edges);
+        __freezeStatic(edges); // ← OPTIMIZACIÓN
       }
 
       // — Sólido dual (opcional), con su propio grupo y orientación
@@ -5110,11 +5129,13 @@ void main(){
         const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual);
         dFaceGroup.renderOrder = 0;
         sub.add(dFaceGroup);
+        __freezeStatic(dFaceGroup); // ← OPTIMIZACIÓN
 
         if (KEPLR_RAHMEN_ON){
           const dRahmen = keplrBuildRahmen(dGeo, cEdge);
           dRahmen.renderOrder = 3;
           sub.add(dRahmen);
+          __freezeStatic(dRahmen); // ← OPTIMIZACIÓN
         }
 
         if (KEPLR_EDGES_ON){
@@ -5122,9 +5143,11 @@ void main(){
           const dEdges = new THREE.LineSegments(eGeo2, keplrEdgeMaterial(cEdge));
           dEdges.renderOrder = 4;
           sub.add(dEdges);
+          __freezeStatic(dEdges); // ← OPTIMIZACIÓN
         }
 
         container.add(sub);
+        __freezeStatic(sub); // ← OPTIMIZACIÓN
       }
     }
 
@@ -5185,57 +5208,55 @@ void main(){
       return (r<<16) | (g<<8) | b;
     }
 
-    /* Crea piso + 3 RectAreaLight con colores deterministas del patrón */
+    /* Crea piso + 3 RectAreaLight con colores deterministas del patrón (versión con contraste alto) */
     function keplrBuildFloorAndLights(perms, H){
-      // --- Piso: grande, pulido (recibe bien el “baño” de color de las RectArea) ---
+      // --- Piso oscuro, ligeramente pulido (resalta el color proyectado) ---
       const FLOOR_SIZE = 2000;
       const floorGeo   = new THREE.BoxGeometry(FLOOR_SIZE, 0.1, FLOOR_SIZE);
       const floorMat   = new THREE.MeshStandardMaterial({
-        color: 0xbcbcbc,
-        roughness: 0.12,   // un poco pulido
-        metalness: 0.0,    // no metálico (como el ejemplo)
+        color: 0x111111,  // más oscuro → más contraste
+        roughness: 0.06,  // más “espejo difuso”
+        metalness: 0.0,
         dithering: true
       });
       const floor = new THREE.Mesh(floorGeo, floorMat);
       floor.name = '__keplrFloor';
-      floor.position.set(0, -18, 0);  // un poco por debajo del origin
-      floor.receiveShadow = false;    // RectAreaLight no usa sombras
+      floor.position.set(0, -12, 0);  // un poco más cerca del origen
+      floor.receiveShadow = false;
       groupKEPLR.add(floor);
       groupKEPLR.__floor = floor;
 
-      // --- Colores deterministas para las 3 luces (derivados del patrón) ---
-      // Usamos la 1ª permutación como base; si no hay, fallback estable.
+      // --- Colores deterministas (3 variantes del patrón activo) ---
       const pa0 = (Array.isArray(perms) && perms.length) ? perms[0] : [1,2,3,4,5];
       const cA  = keplrUniqueFaceColor(pa0, 100);
       const cB  = keplrUniqueFaceColor(pa0, 101);
       const cC  = keplrUniqueFaceColor(pa0, 102);
-
       const hexA = __colorToHexInt(cA);
       const hexB = __colorToHexInt(cB);
       const hexC = __colorToHexInt(cC);
 
-      // --- Tres RectAreaLight frontales, arriba del piso, mirando al origen ---
-      const SZ_W = 42;  // ancho panel
-      const SZ_H = 96;  // alto panel
-      // Intensidad determinista suave desde H (≈ 14..22)
-      const I0 = 14 + ((H >>> 13) % 9);
+      // --- Paneles grandes, más cercanos y mirando  ligeramente hacia abajo ---
+      const SZ_W = 64;
+      const SZ_H = 144;
+      // Intensidad base más alta (≈ 24..42) para que el color pegue fuerte en el piso
+      const I0 = 24 + (((H >>> 13) % 10) * 2);
 
       function buildRect(x, y, z, colorHex, intensity){
         const L = new THREE.RectAreaLight(colorHex, intensity, SZ_W, SZ_H);
         L.position.set(x, y, z);
-        L.lookAt(0, 0, 0);
+        L.lookAt(0, -2, 0); // leve inclinación hacia el piso alrededor del origen
         return L;
       }
 
       const rects = new THREE.Group();
       rects.name = '__keplrRectLights';
-      const y = 36;         // altura de los paneles
-      const z = 64;         // delante de los sólidos, mirando al centro
-      const dx = 52;        // separación lateral
+      const y  = 22;  // más bajo → golpea el piso
+      const z  = 34;  // más cerca de los sólidos
+      const dx = 46;
 
       rects.add(buildRect(-dx, y, z, hexA, I0));
-      rects.add(buildRect(  0, y, z, hexB, I0 + 2));
-      rects.add(buildRect( dx, y, z, hexC, I0 + 4));
+      rects.add(buildRect(  0, y, z, hexB, I0 + 4));
+      rects.add(buildRect( dx, y, z, hexC, I0 + 8));
 
       groupKEPLR.add(rects);
       groupKEPLR.__rects = rects;
@@ -5259,6 +5280,8 @@ void main(){
 
       // === PISO + LUCES (nuevo) ===
       keplrBuildFloorAndLights(perms, H);
+      // Reducir ambiente para que se noten los paneles de color
+      try{ if (window.__keplrAmbient) window.__keplrAmbient.intensity = 0.03; }catch(_){ }
 
       // Desfase determinista para repartir el tipo de sólido sin repetir hasta agotar catálogo
       const START = H % KEPLR_SOLIDS.length; // 0..4
@@ -5298,6 +5321,12 @@ void main(){
       });
 
       groupKEPLR.add(container);
+
+      // Pequeña poda de flags que no usamos (sombras) para evitar work extra
+      groupKEPLR.traverse(o=>{
+        if (o.isMesh){ o.castShadow = false; o.receiveShadow = (o.name === '__keplrFloor'); }
+      });
+
       scene.add(groupKEPLR);
 
       // Evita culling agresivo con transparencias cruzadas
@@ -5363,6 +5392,7 @@ void main(){
       } else {
         leaveRaumRenderBoost();
         disposeGroupKEPLR();
+        try{ if (window.__keplrAmbient) window.__keplrAmbient.intensity = 0.18; }catch(_){ }
 
         // Restaurar ajustes por defecto al salir
         camera.fov = 75;
