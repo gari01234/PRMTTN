@@ -4966,13 +4966,50 @@ void main(){
     // === KEPLR · constantes/materiales ===
     // ——— aristas (edges) del sólido
     const KEPLR_EDGES_ON = false; // ← OFF: no se renderizan líneas de aristas
-    // Mezcla útil para translucidez “sólida” (dos pasadas: dorso + frente)
-    const KEPLR_FACE_OPACITY = 0.72;     // opacidad de la pasada frontal
-    const KEPLR_BACK_OPACITY = 0.46;     // opacidad de la pasada de dorso
+    // Mezcla útil para translucidez “sólida” (un único mesh transparente)
+    const KEPLR_FACE_OPACITY = 0.72;
     // “Rahmen” (marco interior). ON/OFF:
     const KEPLR_RAHMEN_ON   = false;     // ← APAGADO por ahora
     const KEPLR_RAHMEN_SHRINK = 0.985;   // 1.5% más pequeño → línea “inset”
     const KEPLR_RAHMEN_ALPHA  = 0.95;    // casi opaco
+
+    /* === KEPLR · Raw shader (estilo demo de referencia) =================== */
+    const KEPLR_RAW_VS = `
+precision mediump float;
+precision mediump int;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+attribute vec3 position;
+attribute vec4 color;
+
+varying vec3 vPosition;
+varying vec4 vColor;
+
+void main(){
+  vPosition = position;
+  vColor    = color;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+    const KEPLR_RAW_FS = `
+precision mediump float;
+precision mediump int;
+
+uniform float time;
+
+varying vec3 vPosition;
+varying vec4 vColor;
+
+void main(){
+  vec4 color = vColor;
+  // mismo gesto del ejemplo: bandas sobre X, animadas por "time"
+  color.r += sin(vPosition.x * 10.0 + time) * 0.5;
+  gl_FragColor = color;
+}
+`;
 
     // Color de aristas derivado del de las caras (más brillante y con contraste)
     function keplrEdgeFromFaceColor(base){
@@ -5007,122 +5044,59 @@ void main(){
       return [cFace, cEdge, cDual];
     }
 
-    /* ====== Shader “raw” para KEPLR (look experimental) ======================== */
-    const KEPLR_RAW_VS = `
-precision mediump float;
-precision mediump int;
-uniform mat4 modelViewMatrix;
-uniform mat4 projectionMatrix;
-attribute vec3 position;
-attribute vec4 color;
-varying vec3 vPosition;
-varying vec4 vColor;
-void main(){
-  vPosition = position;
-  vColor    = color;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
+    // === REEMPLAZO: materialidad "Raw Shader" tipo demo =====================
 
-    const KEPLR_RAW_FS = `
-precision mediump float;
-precision mediump int;
-uniform float uTime;     // tiempo acumulado (pausable)
-uniform float uOpacity;  // opacidad por pasada (front/back)
-uniform float uFreq;     // frecuencia espacial
-uniform float uPhase;    // fase determinista
-uniform float uAmp;      // amplitud del “brillo”
-varying vec3 vPosition;
-varying vec4 vColor;
-void main(){
-  float w = sin(vPosition.x * uFreq + uTime + uPhase);
-  vec3 base = vColor.rgb;
-  vec3 mod  = vec3(max(0.0, w) * uAmp);  // realce sólo cuando w>0
-  vec3 col  = clamp(base + mod, 0.0, 1.0);
-  gl_FragColor = vec4(col, uOpacity * vColor.a);
-}
-`;
+    // Construye un atributo 'color' RGBA (Uint8 normalizado) con un mismo
+    // color por vértice, usando la opacidad de KEPLR_FACE_OPACITY.
+    function keplrApplyVertexColorsRGBA(geo, colorTHREE){
+      const r = Math.round(THREE.MathUtils.clamp(colorTHREE.r, 0, 1) * 255);
+      const g = Math.round(THREE.MathUtils.clamp(colorTHREE.g, 0, 1) * 255);
+      const b = Math.round(THREE.MathUtils.clamp(colorTHREE.b, 0, 1) * 255);
+      const a = Math.round(THREE.MathUtils.clamp(KEPLR_FACE_OPACITY, 0, 1) * 255);
 
-    /* Crea atributo 'color' (Uint8 normalizado) para una geo, a partir de un THREE.Color */
-    function __keplrEnsureVertexColors(geo, cTHREE){
       const count = geo.attributes.position.count;
-      const r = Math.round(THREE.MathUtils.clamp(cTHREE.r,0,1) * 255);
-      const g = Math.round(THREE.MathUtils.clamp(cTHREE.g,0,1) * 255);
-      const b = Math.round(THREE.MathUtils.clamp(cTHREE.b,0,1) * 255);
-      const arr = new Uint8Array(count * 4);
+      const rgba  = new Uint8Array(count * 4);
       for (let i=0;i<count;i++){
-        const j = i*4; arr[j]=r; arr[j+1]=g; arr[j+2]=b; arr[j+3]=255;
+        const j = i*4;
+        rgba[j+0] = r;
+        rgba[j+1] = g;
+        rgba[j+2] = b;
+        rgba[j+3] = a;
       }
-      const attr = new THREE.Uint8BufferAttribute(arr, 4);
-      attr.normalized = true;
+      const attr = new THREE.Uint8BufferAttribute(rgba, 4);
+      attr.normalized = true;          // 0..255 → 0..1 en shader
       geo.setAttribute('color', attr);
     }
 
-    /* Fabrica materiales RawShader (frente/dorso) con parámetros deterministas */
-    function keplrShaderFaceMaterials(colorTHREE, phaseSeed){
-      const c = applyBuildVibranceToColor(colorTHREE);
-      const phase = ((phaseSeed >>> 0) % 6283) / 1000.0;                 // [0,2π)
-      const freq  = 7.0 + ((phaseSeed >>> 10) % 300) / 100.0;            // ~7.0..10.0
-      const amp   = 0.22 + ((phaseSeed >>> 20) % 64) / 255.0;            // ~0.22..0.47
+    // Devuelve un Mesh con RawShaderMaterial (DoubleSide + transparente)
+    // como en el ejemplo de referencia.
+    function keplrBuildRawFaceMesh(geo, colorTHREE){
+      const geo2 = geo.clone();
+      keplrApplyVertexColorsRGBA(geo2, applyBuildVibranceToColor(colorTHREE));
 
-      function make(side, opacity){
-        return new THREE.RawShaderMaterial({
-          uniforms:{
-            uTime:{ value: 0.0 },
-            uOpacity:{ value: opacity },
-            uFreq:{ value: freq },
-            uPhase:{ value: phase },
-            uAmp:{ value: amp }
-          },
-          vertexShader:   KEPLR_RAW_VS,
-          fragmentShader: KEPLR_RAW_FS,
-          side,
-          transparent: true,
-          depthTest: true,
-          depthWrite: false,
-          dithering: true,
-          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
-        });
-      }
+      const mat = new THREE.RawShaderMaterial({
+        uniforms: {
+          time: { value: 0.0 }
+        },
+        vertexShader:   KEPLR_RAW_VS,
+        fragmentShader: KEPLR_RAW_FS,
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,    // transparencia más limpia con solapes
+        dithering: true
+      });
 
-      return {
-        matBack:  make(THREE.BackSide,  KEPLR_BACK_OPACITY),
-        matFront: make(THREE.FrontSide, KEPLR_FACE_OPACITY),
-        base: c
-      };
+      const mesh = new THREE.Mesh(geo2, mat);
+      mesh.renderOrder = 1;
+      return mesh;
     }
 
-    /* Colección de materiales shader para poder actualizar uTime sin recorrer toda la escena */
-    function __keplrTrackShaderMat(mat){
-      try{
-        if (!groupKEPLR) return;
-        if (!groupKEPLR.userData) groupKEPLR.userData = {};
-        if (!Array.isArray(groupKEPLR.userData.shaderMats)) groupKEPLR.userData.shaderMats = [];
-        groupKEPLR.userData.shaderMats.push(mat);
-      }catch(_){ }
-    }
-
-    // (REEMPLAZO) – ya no devolvemos MeshStandardMaterial sino RawShaderMaterial
-    function keplrFaceMaterials(){ throw new Error('keplrFaceMaterials no se usa con el shader raw'); }
-
-    /* (REEMPLAZO) Grupo de caras usando el shader raw.
-       phaseSeed = número determinista por sólido para variar fase/frecuencia. */
-    function keplrBuildFaceGroup(geo, colorTHREE, phaseSeed){
-      // Atributo de color por vértice (derivado del color determinista del sólido)
-      __keplrEnsureVertexColors(geo, colorTHREE);
-
-      // Materiales RawShader con parámetros deterministas
-      const { matBack, matFront } = keplrShaderFaceMaterials(colorTHREE, phaseSeed);
-
+    // Mantén la firma usada por buildKeplrSolid,
+    // pero ahora devolvemos un Group con un único mesh "raw".
+    function keplrBuildFaceGroup(geo, colorTHREE){
       const g = new THREE.Group();
-      const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0;
-      const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1;
-      g.add(mBack, mFront);
-
-      // Registrar materiales para tick de uTime
-      __keplrTrackShaderMat(matBack);
-      __keplrTrackShaderMat(matFront);
-
+      g.add(keplrBuildRawFaceMesh(geo, colorTHREE));
       return g;
     }
 
@@ -5170,11 +5144,8 @@ void main(){
       // — Sólido principal
       const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
 
-      // Semilla determinista para el shader (fase/frecuencia)
-      const phaseSeed = ((lehmerRank(pa)>>>0) ^ (orientIdx>>>0) ^ ((uniqIndex|0)*2654435761)) >>> 0;
-
-      // Caras (dos pasadas) con shader raw
-      const faceGroup = keplrBuildFaceGroup(geo, cFace, phaseSeed);
+      // Caras con shader raw
+      const faceGroup = keplrBuildFaceGroup(geo, cFace);
       faceGroup.renderOrder = 0;               // antes que marcos y edges
       container.add(faceGroup);
 
@@ -5202,8 +5173,7 @@ void main(){
         const sub = new THREE.Group();
         applyKeplrOrientation(sub, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
 
-        const phaseSeed2 = (phaseSeed ^ 0x9e3779b9) >>> 0; // otra fase determinista
-        const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual, phaseSeed2);
+        const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual);
         dFaceGroup.renderOrder = 0;
         sub.add(dFaceGroup);
 
@@ -5427,33 +5397,28 @@ void main(){
       window.addEventListener('resize', ()=>{ setTimeout(run,0); });
     })();
 
-    /* ═══════════════ KEPLR · Tick de shader (uTime con pausa global) ═════════════ */
-    (function installKeplrShaderTick(){
-      if (window.__keplrShaderTickInstalled) return;
-      window.__keplrShaderTickInstalled = true;
+    /* === Animador de "time" para los RawShaderMaterial de KEPLR ============ */
+    (function installKeplrRawShaderTimer(){
+      if (window.__keplrRawTimerInstalled) return;
+      window.__keplrRawTimerInstalled = true;
 
       function tick(){
         try{
-          if (!isKEPLR || !groupKEPLR || !groupKEPLR.userData) { requestAnimationFrame(tick); return; }
+          if (isKEPLR && groupKEPLR){
+            const now  = performance.now();
+            const last = groupKEPLR.userData._lastRawT || now;
+            const dt   = Math.max(0, (now - last) / 1000); // segundos
+            groupKEPLR.userData._lastRawT = now;
 
-          // Pausa global (si existe)
-          let paused = false;
-          try{ if (typeof window.isBuildMotionPaused === 'function') paused = !!window.isBuildMotionPaused(); }catch(_){ }
+            // Velocidad visual parecida al ejemplo: ~ time(ms)*0.005
+            const add = dt * 5.0;
 
-          const now  = performance.now();
-          const ud   = groupKEPLR.userData;
-          if (ud.__shaderLastT == null) { ud.__shaderLastT = now; ud.__shaderTime = 0; }
-
-          const last = ud.__shaderLastT;
-          const dt   = Math.max(0, (now - last) / 1000);
-          ud.__shaderLastT = now;
-          if (!paused) ud.__shaderTime += dt;
-
-          // Actualiza todos los materiales registrados
-          const mats = Array.isArray(ud.shaderMats) ? ud.shaderMats : [];
-          for (let i=0;i<mats.length;i++){
-            const m = mats[i];
-            if (m && m.uniforms && m.uniforms.uTime) m.uniforms.uTime.value = ud.__shaderTime;
+            groupKEPLR.traverse(o=>{
+              const m = o && o.material;
+              if (o.isMesh && m && m.isRawShaderMaterial && m.uniforms && m.uniforms.time){
+                m.uniforms.time.value += add;
+              }
+            });
           }
         }catch(_){ }
         requestAnimationFrame(tick);
@@ -5489,25 +5454,11 @@ function disposeGroupRAPHI(){
 
 const RAPHI_PHI = (1 + Math.sqrt(5)) / 2;
 
-// RAPHI · opacidades propias
-const RAPHI_FACE_OPACITY = 0.78;
-const RAPHI_BACK_OPACITY = 0.55;
 // RAPHI · factor de velocidad angular (3×)
 const RAPHI_SPEED_MULT = 3.0;
 
-function raphiFaceMaterials(colorTHREE){
-  const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
-  matFront.opacity = RAPHI_FACE_OPACITY;
-  matBack.opacity  = RAPHI_BACK_OPACITY;
-  return { matBack, matFront };
-}
 function raphiBuildFaceGroup(geo, colorTHREE){
-  const { matBack, matFront } = raphiFaceMaterials(colorTHREE);
-  const g = new THREE.Group();
-  const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0;
-  const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1;
-  g.add(mBack, mFront);
-  return g;
+  return keplrBuildFaceGroup(geo, colorTHREE);
 }
 
 // Colores como BUILD/KEPLR
