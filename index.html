@@ -4889,6 +4889,7 @@ void main(){
         }
       });
       scene.remove(groupKEPLR);
+      groupKEPLR.userData = {};        // limpia colecciones de materiales/tiempos
       groupKEPLR = null;
     }
 
@@ -5006,29 +5007,122 @@ void main(){
       return [cFace, cEdge, cDual];
     }
 
-    // — Caras en dos pasadas: primero dorso (BackSide), luego frente (FrontSide).
-    //   Esto evita “huecos”, mejora la mezcla y quita artefactos en iOS/Safari.
-    function keplrFaceMaterials(colorTHREE){
-      const c = applyBuildVibranceToColor(colorTHREE);
-      const common = {
-        color: c, roughness: 1.0, metalness: 0.0,
-        transparent: true, dithering: true,
-        depthTest: true,  depthWrite: false,
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
-      };
-      const matBack  = new THREE.MeshStandardMaterial({ ...common, side: THREE.BackSide,  opacity: KEPLR_BACK_OPACITY });
-      const matFront = new THREE.MeshStandardMaterial({ ...common, side: THREE.FrontSide, opacity: KEPLR_FACE_OPACITY });
-      matBack.emissive  = c.clone(); matBack.emissiveIntensity  = 0.05;
-      matFront.emissive = c.clone(); matFront.emissiveIntensity = 0.08;
-      return { matBack, matFront };
+    /* ====== Shader “raw” para KEPLR (look experimental) ======================== */
+    const KEPLR_RAW_VS = `
+precision mediump float;
+precision mediump int;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+attribute vec3 position;
+attribute vec4 color;
+varying vec3 vPosition;
+varying vec4 vColor;
+void main(){
+  vPosition = position;
+  vColor    = color;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+    const KEPLR_RAW_FS = `
+precision mediump float;
+precision mediump int;
+uniform float uTime;     // tiempo acumulado (pausable)
+uniform float uOpacity;  // opacidad por pasada (front/back)
+uniform float uFreq;     // frecuencia espacial
+uniform float uPhase;    // fase determinista
+uniform float uAmp;      // amplitud del “brillo”
+varying vec3 vPosition;
+varying vec4 vColor;
+void main(){
+  float w = sin(vPosition.x * uFreq + uTime + uPhase);
+  vec3 base = vColor.rgb;
+  vec3 mod  = vec3(max(0.0, w) * uAmp);  // realce sólo cuando w>0
+  vec3 col  = clamp(base + mod, 0.0, 1.0);
+  gl_FragColor = vec4(col, uOpacity * vColor.a);
+}
+`;
+
+    /* Crea atributo 'color' (Uint8 normalizado) para una geo, a partir de un THREE.Color */
+    function __keplrEnsureVertexColors(geo, cTHREE){
+      const count = geo.attributes.position.count;
+      const r = Math.round(THREE.MathUtils.clamp(cTHREE.r,0,1) * 255);
+      const g = Math.round(THREE.MathUtils.clamp(cTHREE.g,0,1) * 255);
+      const b = Math.round(THREE.MathUtils.clamp(cTHREE.b,0,1) * 255);
+      const arr = new Uint8Array(count * 4);
+      for (let i=0;i<count;i++){
+        const j = i*4; arr[j]=r; arr[j+1]=g; arr[j+2]=b; arr[j+3]=255;
+      }
+      const attr = new THREE.Uint8BufferAttribute(arr, 4);
+      attr.normalized = true;
+      geo.setAttribute('color', attr);
     }
 
-    function keplrBuildFaceGroup(geo, colorTHREE){
-      const { matBack, matFront } = keplrFaceMaterials(colorTHREE);
+    /* Fabrica materiales RawShader (frente/dorso) con parámetros deterministas */
+    function keplrShaderFaceMaterials(colorTHREE, phaseSeed){
+      const c = applyBuildVibranceToColor(colorTHREE);
+      const phase = ((phaseSeed >>> 0) % 6283) / 1000.0;                 // [0,2π)
+      const freq  = 7.0 + ((phaseSeed >>> 10) % 300) / 100.0;            // ~7.0..10.0
+      const amp   = 0.22 + ((phaseSeed >>> 20) % 64) / 255.0;            // ~0.22..0.47
+
+      function make(side, opacity){
+        return new THREE.RawShaderMaterial({
+          uniforms:{
+            uTime:{ value: 0.0 },
+            uOpacity:{ value: opacity },
+            uFreq:{ value: freq },
+            uPhase:{ value: phase },
+            uAmp:{ value: amp }
+          },
+          vertexShader:   KEPLR_RAW_VS,
+          fragmentShader: KEPLR_RAW_FS,
+          side,
+          transparent: true,
+          depthTest: true,
+          depthWrite: false,
+          dithering: true,
+          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
+        });
+      }
+
+      return {
+        matBack:  make(THREE.BackSide,  KEPLR_BACK_OPACITY),
+        matFront: make(THREE.FrontSide, KEPLR_FACE_OPACITY),
+        base: c
+      };
+    }
+
+    /* Colección de materiales shader para poder actualizar uTime sin recorrer toda la escena */
+    function __keplrTrackShaderMat(mat){
+      try{
+        if (!groupKEPLR) return;
+        if (!groupKEPLR.userData) groupKEPLR.userData = {};
+        if (!Array.isArray(groupKEPLR.userData.shaderMats)) groupKEPLR.userData.shaderMats = [];
+        groupKEPLR.userData.shaderMats.push(mat);
+      }catch(_){ }
+    }
+
+    // (REEMPLAZO) – ya no devolvemos MeshStandardMaterial sino RawShaderMaterial
+    function keplrFaceMaterials(){ throw new Error('keplrFaceMaterials no se usa con el shader raw'); }
+
+    /* (REEMPLAZO) Grupo de caras usando el shader raw.
+       phaseSeed = número determinista por sólido para variar fase/frecuencia. */
+    function keplrBuildFaceGroup(geo, colorTHREE, phaseSeed){
+      // Atributo de color por vértice (derivado del color determinista del sólido)
+      __keplrEnsureVertexColors(geo, colorTHREE);
+
+      // Materiales RawShader con parámetros deterministas
+      const { matBack, matFront } = keplrShaderFaceMaterials(colorTHREE, phaseSeed);
+
       const g = new THREE.Group();
       const mBack  = new THREE.Mesh(geo, matBack);  mBack.renderOrder  = 0;
       const mFront = new THREE.Mesh(geo, matFront); mFront.renderOrder = 1;
       g.add(mBack, mFront);
+
+      // Registrar materiales para tick de uTime
+      __keplrTrackShaderMat(matBack);
+      __keplrTrackShaderMat(matFront);
+
       return g;
     }
 
@@ -5076,8 +5170,11 @@ void main(){
       // — Sólido principal
       const geo  = keplrGeometry(name, R * (1 - 0.06*tIdx));
 
-      // Caras (dos pasadas)
-      const faceGroup = keplrBuildFaceGroup(geo, cFace);
+      // Semilla determinista para el shader (fase/frecuencia)
+      const phaseSeed = ((lehmerRank(pa)>>>0) ^ (orientIdx>>>0) ^ ((uniqIndex|0)*2654435761)) >>> 0;
+
+      // Caras (dos pasadas) con shader raw
+      const faceGroup = keplrBuildFaceGroup(geo, cFace, phaseSeed);
       faceGroup.renderOrder = 0;               // antes que marcos y edges
       container.add(faceGroup);
 
@@ -5105,7 +5202,8 @@ void main(){
         const sub = new THREE.Group();
         applyKeplrOrientation(sub, dName, (orientIdx*7+3)>>>0, (orientIdx*11+5)>>>0);
 
-        const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual);
+        const phaseSeed2 = (phaseSeed ^ 0x9e3779b9) >>> 0; // otra fase determinista
+        const dFaceGroup = keplrBuildFaceGroup(dGeo, cDual, phaseSeed2);
         dFaceGroup.renderOrder = 0;
         sub.add(dFaceGroup);
 
@@ -5327,6 +5425,40 @@ void main(){
         }
       });
       window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+    })();
+
+    /* ═══════════════ KEPLR · Tick de shader (uTime con pausa global) ═════════════ */
+    (function installKeplrShaderTick(){
+      if (window.__keplrShaderTickInstalled) return;
+      window.__keplrShaderTickInstalled = true;
+
+      function tick(){
+        try{
+          if (!isKEPLR || !groupKEPLR || !groupKEPLR.userData) { requestAnimationFrame(tick); return; }
+
+          // Pausa global (si existe)
+          let paused = false;
+          try{ if (typeof window.isBuildMotionPaused === 'function') paused = !!window.isBuildMotionPaused(); }catch(_){ }
+
+          const now  = performance.now();
+          const ud   = groupKEPLR.userData;
+          if (ud.__shaderLastT == null) { ud.__shaderLastT = now; ud.__shaderTime = 0; }
+
+          const last = ud.__shaderLastT;
+          const dt   = Math.max(0, (now - last) / 1000);
+          ud.__shaderLastT = now;
+          if (!paused) ud.__shaderTime += dt;
+
+          // Actualiza todos los materiales registrados
+          const mats = Array.isArray(ud.shaderMats) ? ud.shaderMats : [];
+          for (let i=0;i<mats.length;i++){
+            const m = mats[i];
+            if (m && m.uniforms && m.uniforms.uTime) m.uniforms.uTime.value = ud.__shaderTime;
+          }
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
     })();
     </script>
 
