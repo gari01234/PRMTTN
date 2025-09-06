@@ -5480,6 +5480,81 @@ function superformula(theta, a, b, m, n1, n2, n3){
   return r;
 }
 
+/* === Utilidades RAMSES: perímetros rectangulares y orientación de pétalos === */
+
+/* Devuelve muestras a lo largo del perímetro de un rectángulo (en el plano XY). 
+   Para cada muestra: {x,y,z, n:(normal XY hacia afuera)} */
+function rectPerimeterSamples(w, h, z, perSide){
+  const pts = [];
+  const x0 = -w/2, x1 = w/2, y0 = -h/2, y1 = h/2;
+
+  // arriba (normal +Y)
+  for (let i=0;i<perSide;i++){
+    const t = i/(perSide-1);
+    pts.push({ x: THREE.MathUtils.lerp(x0,x1,t), y: y1, z, n: new THREE.Vector2(0, +1) });
+  }
+  // abajo (normal -Y)
+  for (let i=0;i<perSide;i++){
+    const t = i/(perSide-1);
+    pts.push({ x: THREE.MathUtils.lerp(x0,x1,t), y: y0, z, n: new THREE.Vector2(0, -1) });
+  }
+  // izquierda (normal -X)
+  for (let i=1;i<perSide-1;i++){
+    const t = i/(perSide-1);
+    pts.push({ x: x0, y: THREE.MathUtils.lerp(y0,y1,t), z, n: new THREE.Vector2(-1, 0) });
+  }
+  // derecha (normal +X)
+  for (let i=1;i<perSide-1;i++){
+    const t = i/(perSide-1);
+    pts.push({ x: x1, y: THREE.MathUtils.lerp(y0,y1,t), z, n: new THREE.Vector2(+1, 0) });
+  }
+  return pts;
+}
+
+/* Crea una malla instanciada de pétalos orientados con la normal XY dada */
+function buildRectPetalRing(parent, pa, H, rng, baseScale, w, h, z, perSide, slot, lenMul, widMul, tiltDeg){
+  // perfil y geometría del pétalo
+  const len = (1.85 * baseScale) * (lenMul || 1.0);
+  const wid = (0.62 * baseScale) * (widMul || 1.0);
+  const profile = buildPetalLatheProfile(len, wid, 0.30, 26);
+  const petGeo  = new THREE.LatheGeometry(profile, 24);
+  // color por anillo
+  const cPetal  = colorFromPerm(pa, slot).clone();
+  const mat     = makePetalMaterial(cPetal);
+
+  const pts   = rectPerimeterSamples(w, h, z, perSide);
+  const inst  = new THREE.InstancedMesh(petGeo, mat, pts.length);
+  const m     = new THREE.Matrix4();
+  const q     = new THREE.Quaternion();
+  const axisZ = new THREE.Vector3(0,0,1);
+  const yAxis = new THREE.Vector3(0,1,0);
+
+  for (let i=0;i<pts.length;i++){
+    const p = pts[i];
+    // orientar el eje Y del pétalo hacia la normal XY del perímetro
+    const n3 = new THREE.Vector3(p.n.x, p.n.y, 0).normalize();
+    q.setFromUnitVectors(yAxis, n3);
+
+    // tilt (ligero) y variación determinista mínima
+    const dTilt = THREE.MathUtils.degToRad( (tiltDeg||12) * ( ( (i*2654435761>>>0) & 15)/15 - 0.5) );
+    const q2 = new THREE.Quaternion().setFromAxisAngle(n3, dTilt);
+    const qF = q.clone().multiply(q2);
+
+    // escala ligera y jitter determinista
+    const sJ = 0.88 + 0.24 * ( ( (i*2246822519>>>0) & 255)/255 );
+    const sx = sJ, sy = sJ, sz = sJ;
+
+    m.compose(
+      new THREE.Vector3(p.x, p.y, p.z),
+      qF,
+      new THREE.Vector3(sx, sy, sz)
+    );
+    inst.setMatrixAt(i, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  parent.add(inst);
+}
+
 /* === TOMB OF RAMESSES IV · layout (volumen alto/vertical) ================== */
 /* Dimensiones deterministas del volumen (alto > ancho para lectura vertical) */
 const TOMB_W = 140;   // ancho total
@@ -5789,82 +5864,142 @@ function buildAster(container, pa, H, rng, baseScale){
   container.add(inst, center);
 }
 
+/* === RAMSES BLOOM: una única flor determinista con geometría de la tumba ==== */
+function buildRamsesBloom(container, perms, H){
+  const pa0 = (perms && perms.length) ? perms[0] : [1,2,3,4,5];
+  const rnk = lehmerRank(pa0)>>>0;
+  const rng = makeRng( (H ^ (rnk*0x9e3779b9)) >>> 0 );
+
+  // escala global (grande) y proporción del "marco" (alto/vertical ~ 220/140)
+  const baseScale = 6.0 + ((rnk>>>7)&255)/255 * 3.0; // 6..9
+  const aspect    = 220/140;
+  const W1 = 36*baseScale, H1 = W1*aspect;          // marco exterior
+  const W2 = W1*0.66,      H2 = H1*0.66;            // medio
+  const W3 = W1*0.44,      H3 = H1*0.44;            // interior
+
+  // Anillos de pétalos en tres planos Z (capas)
+  buildRectPetalRing(container, pa0, H, rng, baseScale, W1, H1, -1.6*baseScale, 28, 0, 1.00, 1.00, 10);
+  buildRectPetalRing(container, pa0, H, rng, baseScale, W2, H2,  0.0              , 26, 1, 0.95, 0.95, 12);
+  buildRectPetalRing(container, pa0, H, rng, baseScale, W3, H3, +1.8*baseScale, 24, 2, 0.90, 0.90, 14);
+
+  // Disco central tipo phyllo (semilla)
+  (function(){
+    const GOLDEN_ANGLE = 2.39996322972865332;
+    const N = 340;                                        // moderado
+    const R = 2.8 * baseScale;
+    const dome = 1.1 * baseScale;
+    const c = colorFromPerm(pa0, 3);
+    const mat = makeFloretMaterial(c);
+    const geo = makeFloretGeometry(0.85*baseScale);
+    const inst = new THREE.InstancedMesh(geo, mat, N);
+    const m = new THREE.Matrix4();
+    for (let i=0;i<N;i++){
+      const r = Math.sqrt(i/N)*R;
+      const a = i*GOLDEN_ANGLE;
+      const x = Math.cos(a)*r;
+      const z = Math.sin(a)*r;
+      const y = -Math.pow(r/R, 2.0)*dome;
+      const s = 0.55 + 0.45*(i/N);
+      m.makeTranslation(x, y, z);
+      m.multiply(new THREE.Matrix4().makeScale(s,s,s));
+      inst.setMatrixAt(i, m);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    container.add(inst);
+  })();
+
+  // Estambres diagonales (las “X” de la lámina) en la capa media
+  (function(){
+    const mat = new THREE.MeshStandardMaterial({
+      color: colorFromPerm(pa0,4),
+      roughness: 0.35, metalness: 0.05,
+      emissive: new THREE.Color(0x000000),
+      dithering: true
+    });
+    const rTopLeft  = new THREE.Vector3(-W3/2, +H3/2, 0);
+    const rBotRight = new THREE.Vector3(+W3/2, -H3/2, 0);
+    const rTopRight = new THREE.Vector3(+W3/2, +H3/2, 0);
+    const rBotLeft  = new THREE.Vector3(-W3/2, -H3/2, 0);
+
+    const pairs = [[rTopLeft, rBotRight],[rTopRight, rBotLeft]];
+    const rodGeo = new THREE.CylinderGeometry(0.08*baseScale, 0.08*baseScale, 1.0, 8);
+
+    for (let p=0;p<pairs.length;p++){
+      const a = pairs[p][0], b = pairs[p][1];
+      const dir = new THREE.Vector3().subVectors(b,a);
+      const L   = dir.length();
+      const mid = new THREE.Vector3().addVectors(a,b).multiplyScalar(0.5);
+      const rod = new THREE.Mesh(rodGeo, mat);
+      rod.scale.set(1, L, 1);                 // estiramos a lo largo de Y local
+      rod.position.copy(mid);
+      // orientar cilindro de eje Y hacia la dirección AB
+      const q = new THREE.Quaternion();
+      q.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+      rod.setRotationFromQuaternion(q);
+      container.add(rod);
+    }
+  })();
+
+  // “Cáliz” inferior (pequeñas hojas apuntando hacia fuera, parte baja)
+  (function(){
+    const prof = buildPetalLatheProfile(1.2*baseScale, 0.6*baseScale, 0.25, 22);
+    const geo  = new THREE.LatheGeometry(prof, 20);
+    const mat  = makePetalMaterial(colorFromPerm(pa0,5).clone().offsetHSL(0, -0.2, -0.1));
+    const petals = 14 + (rnk % 10);
+    const inst = new THREE.InstancedMesh(geo, mat, petals);
+    const m = new THREE.Matrix4();
+    for (let i=0;i<petals;i++){
+      const a = (i/petals)*Math.PI*2;
+      m.identity();
+      m.multiply(new THREE.Matrix4().makeRotationZ(Math.PI)); // orientar hacia abajo
+      m.multiply(new THREE.Matrix4().makeRotationY(a));
+      m.multiply(new THREE.Matrix4().makeTranslation(0, -H1*0.58, -0.6*baseScale));
+      inst.setMatrixAt(i, m);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    container.add(inst);
+  })();
+}
+
 /* === Builder principal ==================================================== */
-/* === Builder principal · Layout volumétrico de la tumba =================== */
 function buildFLWRS(){
   disposeGroupFLWRS();
   groupFLWRS = new THREE.Group();
 
   updateBackground(true);
 
-  // Permutaciones activas (determinismo)
+  // Permutaciones activas → determinismo
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
-  const H   = flwrsSeedFromPerms(perms)>>>0;
+  const H = flwrsSeedFromPerms(perms)>>>0;
 
-  // MUESTRAS (pocos puntos pero bien grandes)
-  const pts = sampleTombPoints(H);               // ~700–800 puntos aprox.
-  // Reducimos densidad fuerte (quedarnos con ~120–180 posiciones)
-  const step = Math.max(1, Math.floor(pts.length / 160));
-  const picked = [];
-  for (let i=0;i<pts.length;i+=step) picked.push(pts[i]);
-
-  const families = ['PHYLLO','RHODO','SUPERF','ASTER'];
-  groupFLWRS.userData.flowers = [];
-
-  for (let i=0;i<picked.length;i++){
-    const p  = picked[i];
-    const pa = perms[i % perms.length];
-    const r  = lehmerRank(pa)>>>0;
-    const fam = families[(r + i + (H>>>13)) % families.length];
-
-    // escala GRANDE y variada (2.8…5.0) para ver color/forma
-    const seedLocal = (Math.imul((r ^ H ^ (i*2654435761)>>>0), 2246822519) + 1013904223)>>>0;
-    const rngLocal  = makeRng(seedLocal);
-    const baseScale = 2.8 + rngLocal()*2.2;
-
-    const g = new THREE.Group();
-    g.position.set(p.x, p.y, p.z);
-
-    // construir la flor (misma familia/constructores de siempre)
-    try{
-      if (fam === 'PHYLLO')      buildPhylloDisk(g,  pa, H, rngLocal, baseScale);
-      else if (fam === 'RHODO')  buildRhodonea(g,    pa, H, rngLocal, baseScale);
-      else if (fam === 'SUPERF') buildSuperformula(g,pa, H, rngLocal, baseScale);
-      else                       buildAster(g,       pa, H, rngLocal, baseScale);
-    }catch(_){ }
-
-    // orientar la flor mirando “hacia afuera” (normal del soporte)
-    const look = new THREE.Vector3().copy(p.n).add(g.position);
-    g.lookAt(look);
-
-    // SIN sway / SIN movimiento → no añadimos userData.sway ni vel
-    groupFLWRS.add(g);
-    groupFLWRS.userData.flowers.push(g);
-  }
+  // Una sola flor RAMSES en el origen
+  const g = new THREE.Group();
+  g.position.set(0,0,0);
+  buildRamsesBloom(g, perms, H);
+  groupFLWRS.add(g);
 
   scene.add(groupFLWRS);
 
-  // Cámara para lectura vertical del volumen
+  // Cámara para lectura frontal y vertical
   camera.up.set(0,1,0);
-  camera.near = 0.1; camera.far = 5000;
-  camera.fov  = 42;                           // más “tele” para comprimir profundidad
+  camera.near = 0.1; camera.far = 6000;
+  camera.fov  = 40;
   camera.updateProjectionMatrix();
-  if (controls && controls.target) controls.target.set(0, 0, TOMB_D*0.4);
-  camera.position.set(0, 0, TOMB_D*1.2);      // frente al conjunto
-
+  if (controls && controls.target) controls.target.set(0, 0, 0);
+  camera.position.set(0, 0, 220);   // distancia cómoda para ver la flor completa
   controls.enabled = true;
   controls.enableRotate = true;
   controls.enablePan = true;
   controls.enableZoom = true;
-  controls.minDistance = 20;
+  controls.minDistance = 10;
   controls.maxDistance = 2000;
   controls.screenSpacePanning = true;
-  controls.minPolarAngle = 0.2;
-  controls.maxPolarAngle = Math.PI-0.2;
+  controls.minPolarAngle = 0.1;
+  controls.maxPolarAngle = Math.PI-0.1;
   controls.update();
 
-  groupFLWRS.userData._lastT = performance.now();
+  // sin animación/sway
   try{ window.pauseFlwrsMotion(true); }catch(_){ }
 }
 
