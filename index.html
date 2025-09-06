@@ -626,6 +626,7 @@ window.Tilers = {
       <option value="RAUM">RAUM</option>
       <option value="13245">13245</option>
       <option value="KEPLR">KEPLR</option>
+      <option value="FLWRS">FLWRS</option>
       <option value="RAPHI">RAPHI</option>
       <option value="GRVTY">GRVTY</option>
       <option value="R5NOVA">R5NOVA</option>
@@ -5416,6 +5417,492 @@ void main(){
     </script>
 
     <script>
+/* ──────────────────────────────────────────────────────────────────────────
+ *  FLWRS · Flores 3D deterministas (Rhodonea • PhylloDisk • Superformula • Aster)
+ *  - Colocación en el espacio con “pasillo” (negative space) determinista
+ *  - Color PRMTTN (PATTERNS) + vibrance, materiales estándar (sin transparencias masivas)
+ *  - Animación “sway” tipo viento (pausable por sistema BUILD)
+ *  - Rendimiento: InstancedMesh donde aplica + LOD simple
+ * ────────────────────────────────────────────────────────────────────────── */
+
+var isFLWRS    = false;
+var groupFLWRS = null;
+
+/* Limpieza segura */
+function disposeGroupFLWRS(){
+  if (!groupFLWRS) return;
+  try{
+    groupFLWRS.traverse(o=>{
+      if (o.isInstancedMesh){
+        o.geometry?.dispose?.();
+        if (o.material?.isMaterial){ o.material.dispose(); }
+      } else if (o.isMesh || o.isLineSegments){
+        o.geometry?.dispose?.();
+        if (o.material?.isMaterial){ o.material.dispose(); }
+      }
+    });
+  }catch(_){ }
+  scene.remove(groupFLWRS);
+  groupFLWRS = null;
+}
+
+/* === Determinismo base ==================================================== */
+function flwrsSeedFromPerms(perms){ return keplrShapeSeedFromPerms(perms); }
+function makeRng(seed){ let s = (seed>>>0) || 1; return function(){ s = (1664525*s + 1013904223)>>>0; return (s>>>0)/4294967296; }; }
+function colorFromPerm(pa, slot){
+  const sig = computeSignature(pa);
+  let [hI, sI, vI] = PATTERNS[activePatternId](sig, sceneSeed, slot|0);
+  sI = (sI * PHI_S) % 12; vI = (vI * PHI_V) % 12;
+  const {h,s,v} = idxToHSV(hI, sI, vI);
+  const col = new THREE.Color().setHSL(h, s, v);
+  return applyBuildVibranceToColor(col);
+}
+
+/* === Utilidades geométricas ============================================== */
+// perfila un “petalo” latheable (media elipse ensanchada)
+function buildPetalLatheProfile(len=1, wid=0.4, bulge=0.25, samples=24){
+  const pts = [];
+  for (let i=0;i<samples;i++){
+    const t = i/(samples-1);               // 0..1
+    const y = t*len;                        // eje del pétalo
+    const r = Math.sin(Math.PI*t)**0.8;     // ensanchamiento
+    const x = r * wid * (1.0 + bulge*(1.0 - Math.abs(2*t-1)));
+    pts.push(new THREE.Vector2(x, y));
+  }
+  return pts;
+}
+
+/* Superformula 2D (Gielis) → radio */
+function superformula(theta, a, b, m, n1, n2, n3){
+  const t1 = Math.pow(Math.abs(Math.cos(m*theta/4)/a), n2);
+  const t2 = Math.pow(Math.abs(Math.sin(m*theta/4)/b), n3);
+  const r  = Math.pow(t1 + t2, -1.0/n1);
+  return r;
+}
+
+/* === Pasillo determinista (negative space) ================================ */
+/* Centro de corredor sinusoidal determinista; ancho variable */
+function corridorCenterX(z, H){
+  const f = 0.003 + ((H>>>7)&255)/255 * 0.004;   // 0.003..0.007
+  const a = 22 + ((H>>>15)&255)/255 * 24;        // 22..46
+  const p = ((H>>>3)&1023)/1024 * Math.PI*2;
+  return Math.sin(z*f + p)*a;
+}
+function corridorWidth(z, H){
+  const base = 28 + ((H>>>9)&255)/255 * 22;      // 28..50
+  const mod  = 0.5 + 0.5*Math.sin(z*0.001 + ((H>>>13)&1023)/1024*Math.PI*2);
+  return base * (0.75 + 0.35*mod);               // ~ ancho ondulante
+}
+
+/* Acepta posición si está fuera del corredor */
+function acceptPosXZ(x,z,H){
+  const cx = corridorCenterX(z,H);
+  const w  = corridorWidth(z,H);
+  return Math.abs(x - cx) > w;
+}
+
+/* Poisson-ish simple con rechazo por corredor */
+function scatterFlowers(H, count, xRange, zRange, minDistFront, minDistBack){
+  const out = [];
+  const rng = makeRng(H^0x9e3779b1);
+  let guard = 0;
+  while (out.length < count && guard < 100000){
+    guard++;
+    const z = zRange[0] + rng()*(zRange[1]-zRange[0]);
+    const x = xRange[0] + rng()*(xRange[1]-xRange[0]);
+    if (!acceptPosXZ(x,z,H)) continue;
+    const t = (z - zRange[0])/(zRange[1]-zRange[0]);
+    const minD = THREE.MathUtils.lerp(minDistFront, minDistBack, t);
+    let ok = true;
+    for (let i=0;i<out.length;i++){
+      const dx = out[i].x - x, dz = out[i].z - z;
+      if (dx*dx + dz*dz < minD*minD){ ok=false; break; }
+    }
+    if (!ok) continue;
+    out.push({x, z, t});
+  }
+  return out;
+}
+
+/* === Materiales comunes =================================================== */
+function makePetalMaterial(col){
+  return new THREE.MeshStandardMaterial({
+    color: col, roughness: 0.45, metalness: 0.0,
+    transparent: false, dithering: true
+  });
+}
+function makeCenterMaterial(col){
+  const c = col.clone().multiplyScalar(0.7);
+  return new THREE.MeshStandardMaterial({
+    color: c, roughness: 0.6, metalness: 0.0,
+    emissive: c.clone().multiplyScalar(0.12), emissiveIntensity: 1.0,
+    transparent: false, dithering: true
+  });
+}
+
+/* === Familias de flores =================================================== */
+/* 1) PhylloDisk (girasol/dalia) – cúpula + “flósculos” instanciados */
+function buildPhylloDisk(container, pa, H, rng, baseScale){
+  const GOLDEN_ANGLE = 2.39996322972865332; // rad
+  const rank = lehmerRank(pa)>>>0;
+  const sigF = computeSignature(pa);        // rango de firma → densidad
+  let mn=Infinity,mx=-Infinity; for (let i=0;i<sigF.length;i++){ const v=+sigF[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
+  const range = Math.max(0, mx - mn);
+  const N = 220 + Math.floor( Math.tanh(range*0.5) * 580 ); // 220..800
+  const R = 6.0 * baseScale;
+  const dome = 2.4 * baseScale;
+
+  const cPetal = colorFromPerm(pa, 0);
+  const mat = makeCenterMaterial(cPetal);
+  const geo = new THREE.IcosahedronGeometry(0.18*baseScale, 0);
+  const inst = new THREE.InstancedMesh(geo, mat, N);
+  const m = new THREE.Matrix4();
+  for (let i=0;i<N;i++){
+    const r = Math.sqrt(i/N)*R;
+    const a = i * GOLDEN_ANGLE;
+    const x = Math.cos(a)*r;
+    const z = Math.sin(a)*r;
+    const y = -Math.pow(r/R, 2.0) * dome + (0.2*baseScale);
+    const s = 0.6 + 0.6*(i/N);
+    m.makeTranslation(x, y, z);
+    m.multiply(new THREE.Matrix4().makeScale(s,s,s));
+    inst.setMatrixAt(i, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+
+  // receptáculo base
+  const receptGeo = new THREE.SphereGeometry(0.9*baseScale, 16, 12);
+  const receptMat = makeCenterMaterial(cPetal.clone().offsetHSL(0, -0.2, -0.1));
+  const recept = new THREE.Mesh(receptGeo, receptMat);
+  recept.position.y = -0.2*baseScale;
+
+  container.add(inst, recept);
+}
+
+/* 2) Rhodonea (rosa): extrusión volumétrica del contorno r=cos(kθ) */
+function buildRhodonea(container, pa, H, rng, baseScale){
+  const rnk = lehmerRank(pa)>>>0;
+  let k = 3 + ((rnk ^ (H>>>7)) % 6); // 3..8
+  if (((rnk + sceneSeed) % 5) === 0) k = 5;    // pentagonalidad forzada a veces
+
+  const R = 7.5 * baseScale;
+  const S = 480; // muestras contorno
+  const shape = new THREE.Shape();
+  for (let i=0;i<=S;i++){
+    const t = (i/S) * Math.PI*2;
+    const r = Math.abs(Math.cos(k*t));
+    const x = (r*R) * Math.cos(t);
+    const y = (r*R) * Math.sin(t);
+    if (i===0) shape.moveTo(x,y); else shape.lineTo(x,y);
+  }
+  const extr = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.9*baseScale,
+    bevelEnabled: true, bevelSegments: 2, bevelSize: 0.25*baseScale, bevelThickness: 0.35*baseScale,
+    curveSegments: 96,
+    steps: 1
+  });
+  // “inflado” radial → curvatura z en función del radio
+  const pos = extr.attributes.position;
+  for (let i=0;i<pos.count;i++){
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const rr = Math.sqrt(x*x + y*y)/R;
+    const bump = (1.0 - Math.pow(rr, 1.3)) * 0.8*baseScale;
+    pos.setZ(i, z + bump);
+  }
+  pos.needsUpdate = true;
+  extr.computeVertexNormals();
+
+  const cFace = colorFromPerm(pa, 1);
+  const mat   = makePetalMaterial(cFace);
+  const mesh  = new THREE.Mesh(extr, mat);
+  mesh.rotation.x = -Math.PI/2;
+  container.add(mesh);
+}
+
+/* 3) Superformula 3D (tulip/calyx): perfil SF → Lathe */
+function buildSuperformula(container, pa, H, rng, baseScale){
+  const rnk = lehmerRank(pa)>>>0;
+  // parámetros deterministas suaves
+  const m  = 4 + ((rnk ^ (H>>>11)) % 8);         // 4..11
+  let n1 = 0.3 + ((rnk>>>3)&255)/255 * 1.7;      // 0.3..2.0
+  let n2 = 0.3 + ((rnk>>>9)&255)/255 * 1.7;
+  let n3 = 0.3 + ((rnk>>>15)&255)/255 * 1.7;
+  if (((rnk + sceneSeed) % 5) === 0){ m = 5; }   // pentagonalidad ocasional
+
+  const a=1, b=1;
+  const R = 5.5*baseScale;
+  const samples = 220;
+  const prof = [];
+  for (let i=0;i<samples;i++){
+    const t = i/(samples-1);
+    const th = t*Math.PI;               // 0..π
+    const r  = superformula(th, a, b, m, n1, n2, n3);
+    const x  = (r*R);
+    const y  = t * (7.0*baseScale);
+    prof.push(new THREE.Vector2(x, y));
+  }
+  const lathe = new THREE.LatheGeometry(prof, 96);
+  lathe.computeVertexNormals();
+
+  const cPetal = colorFromPerm(pa, 2);
+  const mat    = makePetalMaterial(cPetal);
+  const mesh   = new THREE.Mesh(lathe, mat);
+  mesh.rotation.x = -Math.PI/2;
+  container.add(mesh);
+
+  // “estambres” simples
+  const stemN = 12 + (rnk % 12);
+  const sGeo = new THREE.CylinderGeometry(0.05*baseScale, 0.05*baseScale, 5.0*baseScale, 8);
+  const sMat = makeCenterMaterial(cPetal.clone().offsetHSL(0, -0.3, 0.1));
+  for (let i=0;i<stemN;i++){
+    const a0 = (i/stemN)*Math.PI*2;
+    const g = new THREE.Mesh(sGeo, sMat);
+    g.position.set(Math.cos(a0)*1.2*baseScale, 0, Math.sin(a0)*1.2*baseScale);
+    g.rotation.z = (Math.PI/2) + (a0*0.2);
+    container.add(g);
+  }
+}
+
+/* 4) Aster/Daisy: pétalos instanciados alrededor de un hemisferio */
+function buildAster(container, pa, H, rng, baseScale){
+  const rnk = lehmerRank(pa)>>>0;
+  const petals = 10 + (rnk % 24);          // 10..33
+  const len = 5.2*baseScale, wid = 1.3*baseScale;
+  const profile = buildPetalLatheProfile(len, wid, 0.35, 26);
+  const petGeo  = new THREE.LatheGeometry(profile, 24);
+  petGeo.translate(0, -len*0.1, 0);
+  const cPetal  = colorFromPerm(pa, 3);
+  const mat     = makePetalMaterial(cPetal);
+  const inst    = new THREE.InstancedMesh(petGeo, mat, petals);
+  const m       = new THREE.Matrix4();
+
+  for (let i=0;i<petals;i++){
+    const a = (i/petals) * Math.PI*2;
+    const tilt = 0.45 + 0.25*Math.sin(i*2.39996); // diferente apertura
+    m.identity();
+    m.multiply(new THREE.Matrix4().makeRotationY(a));
+    m.multiply(new THREE.Matrix4().makeRotationX(tilt));
+    inst.setMatrixAt(i, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+
+  // centro
+  const cGeo = new THREE.SphereGeometry(1.1*baseScale, 16, 12);
+  const cMat = makeCenterMaterial(cPetal.clone().offsetHSL(0.08, -0.4, -0.15));
+  const center = new THREE.Mesh(cGeo, cMat);
+  center.position.y = -0.2*baseScale;
+
+  container.add(inst, center);
+}
+
+/* === Builder principal ==================================================== */
+function buildFLWRS(){
+  disposeGroupFLWRS();
+  groupFLWRS = new THREE.Group();
+
+  // fondo normal (sin FRBN forzado)
+  updateBackground(true);
+
+  // Permutaciones activas
+  let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
+  if (!perms.length) perms = [[1,2,3,4,5]];
+  const H = flwrsSeedFromPerms(perms)>>>0;
+  const rng = makeRng(H^0x51ed1);
+
+  // Rango de escena
+  const X = [-120, 120];
+  const Z = [-260, 160];
+
+  // Conteos deterministas por banda (frente/medio/fondo)
+  const Nfront = 14 + (H%7);            // 14..20
+  const Nmid   = 18 + ((H>>>5)%10);      // 18..27
+  const Nback  = 22 + ((H>>>9)%12);      // 22..33
+  const spots  = []
+    .concat(scatterFlowers(H^0x1, Nfront, X, [Z[0], Z[0]/3], 26, 18))
+    .concat(scatterFlowers(H^0x2, Nmid,   X, [Z[0]/3, Z[1]/3], 22, 16))
+    .concat(scatterFlowers(H^0x3, Nback,  X, [Z[1]/3, Z[1]],   18, 12));
+
+  const families = ['PHYLLO','RHODO','SUPERF','ASTER'];
+
+  groupFLWRS.userData.flowers = [];
+
+  for (let i=0;i<spots.length;i++){
+    const pos = spots[i];
+    const pa  = perms[i % perms.length];
+    const rnk = lehmerRank(pa)>>>0;
+
+    // familia determinista
+    const fam = families[(rnk + i + (H>>>13)) % families.length];
+
+    // escala según profundidad (más grande cerca del pasillo)
+    const nearCorridor = Math.max(0, 1.0 - Math.min(1.0, Math.abs(pos.x - corridorCenterX(pos.z,H)) / corridorWidth(pos.z,H)));
+    const baseScale = THREE.MathUtils.lerp(0.8, 1.6, nearCorridor) * THREE.MathUtils.lerp(1.3, 0.7, pos.t);
+
+    const g = new THREE.Group();
+    g.position.set(pos.x, -6.0, pos.z);
+    g.rotation.y = ((rnk ^ (H>>>7) ^ i) % 360) * (Math.PI/180);
+
+    // construir la flor según familia
+    try{
+      if (fam === 'PHYLLO')     buildPhylloDisk(g, pa, H, rng, baseScale);
+      else if (fam === 'RHODO') buildRhodonea(g,   pa, H, rng, baseScale);
+      else if (fam === 'SUPERF')buildSuperformula(g,pa, H, rng, baseScale);
+      else                      buildAster(g,      pa, H, rng, baseScale);
+    }catch(_){ }
+
+    // sway params (determinista)
+    const swayA = 0.06 + ((rnk>>>3)%100)/1000;   // amplitud ~0.06..0.16
+    const swayW = 0.15 + ((rnk>>>11)%100)/500;   // frecuencia ~0.15..0.35
+    const swayP = ((rnk>>>19)%628)/100;          // fase 0..6.28
+
+    g.userData.sway = { A: swayA, W: swayW, P: swayP };
+    groupFLWRS.add(g);
+    groupFLWRS.userData.flowers.push(g);
+  }
+
+  scene.add(groupFLWRS);
+
+  // Cámara inicial mirando por el “pasillo”
+  camera.up.set(0,1,0);
+  camera.fov = 48;
+  camera.near = 0.1; camera.far = 4000;
+  camera.updateProjectionMatrix();
+  if (controls && controls.target) controls.target.set(0, -4, 0);
+  camera.position.set(0, 8, Z[0]*0.42);
+  controls.enabled = true;
+  controls.enableRotate = true;
+  controls.enablePan = true;
+  controls.enableZoom = true;
+  controls.minDistance = 10;
+  controls.maxDistance = 500;
+  controls.screenSpacePanning = true;
+  controls.minPolarAngle = Math.PI*0.35;
+  controls.maxPolarAngle = Math.PI*0.60;
+  controls.update();
+
+  // RAF metadata
+  groupFLWRS.userData._lastT = performance.now();
+}
+
+/* === Exclusivo + hooks ==================================================== */
+function toggleFLWRS(){
+  isFLWRS = !isFLWRS;
+
+  if (isFLWRS){
+    // apagar otros motores (como haces en KEPLR/GRVTY)
+    try{ if (typeof isFRBN   !== 'undefined' && isFRBN)   toggleFRBN();   }catch(_){ }
+    try{ if (typeof isLCHT   !== 'undefined' && isLCHT)   toggleLCHT();   }catch(_){ }
+    try{ if (typeof isOFFNNG !== 'undefined' && isOFFNNG) toggleOFFNNG(); }catch(_){ }
+    try{ if (typeof isTMSL   !== 'undefined' && isTMSL)   toggleTMSL();   }catch(_){ }
+    try{ if (typeof isRAUM   !== 'undefined' && isRAUM)   toggleRAUM();   }catch(_){ }
+    try{ if (typeof is13245  !== 'undefined' && is13245)  toggle13245();  }catch(_){ }
+    try{ if (typeof isR5NOVA !== 'undefined' && isR5NOVA) toggleR5NOVA(); }catch(_){ }
+    try{ if (typeof isKEPLR  !== 'undefined' && isKEPLR)  toggleKEPLR();  }catch(_){ }
+
+    leaveBuildRenderBoost();
+    enterRaumRenderBoost();
+
+    buildFLWRS();
+
+  } else {
+    disposeGroupFLWRS();
+    camera.fov = 75; camera.updateProjectionMatrix();
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
+    controls.screenSpacePanning = false;
+  }
+}
+function rebuildFLWRSIfActive(){ if (isFLWRS) buildFLWRS(); }
+function ensureOnlyFLWRS(){ if (!isFLWRS) toggleFLWRS(); }
+function ensureOnlyFLWRSFromUI(){ ensureOnlyFLWRS(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI(); }
+
+/* Hooks de rebuild (como los otros motores) */
+(function FLWRSHook(){
+  const run = ()=>{ try{ rebuildFLWRSIfActive(); }catch(_){ } };
+  [
+    'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+    'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+    'applyAttributeMapping','cycleAttributeMapping',
+    'applyPermutationSet','shufflePermutations','randomizePermutationCenterClick'
+  ].forEach(name=>{
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__flwrs_hooked){
+      window[name] = function(...args){
+        const res = orig.apply(this, args);
+        setTimeout(run,0);
+        requestAnimationFrame(run);
+        return res;
+      };
+      window[name].__flwrs_hooked = true;
+    }
+  });
+  window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+})();
+
+/* === Animación + pausa ==================================================== */
+(function installFLWRSAnimator(){
+  if (window.__flwrsAnimatorInstalled) return;
+  window.__flwrsAnimatorInstalled = true;
+
+  window.__flwrsPaused = !!window.__flwrsPaused;
+  window.pauseFlwrsMotion  = function(on=true){
+    window.__flwrsPaused = !!on;
+    try{ if (groupFLWRS) groupFLWRS.userData._lastT = performance.now(); }catch(_){ }
+  };
+  window.toggleFlwrsPause = function(){ window.pauseFlwrsMotion(!window.__flwrsPaused); };
+  window.resetFlwrsMotion = function(){
+    try{ if (groupFLWRS) groupFLWRS.userData._lastT = performance.now(); }catch(_){ }
+  };
+
+  function tick(){
+    try{
+      if (!isFLWRS || !groupFLWRS){ requestAnimationFrame(tick); return; }
+
+      let paused = !!window.__flwrsPaused;
+      try{ if (!paused && typeof window.isBuildMotionPaused==='function') paused = !!window.isBuildMotionPaused(); }catch(_){ }
+
+      const now  = performance.now();
+      const last = groupFLWRS.userData._lastT || now;
+      const dt   = Math.max(0, (now - last)/1000);
+      groupFLWRS.userData._lastT = now;
+
+      if (!paused){
+        const arr = groupFLWRS.userData.flowers || [];
+        for (let i=0;i<arr.length;i++){
+          const g = arr[i]; if (!g || !g.userData || !g.userData.sway) continue;
+          const s = g.userData.sway;
+          const a = s.A, w = s.W, p = s.P;
+          const tilt = a * Math.sin(w*now*0.001 + p);
+          g.rotation.x = tilt;
+          if (!g.matrixAutoUpdate) g.updateMatrix();
+          g.updateMatrixWorld(true);
+        }
+      }
+    }catch(_){ }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // Bridge con menú BUILD si existe
+  function wrap(name, after){
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__flwrs_hooked){
+      window[name] = function(...args){
+        const out = orig.apply(this, args);
+        try{ after(); }catch(_){ }
+        return out;
+      };
+      window[name].__flwrs_hooked = true;
+    }
+  }
+  wrap('pauseMotion',       ()=> window.toggleFlwrsPause());
+  wrap('resumeMotion',      ()=> window.pauseFlwrsMotion(false));
+  wrap('toggleMotionPause', ()=> window.toggleFlwrsPause());
+  wrap('resetMotion',       ()=> window.resetFlwrsMotion());
+})();
+</script>
+
+    <script>
 // ──────────────────────────────
 // RAPHI · Right-Angled Parallelepipeds 1:ϕ:ϕⁿ  (hermano de KEPLR)
 // n ∈ {0,1,2,3}  +  preset especial 1:1:2  + overlays (diagonales / King's Chamber)
@@ -6155,6 +6642,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       else if (isRAUM)   v = 'RAUM';
       else if (is13245)  v = '13245';
       else if (isKEPLR)  v = 'KEPLR';
+      else if (isFLWRS)  v = 'FLWRS';   // ← FLWRS
       else if (isRAPHI)  v = 'RAPHI';   // ← añadido
       else if (typeof window.isGRVTY !== 'undefined' && window.isGRVTY) v = 'GRVTY';
       else if (isR5NOVA) v = 'R5NOVA';
@@ -6178,6 +6666,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       if (val === 'RAUM')  { if (!isRAUM)  toggleRAUM();  return; }
       if (val === '13245') { if (!is13245) toggle13245(); return; }
       if (val === 'KEPLR') { if (!isKEPLR) toggleKEPLR(); return; }
+      if (val === 'FLWRS') { if (!isFLWRS) toggleFLWRS(); return; }
       if (val === 'RAPHI') { if (!isRAPHI) toggleRAPHI(); return; }   // ← añadido
       if (val === 'GRVTY'){ if (!(typeof window.isGRVTY!=='undefined' && window.isGRVTY) && typeof window.toggleGRVTY==='function') toggleGRVTY(); return; }
       if (val === 'R5NOVA'){ if (!isR5NOVA)toggleR5NOVA();return; }
@@ -6192,7 +6681,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       };
 
       // Orden:
-      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → RAPHI → GRVTY → R5NOVA → BUILD
+      // BUILD → FRBN → LCHT → OFFNNG → TMSL → RAUM → 13245 → KEPLR → FLWRS → RAPHI → GRVTY → R5NOVA → BUILD
 
       if (isFRBN){    ensureOnlyLCHT();   syncUI(); return; }
       if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }
@@ -6208,7 +6697,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
       if (isRAUM){    ensureOnly13245();  syncUI(); return; }
       if (is13245){   ensureOnlyKEPLR();  syncUI(); return; }
-      if (isKEPLR){   ensureOnlyRAPHI();  syncUI(); return; }
+      if (isKEPLR){   ensureOnlyFLWRS();  syncUI(); return; }
+      if (isFLWRS){   ensureOnlyRAPHI();  syncUI(); return; }
       if (isRAPHI){   ensureOnlyGRVTY();  syncUI(); return; }  // ← RAPHI → GRVTY
       if (isGRVTY){   ensureOnlyR5NOVA(); syncUI(); return; }  // ← GRVTY → R5NOVA
       if (isR5NOVA){  switchToBuild();    syncUI(); return; }
