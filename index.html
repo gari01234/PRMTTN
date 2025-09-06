@@ -5845,6 +5845,35 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
+    /* ——— Material tipo KEPLR/RAPHI para paneles/volúmenes ———
+       Si el proyecto expone factories propios, se usan; si no, fallback Physical equivalente. */
+    function r5nKeplrRaphiMaterial(colorTHREE){
+      try{
+        if (typeof window.keplrSurfaceMaterial === 'function')
+          return window.keplrSurfaceMaterial(colorTHREE);
+      }catch(_){ }
+
+      try{
+        if (typeof window.raphiSurfaceMaterial === 'function')
+          return window.raphiSurfaceMaterial(colorTHREE);
+      }catch(_){ }
+
+      // Fallback: aspecto físico brillante similar a KEPLR/RAPHI
+      const m = new THREE.MeshPhysicalMaterial({
+        color: colorTHREE,
+        roughness: 0.32,
+        metalness: 0.04,
+        clearcoat: 0.36,
+        clearcoatRoughness: 0.75,
+        envMapIntensity: 0.9,
+        reflectivity: 0.5,
+        dithering: true
+      });
+      m.emissive = colorTHREE.clone().multiplyScalar(0.08);
+      m.emissiveIntensity = 0.08;
+      return m;
+    }
+
     // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
     function r5novaAssembleRects(){
       // Interior visible: restamos el grosor de muros/piso/techo (R5_G)
@@ -5961,13 +5990,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         const offs = offsetFromTag(r.tag);
         const col  = colorR5NFor(pa, offs, i);
 
-        const mat = new THREE.MeshLambertMaterial({
-          color: col,
-          dithering: true,
-          side: THREE.DoubleSide
-        });
-        mat.emissive = col.clone();
-        mat.emissiveIntensity = 0.12;
+        const mat = r5nKeplrRaphiMaterial(col);
 
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(cx, cy, zBackEdge + R5_DEPTH/2); // pegado al canto posterior
