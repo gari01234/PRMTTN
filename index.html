@@ -5546,8 +5546,61 @@ function makeFloretMaterial(col){
   return new THREE.MeshStandardMaterial({
     color: col, roughness: 0.35, metalness: 0.0,
     emissive: col.clone().multiplyScalar(0.06), emissiveIntensity: 1.0,
-    dithering: true
+    dithering: true,
+    vertexColors: true
   });
+}
+
+/* === Escala global (todas las flores 1/6) ================================ */
+const FLWRS_GLOBAL_SCALE = 1/6;
+const FLWRS_BOX_HALF     = 50;   // cubo 100x100x100 centrado en (0,0,0)
+
+/* Color por instancia (determinista: base de PATTERNS + jitter pequeño) */
+function instColor(pa, slot, i, N, rng){
+  const base = colorFromPerm(pa, slot);
+  const hsl  = {h:0,s:0,l:0};
+  base.getHSL(hsl);
+  // variaciones pequeñas pero visibles y deterministas
+  const dh = ((i*0.61803398875) % 1)*0.20 - 0.10;              // ±0.10
+  const ds = ( ( (i*2654435761>>>0) & 255)/255 - 0.5) * 0.25;   // ±0.125
+  const dl = ((i/(N||1)) - 0.5) * 0.30;                          // gradiente radial
+  const out = new THREE.Color();
+  out.setHSL(
+    (hsl.h + dh + 1) % 1,
+    THREE.MathUtils.clamp(hsl.s + ds, 0, 1),
+    THREE.MathUtils.clamp(hsl.l + dl, 0, 1)
+  );
+  return out;
+}
+
+/* Dispersión Poisson-ish 3D dentro del cubo (sin “camino”) */
+function scatterFlowersInCube(H, count, half, minDist){
+  const rng = makeRng(H ^ 0xa53a9);
+  const pts = [];
+  let guard = 0;
+  while (pts.length < count && guard < 200000){
+    guard++;
+    const x = (rng()*2-1) * half;
+    const y = (rng()*2-1) * half;
+    const z = (rng()*2-1) * half;
+    let ok = true;
+    for (let i=0;i<pts.length;i++){
+      const dx = pts[i].x-x, dy = pts[i].y-y, dz = pts[i].z-z;
+      if (dx*dx+dy*dy+dz*dz < minDist*minDist){ ok=false; break; }
+    }
+    if (ok) pts.push({x,y,z});
+  }
+  return pts;
+}
+
+/* Velocidad determinista (magnitud desde “Signature Range”) */
+function flwrSpeedFromSignature(pa){
+  let F = computeSignature(pa); if (!Array.isArray(F)) F=[Number(F)||0];
+  let mn=Infinity,mx=-Infinity; for (let i=0;i<F.length;i++){ const v=+F[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
+  const range = Math.max(0, mx-mn);
+  const vMin = 2.0, vMax = 8.0;                  // unidades/seg
+  const norm = Math.tanh(range*0.5);
+  return vMin + norm*(vMax-vMin);
 }
 
 /* === Familias de flores =================================================== */
@@ -5557,12 +5610,11 @@ function buildPhylloDisk(container, pa, H, rng, baseScale){
   let F = computeSignature(pa); if (!Array.isArray(F)) F=[+F||0];
   let mn=Infinity,mx=-Infinity; for (let i=0;i<F.length;i++){ const v=+F[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
   const range = Math.max(0, mx-mn);
-  const N = 380 + Math.floor(Math.tanh(range*0.6)*900);  // 380..1280 (más denso)
-  const R = 6.0 * baseScale;
-  const dome = 2.6 * baseScale;
+  const N = 240 + Math.floor(Math.tanh(range*0.6)*440);  // **menos denso** 240..680
+  const R = 6.0 * baseScale, dome = 2.3 * baseScale;
 
-  const c = colorFromPerm(pa, 0).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
-  const mat = makeFloretMaterial(c);
+  const baseCol = colorFromPerm(pa, 0);
+  const mat = makeFloretMaterial(baseCol);
   const geo = makeFloretGeometry(baseScale);
   const inst = new THREE.InstancedMesh(geo, mat, N);
   const m = new THREE.Matrix4();
@@ -5572,60 +5624,56 @@ function buildPhylloDisk(container, pa, H, rng, baseScale){
     const a = i*GOLDEN_ANGLE;
     const x = Math.cos(a)*r;
     const z = Math.sin(a)*r;
-    const y = -Math.pow(r/R, 2.0)*dome + (0.22*baseScale);
-    const s = 0.55 + 0.55*(i/N);
+    const y = -Math.pow(r/R, 2.0)*dome + 0.18*baseScale;
+    const s = 0.50 + 0.50*(i/N);
     m.makeTranslation(x,y,z);
     m.multiply(new THREE.Matrix4().makeScale(s,s,s));
     inst.setMatrixAt(i, m);
+    inst.setColorAt(i, instColor(pa, 0, i, N, rng));
   }
   inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
 
-  // receptáculo
-  const recGeo = new THREE.SphereGeometry(0.9*baseScale, 16, 12);
-  const recMat = makeCenterMaterial(c.clone().offsetHSL(0, -0.15, -0.08));
-  const rec = new THREE.Mesh(recGeo, recMat);
-  rec.position.y = -0.25*baseScale;
-
-  container.add(inst, rec);
+  container.add(inst);
 }
 
 /* 2) RhodoneaCloud: nube particulada con contorno r=cos(kθ) */
 function buildRhodonea(container, pa, H, rng, baseScale){
   const rnk = lehmerRank(pa)>>>0;
-  let k = 3 + ((rnk ^ (H>>>7)) % 6);                 // 3..8
-  if (((rnk + sceneSeed) % 5) === 0) k = 5;          // pentagonalidad ocasional
-  const R = 7.2 * baseScale;
+  let k = 3 + ((rnk ^ (H>>>7)) % 6); if (((rnk + sceneSeed) % 5) === 0) k = 5;
+  const R = 7.0 * baseScale;
 
-  const rings = 64;                  // anillos radiales
-  const perRing = 64;                // muestras angulares
-  const count = rings*perRing;
-  const c = colorFromPerm(pa, 1).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
-  const mat = makeFloretMaterial(c);
+  const rings = 44;           // ↓ densidad
+  const perRing = 52;         // ↓ densidad
+  const N = rings*perRing;
+
+  const baseCol = colorFromPerm(pa, 1);
+  const mat = makeFloretMaterial(baseCol);
   const geo = makeFloretGeometry(baseScale*0.9);
-  const inst = new THREE.InstancedMesh(geo, mat, count);
+  const inst = new THREE.InstancedMesh(geo, mat, N);
   const m = new THREE.Matrix4();
 
-  let idx = 0;
+  let idx=0;
   for (let ri=0; ri<rings; ri++){
-    const rr = (ri+0.5)/rings;                 // 0..1
-    const rMax = R * rr;
+    const rr = (ri+0.5)/rings;
+    const rMax = R*rr;
     for (let j=0;j<perRing;j++){
-      const th = (j/perRing) * Math.PI*2;
-      const rose = Math.abs(Math.cos(k*th));   // contorno r=cos(kθ)
-      const r = rMax * rose;                   // recorte por pétalo
-      const x = Math.cos(th)*r;
-      const z = Math.sin(th)*r;
-      const bump = (1.0 - Math.pow(rr,1.35)) * 1.6*baseScale; // abombado
-      const y = bump - 0.15*baseScale;
-
-      const s = 0.6 + 0.5*rr;
+      const th = (j/perRing)*Math.PI*2;
+      const rose = Math.abs(Math.cos(k*th));
+      const r = rMax*rose;
+      const x = Math.cos(th)*r, z = Math.sin(th)*r;
+      const y = (1.0 - Math.pow(rr,1.35))*1.4*baseScale - 0.12*baseScale;
+      const s = 0.55 + 0.45*rr;
       m.makeTranslation(x,y,z);
       m.multiply(new THREE.Matrix4().makeScale(s,s,s));
-      inst.setMatrixAt(idx++, m);
+      inst.setMatrixAt(idx, m);
+      inst.setColorAt(idx, instColor(pa, 1, idx, N, rng));
+      idx++;
     }
   }
   inst.instanceMatrix.needsUpdate = true;
-  inst.rotation.x = -Math.PI/2;  // igual que la versión extruida
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  inst.rotation.x = -Math.PI/2;
   container.add(inst);
 }
 
@@ -5637,37 +5685,36 @@ function buildSuperformula(container, pa, H, rng, baseScale){
   let n2 = 0.3 + ((rnk>>>9 )&255)/255 * 1.7;
   let n3 = 0.3 + ((rnk>>>15)&255)/255 * 1.7;
 
-  const a=1,b=1;
-  const height = 7.2*baseScale;
-  const R = 5.4*baseScale;
-  const rows = 60, cols = 160;                 // densidad de puntos
+  const height = 7.0*baseScale, R = 5.0*baseScale;
+  const rows = 40, cols = 100;              // ↓ densidad
   const N = rows*cols;
 
-  const c = colorFromPerm(pa, 2).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
-  const mat = makeFloretMaterial(c);
+  const baseCol = colorFromPerm(pa, 2);
+  const mat = makeFloretMaterial(baseCol);
   const geo = makeFloretGeometry(baseScale*0.85);
   const inst = new THREE.InstancedMesh(geo, mat, N);
-  const mtx = new THREE.Matrix4();
+  const M = new THREE.Matrix4();
 
   let idx=0;
   for (let i=0;i<rows;i++){
-    const t = (i+0.5)/rows;               // 0..1 a lo largo de la altura
-    const y = (t-0.02) * height - 0.35*baseScale;
-    const taper = 1.0 - Math.pow(t,1.4);  // cierra hacia arriba
+    const t = (i+0.5)/rows;
+    const y = (t-0.02)*height - 0.30*baseScale;
+    const taper = 1.0 - Math.pow(t,1.4);
     for (let j=0;j<cols;j++){
-      const th = (j/cols) * Math.PI*2;
-      const rSF = superformula(th, a, b, m, n1, n2, n3);
-      const rad = R * rSF * taper;
-      const x = Math.cos(th)*rad;
-      const z = Math.sin(th)*rad;
-
+      const th = (j/cols)*Math.PI*2;
+      const rSF = superformula(th,1,1,m,n1,n2,n3);
+      const rad = R*rSF*taper;
+      const x = Math.cos(th)*rad, z = Math.sin(th)*rad;
       const s = 0.55 + 0.35*(1.0 - t);
-      mtx.makeTranslation(x,y,z);
-      mtx.multiply(new THREE.Matrix4().makeScale(s,s,s));
-      inst.setMatrixAt(idx++, mtx);
+      M.makeTranslation(x,y,z);
+      M.multiply(new THREE.Matrix4().makeScale(s,s,s));
+      inst.setMatrixAt(idx, M);
+      inst.setColorAt(idx, instColor(pa, 2, idx, N, rng));
+      idx++;
     }
   }
   inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   inst.rotation.x = -Math.PI/2;
   container.add(inst);
 }
@@ -5675,74 +5722,56 @@ function buildSuperformula(container, pa, H, rng, baseScale){
 /* 4) Aster (daisy-lobes) */
 function buildAster(container, pa, H, rng, baseScale){
   const rnk = lehmerRank(pa)>>>0;
-  const P = 10 + (rnk % 24);                 // nº de "lóbulos"
-  const R = 6.2*baseScale;                   // radio base
-  const amp = 1.9*baseScale;                 // amplitud de lóbulos
+  const P = 10 + (rnk % 24);
+  const R = 6.0*baseScale, amp = 1.7*baseScale;
 
-  const rings = 56, perRing = 120;
+  const rings = 40, perRing = 90;           // ↓ densidad
   const N = rings*perRing;
 
-  const c = colorFromPerm(pa, 3).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
-  const mat = makeFloretMaterial(c);
+  const baseCol = colorFromPerm(pa, 3);
+  const mat = makeFloretMaterial(baseCol);
   const geo = makeFloretGeometry(baseScale*0.85);
   const inst = new THREE.InstancedMesh(geo, mat, N);
   const m = new THREE.Matrix4();
 
   let idx=0;
   for (let i=0;i<rings;i++){
-    const rr = (i+0.5)/rings;                     // 0..1
+    const rr = (i+0.5)/rings;
     for (let j=0;j<perRing;j++){
       const th = (j/perRing)*Math.PI*2;
-      const boundary = R + amp*Math.max(0, Math.cos(P*th)); // contorno lobulado
-      const r = boundary * rr;
-      const x = Math.cos(th)*r;
-      const z = Math.sin(th)*r;
-      const dome = (1.0 - Math.pow(rr,1.3)) * 1.2*baseScale;
-      const y = dome - 0.22*baseScale;
-
+      const boundary = R + amp*Math.max(0, Math.cos(P*th));
+      const r = boundary*rr;
+      const x = Math.cos(th)*r, z = Math.sin(th)*r;
+      const y = (1.0 - Math.pow(rr,1.3))*1.1*baseScale - 0.2*baseScale;
       const s = 0.55 + 0.45*rr;
       m.makeTranslation(x,y,z);
       m.multiply(new THREE.Matrix4().makeScale(s,s,s));
-      inst.setMatrixAt(idx++, m);
+      inst.setMatrixAt(idx, m);
+      inst.setColorAt(idx, instColor(pa, 3, idx, N, rng));
+      idx++;
     }
   }
   inst.instanceMatrix.needsUpdate = true;
-
-  // centro (disco pequeño)
-  const cGeo = new THREE.SphereGeometry(1.05*baseScale, 16, 12);
-  const cMat = makeCenterMaterial(c.clone().offsetHSL(0.06, -0.35, -0.12));
-  const center = new THREE.Mesh(cGeo, cMat);
-  center.position.y = -0.2*baseScale;
-
-  container.add(inst, center);
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  container.add(inst);
 }
 
 /* === Builder principal ==================================================== */
 function buildFLWRS(){
   disposeGroupFLWRS();
   groupFLWRS = new THREE.Group();
+  groupFLWRS.userData.half = FLWRS_BOX_HALF;
 
-  // fondo normal (sin FRBN forzado)
   updateBackground(true);
 
-  // Permutaciones activas
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
-  const H = flwrsSeedFromPerms(perms)>>>0;
+  const H   = flwrsSeedFromPerms(perms)>>>0;
   const rng = makeRng(H^0x51ed1);
 
-  // Rango de escena (igual) y MUCHA más densidad
-  const X = [-120, 120];
-  const Z = [-260, 160];
-
-  // Conteos por banda (x3 aprox) y menor distancia mínima
-  const Nfront = 46 + (H%18);           // 46..63
-  const Nmid   = 72 + ((H>>>5)%28);     // 72..99
-  const Nback  = 96 + ((H>>>9)%36);     // 96..132
-  const spots  = []
-    .concat(scatterFlowers(H^0x1, Nfront, X, [Z[0],      Z[0]/3], 16, 11))
-    .concat(scatterFlowers(H^0x2, Nmid,   X, [Z[0]/3,    Z[1]/3], 14, 10))
-    .concat(scatterFlowers(H^0x3, Nback,  X, [Z[1]/3,    Z[1]  ], 12,  9));
+  // MUCHAS flores dentro del cubo, sin “camino”
+  const N = 160 + ((H>>>7) % 120);                // 160..279 flores
+  const spots = scatterFlowersInCube(H, N, FLWRS_BOX_HALF*0.92, 4.5); // minDist 4.5
 
   const families = ['PHYLLO','RHODO','SUPERF','ASTER'];
   groupFLWRS.userData.flowers = [];
@@ -5751,24 +5780,17 @@ function buildFLWRS(){
     const pos = spots[i];
     const pa  = perms[i % perms.length];
     const rnk = lehmerRank(pa)>>>0;
-
-    // familia determinista
     const fam = families[(rnk + i + (H>>>13)) % families.length];
 
-    // variación determinista por flor (tamaño y sutil color en builders)
+    // RNG local + escala (1/6 global + variación por flor)
     const seedLocal = (Math.imul((rnk ^ H ^ (i*2654435761)>>>0), 2246822519) + 1013904223)>>>0;
     const rngLocal  = makeRng(seedLocal);
-
-    // escala según profundidad + jitter determinista
-    const nearCorridor = Math.max(0, 1.0 - Math.min(1.0, Math.abs(pos.x - corridorCenterX(pos.z,H)) / corridorWidth(pos.z,H)));
-    const baseScale0   = THREE.MathUtils.lerp(0.8, 1.6, nearCorridor) * THREE.MathUtils.lerp(1.3, 0.7, pos.t);
-    const baseScale    = baseScale0 * (0.85 + rngLocal()*0.60); // 0.85..1.45×
+    const baseScale = FLWRS_GLOBAL_SCALE * (0.7 + 1.6*rngLocal()); // cada flor distinta
 
     const g = new THREE.Group();
-    g.position.set(pos.x, -6.0, pos.z);
+    g.position.set(pos.x, pos.y, pos.z);
     g.rotation.y = ((rnk ^ (H>>>7) ^ i) % 360) * (Math.PI/180);
 
-    // construir con su RNG local (para colores/jitters internos)
     try{
       if (fam === 'PHYLLO')      buildPhylloDisk(g,  pa, H, rngLocal, baseScale);
       else if (fam === 'RHODO')  buildRhodonea(g,    pa, H, rngLocal, baseScale);
@@ -5776,11 +5798,16 @@ function buildFLWRS(){
       else                       buildAster(g,       pa, H, rngLocal, baseScale);
     }catch(_){ }
 
-    // sway (igual)
-    const swayA = 0.06 + ((rnk>>>3)%100)/1000;
-    const swayW = 0.15 + ((rnk>>>11)%100)/500;
+    // sway leve + velocidad de traslación determinista dentro del cubo
+    const swayA = 0.05 + ((rnk>>>3)%100)/2000;   // amplitud pequeña
+    const swayW = 0.12 + ((rnk>>>11)%100)/600;   // frecuencia
     const swayP = ((rnk>>>19)%628)/100;
+    const speed = flwrSpeedFromSignature(pa);    // 2..8 u/s
+    const dir   = new THREE.Vector3(rngLocal()*2-1, rngLocal()*2-1, rngLocal()*2-1).normalize();
+    const vel   = dir.multiplyScalar(speed);
+
     g.userData.sway = { A: swayA, W: swayW, P: swayP };
+    g.userData.vel  = vel;
 
     groupFLWRS.add(g);
     groupFLWRS.userData.flowers.push(g);
@@ -5788,25 +5815,24 @@ function buildFLWRS(){
 
   scene.add(groupFLWRS);
 
-  // Cámara inicial mirando por el “pasillo”
+  // Cámara centrada al cubo
   camera.up.set(0,1,0);
-  camera.fov = 48;
-  camera.near = 0.1; camera.far = 4000;
+  camera.fov = 55;
+  camera.near = 0.1; camera.far = 2000;
   camera.updateProjectionMatrix();
-  if (controls && controls.target) controls.target.set(0, -4, 0);
-  camera.position.set(0, 8, Z[0]*0.42);
+  if (controls && controls.target) controls.target.set(0, 0, 0);
+  camera.position.set(0, 0, FLWRS_BOX_HALF*3.2);   // vista general del cubo
   controls.enabled = true;
   controls.enableRotate = true;
   controls.enablePan = true;
   controls.enableZoom = true;
   controls.minDistance = 10;
-  controls.maxDistance = 500;
+  controls.maxDistance = 800;
   controls.screenSpacePanning = true;
-  controls.minPolarAngle = Math.PI*0.35;
-  controls.maxPolarAngle = Math.PI*0.60;
+  controls.minPolarAngle = 0.0;
+  controls.maxPolarAngle = Math.PI;
   controls.update();
 
-  // RAF metadata
   groupFLWRS.userData._lastT = performance.now();
 }
 
@@ -5905,12 +5931,32 @@ function ensureOnlyFLWRSFromUI(){ ensureOnlyFLWRS(); if (typeof updateEngineSele
 
       if (!paused){
         const arr = groupFLWRS.userData.flowers || [];
+        const half = groupFLWRS.userData.half || FLWRS_BOX_HALF;
         for (let i=0;i<arr.length;i++){
-          const g = arr[i]; if (!g || !g.userData || !g.userData.sway) continue;
-          const s = g.userData.sway;
-          const a = s.A, w = s.W, p = s.P;
-          const tilt = a * Math.sin(w*now*0.001 + p);
-          g.rotation.x = tilt;
+          const g = arr[i]; if (!g || !g.userData) continue;
+
+          // sway (inclinación suave)
+          if (g.userData.sway){
+            const s = g.userData.sway;
+            const tilt = s.A * Math.sin(s.W*now*0.001 + s.P);
+            g.rotation.x = tilt;
+          }
+
+          // movimiento 3D con rebote en el cubo
+          if (g.userData.vel){
+            const v = g.userData.vel;
+            g.position.x += v.x * dt;
+            g.position.y += v.y * dt;
+            g.position.z += v.z * dt;
+
+            if (g.position.x >  half){ g.position.x =  half; v.x *= -1; }
+            if (g.position.x < -half){ g.position.x = -half; v.x *= -1; }
+            if (g.position.y >  half){ g.position.y =  half; v.y *= -1; }
+            if (g.position.y < -half){ g.position.y = -half; v.y *= -1; }
+            if (g.position.z >  half){ g.position.z =  half; v.z *= -1; }
+            if (g.position.z < -half){ g.position.z = -half; v.z *= -1; }
+          }
+
           if (!g.matrixAutoUpdate) g.updateMatrix();
           g.updateMatrixWorld(true);
         }
