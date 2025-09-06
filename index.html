@@ -5540,155 +5540,177 @@ function makeCenterMaterial(col){
   });
 }
 
-/* === Familias de flores =================================================== */
-/* 1) PhylloDisk (girasol/dalia) – cúpula + “flósculos” instanciados */
-function buildPhylloDisk(container, pa, H, rng, baseScale){
-  const GOLDEN_ANGLE = 2.39996322972865332; // rad
-  const rank = lehmerRank(pa)>>>0;
-  const sigF = computeSignature(pa);        // rango de firma → densidad
-  let mn=Infinity,mx=-Infinity; for (let i=0;i<sigF.length;i++){ const v=+sigF[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
-  const range = Math.max(0, mx - mn);
-  const N = 220 + Math.floor( Math.tanh(range*0.5) * 580 ); // 220..800
-  const R = 6.0 * baseScale;
-  const dome = 2.4 * baseScale;
+/* === Elementos "florete" (partícula sólida reutilizable) ================ */
+function makeFloretGeometry(scale){ return new THREE.IcosahedronGeometry(0.18*scale, 0); }
+function makeFloretMaterial(col){
+  return new THREE.MeshStandardMaterial({
+    color: col, roughness: 0.35, metalness: 0.0,
+    emissive: col.clone().multiplyScalar(0.06), emissiveIntensity: 1.0,
+    dithering: true
+  });
+}
 
-  const cPetal = colorFromPerm(pa, 0);
-  const mat = makeCenterMaterial(cPetal);
-  const geo = new THREE.IcosahedronGeometry(0.18*baseScale, 0);
+/* === Familias de flores =================================================== */
+/* 1) PhylloDisk (girasol/dalia) – cúpula + "flósculos" instanciados */
+function buildPhylloDisk(container, pa, H, rng, baseScale){
+  const GOLDEN_ANGLE = 2.39996322972865332;
+  let F = computeSignature(pa); if (!Array.isArray(F)) F=[+F||0];
+  let mn=Infinity,mx=-Infinity; for (let i=0;i<F.length;i++){ const v=+F[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
+  const range = Math.max(0, mx-mn);
+  const N = 380 + Math.floor(Math.tanh(range*0.6)*900);  // 380..1280 (más denso)
+  const R = 6.0 * baseScale;
+  const dome = 2.6 * baseScale;
+
+  const c = colorFromPerm(pa, 0).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
+  const mat = makeFloretMaterial(c);
+  const geo = makeFloretGeometry(baseScale);
   const inst = new THREE.InstancedMesh(geo, mat, N);
   const m = new THREE.Matrix4();
+
   for (let i=0;i<N;i++){
     const r = Math.sqrt(i/N)*R;
-    const a = i * GOLDEN_ANGLE;
+    const a = i*GOLDEN_ANGLE;
     const x = Math.cos(a)*r;
     const z = Math.sin(a)*r;
-    const y = -Math.pow(r/R, 2.0) * dome + (0.2*baseScale);
-    const s = 0.6 + 0.6*(i/N);
-    m.makeTranslation(x, y, z);
+    const y = -Math.pow(r/R, 2.0)*dome + (0.22*baseScale);
+    const s = 0.55 + 0.55*(i/N);
+    m.makeTranslation(x,y,z);
     m.multiply(new THREE.Matrix4().makeScale(s,s,s));
     inst.setMatrixAt(i, m);
   }
   inst.instanceMatrix.needsUpdate = true;
 
-  // receptáculo base
-  const receptGeo = new THREE.SphereGeometry(0.9*baseScale, 16, 12);
-  const receptMat = makeCenterMaterial(cPetal.clone().offsetHSL(0, -0.2, -0.1));
-  const recept = new THREE.Mesh(receptGeo, receptMat);
-  recept.position.y = -0.2*baseScale;
+  // receptáculo
+  const recGeo = new THREE.SphereGeometry(0.9*baseScale, 16, 12);
+  const recMat = makeCenterMaterial(c.clone().offsetHSL(0, -0.15, -0.08));
+  const rec = new THREE.Mesh(recGeo, recMat);
+  rec.position.y = -0.25*baseScale;
 
-  container.add(inst, recept);
+  container.add(inst, rec);
 }
 
-/* 2) Rhodonea (rosa): extrusión volumétrica del contorno r=cos(kθ) */
+/* 2) RhodoneaCloud: nube particulada con contorno r=cos(kθ) */
 function buildRhodonea(container, pa, H, rng, baseScale){
   const rnk = lehmerRank(pa)>>>0;
-  let k = 3 + ((rnk ^ (H>>>7)) % 6); // 3..8
-  if (((rnk + sceneSeed) % 5) === 0) k = 5;    // pentagonalidad forzada a veces
+  let k = 3 + ((rnk ^ (H>>>7)) % 6);                 // 3..8
+  if (((rnk + sceneSeed) % 5) === 0) k = 5;          // pentagonalidad ocasional
+  const R = 7.2 * baseScale;
 
-  const R = 7.5 * baseScale;
-  const S = 480; // muestras contorno
-  const shape = new THREE.Shape();
-  for (let i=0;i<=S;i++){
-    const t = (i/S) * Math.PI*2;
-    const r = Math.abs(Math.cos(k*t));
-    const x = (r*R) * Math.cos(t);
-    const y = (r*R) * Math.sin(t);
-    if (i===0) shape.moveTo(x,y); else shape.lineTo(x,y);
-  }
-  const extr = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.9*baseScale,
-    bevelEnabled: true, bevelSegments: 2, bevelSize: 0.25*baseScale, bevelThickness: 0.35*baseScale,
-    curveSegments: 96,
-    steps: 1
-  });
-  // “inflado” radial → curvatura z en función del radio
-  const pos = extr.attributes.position;
-  for (let i=0;i<pos.count;i++){
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const rr = Math.sqrt(x*x + y*y)/R;
-    const bump = (1.0 - Math.pow(rr, 1.3)) * 0.8*baseScale;
-    pos.setZ(i, z + bump);
-  }
-  pos.needsUpdate = true;
-  extr.computeVertexNormals();
+  const rings = 64;                  // anillos radiales
+  const perRing = 64;                // muestras angulares
+  const count = rings*perRing;
+  const c = colorFromPerm(pa, 1).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
+  const mat = makeFloretMaterial(c);
+  const geo = makeFloretGeometry(baseScale*0.9);
+  const inst = new THREE.InstancedMesh(geo, mat, count);
+  const m = new THREE.Matrix4();
 
-  const cFace = colorFromPerm(pa, 1);
-  const mat   = makePetalMaterial(cFace);
-  const mesh  = new THREE.Mesh(extr, mat);
-  mesh.rotation.x = -Math.PI/2;
-  container.add(mesh);
+  let idx = 0;
+  for (let ri=0; ri<rings; ri++){
+    const rr = (ri+0.5)/rings;                 // 0..1
+    const rMax = R * rr;
+    for (let j=0;j<perRing;j++){
+      const th = (j/perRing) * Math.PI*2;
+      const rose = Math.abs(Math.cos(k*th));   // contorno r=cos(kθ)
+      const r = rMax * rose;                   // recorte por pétalo
+      const x = Math.cos(th)*r;
+      const z = Math.sin(th)*r;
+      const bump = (1.0 - Math.pow(rr,1.35)) * 1.6*baseScale; // abombado
+      const y = bump - 0.15*baseScale;
+
+      const s = 0.6 + 0.5*rr;
+      m.makeTranslation(x,y,z);
+      m.multiply(new THREE.Matrix4().makeScale(s,s,s));
+      inst.setMatrixAt(idx++, m);
+    }
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  inst.rotation.x = -Math.PI/2;  // igual que la versión extruida
+  container.add(inst);
 }
 
-/* 3) Superformula 3D (tulip/calyx): perfil SF → Lathe */
+/* 3) Superformula (lathe-cloud) */
 function buildSuperformula(container, pa, H, rng, baseScale){
   const rnk = lehmerRank(pa)>>>0;
-  // parámetros deterministas suaves
-  const m  = 4 + ((rnk ^ (H>>>11)) % 8);         // 4..11
-  let n1 = 0.3 + ((rnk>>>3)&255)/255 * 1.7;      // 0.3..2.0
-  let n2 = 0.3 + ((rnk>>>9)&255)/255 * 1.7;
+  let m  = 4 + ((rnk ^ (H>>>11)) % 8); if (((rnk + sceneSeed) % 5) === 0) m = 5;
+  let n1 = 0.3 + ((rnk>>>3 )&255)/255 * 1.7;
+  let n2 = 0.3 + ((rnk>>>9 )&255)/255 * 1.7;
   let n3 = 0.3 + ((rnk>>>15)&255)/255 * 1.7;
-  if (((rnk + sceneSeed) % 5) === 0){ m = 5; }   // pentagonalidad ocasional
 
-  const a=1, b=1;
-  const R = 5.5*baseScale;
-  const samples = 220;
-  const prof = [];
-  for (let i=0;i<samples;i++){
-    const t = i/(samples-1);
-    const th = t*Math.PI;               // 0..π
-    const r  = superformula(th, a, b, m, n1, n2, n3);
-    const x  = (r*R);
-    const y  = t * (7.0*baseScale);
-    prof.push(new THREE.Vector2(x, y));
+  const a=1,b=1;
+  const height = 7.2*baseScale;
+  const R = 5.4*baseScale;
+  const rows = 60, cols = 160;                 // densidad de puntos
+  const N = rows*cols;
+
+  const c = colorFromPerm(pa, 2).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
+  const mat = makeFloretMaterial(c);
+  const geo = makeFloretGeometry(baseScale*0.85);
+  const inst = new THREE.InstancedMesh(geo, mat, N);
+  const mtx = new THREE.Matrix4();
+
+  let idx=0;
+  for (let i=0;i<rows;i++){
+    const t = (i+0.5)/rows;               // 0..1 a lo largo de la altura
+    const y = (t-0.02) * height - 0.35*baseScale;
+    const taper = 1.0 - Math.pow(t,1.4);  // cierra hacia arriba
+    for (let j=0;j<cols;j++){
+      const th = (j/cols) * Math.PI*2;
+      const rSF = superformula(th, a, b, m, n1, n2, n3);
+      const rad = R * rSF * taper;
+      const x = Math.cos(th)*rad;
+      const z = Math.sin(th)*rad;
+
+      const s = 0.55 + 0.35*(1.0 - t);
+      mtx.makeTranslation(x,y,z);
+      mtx.multiply(new THREE.Matrix4().makeScale(s,s,s));
+      inst.setMatrixAt(idx++, mtx);
+    }
   }
-  const lathe = new THREE.LatheGeometry(prof, 96);
-  lathe.computeVertexNormals();
-
-  const cPetal = colorFromPerm(pa, 2);
-  const mat    = makePetalMaterial(cPetal);
-  const mesh   = new THREE.Mesh(lathe, mat);
-  mesh.rotation.x = -Math.PI/2;
-  container.add(mesh);
-
-  // “estambres” simples
-  const stemN = 12 + (rnk % 12);
-  const sGeo = new THREE.CylinderGeometry(0.05*baseScale, 0.05*baseScale, 5.0*baseScale, 8);
-  const sMat = makeCenterMaterial(cPetal.clone().offsetHSL(0, -0.3, 0.1));
-  for (let i=0;i<stemN;i++){
-    const a0 = (i/stemN)*Math.PI*2;
-    const g = new THREE.Mesh(sGeo, sMat);
-    g.position.set(Math.cos(a0)*1.2*baseScale, 0, Math.sin(a0)*1.2*baseScale);
-    g.rotation.z = (Math.PI/2) + (a0*0.2);
-    container.add(g);
-  }
+  inst.instanceMatrix.needsUpdate = true;
+  inst.rotation.x = -Math.PI/2;
+  container.add(inst);
 }
 
-/* 4) Aster/Daisy: pétalos instanciados alrededor de un hemisferio */
+/* 4) Aster (daisy-lobes) */
 function buildAster(container, pa, H, rng, baseScale){
   const rnk = lehmerRank(pa)>>>0;
-  const petals = 10 + (rnk % 24);          // 10..33
-  const len = 5.2*baseScale, wid = 1.3*baseScale;
-  const profile = buildPetalLatheProfile(len, wid, 0.35, 26);
-  const petGeo  = new THREE.LatheGeometry(profile, 24);
-  petGeo.translate(0, -len*0.1, 0);
-  const cPetal  = colorFromPerm(pa, 3);
-  const mat     = makePetalMaterial(cPetal);
-  const inst    = new THREE.InstancedMesh(petGeo, mat, petals);
-  const m       = new THREE.Matrix4();
+  const P = 10 + (rnk % 24);                 // nº de "lóbulos"
+  const R = 6.2*baseScale;                   // radio base
+  const amp = 1.9*baseScale;                 // amplitud de lóbulos
 
-  for (let i=0;i<petals;i++){
-    const a = (i/petals) * Math.PI*2;
-    const tilt = 0.45 + 0.25*Math.sin(i*2.39996); // diferente apertura
-    m.identity();
-    m.multiply(new THREE.Matrix4().makeRotationY(a));
-    m.multiply(new THREE.Matrix4().makeRotationX(tilt));
-    inst.setMatrixAt(i, m);
+  const rings = 56, perRing = 120;
+  const N = rings*perRing;
+
+  const c = colorFromPerm(pa, 3).offsetHSL((rng()*0.08-0.04), 0, (rng()*0.10-0.05));
+  const mat = makeFloretMaterial(c);
+  const geo = makeFloretGeometry(baseScale*0.85);
+  const inst = new THREE.InstancedMesh(geo, mat, N);
+  const m = new THREE.Matrix4();
+
+  let idx=0;
+  for (let i=0;i<rings;i++){
+    const rr = (i+0.5)/rings;                     // 0..1
+    for (let j=0;j<perRing;j++){
+      const th = (j/perRing)*Math.PI*2;
+      const boundary = R + amp*Math.max(0, Math.cos(P*th)); // contorno lobulado
+      const r = boundary * rr;
+      const x = Math.cos(th)*r;
+      const z = Math.sin(th)*r;
+      const dome = (1.0 - Math.pow(rr,1.3)) * 1.2*baseScale;
+      const y = dome - 0.22*baseScale;
+
+      const s = 0.55 + 0.45*rr;
+      m.makeTranslation(x,y,z);
+      m.multiply(new THREE.Matrix4().makeScale(s,s,s));
+      inst.setMatrixAt(idx++, m);
+    }
   }
   inst.instanceMatrix.needsUpdate = true;
 
-  // centro
-  const cGeo = new THREE.SphereGeometry(1.1*baseScale, 16, 12);
-  const cMat = makeCenterMaterial(cPetal.clone().offsetHSL(0.08, -0.4, -0.15));
+  // centro (disco pequeño)
+  const cGeo = new THREE.SphereGeometry(1.05*baseScale, 16, 12);
+  const cMat = makeCenterMaterial(c.clone().offsetHSL(0.06, -0.35, -0.12));
   const center = new THREE.Mesh(cGeo, cMat);
   center.position.y = -0.2*baseScale;
 
@@ -5709,21 +5731,20 @@ function buildFLWRS(){
   const H = flwrsSeedFromPerms(perms)>>>0;
   const rng = makeRng(H^0x51ed1);
 
-  // Rango de escena
+  // Rango de escena (igual) y MUCHA más densidad
   const X = [-120, 120];
   const Z = [-260, 160];
 
-  // Conteos deterministas por banda (frente/medio/fondo)
-  const Nfront = 14 + (H%7);            // 14..20
-  const Nmid   = 18 + ((H>>>5)%10);      // 18..27
-  const Nback  = 22 + ((H>>>9)%12);      // 22..33
+  // Conteos por banda (x3 aprox) y menor distancia mínima
+  const Nfront = 46 + (H%18);           // 46..63
+  const Nmid   = 72 + ((H>>>5)%28);     // 72..99
+  const Nback  = 96 + ((H>>>9)%36);     // 96..132
   const spots  = []
-    .concat(scatterFlowers(H^0x1, Nfront, X, [Z[0], Z[0]/3], 26, 18))
-    .concat(scatterFlowers(H^0x2, Nmid,   X, [Z[0]/3, Z[1]/3], 22, 16))
-    .concat(scatterFlowers(H^0x3, Nback,  X, [Z[1]/3, Z[1]],   18, 12));
+    .concat(scatterFlowers(H^0x1, Nfront, X, [Z[0],      Z[0]/3], 16, 11))
+    .concat(scatterFlowers(H^0x2, Nmid,   X, [Z[0]/3,    Z[1]/3], 14, 10))
+    .concat(scatterFlowers(H^0x3, Nback,  X, [Z[1]/3,    Z[1]  ], 12,  9));
 
   const families = ['PHYLLO','RHODO','SUPERF','ASTER'];
-
   groupFLWRS.userData.flowers = [];
 
   for (let i=0;i<spots.length;i++){
@@ -5734,28 +5755,33 @@ function buildFLWRS(){
     // familia determinista
     const fam = families[(rnk + i + (H>>>13)) % families.length];
 
-    // escala según profundidad (más grande cerca del pasillo)
+    // variación determinista por flor (tamaño y sutil color en builders)
+    const seedLocal = (Math.imul((rnk ^ H ^ (i*2654435761)>>>0), 2246822519) + 1013904223)>>>0;
+    const rngLocal  = makeRng(seedLocal);
+
+    // escala según profundidad + jitter determinista
     const nearCorridor = Math.max(0, 1.0 - Math.min(1.0, Math.abs(pos.x - corridorCenterX(pos.z,H)) / corridorWidth(pos.z,H)));
-    const baseScale = THREE.MathUtils.lerp(0.8, 1.6, nearCorridor) * THREE.MathUtils.lerp(1.3, 0.7, pos.t);
+    const baseScale0   = THREE.MathUtils.lerp(0.8, 1.6, nearCorridor) * THREE.MathUtils.lerp(1.3, 0.7, pos.t);
+    const baseScale    = baseScale0 * (0.85 + rngLocal()*0.60); // 0.85..1.45×
 
     const g = new THREE.Group();
     g.position.set(pos.x, -6.0, pos.z);
     g.rotation.y = ((rnk ^ (H>>>7) ^ i) % 360) * (Math.PI/180);
 
-    // construir la flor según familia
+    // construir con su RNG local (para colores/jitters internos)
     try{
-      if (fam === 'PHYLLO')     buildPhylloDisk(g, pa, H, rng, baseScale);
-      else if (fam === 'RHODO') buildRhodonea(g,   pa, H, rng, baseScale);
-      else if (fam === 'SUPERF')buildSuperformula(g,pa, H, rng, baseScale);
-      else                      buildAster(g,      pa, H, rng, baseScale);
+      if (fam === 'PHYLLO')      buildPhylloDisk(g,  pa, H, rngLocal, baseScale);
+      else if (fam === 'RHODO')  buildRhodonea(g,    pa, H, rngLocal, baseScale);
+      else if (fam === 'SUPERF') buildSuperformula(g,pa, H, rngLocal, baseScale);
+      else                       buildAster(g,       pa, H, rngLocal, baseScale);
     }catch(_){ }
 
-    // sway params (determinista)
-    const swayA = 0.06 + ((rnk>>>3)%100)/1000;   // amplitud ~0.06..0.16
-    const swayW = 0.15 + ((rnk>>>11)%100)/500;   // frecuencia ~0.15..0.35
-    const swayP = ((rnk>>>19)%628)/100;          // fase 0..6.28
-
+    // sway (igual)
+    const swayA = 0.06 + ((rnk>>>3)%100)/1000;
+    const swayW = 0.15 + ((rnk>>>11)%100)/500;
+    const swayP = ((rnk>>>19)%628)/100;
     g.userData.sway = { A: swayA, W: swayW, P: swayP };
+
     groupFLWRS.add(g);
     groupFLWRS.userData.flowers.push(g);
   }
@@ -5789,7 +5815,7 @@ function toggleFLWRS(){
   isFLWRS = !isFLWRS;
 
   if (isFLWRS){
-    // apagar otros motores (como haces en KEPLR/GRVTY)
+    // apaga/oculta otros motores
     try{ if (typeof isFRBN   !== 'undefined' && isFRBN)   toggleFRBN();   }catch(_){ }
     try{ if (typeof isLCHT   !== 'undefined' && isLCHT)   toggleLCHT();   }catch(_){ }
     try{ if (typeof isOFFNNG !== 'undefined' && isOFFNNG) toggleOFFNNG(); }catch(_){ }
@@ -5799,17 +5825,28 @@ function toggleFLWRS(){
     try{ if (typeof isR5NOVA !== 'undefined' && isR5NOVA) toggleR5NOVA(); }catch(_){ }
     try{ if (typeof isKEPLR  !== 'undefined' && isKEPLR)  toggleKEPLR();  }catch(_){ }
 
+    // oculta elementos del BUILD cuando FLWRS está activo
+    try{ if (typeof cubeUniverse      !== 'undefined') cubeUniverse.visible      = false; }catch(_){ }
+    try{ if (typeof permutationGroup  !== 'undefined') permutationGroup.visible  = false; }catch(_){ }
+    try{ if (typeof lichtGroup        !== 'undefined') lichtGroup.visible        = false; }catch(_){ }
+
     leaveBuildRenderBoost();
     enterRaumRenderBoost();
-
     buildFLWRS();
 
   } else {
     disposeGroupFLWRS();
+
+    // restaurar cámara/controles por defecto
     camera.fov = 75; camera.updateProjectionMatrix();
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = Math.PI;
     controls.screenSpacePanning = false;
+
+    // re-mostrar elementos del BUILD al salir
+    try{ if (typeof cubeUniverse      !== 'undefined') cubeUniverse.visible      = true; }catch(_){ }
+    try{ if (typeof permutationGroup  !== 'undefined') permutationGroup.visible  = true; }catch(_){ }
+    try{ if (typeof lichtGroup        !== 'undefined' && isLCHT) lichtGroup.visible = true; }catch(_){ }
   }
 }
 function rebuildFLWRSIfActive(){ if (isFLWRS) buildFLWRS(); }
