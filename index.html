@@ -5480,23 +5480,21 @@ function superformula(theta, a, b, m, n1, n2, n3){
   return r;
 }
 
-/* === TUMBA DE RAMESÉS IV · blueprint volumétrico (corredor + cámara) =====
-   Genera paneles rectangulares (pared izq/der, techo, suelo y pared de fondo)
-   sobre los que colocaremos flores en una malla con jitter determinista.
+/* === TUMBA DE RAMESÉS IV · cámara única (sin corredor) ====================
+   Cinco caras: izquierda, derecha, techo, suelo y pared de fondo.
+   En la pared de fondo añadimos 2 “marcos” concéntricos (rectángulos menores)
+   para reforzar la lectura del diagrama armónico.
 ============================================================================ */
 
-/* Panel: centro + ejes locales u (ancho) y v (alto) + normal (hacia fuera) */
 function __mkPanel(center, uVec, vVec, normal){
   return { center: center.clone(), u: uVec.clone(), v: vVec.clone(), n: normal.clone().normalize() };
 }
 
-/* Util: obtiene puntos en una malla (rows x cols) sobre un panel, con jitter */
 function samplePanelGrid(panel, rows, cols, jitter, seed){
   const rng = makeRng(seed>>>0);
   const pts = [];
   for (let r=0; r<rows; r++){
     for (let c=0; c<cols; c++){
-      // uv en [-0.5, 0.5] con jitter suave determinista
       const ur = (c+0.5)/cols - 0.5;
       const vr = (r+0.5)/rows - 0.5;
       const ju = (rng()-0.5) * jitter;
@@ -5510,93 +5508,69 @@ function samplePanelGrid(panel, rows, cols, jitter, seed){
   return pts;
 }
 
-/* Blueprint del corredor según diagrama armónico:
-   - Longitud L con leve “taper” (ancho y alto decrecen hacia el fondo)
-   - Cámara final más ancha y alta
-   - Devuelve una lista de paneles (rectángulos) */
-function ramesesPanels(H){
+/* Cámara rectangular (una sola “sala” sin camino) */
+function chamberPanels(H){
+  const W = 260 + ((H>>>7)&31);   // ancho 260..291
+  const Hh = 160 + ((H>>>13)&15); // alto 160..175
+  const D = 200 + ((H>>>3)&31);   // profundidad 200..231
+
   const panels = [];
 
-  // Parámetros deterministas suaves (escala y atenuación)
-  const L  = 420 + ((H>>>5)&31);          // longitud del corredor ~420..451
-  const W0 = 160;                          // ancho inicial
-  const H0 = 100;                          // alto inicial
-  const taper = 0.82 + (((H>>>11)&255)/255) * 0.08; // 0.82..0.90
-  const segs  = 24;                        // segmentos en z
-  const dz    = L / segs;
+  // Pared izquierda (normal +X)
+  panels.push(__mkPanel(
+    new THREE.Vector3(-W/2, 0, -D/2),
+    new THREE.Vector3(0, Hh, 0),             // u: vertical
+    new THREE.Vector3(0, 0, -D),             // v: profundidad (hacia -z)
+    new THREE.Vector3( 1, 0, 0)
+  ));
+  // Pared derecha (normal -X)
+  panels.push(__mkPanel(
+    new THREE.Vector3( W/2, 0, -D/2),
+    new THREE.Vector3(0, Hh, 0),
+    new THREE.Vector3(0, 0, -D),
+    new THREE.Vector3(-1, 0, 0)
+  ));
+  // Techo (normal +Y)
+  panels.push(__mkPanel(
+    new THREE.Vector3(0,  Hh/2, -D/2),
+    new THREE.Vector3(W, 0, 0),              // u: ancho
+    new THREE.Vector3(0, 0, -D),             // v: profundidad
+    new THREE.Vector3(0,  1, 0)
+  ));
+  // Suelo (normal -Y)
+  panels.push(__mkPanel(
+    new THREE.Vector3(0, -Hh/2, -D/2),
+    new THREE.Vector3(W, 0, 0),
+    new THREE.Vector3(0, 0, -D),
+    new THREE.Vector3(0, -1, 0)
+  ));
+  // Pared del fondo (normal +Z)
+  panels.push(__mkPanel(
+    new THREE.Vector3(0, 0, -D),
+    new THREE.Vector3(W, 0, 0),
+    new THREE.Vector3(0, Hh, 0),
+    new THREE.Vector3(0, 0, 1)
+  ));
 
-  // Sistema de ejes: +z hacia el fondo
-  for (let i=0;i<segs;i++){
-    const zMid = -(i+0.5)*dz;
-    const t    = (i+0.5)/segs;            // 0..1
-    const W    = THREE.MathUtils.lerp(W0, W0*taper, t);
-    const Hh   = THREE.MathUtils.lerp(H0, H0*taper, t);
-
-    // Pared izquierda (normal +X hacia fuera → flores miran a -X, interior)
+  // Marcos concéntricos (2 rectángulos más pequeños en la pared del fondo)
+  const factors = [0.72, 0.50];
+  for (let k=0; k<factors.length; k++){
+    const f = factors[k];
     panels.push(__mkPanel(
-      new THREE.Vector3(-W/2, 0, zMid),
-      new THREE.Vector3(0, Hh, 0),               // u: vertical
-      new THREE.Vector3(0, 0, dz),               // v: fondo
-      new THREE.Vector3( 1, 0, 0)
-    ));
-    // Pared derecha (normal -X)
-    panels.push(__mkPanel(
-      new THREE.Vector3( W/2, 0, zMid),
-      new THREE.Vector3(0, Hh, 0),
-      new THREE.Vector3(0, 0, dz),
-      new THREE.Vector3(-1, 0, 0)
-    ));
-    // Techo (normal +Y)
-    panels.push(__mkPanel(
-      new THREE.Vector3(0,  Hh/2, zMid),
-      new THREE.Vector3( W, 0, 0),               // u: ancho
-      new THREE.Vector3( 0, 0, dz),              // v: fondo
-      new THREE.Vector3(0,  1, 0)
-    ));
-    // Suelo (normal -Y)
-    panels.push(__mkPanel(
-      new THREE.Vector3(0, -Hh/2, zMid),
-      new THREE.Vector3( W, 0, 0),
-      new THREE.Vector3( 0, 0, dz),
-      new THREE.Vector3(0, -1, 0)
+      new THREE.Vector3(0, 0, -D),
+      new THREE.Vector3(W*f, 0, 0),
+      new THREE.Vector3(0, Hh*f, 0),
+      new THREE.Vector3(0, 0, 1)
     ));
   }
-
-  // Cámara final (ligeramente mayor)
-  const zCh  = -(L + 60);
-  const Wc   = W0 * 1.35;
-  const Hc   = H0 * 1.20;
-  const Dc   = 120;                        // profundidad cámara
-  const dzC  = Dc;
-
-  // Paredes de la cámara
-  panels.push(__mkPanel(new THREE.Vector3(-Wc/2, 0, zCh - Dc/2),
-                        new THREE.Vector3(0, Hc, 0), new THREE.Vector3(0,0, dzC),
-                        new THREE.Vector3( 1, 0, 0)));
-  panels.push(__mkPanel(new THREE.Vector3( Wc/2, 0, zCh - Dc/2),
-                        new THREE.Vector3(0, Hc, 0), new THREE.Vector3(0,0, dzC),
-                        new THREE.Vector3(-1, 0, 0)));
-  panels.push(__mkPanel(new THREE.Vector3(0,  Hc/2, zCh - Dc/2),
-                        new THREE.Vector3(Wc, 0, 0), new THREE.Vector3(0,0, dzC),
-                        new THREE.Vector3(0,  1, 0)));
-  panels.push(__mkPanel(new THREE.Vector3(0, -Hc/2, zCh - Dc/2),
-                        new THREE.Vector3(Wc, 0, 0), new THREE.Vector3(0,0, dzC),
-                        new THREE.Vector3(0, -1, 0)));
-
-  // Pared del fondo (normal +Z, “retablo” de flores)
-  panels.push(__mkPanel(new THREE.Vector3(0, 0, zCh - Dc),
-                        new THREE.Vector3(Wc, 0, 0), new THREE.Vector3(0, Hc, 0),
-                        new THREE.Vector3(0, 0, 1)));
 
   return panels;
 }
 
-/* Crea UNA flor en un punto dado, mirando hacia el interior (−normal) */
 function addFlowerAtPoint(parent, pa, fam, H, baseScale, rngLocal, pos, normal){
   const g = new THREE.Group();
   g.position.copy(pos);
 
-  // Construye la flor con nuestra escala base (sin sway ni movimiento)
   try{
     if (fam === 'PHYLLO')      buildPhylloDisk(g,  pa, H, rngLocal, baseScale);
     else if (fam === 'RHODO')  buildRhodonea(g,    pa, H, rngLocal, baseScale);
@@ -5604,14 +5578,11 @@ function addFlowerAtPoint(parent, pa, fam, H, baseScale, rngLocal, pos, normal){
     else                       buildAster(g,       pa, H, rngLocal, baseScale);
   }catch(_){ }
 
-  // Orienta la flor para que “mire” al interior del espacio
-  // (lookAt al sentido -normal; lookAt usa -Z como forward → rotamos 180º en Y)
   const lookTarget = new THREE.Vector3().copy(pos).addScaledVector(normal, -1);
   g.lookAt(lookTarget);
   g.rotateY(Math.PI);
 
-  // No sway → el animador lo ignorará
-  g.userData.sway = null;
+  g.userData.sway = null; // sin movimiento
 
   parent.add(g);
   return g;
@@ -5833,52 +5804,46 @@ function buildAster(container, pa, H, rng, baseScale){
 function buildFLWRS(){
   disposeGroupFLWRS();
   groupFLWRS = new THREE.Group();
-
-  // Fondo neutro y sin luces extrañas
   updateBackground(true);
 
-  // Permutaciones activas (determinismo de color/forma)
   let perms = (typeof getSelectedPerms === 'function' ? getSelectedPerms() : []) || [];
   if (!perms.length) perms = [[1,2,3,4,5]];
   const H = flwrsSeedFromPerms(perms)>>>0;
 
-  // Blueprint de paneles de la tumba
-  const panels = ramesesPanels(H);
+  // Paneles de la cámara (sin corredor)
+  const panels = chamberPanels(H);
 
-  // Familias (determinista por punto)
   const families = ['PHYLLO','RHODO','SUPERF','ASTER'];
   groupFLWRS.userData.flowers = [];
 
-  // Densidad base (filas/columnas relativas al tamaño del panel)
-  // Mantiene buen rendimiento: aprox 1 flor cada ~ (6x6) unidades en malla
-  const baseStep = 6.0;
+  // *** DENSIDAD BAJA ***: pasos grandes → menos flores
+  const baseStep = 34.0;                 // (↑ este número = ↓ flores)
+  const maxRows  = 18;
+  const maxCols  = 24;
+  const jitter   = 0.15;
 
   let flowerIdx = 0;
   for (let p=0; p<panels.length; p++){
     const P = panels[p];
+    const U = P.u.length();
+    const V = P.v.length();
 
-    // Tamaños efectivos del panel (longitudes de u y v)
-    const U = P.u.length();     const V = P.v.length();
+    const rows = Math.max(2, Math.min(Math.floor(V/baseStep), maxRows));
+    const cols = Math.max(3, Math.min(Math.floor(U/baseStep), maxCols));
 
-    // Filas/columnas con clamps para no “matar” el fill rate
-    const rows = Math.max(2, Math.min( Math.floor(V / baseStep), 60 ));
-    const cols = Math.max(3, Math.min( Math.floor(U / baseStep), 80 ));
-
-    // Muestra puntos con jitter determinista derivado de H y del índice del panel
-    const pts = samplePanelGrid(P, rows, cols, 0.18, (H ^ (p*2654435761))>>>0);
+    const pts = samplePanelGrid(P, rows, cols, jitter, (H ^ (p*2654435761))>>>0);
 
     for (let i=0;i<pts.length;i++){
       const pos = pts[i].pos;
       const nrm = pts[i].normal;
 
-      // Escala base por panel con ligera variación determinista por flor
+      // *** FLORES MÁS GRANDES ***, pocas variaciones deterministas
       const seedLocal = (Math.imul((flowerIdx ^ H ^ (p*109) ^ (i*2654435761))>>>0, 2246822519) + 1013904223)>>>0;
       const rngLocal  = makeRng(seedLocal);
-      const baseScale = 0.22 * (0.75 + 0.8*rngLocal());   // todas pequeñas pero distintas
+      const baseScale = 0.65 * (0.90 + 1.10*rngLocal());  // ~0.59 .. 1.37
 
-      // Selección determinista de familia y permutación
       const fam = families[(flowerIdx + (H>>>13)) % families.length];
-      const pa  = perms[(flowerIdx) % perms.length];
+      const pa  = perms[flowerIdx % perms.length];
 
       const g = addFlowerAtPoint(groupFLWRS, pa, fam, H, baseScale, rngLocal, pos, nrm);
       groupFLWRS.userData.flowers.push(g);
@@ -5888,13 +5853,13 @@ function buildFLWRS(){
 
   scene.add(groupFLWRS);
 
-  // Cámara: vista frontal del corredor (como el grabado)
+  // Cámara frontal, encuadre de la sala (sin “camino”)
   camera.up.set(0,1,0);
   camera.fov = 52;
   camera.near = 0.1; camera.far = 5000;
   camera.updateProjectionMatrix();
-  if (controls && controls.target) controls.target.set(0, 0, -280);
-  camera.position.set(0, 0, 180);
+  if (controls && controls.target) controls.target.set(0, 0, -220);
+  camera.position.set(0, 0, 160);
   controls.enabled = true;
   controls.enableRotate = true;
   controls.enablePan = true;
@@ -5906,7 +5871,6 @@ function buildFLWRS(){
   controls.maxPolarAngle = Math.PI;
   controls.update();
 
-  // Marca temporal (animador la usa pero no habrá sway)
   groupFLWRS.userData._lastT = performance.now();
 }
 
