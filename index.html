@@ -5845,111 +5845,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-      /* ——— Material animado sin “zebra”: fbm + rotación + dither ——— */
-      function r5nMakeMovingMaterial(colorTHREE, seed){
-        const m = new THREE.MeshPhysicalMaterial({
-          color: colorTHREE,
-          roughness: 0.32,
-          metalness: 0.04,
-          clearcoat: 0.36,
-          clearcoatRoughness: 0.75,
-          envMapIntensity: 0.9,
-          reflectivity: 0.5,
-          dithering: true
-        });
-        m.emissive = colorTHREE.clone().multiplyScalar(0.08);
-        m.emissiveIntensity = 0.08;
-
-        // parámetros deterministas desde seed
-        let s = (seed>>>0) || 1;
-        function lcg(){ s = (Math.imul(s,1664525)+1013904223)>>>0; return (s>>>0)/4294967296; }
-        const speed = 0.6 + 1.2*lcg();          // 0.6..1.8
-        const scale = 0.06 + 0.08*lcg();        // frecuencia baja en espacio del panel
-        const hueJ  = -0.12 + 0.24*lcg();       // ±0.12
-        const ang   = (lcg()*2.0-1.0) * Math.PI;// dirección distinta por panel
-        const rot   = new THREE.Vector2(Math.cos(ang), Math.sin(ang));
-
-        m.onBeforeCompile = (shader)=>{
-          shader.uniforms.uTime  = { value: 0.0 };
-          shader.uniforms.uScale = { value: scale };
-          shader.uniforms.uHueJ  = { value: hueJ };
-          shader.uniforms.uSpeed = { value: speed };
-          shader.uniforms.uRot   = { value: rot };
-
-          shader.vertexShader =
-            "varying vec3 vPos;\n" +
-            shader.vertexShader.replace(
-              "#include <begin_vertex>",
-              "vPos = position;\n#include <begin_vertex>"
-            );
-
-          shader.fragmentShader =
-          `
-      uniform float uTime, uScale, uHueJ, uSpeed;
-      uniform vec2  uRot;
-      varying vec3  vPos;
-
-      // hash & noise (value noise suave)
-      float hash12(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
-      float noise2(vec2 p){
-        vec2 i = floor(p), f = fract(p);
-        float a = hash12(i);
-        float b = hash12(i + vec2(1.0,0.0));
-        float c = hash12(i + vec2(0.0,1.0));
-        float d = hash12(i + vec2(1.0,1.0));
-        vec2 u = f*f*(3.0-2.0*f);
-        return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
-      }
-      float fbm(vec2 p){
-        float v = 0.0, a = 0.55;
-        v += a*noise2(p); p *= 2.03; a *= 0.55;
-        v += a*noise2(p); p *= 2.03; a *= 0.55;
-        v += a*noise2(p); p *= 2.03; a *= 0.55;
-        v += a*noise2(p);
-        return v;
-      }
-
-      // aprox. de hue shift (sin HSV)
-      vec3 hueShift(vec3 c, float h){
-        float r=c.r,g=c.g,b=c.b;
-        vec3 m1=vec3(r,g,b), m2=vec3(g,b,r), m3=vec3(b,r,g);
-        float a = clamp(h*3.0+1.5,0.0,3.0);
-        return (a<1.0)?mix(m1,m2,a) : (a<2.0)?mix(m2,m3,a-1.0):mix(m3,m1,a-2.0);
-      }
-    ` +
-          shader.fragmentShader.replace(
-            "#include <color_fragment>",
-            `
-        // coords en el plano del panel (rotados por panel)
-        mat2 R = mat2(uRot.x, -uRot.y, uRot.y, uRot.x);
-        vec2 P = R * (vPos.xy * (1.0 / max(1e-5, 1.0/uScale)));
-        // desplazamiento animado muy lento (no barras periódicas)
-        P += vec2(uTime*0.07*uSpeed, -uTime*0.05*uSpeed);
-
-        float g = fbm(P);
-
-        // anti-banding: micro-dither proporcional al gradiente
-        float dd = fwidth(g);
-        g += (hash12(gl_FragCoord.xy*0.5 + uTime) - 0.5) * dd * 0.75;
-
-        // contraste suave
-        g = smoothstep(0.25, 0.85, g);
-
-        vec3 baseCol = diffuseColor.rgb;
-        vec3 altCol  = hueShift(baseCol, uHueJ);
-        diffuseColor.rgb = mix(baseCol*0.82, altCol, g);
-
-        #include <color_fragment>
-      `
-          );
-
-          m.userData.shader   = shader;
-          m.userData.r5nSpeed = speed;  // lo usa el animador
-        };
-
-        return m;
-      }
-
     /* ——— Panel tipo KEPLR/RAPHI (dos pasadas, sin z-fighting) ———
        1) Si existen los builders de KEPLR/RAPHI, se usan directamente.
        2) Si no, fallback equivalente con dos MeshStandardMaterial (Front/Back, depthWrite:false). */
@@ -6004,6 +5899,68 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       return g;
     }
 
+    /* ——— Movimiento tipo KEPLR/RAPHI para los paneles del fondo ——— */
+    const R5N_SPIN_MULT = 1.0; // factor relativo (RAPHI usa 3.0)
+
+    /* Velocidad angular desde la “Signature Range” (mismo origen que KEPLR) */
+    function r5nOmegaFromSignature(pa){
+      try { return keplrOmegaFromSignature(pa) * R5N_SPIN_MULT; } catch(_){ }
+      // Fallback determinista (por si no existe keplrOmegaFromSignature):
+      const F = (Array.isArray(pa) ? pa : [pa]).reduce((a,b)=>a+Math.abs(+b||0),0);
+      return 0.30 + (F % 7) * 0.07;
+    }
+
+    /* Eje/velocidad: giro DENTRO DEL PLANO (eje Z local) para que jamás sobresalga del Rahmen */
+    function r5nSpinParamsFor(pa){
+      const axis = new THREE.Vector3(0, 0, 1);       // ← antes (0,1,0)
+      const vel  = r5nOmegaFromSignature(pa);
+      return { axis, vel };
+    }
+
+    /* RAF animator (idéntico en espíritu al de RAPHI) */
+    (function installR5NOVAAnimator(){
+      if (window.__r5novaAnimatorInstalled) return;
+      window.__r5novaAnimatorInstalled = true;
+
+      function tick(){
+        try{
+          if (!isR5NOVA || !groupR5NOVA){ requestAnimationFrame(tick); return; }
+
+          const now  = performance.now();
+          const last = groupR5NOVA.userData._lastT || now;
+          const dt   = Math.max(0, (now - last) / 1000);
+          groupR5NOVA.userData._lastT = now;
+
+          const arr = groupR5NOVA.userData.rotators || [];
+          for (let i=0;i<arr.length;i++){
+            const g = arr[i];
+            if (!g || !g.userData) continue;
+
+            // paso global (como BUILD/KEPLR/RAPHI)
+            let step = 1;
+            try{
+              if (typeof getBuildRotStep === 'function'){
+                const s = getBuildRotStep(g.userData.permStr || '');
+                if (typeof s === 'number') step = s;
+              }
+            }catch(_){ }
+
+            const axis = g.userData.rotAxis || new THREE.Vector3(0,1,0);
+            const vel  = g.userData.rotVel  || 0;
+            const dA   = vel * dt * step;
+
+            if (dA !== 0){
+              // rotateOnAxis usa un vector normalizado
+              const ax = (axis.isVector3 ? axis : new THREE.Vector3(0,1,0)).clone().normalize();
+              g.rotateOnAxis(ax, dA);
+            }
+          }
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+
     // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
     function r5novaAssembleRects(){
       // Interior visible: restamos el grosor de muros/piso/techo (R5_G)
@@ -6053,6 +6010,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     function buildR5NOVA(){
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
+      groupR5NOVA.userData.rotators = [];   // ← NUEVO
 
       // Fondo acoplado (no manual), igual que RAUM/BUILD
       updateBackground(false);
@@ -6103,8 +6061,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         return 0;
       }
 
-      groupR5NOVA.userData.animMats = [];   // ← registra materiales animados
-
       // Geometría base: se recalcula por rect para ajustar gap mínimo
       rects.forEach((r, i) => {
         // Centro del rectángulo en coordenadas de habitación
@@ -6120,14 +6076,19 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         // Color determinista (igual que antes)
         const pa   = permsSafe[i % permsSafe.length];
         const offs = offsetFromTag(r.tag);
+        const col  = colorR5NFor(pa, offs, i);
 
-        // semilla determinista por panel (perm + índice + escena)
-        const seedPanel = ((lehmerRank(pa)>>>0) ^ (i*2654435761) ^ (sceneSeed>>>0))>>>0;
-        const mat = r5nMakeMovingMaterial(colorR5NFor(pa, offs, i), seedPanel);
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
-        groupR5NOVA.add(mesh);
-        groupR5NOVA.userData.animMats.push(mat);   // ← se animará por RAF
+        // Grupo de caras tipo KEPLR/RAPHI (dos pasadas)
+        const panel = r5nBuildFaceGroup(geo, col);
+        panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
+        groupR5NOVA.add(panel);
+
+        // === Movimiento tipo RAPHI/KEPLR para este panel (eje Z para no asomar) ===
+        const spin = r5nSpinParamsFor(pa);
+        panel.userData.rotAxis  = new THREE.Vector3(0, 0, 1); // ← fuerza Z local
+        panel.userData.rotVel   = spin.vel;
+        panel.userData.permStr  = pa.join(',');     // para getBuildRotStep
+        groupR5NOVA.userData.rotators.push(panel);
 
         // === Rahmen (marco) INTERNO con pequeño "pull" hacia la cámara ===
         // grosor base ≈ 2× gap, con límites para no cerrar el hueco interior
@@ -6170,7 +6131,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         const rig = new THREE.Mesh(rigGeo, matF);
         rig.position.set(cx + (w/2 - t/2), cy, zFrame);
 
-      groupR5NOVA.add(top, bot, lef, rig);
+        groupR5NOVA.add(top, bot, lef, rig);
       });
 
       scene.add(groupR5NOVA);
@@ -6178,35 +6139,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try { renderer.sortObjects = true; } catch(_){ }
       groupR5NOVA.traverse(o => { o.frustumCulled = false; });
     }
-
-    /* ——— Animador de materiales de R5NOVA (actualiza uTime) ——— */
-    (function installR5NOVAAnimator(){
-      if (window.__r5novaMatAnimatorInstalled) return;
-      window.__r5novaMatAnimatorInstalled = true;
-
-      function tick(){
-        try{
-          if (isR5NOVA && groupR5NOVA){
-            const now  = performance.now();
-            const last = groupR5NOVA.userData._lastAnimT || now;
-            const dt   = Math.min(0.05, Math.max(0,(now-last)/1000));
-            groupR5NOVA.userData._lastAnimT = now;
-
-            const mats = groupR5NOVA.userData.animMats || [];
-            for (let i=0;i<mats.length;i++){
-              const mat = mats[i];
-              const sh  = mat.userData && mat.userData.shader;
-              if (sh && sh.uniforms && sh.uniforms.uTime){
-                const sp = (mat.userData.r5nSpeed || 1.0);
-                sh.uniforms.uTime.value += sp * dt;
-              }
-            }
-          }
-        }catch(_){ }
-        requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
-    })();
 
     /* Rebuild si hay cambios de escena */
     function rebuildR5NOVAIfActive(){ if (isR5NOVA) buildR5NOVA(); }
