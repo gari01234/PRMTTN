@@ -5845,81 +5845,110 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-    /* ——— Material animado tipo KEPLR/RAPHI (mueve el color, NO el panel) ——— */
-    function r5nMakeMovingMaterial(colorTHREE, seed){
-      const m = new THREE.MeshPhysicalMaterial({
-        color: colorTHREE,
-        roughness: 0.32,
-        metalness: 0.04,
-        clearcoat: 0.36,
-        clearcoatRoughness: 0.75,
-        envMapIntensity: 0.9,
-        reflectivity: 0.5,
-        dithering: true
-      });
-      m.emissive = colorTHREE.clone().multiplyScalar(0.08);
-      m.emissiveIntensity = 0.08;
+      /* ——— Material animado sin “zebra”: fbm + rotación + dither ——— */
+      function r5nMakeMovingMaterial(colorTHREE, seed){
+        const m = new THREE.MeshPhysicalMaterial({
+          color: colorTHREE,
+          roughness: 0.32,
+          metalness: 0.04,
+          clearcoat: 0.36,
+          clearcoatRoughness: 0.75,
+          envMapIntensity: 0.9,
+          reflectivity: 0.5,
+          dithering: true
+        });
+        m.emissive = colorTHREE.clone().multiplyScalar(0.08);
+        m.emissiveIntensity = 0.08;
 
-      // parámetros deterministas (desde la semilla)
-      let s = (seed>>>0) || 1;
-      function lcg(){ s = (Math.imul(s,1664525) + 1013904223)>>>0; return (s>>>0)/4294967296; }
-      const speed = 0.6 + 1.2*lcg();    // 0.6..1.8
-      const scale = 0.7 + 1.6*lcg();    // 0.7..2.3
-      const hueJ  = -0.12 + 0.24*lcg(); // ±0.12
+        // parámetros deterministas desde seed
+        let s = (seed>>>0) || 1;
+        function lcg(){ s = (Math.imul(s,1664525)+1013904223)>>>0; return (s>>>0)/4294967296; }
+        const speed = 0.6 + 1.2*lcg();          // 0.6..1.8
+        const scale = 0.06 + 0.08*lcg();        // frecuencia baja en espacio del panel
+        const hueJ  = -0.12 + 0.24*lcg();       // ±0.12
+        const ang   = (lcg()*2.0-1.0) * Math.PI;// dirección distinta por panel
+        const rot   = new THREE.Vector2(Math.cos(ang), Math.sin(ang));
 
-      m.onBeforeCompile = (shader)=>{
-        shader.uniforms.uTime     = { value: 0.0 };
-        shader.uniforms.uScale    = { value: scale };
-        shader.uniforms.uHueJ     = { value: hueJ };
-        shader.uniforms.uSpeed    = { value: speed };
+        m.onBeforeCompile = (shader)=>{
+          shader.uniforms.uTime  = { value: 0.0 };
+          shader.uniforms.uScale = { value: scale };
+          shader.uniforms.uHueJ  = { value: hueJ };
+          shader.uniforms.uSpeed = { value: speed };
+          shader.uniforms.uRot   = { value: rot };
 
-        shader.vertexShader = `
-      varying vec3 vPos;
-    ` + shader.vertexShader.replace(
-          '#include <begin_vertex>',
+          shader.vertexShader =
+            "varying vec3 vPos;\n" +
+            shader.vertexShader.replace(
+              "#include <begin_vertex>",
+              "vPos = position;\n#include <begin_vertex>"
+            );
+
+          shader.fragmentShader =
           `
-      vPos = position;
-      #include <begin_vertex>
-      `
-        );
+      uniform float uTime, uScale, uHueJ, uSpeed;
+      uniform vec2  uRot;
+      varying vec3  vPos;
 
-        shader.fragmentShader = `
-      uniform float uTime;
-      uniform float uScale;
-      uniform float uHueJ;
-      uniform float uSpeed;
-      varying vec3 vPos;
-
-      vec3 hueShift(vec3 c, float h){
-        // giro simple de canales (aprox. hue shift)
-        float r = c.r, g = c.g, b = c.b;
-        vec3  m1 = vec3(r, g, b);
-        vec3  m2 = vec3(g, b, r);
-        vec3  m3 = vec3(b, r, g);
-        float a = clamp(h*3.0 + 1.5, 0.0, 3.0);
-        if      (a < 1.0) return mix(m1, m2, a);
-        else if (a < 2.0) return mix(m2, m3, a-1.0);
-        else              return mix(m3, m1, a-2.0);
+      // hash & noise (value noise suave)
+      float hash12(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
+      float noise2(vec2 p){
+        vec2 i = floor(p), f = fract(p);
+        float a = hash12(i);
+        float b = hash12(i + vec2(1.0,0.0));
+        float c = hash12(i + vec2(0.0,1.0));
+        float d = hash12(i + vec2(1.0,1.0));
+        vec2 u = f*f*(3.0-2.0*f);
+        return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
       }
-    ` + shader.fragmentShader.replace(
-          '#include <color_fragment>',
-          `
-      // patrón en el PLANO del panel (no mueve geometría)
-      float k = sin((vPos.x + vPos.y) * uScale + uTime * uSpeed);
-      float g = 0.50 + 0.50 * k;                       // 0..1
-      vec3  baseCol = diffuseColor.rgb;
-      vec3  altCol  = hueShift(baseCol, uHueJ);
-      diffuseColor.rgb = mix(baseCol*0.75, altCol, g);
-      #include <color_fragment>
+      float fbm(vec2 p){
+        float v = 0.0, a = 0.55;
+        v += a*noise2(p); p *= 2.03; a *= 0.55;
+        v += a*noise2(p); p *= 2.03; a *= 0.55;
+        v += a*noise2(p); p *= 2.03; a *= 0.55;
+        v += a*noise2(p);
+        return v;
+      }
+
+      // aprox. de hue shift (sin HSV)
+      vec3 hueShift(vec3 c, float h){
+        float r=c.r,g=c.g,b=c.b;
+        vec3 m1=vec3(r,g,b), m2=vec3(g,b,r), m3=vec3(b,r,g);
+        float a = clamp(h*3.0+1.5,0.0,3.0);
+        return (a<1.0)?mix(m1,m2,a) : (a<2.0)?mix(m2,m3,a-1.0):mix(m3,m1,a-2.0);
+      }
+    ` +
+          shader.fragmentShader.replace(
+            "#include <color_fragment>",
+            `
+        // coords en el plano del panel (rotados por panel)
+        mat2 R = mat2(uRot.x, -uRot.y, uRot.y, uRot.x);
+        vec2 P = R * (vPos.xy * (1.0 / max(1e-5, 1.0/uScale)));
+        // desplazamiento animado muy lento (no barras periódicas)
+        P += vec2(uTime*0.07*uSpeed, -uTime*0.05*uSpeed);
+
+        float g = fbm(P);
+
+        // anti-banding: micro-dither proporcional al gradiente
+        float dd = fwidth(g);
+        g += (hash12(gl_FragCoord.xy*0.5 + uTime) - 0.5) * dd * 0.75;
+
+        // contraste suave
+        g = smoothstep(0.25, 0.85, g);
+
+        vec3 baseCol = diffuseColor.rgb;
+        vec3 altCol  = hueShift(baseCol, uHueJ);
+        diffuseColor.rgb = mix(baseCol*0.82, altCol, g);
+
+        #include <color_fragment>
       `
-        );
+          );
 
-        m.userData.shader = shader;
-        m.userData.r5nSpeed = speed;
-      };
+          m.userData.shader   = shader;
+          m.userData.r5nSpeed = speed;  // lo usa el animador
+        };
 
-      return m;
-    }
+        return m;
+      }
 
     /* ——— Panel tipo KEPLR/RAPHI (dos pasadas, sin z-fighting) ———
        1) Si existen los builders de KEPLR/RAPHI, se usan directamente.
@@ -6091,14 +6120,13 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         // Color determinista (igual que antes)
         const pa   = permsSafe[i % permsSafe.length];
         const offs = offsetFromTag(r.tag);
-        const col  = colorR5NFor(pa, offs, i);
 
         // semilla determinista por panel (perm + índice + escena)
         const seedPanel = ((lehmerRank(pa)>>>0) ^ (i*2654435761) ^ (sceneSeed>>>0))>>>0;
-        const mat = r5nMakeMovingMaterial(col, seedPanel);
-        const panel = new THREE.Mesh(geo, mat);
-        panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
-        groupR5NOVA.add(panel);
+        const mat = r5nMakeMovingMaterial(colorR5NFor(pa, offs, i), seedPanel);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
+        groupR5NOVA.add(mesh);
         groupR5NOVA.userData.animMats.push(mat);   // ← se animará por RAF
 
         // === Rahmen (marco) INTERNO con pequeño "pull" hacia la cámara ===
