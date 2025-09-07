@@ -5839,31 +5839,30 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5_DEPTH = 0.06;       // antes: 1.50  → lámina fina tipo “hoja”
     const R5_GAP   = 0.40;       // antes: 0.20  → misma proporción con el nuevo tamaño
 
-    // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
-    const R5N_MAX_TILES = 10;        // máximo de volúmenes a instanciar
-    const R5N_MIN_CELL  = 6.0;      // tamaño mínimo de celda del BSP (menos particiones)
-    const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
-    const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
-
-    /* Conversión firma → velocidad (misma fuente que KEPLR/RAPHI) */
+    /* Velocidad determinista (misma fuente que KEPLR/RAPHI) */
     function r5nOmegaFromSignature(pa){
       try { return keplrOmegaFromSignature(pa) * 1.0; } catch(_){ }
-      const F = (Array.isArray(pa) ? pa : [pa]).reduce((a,b)=>a+Math.abs(+b||0),0);
+      const F = (Array.isArray(pa)?pa:[pa]).reduce((a,b)=>a+Math.abs(+b||0),0);
       return 0.30 + (F % 7) * 0.07;
     }
 
-    /* Determina bisagra determinista para un panel: 0=TOP,1=RIGHT,2=BOTTOM,3=LEFT */
+    /* 0=TOP,1=RIGHT,2=BOTTOM,3=LEFT (determinista) */
     function r5nHingeFor(pa, uniq, H){
       const r = (lehmerRank(pa)>>>0) ^ (H>>>7) ^ (uniq*109);
       return r % 4;
     }
 
-    /* Pequeño sesgo Z determinista (para el “unconventional look”) */
+    /* Pequeño sesgo Z para “look Ron Davis” */
     function r5nSkewZFor(pa, uniq){
       const r = ((lehmerRank(pa)>>>0) + uniq) % 7;
-      const s = (-6 + r) * (Math.PI/180); // -6..+0 grados en pasos de 1°
-      return s;
+      return (-6 + r) * (Math.PI/180); // -6..0°
     }
+
+    // —— R5NOVA · control fino del nº de volúmenes en la pared de fondo ——
+    const R5N_MAX_TILES = 10;        // máximo de volúmenes a instanciar
+    const R5N_MIN_CELL  = 6.0;      // tamaño mínimo de celda del BSP (menos particiones)
+    const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
+    const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
     /* ——— Panel tipo KEPLR/RAPHI (dos pasadas, sin z-fighting) ———
        1) Si existen los builders de KEPLR/RAPHI, se usan directamente.
@@ -5919,7 +5918,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       return g;
     }
 
-    /* RAF animator (soporta rotación “oscilante con bisagra”) */
+    /* RAF animator: secuencia “una por una”, solo hacia atrás */
     (function installR5NOVAAnimator(){
       if (window.__r5novaAnimatorInstalled) return;
       window.__r5novaAnimatorInstalled = true;
@@ -5930,37 +5929,59 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
           const now  = performance.now();
           const last = groupR5NOVA.userData._lastT || now;
+          const dt   = Math.max(0, (now - last) / 1000);
           groupR5NOVA.userData._lastT = now;
 
-          const t = now * 0.001;
-          const arr = groupR5NOVA.userData.rotators || [];
-          for (let i=0;i<arr.length;i++){
-            const g = arr[i];
-            if (!g || !g.userData) continue;
+          const seq  = groupR5NOVA.userData.sequence || null;
+          const list = groupR5NOVA.userData.rotators || [];
 
-            // Paso global desde BUILD (pausa/velocidad)
-            let step = 1;
-            try{
-              if (typeof getBuildRotStep === 'function'){
-                const s = getBuildRotStep(g.userData.permStr || '');
-                if (typeof s === 'number') step = s;
-              }
-            }catch(_){ }
-
-            const osc = g.userData.osc;   // {A,W,P,axis}
-            if (!osc) continue;
-
-            // Ángulo oscilante – siempre “hacia atrás” (base negativa)
-            const ang = osc.base + osc.A * Math.sin((osc.W * step) * t + osc.P);
-
-            // Ejes X/Y según bisagra
-            if (osc.axis === 'X'){
-              g.rotation.x = ang;
-            } else if (osc.axis === 'Y'){
-              g.rotation.y = ang;
+          if (seq && list.length){
+            // fuerza TODAS cerradas excepto la activa
+            for (let j=0;j<list.length;j++){
+              if (j === seq.idx) continue;
+              const p = list[j];
+              if (!p || !p.userData || !p.userData.swing) continue;
+              if (p.userData.swing.axis === 'X') p.rotation.x = 0;
+              else                               p.rotation.y = 0;
+              p.rotation.z = p.userData.swing.skewZ || 0;
             }
-            // pequeño sesgo fijo para “look” no ortodoxo (tipo Ron Davis)
-            if (typeof osc.skewZ === 'number') g.rotation.z = osc.skewZ;
+
+            const cur = list[seq.idx];
+            if (cur && cur.userData && cur.userData.swing){
+              const S = cur.userData.swing;          // {axis,sign,max,spdOpen,spdClose,skewZ}
+              const getA = ()=> (S.axis==='X'?cur.rotation.x:cur.rotation.y);
+              const setA = (v)=>{ if (S.axis==='X') cur.rotation.x=v; else cur.rotation.y=v; };
+              let a = getA();
+
+              if (seq.state === 'opening'){
+                const target = S.sign * S.max;       // solo hacia atrás
+                const step   = Math.sign(target-a) * Math.min(Math.abs(target-a), S.spdOpen*dt);
+                a = a + step;
+                setA(a);
+                // ¿llegó?
+                if (Math.abs(a - target) < 1e-3){
+                  if (seq.holdOpen > 0){ seq.tHold = 0; seq.state = 'holdOpen'; }
+                  else { seq.state = 'closing'; }
+                }
+              } else if (seq.state === 'holdOpen'){
+                seq.tHold += dt;
+                if (seq.tHold >= seq.holdOpen){ seq.state = 'closing'; }
+              } else if (seq.state === 'closing'){
+                const target = 0;                    // cerrar completamente
+                const step   = Math.sign(target-a) * Math.min(Math.abs(target-a), S.spdClose*dt);
+                a = a + step;
+                setA(a);
+                if (Math.abs(a - target) < 1e-3){
+                  // pasa al siguiente panel
+                  seq.idx = (seq.idx + 1) % list.length;
+                  if (seq.holdClosed > 0){ seq.tHold = 0; seq.state = 'holdClosed'; }
+                  else { seq.state = 'opening'; }
+                }
+              } else if (seq.state === 'holdClosed'){
+                seq.tHold += dt;
+                if (seq.tHold >= seq.holdClosed){ seq.state = 'opening'; }
+              }
+            }
           }
         }catch(_){ }
         requestAnimationFrame(tick);
@@ -6017,7 +6038,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     function buildR5NOVA(){
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
-      groupR5NOVA.userData.rotators = [];   // ← NUEVO
 
       // Fondo acoplado (no manual), igual que RAUM/BUILD
       updateBackground(false);
@@ -6055,88 +6075,109 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
                          .map(o => o.value.split(',').map(Number));
       const permsSafe = perms.length ? perms : [[1,2,3,4,5]]; // fallback determinista
 
-      // Mapeo: tag → offset cromático (sutil y determinista)
-      function offsetFromTag(t){
-        if (!t) return 0;
-        if (String(t).startsWith('euclid')) return 1;
-        if (String(t).startsWith('beatty')) return 2;
-        if (String(t).startsWith('subst'))  return 3;
-        if (String(t).startsWith('bsp-merged')) return 1;
-        return 0;
-      }
+      // Orquestación secuencial (config global del motor)
+      groupR5NOVA.userData.rotators = [];
+      groupR5NOVA.userData.sequence = {
+        idx: 0,
+        state: 'opening',     // opening → (holdOpen) → closing → (holdClosed) → siguiente
+        holdOpen: 0.0,        // si quieres pausa abierta, sube (segundos)
+        holdClosed: 0.10,     // pequeña pausa cerrada entre paneles
+        tHold: 0
+      };
+
+      const Hseed = computeLayoutSeed();
+      const backDepth = R5_D + 30;
+      const zBackEdge = -backDepth / 2;
+
+      // PARA EVITAR “asomos”: panel un poco más atrás que el marco
+      const Z_SETBACK      = 0.15;   // 15 mm por detrás del plano del marco
+      const FRAME_Z_PULL   = 0.10;   // marco 10 mm por delante del panel
+      const FRAME_Z_OFFSET = (zBackEdge + R5_DEPTH/2) - Z_SETBACK + FRAME_Z_PULL;
 
       rects.forEach((r, i) => {
-        // Centro del rectángulo (coordenadas de habitación)
         const cx = r.x + r.w/2;
         const cy = r.y + r.h/2;
 
-        // Tamaño con separación mínima (gap uniforme alrededor)
+        // tamaño con gap mínimo
         const w = Math.max(0.001, r.w - R5_GAP);
         const h = Math.max(0.001, r.h - R5_GAP);
 
-        // === Marco (Rahmen) – igual que antes ===============================
-        const FRAME_Z_PULL = 0.06;
+        // ——— RAHMEN (marco) ———
         const tRaw = Math.min(R5_GAP * 2, Math.min(w, h) * 0.20);
-        const t    = Math.max(0.001, Math.min(tRaw, w / 3, h / 3)); // ancho del marco
+        const t    = Math.max(0.001, Math.min(tRaw, w / 3, h / 3)); // grosor barra
 
+        // luz interior EXACTA (como antes)
         const wIn = Math.max(0.001, w - 2 * t);
         const hIn = Math.max(0.001, h - 2 * t);
 
+        // color cuerpo/offset por tag (determinista)
         const pa   = permsSafe[i % permsSafe.length];
-        const offs = offsetFromTag(r.tag);
+        const offs = (function offsetFromTag(tg){
+          if (!tg) return 0;
+          const s = String(tg);
+          if (s.startsWith('euclid')) return 1;
+          if (s.startsWith('beatty')) return 2;
+          if (s.startsWith('subst'))  return 3;
+          if (s.startsWith('bsp-merged')) return 1;
+          return 0;
+        })(r.tag);
         const col  = colorR5NFor(pa, offs, i);
 
-        // === PANEL tipo KEPLR/RAPHI =========================================
-        // Seguridad anti-colisión: panel más pequeño + un “setback” en Z
-        const SAFE  = Math.min(0.60 * t, Math.min(wIn, hIn) * 0.06); // margen interno
-        const wPn   = Math.max(0.001, wIn - 2*SAFE);
-        const hPn   = Math.max(0.001, hIn - 2*SAFE);
-        const geoPn = new THREE.BoxGeometry(wPn, hPn, R5_DEPTH);
-
+        // ——— PANEL tipo KEPLR/RAPHI ———
+        // ► Tamaño = luz interior (sin reducción)
+        const EPS  = 0.001; // imperceptible, evita z-fighting en el borde de la bisagra
+        const geoPn = new THREE.BoxGeometry(Math.max(0.001,wIn - EPS), Math.max(0.001,hIn - EPS), R5_DEPTH);
         const panel = r5nBuildFaceGroup(geoPn, col);
+        panel.renderOrder = 0; // SIEMPRE detrás del marco
 
-        // Lo empujamos un poco hacia el fondo para que NUNCA asome
-        const zBackEdge = -(R5_D + 30) / 2;
-        const zPanel    = zBackEdge + R5_DEPTH/2 - 0.10; // 10 mm detrás del plano del marco
+        // Z del panel (retrasado)
+        const zPanel = (zBackEdge + R5_DEPTH/2) - Z_SETBACK;
 
-        // === Bisagra determinista (TOP/RIGHT/BOTTOM/LEFT) ===================
-        const Hseed   = computeLayoutSeed();
-        const hinge   = r5nHingeFor(pa, i, Hseed); // 0..3
-        const pivot   = new THREE.Group();          // grupo-bisagra
-        pivot.position.z = zPanel;                  // línea de bisagra está en el plano del fondo
+        // ——— BISAGRA determinista (no se asoma: solo “hacia atrás”) ———
+        const hinge = r5nHingeFor(pa, i, Hseed); // 0..3
+        const pivot = new THREE.Group();
+        pivot.position.z = zPanel;
 
-        // Colocamos el pivot en el borde interior correspondiente (coincide con la luz del marco)
+        // eje & signo para abrir hacia el fondo
+        const axis   = (hinge===0||hinge===2) ? 'X' : 'Y';
+        const sign   = (hinge===0 || hinge===3) ? -1 : +1; // TOP/LEFT -, RIGHT/BOTTOM +
+        const maxDeg = 14 + ((lehmerRank(pa)+i) % 5);      // 14..18°
+        const swing  = {
+          axis, sign,
+          max: THREE.MathUtils.degToRad(maxDeg),
+          spdOpen : r5nOmegaFromSignature(pa) * 0.85,
+          spdClose: r5nOmegaFromSignature(pa) * 1.00,
+          skewZ   : r5nSkewZFor(pa, i)
+        };
+
+        // colocar pivot en la arista interior del marco
         if (hinge === 0){         // TOP
-          pivot.position.set(cx, cy + (h/2 - t) - SAFE, zPanel);
-          panel.position.set(0, -hPn/2, 0);        // top del panel en la línea del pivot
+          pivot.position.set(cx, cy + (h/2 - t), zPanel);
+          panel.position.set(0, -hIn/2, 0);
         } else if (hinge === 1){  // RIGHT
-          pivot.position.set(cx + (w/2 - t) - SAFE, cy, zPanel);
-          panel.position.set(-wPn/2, 0, 0);
+          pivot.position.set(cx + (w/2 - t), cy, zPanel);
+          panel.position.set(-wIn/2, 0, 0);
         } else if (hinge === 2){  // BOTTOM
-          pivot.position.set(cx, cy - (h/2 - t) + SAFE, zPanel);
-          panel.position.set(0,  hPn/2, 0);
+          pivot.position.set(cx, cy - (h/2 - t), zPanel);
+          panel.position.set(0,  hIn/2, 0);
         } else {                  // LEFT
-          pivot.position.set(cx - (w/2 - t) + SAFE, cy, zPanel);
-          panel.position.set( wPn/2, 0, 0);
+          pivot.position.set(cx - (w/2 - t), cy, zPanel);
+          panel.position.set( wIn/2, 0, 0);
         }
 
-        // Añadimos panel dentro del pivot (para girar alrededor de la bisagra)
+        // estado inicial: TODAS CERRADAS
+        if (axis === 'X'){ pivot.rotation.x = 0; }
+        else              { pivot.rotation.y = 0; }
+        pivot.rotation.z = swing.skewZ;
+
+        // guarda props de animación y añade al grupo
         pivot.add(panel);
+        pivot.userData.swing    = swing;
+        pivot.userData.permStr  = pa.join(',');
         groupR5NOVA.add(pivot);
-
-        // === Movimiento “ventana que se abre hacia atrás” ====================
-        const vel   = r5nOmegaFromSignature(pa);          // rad/s
-        const Adeg  = 12 + ((lehmerRank(pa)+i)%7);        // 12..18 grados
-        const A     = THREE.MathUtils.degToRad(Adeg);     // amplitud
-        const base  = -THREE.MathUtils.degToRad(8);       // siempre hacia atrás
-        const phase = ((lehmerRank(pa)>>>3) % 628) / 100; // desfase determinista
-        const axis  = (hinge===0||hinge===2) ? 'X' : 'Y'; // eje según la bisagra
-
-        pivot.userData.osc     = { A, W:vel, P:phase, base, axis, skewZ:r5nSkewZFor(pa,i) };
-        pivot.userData.permStr = pa.join(',');
         groupR5NOVA.userData.rotators.push(pivot);
 
-        // === RAHMEN (idéntico, SIEMPRE delante del panel) ====================
+        // ——— RAHMEN delante (con orden de dibujado alto) ———
         const offsF = (offs + 6 + (5 * i) % 12) % 12;
         const colF  = colorR5NFor(pa, offsF);
 
@@ -6144,24 +6185,22 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         matF.emissive = colF.clone();
         matF.emissiveIntensity = 0.12;
 
-        const zFrame = zPanel + FRAME_Z_PULL;
-
         const topGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
         const botGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
         const lefGeo = new THREE.BoxGeometry(t, hIn, R5_DEPTH);
         const rigGeo = new THREE.BoxGeometry(t, hIn, R5_DEPTH);
 
         const top = new THREE.Mesh(topGeo, matF);
-        top.position.set(cx, cy + (h/2 - t/2), zFrame);
-
+        top.position.set(cx, cy + (h/2 - t/2), FRAME_Z_OFFSET);
         const bot = new THREE.Mesh(botGeo, matF);
-        bot.position.set(cx, cy - (h/2 - t/2), zFrame);
-
+        bot.position.set(cx, cy - (h/2 - t/2), FRAME_Z_OFFSET);
         const lef = new THREE.Mesh(lefGeo, matF);
-        lef.position.set(cx - (w/2 - t/2), cy, zFrame);
-
+        lef.position.set(cx - (w/2 - t/2), cy, FRAME_Z_OFFSET);
         const rig = new THREE.Mesh(rigGeo, matF);
-        rig.position.set(cx + (w/2 - t/2), cy, zFrame);
+        rig.position.set(cx + (w/2 - t/2), cy, FRAME_Z_OFFSET);
+
+        // el marco SIEMPRE encima del panel
+        top.renderOrder = bot.renderOrder = lef.renderOrder = rig.renderOrder = 20;
 
         groupR5NOVA.add(top, bot, lef, rig);
       });
