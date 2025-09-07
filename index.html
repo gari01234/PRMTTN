@@ -6163,6 +6163,27 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         groupR5NOVA.add(pivot);
         groupR5NOVA.userData.rotators.push(pivot);
 
+        // --- BACKER NEGRO FIJO (queda visible cuando la ventana abre) ---
+        // Pequeño setback extra para que nunca colisione con el panel
+        const BACKER_Z_GAP = 0.22;     // separación hacia atrás (m)
+        const EPSB = 0.002;            // micro-encogimiento para evitar z-fighting con el marco
+
+        // Usamos un plano negro puro (no afectado por luces)
+        const backerGeo = new THREE.PlaneGeometry(
+          Math.max(0.001, w - EPSB),
+          Math.max(0.001, h - EPSB)
+        );
+        const backerMat = new THREE.MeshBasicMaterial({
+          color: 0x000000,
+          side: THREE.DoubleSide,
+          dithering: true,
+          depthWrite: true
+        });
+        const backer = new THREE.Mesh(backerGeo, backerMat);
+        backer.position.set(cx, cy, zPanelPlane - BACKER_Z_GAP);
+        backer.renderOrder = -5;        // asegura que siempre quede detrás del panel y del marco
+        groupR5NOVA.add(backer);
+
         // ——— RAHMEN (marco) por DELANTE (mismo diseño que ya tenías) ———
         const offsF = (offs + 6 + (5 * i) % 12) % 12;
         const colF  = colorR5NFor(pa, offsF);
