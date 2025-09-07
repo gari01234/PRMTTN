@@ -5910,9 +5910,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       return 0.30 + (F % 7) * 0.07;
     }
 
-    /* Eje/velocidad (como RAPHI: eje Y local) */
+    /* Eje/velocidad: giro DENTRO DEL PLANO (eje Z local) para que jamás sobresalga del Rahmen */
     function r5nSpinParamsFor(pa){
-      const axis = new THREE.Vector3(0, 1, 0);
+      const axis = new THREE.Vector3(0, 0, 1);       // ← antes (0,1,0)
       const vel  = r5nOmegaFromSignature(pa);
       return { axis, vel };
     }
@@ -6083,9 +6083,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
         groupR5NOVA.add(panel);
 
-        // === Movimiento tipo RAPHI/KEPLR para este panel ===
+        // === Movimiento tipo RAPHI/KEPLR para este panel (eje Z para no asomar) ===
         const spin = r5nSpinParamsFor(pa);
-        panel.userData.rotAxis  = spin.axis;
+        panel.userData.rotAxis  = new THREE.Vector3(0, 0, 1); // ← fuerza Z local
         panel.userData.rotVel   = spin.vel;
         panel.userData.permStr  = pa.join(',');     // para getBuildRotStep
         groupR5NOVA.userData.rotators.push(panel);
