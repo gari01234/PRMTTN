@@ -5899,6 +5899,68 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       return g;
     }
 
+    /* ——— Movimiento tipo KEPLR/RAPHI para los paneles del fondo ——— */
+    const R5N_SPIN_MULT = 1.0; // factor relativo (RAPHI usa 3.0)
+
+    /* Velocidad angular desde la “Signature Range” (mismo origen que KEPLR) */
+    function r5nOmegaFromSignature(pa){
+      try { return keplrOmegaFromSignature(pa) * R5N_SPIN_MULT; } catch(_){ }
+      // Fallback determinista (por si no existe keplrOmegaFromSignature):
+      const F = (Array.isArray(pa) ? pa : [pa]).reduce((a,b)=>a+Math.abs(+b||0),0);
+      return 0.30 + (F % 7) * 0.07;
+    }
+
+    /* Eje/velocidad (como RAPHI: eje Y local) */
+    function r5nSpinParamsFor(pa){
+      const axis = new THREE.Vector3(0, 1, 0);
+      const vel  = r5nOmegaFromSignature(pa);
+      return { axis, vel };
+    }
+
+    /* RAF animator (idéntico en espíritu al de RAPHI) */
+    (function installR5NOVAAnimator(){
+      if (window.__r5novaAnimatorInstalled) return;
+      window.__r5novaAnimatorInstalled = true;
+
+      function tick(){
+        try{
+          if (!isR5NOVA || !groupR5NOVA){ requestAnimationFrame(tick); return; }
+
+          const now  = performance.now();
+          const last = groupR5NOVA.userData._lastT || now;
+          const dt   = Math.max(0, (now - last) / 1000);
+          groupR5NOVA.userData._lastT = now;
+
+          const arr = groupR5NOVA.userData.rotators || [];
+          for (let i=0;i<arr.length;i++){
+            const g = arr[i];
+            if (!g || !g.userData) continue;
+
+            // paso global (como BUILD/KEPLR/RAPHI)
+            let step = 1;
+            try{
+              if (typeof getBuildRotStep === 'function'){
+                const s = getBuildRotStep(g.userData.permStr || '');
+                if (typeof s === 'number') step = s;
+              }
+            }catch(_){ }
+
+            const axis = g.userData.rotAxis || new THREE.Vector3(0,1,0);
+            const vel  = g.userData.rotVel  || 0;
+            const dA   = vel * dt * step;
+
+            if (dA !== 0){
+              // rotateOnAxis usa un vector normalizado
+              const ax = (axis.isVector3 ? axis : new THREE.Vector3(0,1,0)).clone().normalize();
+              g.rotateOnAxis(ax, dA);
+            }
+          }
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+
     // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
     function r5novaAssembleRects(){
       // Interior visible: restamos el grosor de muros/piso/techo (R5_G)
@@ -5948,6 +6010,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     function buildR5NOVA(){
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
+      groupR5NOVA.userData.rotators = [];   // ← NUEVO
 
       // Fondo acoplado (no manual), igual que RAUM/BUILD
       updateBackground(false);
@@ -6010,15 +6073,22 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         const geo = new THREE.BoxGeometry(w, h, R5_DEPTH);
 
-        // Color determinista ciclando permutaciones + offset por tag
+        // Color determinista (igual que antes)
         const pa   = permsSafe[i % permsSafe.length];
         const offs = offsetFromTag(r.tag);
         const col  = colorR5NFor(pa, offs, i);
 
-        // Grupo de caras idéntico al de KEPLR/RAPHI (o fallback de 2 pasadas)
+        // Grupo de caras tipo KEPLR/RAPHI (dos pasadas)
         const panel = r5nBuildFaceGroup(geo, col);
-        panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2); // pegado al canto posterior
+        panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
         groupR5NOVA.add(panel);
+
+        // === Movimiento tipo RAPHI/KEPLR para este panel ===
+        const spin = r5nSpinParamsFor(pa);
+        panel.userData.rotAxis  = spin.axis;
+        panel.userData.rotVel   = spin.vel;
+        panel.userData.permStr  = pa.join(',');     // para getBuildRotStep
+        groupR5NOVA.userData.rotators.push(panel);
 
         // === Rahmen (marco) INTERNO con pequeño "pull" hacia la cámara ===
         // grosor base ≈ 2× gap, con límites para no cerrar el hueco interior
@@ -6067,6 +6137,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       scene.add(groupR5NOVA);
 
       try { renderer.sortObjects = true; } catch(_){ }
+      groupR5NOVA.traverse(o => { o.frustumCulled = false; });
     }
 
     /* Rebuild si hay cambios de escena */
