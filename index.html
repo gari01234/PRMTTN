@@ -5845,33 +5845,58 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
-    /* ——— Material tipo KEPLR/RAPHI para paneles/volúmenes ———
-       Si el proyecto expone factories propios, se usan; si no, fallback Physical equivalente. */
-    function r5nKeplrRaphiMaterial(colorTHREE){
+    /* ——— Panel tipo KEPLR/RAPHI (dos pasadas, sin z-fighting) ———
+       1) Si existen los builders de KEPLR/RAPHI, se usan directamente.
+       2) Si no, fallback equivalente con dos MeshStandardMaterial (Front/Back, depthWrite:false). */
+    function r5nBuildFaceGroup(geo, colorTHREE){
       try{
-        if (typeof window.keplrSurfaceMaterial === 'function')
-          return window.keplrSurfaceMaterial(colorTHREE);
+        if (typeof window.raphiBuildFaceGroup === 'function'){
+          return window.raphiBuildFaceGroup(geo, colorTHREE);
+        }
       }catch(_){ }
 
       try{
-        if (typeof window.raphiSurfaceMaterial === 'function')
-          return window.raphiSurfaceMaterial(colorTHREE);
+        if (typeof window.keplrBuildFaceGroup === 'function'){
+          return window.keplrBuildFaceGroup(geo, colorTHREE);
+        }
       }catch(_){ }
 
-      // Fallback: aspecto físico brillante similar a KEPLR/RAPHI
-      const m = new THREE.MeshPhysicalMaterial({
+      // —— Fallback: dos pasadas estándar (mismo “look&feel”) ——
+      const emiss = colorTHREE.clone().multiplyScalar(0.06);
+
+      const matBack = new THREE.MeshStandardMaterial({
         color: colorTHREE,
-        roughness: 0.32,
+        roughness: 0.35,
         metalness: 0.04,
-        clearcoat: 0.36,
-        clearcoatRoughness: 0.75,
-        envMapIntensity: 0.9,
-        reflectivity: 0.5,
-        dithering: true
+        side: THREE.BackSide,
+        transparent: true,
+        opacity: 0.98,
+        depthWrite: false,
+        dithering: true,
+        emissive: emiss,
+        emissiveIntensity: 0.12
       });
-      m.emissive = colorTHREE.clone().multiplyScalar(0.08);
-      m.emissiveIntensity = 0.08;
-      return m;
+
+      const matFront = new THREE.MeshStandardMaterial({
+        color: colorTHREE,
+        roughness: 0.35,
+        metalness: 0.04,
+        side: THREE.FrontSide,
+        transparent: true,
+        opacity: 0.98,
+        depthWrite: false,
+        dithering: true,
+        emissive: emiss,
+        emissiveIntensity: 0.12
+      });
+
+      const back  = new THREE.Mesh(geo, matBack);
+      const front = new THREE.Mesh(geo, matFront);
+
+      const g = new THREE.Group();
+      g.add(back, front);
+      g.renderOrder = 0; // el Rahmen quedará delante
+      return g;
     }
 
     // ——— R5NOVA · ensamblado BSP con Füge perimetral correcta ———
@@ -5990,11 +6015,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         const offs = offsetFromTag(r.tag);
         const col  = colorR5NFor(pa, offs, i);
 
-        const mat = r5nKeplrRaphiMaterial(col);
-
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(cx, cy, zBackEdge + R5_DEPTH/2); // pegado al canto posterior
-        groupR5NOVA.add(mesh);
+        // Grupo de caras idéntico al de KEPLR/RAPHI (o fallback de 2 pasadas)
+        const panel = r5nBuildFaceGroup(geo, col);
+        panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2); // pegado al canto posterior
+        groupR5NOVA.add(panel);
 
         // === Rahmen (marco) INTERNO con pequeño "pull" hacia la cámara ===
         // grosor base ≈ 2× gap, con límites para no cerrar el hueco interior
@@ -6017,7 +6041,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         matF.emissiveIntensity = 0.12;
 
         // Posición Z del marco: un pelín por DELANTE del volumen
-        const zFrame = mesh.position.z + FRAME_Z_PULL;
+        const zFrame = panel.position.z + FRAME_Z_PULL;
 
         // 4 barras internas: arriba/abajo/izq/der (misma profundidad que el volumen)
         const topGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
@@ -6041,6 +6065,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       });
 
       scene.add(groupR5NOVA);
+
+      try { renderer.sortObjects = true; } catch(_){ }
     }
 
     /* Rebuild si hay cambios de escena */
