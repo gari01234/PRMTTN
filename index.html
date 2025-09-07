@@ -5845,6 +5845,26 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     const R5N_TARGETN   = [4, 8];   // objetivo de celdas del BSP (pocas piezas)
     const R5N_MERGE     = 0.60;     // probabilidad de fusionar adyacentes
 
+    /* Conversión firma → velocidad (misma fuente que KEPLR/RAPHI) */
+    function r5nOmegaFromSignature(pa){
+      try { return keplrOmegaFromSignature(pa) * 1.0; } catch(_){ }
+      const F = (Array.isArray(pa) ? pa : [pa]).reduce((a,b)=>a+Math.abs(+b||0),0);
+      return 0.30 + (F % 7) * 0.07;
+    }
+
+    /* Determina bisagra determinista para un panel: 0=TOP,1=RIGHT,2=BOTTOM,3=LEFT */
+    function r5nHingeFor(pa, uniq, H){
+      const r = (lehmerRank(pa)>>>0) ^ (H>>>7) ^ (uniq*109);
+      return r % 4;
+    }
+
+    /* Pequeño sesgo Z determinista (para el “unconventional look”) */
+    function r5nSkewZFor(pa, uniq){
+      const r = ((lehmerRank(pa)>>>0) + uniq) % 7;
+      const s = (-6 + r) * (Math.PI/180); // -6..+0 grados en pasos de 1°
+      return s;
+    }
+
     /* ——— Panel tipo KEPLR/RAPHI (dos pasadas, sin z-fighting) ———
        1) Si existen los builders de KEPLR/RAPHI, se usan directamente.
        2) Si no, fallback equivalente con dos MeshStandardMaterial (Front/Back, depthWrite:false). */
@@ -5899,25 +5919,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       return g;
     }
 
-    /* ——— Movimiento tipo KEPLR/RAPHI para los paneles del fondo ——— */
-    const R5N_SPIN_MULT = 1.0; // factor relativo (RAPHI usa 3.0)
-
-    /* Velocidad angular desde la “Signature Range” (mismo origen que KEPLR) */
-    function r5nOmegaFromSignature(pa){
-      try { return keplrOmegaFromSignature(pa) * R5N_SPIN_MULT; } catch(_){ }
-      // Fallback determinista (por si no existe keplrOmegaFromSignature):
-      const F = (Array.isArray(pa) ? pa : [pa]).reduce((a,b)=>a+Math.abs(+b||0),0);
-      return 0.30 + (F % 7) * 0.07;
-    }
-
-    /* Eje/velocidad: giro DENTRO DEL PLANO (eje Z local) para que jamás sobresalga del Rahmen */
-    function r5nSpinParamsFor(pa){
-      const axis = new THREE.Vector3(0, 0, 1);       // ← antes (0,1,0)
-      const vel  = r5nOmegaFromSignature(pa);
-      return { axis, vel };
-    }
-
-    /* RAF animator (idéntico en espíritu al de RAPHI) */
+    /* RAF animator (soporta rotación “oscilante con bisagra”) */
     (function installR5NOVAAnimator(){
       if (window.__r5novaAnimatorInstalled) return;
       window.__r5novaAnimatorInstalled = true;
@@ -5928,15 +5930,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
           const now  = performance.now();
           const last = groupR5NOVA.userData._lastT || now;
-          const dt   = Math.max(0, (now - last) / 1000);
           groupR5NOVA.userData._lastT = now;
 
+          const t = now * 0.001;
           const arr = groupR5NOVA.userData.rotators || [];
           for (let i=0;i<arr.length;i++){
             const g = arr[i];
             if (!g || !g.userData) continue;
 
-            // paso global (como BUILD/KEPLR/RAPHI)
+            // Paso global desde BUILD (pausa/velocidad)
             let step = 1;
             try{
               if (typeof getBuildRotStep === 'function'){
@@ -5945,15 +5947,20 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
               }
             }catch(_){ }
 
-            const axis = g.userData.rotAxis || new THREE.Vector3(0,1,0);
-            const vel  = g.userData.rotVel  || 0;
-            const dA   = vel * dt * step;
+            const osc = g.userData.osc;   // {A,W,P,axis}
+            if (!osc) continue;
 
-            if (dA !== 0){
-              // rotateOnAxis usa un vector normalizado
-              const ax = (axis.isVector3 ? axis : new THREE.Vector3(0,1,0)).clone().normalize();
-              g.rotateOnAxis(ax, dA);
+            // Ángulo oscilante – siempre “hacia atrás” (base negativa)
+            const ang = osc.base + osc.A * Math.sin((osc.W * step) * t + osc.P);
+
+            // Ejes X/Y según bisagra
+            if (osc.axis === 'X'){
+              g.rotation.x = ang;
+            } else if (osc.axis === 'Y'){
+              g.rotation.y = ang;
             }
+            // pequeño sesgo fijo para “look” no ortodoxo (tipo Ron Davis)
+            if (typeof osc.skewZ === 'number') g.rotation.z = osc.skewZ;
           }
         }catch(_){ }
         requestAnimationFrame(tick);
@@ -6039,9 +6046,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       groupR5NOVA.add(left, right, floor, ceil);
 
       // ====== PLANO DEL FONDO (sin pared): mosaico R5Nova ======
-      // Plano extremo posterior (alineado con el canto trasero de techo/muros/piso)
-      const backDepth = R5_D + 30;
-      const zBackEdge = -backDepth / 2;
 
       // --- Layout determinista con tilers ---
       const rects = r5novaAssembleRects();
@@ -6061,9 +6065,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         return 0;
       }
 
-      // Geometría base: se recalcula por rect para ajustar gap mínimo
       rects.forEach((r, i) => {
-        // Centro del rectángulo en coordenadas de habitación
+        // Centro del rectángulo (coordenadas de habitación)
         const cx = r.x + r.w/2;
         const cy = r.y + r.h/2;
 
@@ -6071,38 +6074,69 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         const w = Math.max(0.001, r.w - R5_GAP);
         const h = Math.max(0.001, r.h - R5_GAP);
 
-        const geo = new THREE.BoxGeometry(w, h, R5_DEPTH);
+        // === Marco (Rahmen) – igual que antes ===============================
+        const FRAME_Z_PULL = 0.06;
+        const tRaw = Math.min(R5_GAP * 2, Math.min(w, h) * 0.20);
+        const t    = Math.max(0.001, Math.min(tRaw, w / 3, h / 3)); // ancho del marco
 
-        // Color determinista (igual que antes)
+        const wIn = Math.max(0.001, w - 2 * t);
+        const hIn = Math.max(0.001, h - 2 * t);
+
         const pa   = permsSafe[i % permsSafe.length];
         const offs = offsetFromTag(r.tag);
         const col  = colorR5NFor(pa, offs, i);
 
-        // Grupo de caras tipo KEPLR/RAPHI (dos pasadas)
-        const panel = r5nBuildFaceGroup(geo, col);
-        panel.position.set(cx, cy, zBackEdge + R5_DEPTH/2);
-        groupR5NOVA.add(panel);
+        // === PANEL tipo KEPLR/RAPHI =========================================
+        // Seguridad anti-colisión: panel más pequeño + un “setback” en Z
+        const SAFE  = Math.min(0.60 * t, Math.min(wIn, hIn) * 0.06); // margen interno
+        const wPn   = Math.max(0.001, wIn - 2*SAFE);
+        const hPn   = Math.max(0.001, hIn - 2*SAFE);
+        const geoPn = new THREE.BoxGeometry(wPn, hPn, R5_DEPTH);
 
-        // === Movimiento tipo RAPHI/KEPLR para este panel (eje Z para no asomar) ===
-        const spin = r5nSpinParamsFor(pa);
-        panel.userData.rotAxis  = new THREE.Vector3(0, 0, 1); // ← fuerza Z local
-        panel.userData.rotVel   = spin.vel;
-        panel.userData.permStr  = pa.join(',');     // para getBuildRotStep
-        groupR5NOVA.userData.rotators.push(panel);
+        const panel = r5nBuildFaceGroup(geoPn, col);
 
-        // === Rahmen (marco) INTERNO con pequeño "pull" hacia la cámara ===
-        // grosor base ≈ 2× gap, con límites para no cerrar el hueco interior
-        const FRAME_Z_PULL = 0.06; // mueve el marco mínimamente hacia el frente (evita z-fighting)
-        const tRaw = Math.min(R5_GAP * 2, Math.min(w, h) * 0.20);
-        const t    = Math.max(0.001, Math.min(tRaw, w / 3, h / 3)); // asegura w-2t y h-2t positivos
+        // Lo empujamos un poco hacia el fondo para que NUNCA asome
+        const zBackEdge = -(R5_D + 30) / 2;
+        const zPanel    = zBackEdge + R5_DEPTH/2 - 0.10; // 10 mm detrás del plano del marco
 
-        // dimensiones "inset" (el marco va DENTRO del rectángulo)
-        const wIn = Math.max(0.001, w - 2 * t);
-        const hIn = Math.max(0.001, h - 2 * t);
+        // === Bisagra determinista (TOP/RIGHT/BOTTOM/LEFT) ===================
+        const Hseed   = computeLayoutSeed();
+        const hinge   = r5nHingeFor(pa, i, Hseed); // 0..3
+        const pivot   = new THREE.Group();          // grupo-bisagra
+        pivot.position.z = zPanel;                  // línea de bisagra está en el plano del fondo
 
-        // color del marco: distinto al del cuerpo y determinista
-        // offs  : offset del cuerpo (según tag)
-        // offsF : offset adicional (ciclo de paso 5, coprimo con 12) + 6 (opuesto) → muy distinto
+        // Colocamos el pivot en el borde interior correspondiente (coincide con la luz del marco)
+        if (hinge === 0){         // TOP
+          pivot.position.set(cx, cy + (h/2 - t) - SAFE, zPanel);
+          panel.position.set(0, -hPn/2, 0);        // top del panel en la línea del pivot
+        } else if (hinge === 1){  // RIGHT
+          pivot.position.set(cx + (w/2 - t) - SAFE, cy, zPanel);
+          panel.position.set(-wPn/2, 0, 0);
+        } else if (hinge === 2){  // BOTTOM
+          pivot.position.set(cx, cy - (h/2 - t) + SAFE, zPanel);
+          panel.position.set(0,  hPn/2, 0);
+        } else {                  // LEFT
+          pivot.position.set(cx - (w/2 - t) + SAFE, cy, zPanel);
+          panel.position.set( wPn/2, 0, 0);
+        }
+
+        // Añadimos panel dentro del pivot (para girar alrededor de la bisagra)
+        pivot.add(panel);
+        groupR5NOVA.add(pivot);
+
+        // === Movimiento “ventana que se abre hacia atrás” ====================
+        const vel   = r5nOmegaFromSignature(pa);          // rad/s
+        const Adeg  = 12 + ((lehmerRank(pa)+i)%7);        // 12..18 grados
+        const A     = THREE.MathUtils.degToRad(Adeg);     // amplitud
+        const base  = -THREE.MathUtils.degToRad(8);       // siempre hacia atrás
+        const phase = ((lehmerRank(pa)>>>3) % 628) / 100; // desfase determinista
+        const axis  = (hinge===0||hinge===2) ? 'X' : 'Y'; // eje según la bisagra
+
+        pivot.userData.osc     = { A, W:vel, P:phase, base, axis, skewZ:r5nSkewZFor(pa,i) };
+        pivot.userData.permStr = pa.join(',');
+        groupR5NOVA.userData.rotators.push(pivot);
+
+        // === RAHMEN (idéntico, SIEMPRE delante del panel) ====================
         const offsF = (offs + 6 + (5 * i) % 12) % 12;
         const colF  = colorR5NFor(pa, offsF);
 
@@ -6110,10 +6144,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         matF.emissive = colF.clone();
         matF.emissiveIntensity = 0.12;
 
-        // Posición Z del marco: un pelín por DELANTE del volumen
-        const zFrame = panel.position.z + FRAME_Z_PULL;
+        const zFrame = zPanel + FRAME_Z_PULL;
 
-        // 4 barras internas: arriba/abajo/izq/der (misma profundidad que el volumen)
         const topGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
         const botGeo = new THREE.BoxGeometry(wIn, t, R5_DEPTH);
         const lefGeo = new THREE.BoxGeometry(t, hIn, R5_DEPTH);
