@@ -39,7 +39,7 @@ const TMSL_ENGINE = {
     window.permutationGroup.visible = false;
 
     prevBg = window.scene.background ? window.scene.background.clone() : null;
-    window.scene.background = new getTHREE().Color(0x000000);
+    if (typeof window.updateBackground === 'function') window.updateBackground(false);
 
     prevControls = window.controls.enabled;
     window.controls.enabled = false;
@@ -58,7 +58,7 @@ const TMSL_ENGINE = {
       window.scene.remove(group);
       group = null;
     }
-    if (prevBg) window.scene.background = prevBg;
+    if (prevBg) window.scene.background = prevBg; else if (typeof window.updateBackground === 'function') window.updateBackground(false);
     window.controls.enabled = prevControls;
 
     window.cubeUniverse.visible = true;

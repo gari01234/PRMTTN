@@ -3988,6 +3988,7 @@ void main(){
     /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
     let isTMSL = false;
     let tmslGroup = null;
+    let tmslPrevBg = null;
 
     /* === TMSL · colores “negro mate” === */
     const TMSL_BG_HEX     = 0x000000; // fondo/“pared”
@@ -4109,22 +4110,52 @@ void main(){
     }
 
     function buildTMSL(){
-      /* limpia versión previa */
+      // limpia versión previa
       if (tmslGroup){
-        tmslGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();}});
+        tmslGroup.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); o.material.dispose(); }});
         scene.remove(tmslGroup);
       }
       tmslGroup = new THREE.Group();
 
-      /* pared BLANCA base (pequeña) – la redimensionaremos en buildTMSL_TomaselloStaudt() */
-      const DEPTH = 2;
-      const wallGeo = new THREE.BoxGeometry(4, 4, DEPTH);
-      const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal (como antes)
-      wall.userData.tmslKind = 'wall';
-      wall.renderOrder = -50;
-      tmslGroup.add(wall);
+      // === Dimensiones del campo de color (mismas que usa Tomasello/Staudt) ===
+      //     Campo = cuadrado centrado con margen PAD en torno al cubeSize
+      const GRID = 9;                   // (mismo valor que en buildTMSL_TomaselloStaudt)
+      const PAD  = cubeSize * 0.12;
+      const span = cubeSize - 2 * PAD;  // “hasta donde llegan los colores”
+      const W = span, H = span;
+
+      // === Micro-sala blanca detrás del campo (frente abierto) ===
+      const BACK_T = 0.80;   // grosor pared trasera
+      const SIDE_T = 0.60;   // grosor techo/piso/laterales
+      const ROOM_D = 2.20;   // profundidad útil desde el plano frontal del campo
+
+      // Plano frontal del campo (coincide con wallFrontZ usado por los halos)
+      const zFront  = halfCube + BACK_T;
+      const zCenter = zFront - ROOM_D/2;
+
+      const mWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+      // Pared trasera (referencia para TMSL_TomaselloStaudt → userData.tmslKind='wall')
+      const back = new THREE.Mesh(new THREE.BoxGeometry(W, H, BACK_T), mWhite.clone());
+      back.position.set(0, 0, halfCube + BACK_T/2);
+      back.renderOrder = -50;
+      back.userData.tmslKind = 'wall';
+      tmslGroup.add(back);
+
+      // Laterales + techo + piso (caja sin frente)
+      const left  = new THREE.Mesh(new THREE.BoxGeometry(SIDE_T, H, ROOM_D), mWhite.clone());
+      left.position.set(-W/2 - SIDE_T/2, 0, zCenter);
+      const right = new THREE.Mesh(new THREE.BoxGeometry(SIDE_T, H, ROOM_D), mWhite.clone());
+      right.position.set( W/2 + SIDE_T/2, 0, zCenter);
+
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(W + 2*SIDE_T, SIDE_T, ROOM_D), mWhite.clone());
+      floor.position.set(0, -H/2 - SIDE_T/2, zCenter);
+      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W + 2*SIDE_T, SIDE_T, ROOM_D), mWhite.clone());
+      ceil.position.set(0,  H/2 + SIDE_T/2, zCenter);
+
+      left.renderOrder = right.renderOrder = floor.renderOrder = ceil.renderOrder = -45;
+
+      tmslGroup.add(left, right, floor, ceil);
 
       scene.add(tmslGroup);
     }
@@ -4317,9 +4348,12 @@ void main(){
       camera.up.set(0,1,0);
       camera.fov = 55;
       camera.updateProjectionMatrix();
+
       const eyeY = (controls && controls.target) ? controls.target.y : 0;
-      camera.position.set(0, eyeY, 42);
       controls.target.set(0, eyeY, 0);
+
+      // Más lejos por defecto
+      camera.position.set(0, eyeY, 60);
 
       controls.enabled = true;
       controls.enableRotate = true;    // yaw
@@ -4327,7 +4361,7 @@ void main(){
       controls.enableZoom   = true;
       controls.screenSpacePanning = true;
       controls.minDistance = 10;
-      controls.maxDistance = 200;
+      controls.maxDistance = 260;
       controls.minPolarAngle = Math.PI / 2;
       controls.maxPolarAngle = Math.PI / 2;
       controls.update();
@@ -4344,6 +4378,10 @@ void main(){
         // Construye pared + halo
         buildTMSL();
         buildTMSL_TomaselloStaudt();
+
+        // Sin fondo negro: usa el fondo global del sistema/BUILD
+        tmslPrevBg = scene.background ? scene.background.clone() : null;
+        updateBackground(false);
 
         // Exclusividad visual
         cubeUniverse.visible     = false;
@@ -4364,6 +4402,8 @@ void main(){
           tmslCellsGroup = null;
         }
         disposeAndRemove(tmslGroup);      tmslGroup      = null;
+
+        if (tmslPrevBg) scene.background = tmslPrevBg; else updateBackground(false);
 
         controls.enabled      = true;
         controls.enableRotate = true;
