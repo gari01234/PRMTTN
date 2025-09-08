@@ -3989,6 +3989,7 @@ void main(){
     let isTMSL = false;
     let tmslGroup = null;
     let tmslPrevBg = null;
+    let tmslPrevClear = null;   // ← guardamos el clearColor real del renderer
 
     /* === TMSL · colores “negro mate” === */
     const TMSL_BG_HEX     = 0x000000; // fondo/“pared”
@@ -4117,47 +4118,45 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      // === Dimensiones del campo de color (mismas que usa Tomasello/Staudt) ===
-      //     Campo = cuadrado centrado con margen PAD en torno al cubeSize
-      const GRID = 9;                   // (mismo valor que en buildTMSL_TomaselloStaudt)
+      // Campo de color (mismas constantes que usa Tomasello/Staudt)
+      const GRID = 9;
       const PAD  = cubeSize * 0.12;
       const span = cubeSize - 2 * PAD;  // “hasta donde llegan los colores”
       const W = span, H = span;
 
-      // === Micro-sala blanca detrás del campo (frente abierto) ===
-      const BACK_T = 0.80;   // grosor pared trasera
-      const SIDE_T = 0.60;   // grosor techo/piso/laterales
-      const ROOM_D = 2.20;   // profundidad útil desde el plano frontal del campo
-
-      // Plano frontal del campo (coincide con wallFrontZ usado por los halos)
+      // Pared y caja abierta (frente abierto)
+      const BACK_T = 0.80;
+      const ROOM_D = 2.20;
       const zFront  = halfCube + BACK_T;
       const zCenter = zFront - ROOM_D/2;
 
       const mWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-      // Pared trasera (referencia para TMSL_TomaselloStaudt → userData.tmslKind='wall')
+      // Pared trasera (referencia para buildTMSL_TomaselloStaudt)
       const back = new THREE.Mesh(new THREE.BoxGeometry(W, H, BACK_T), mWhite.clone());
       back.position.set(0, 0, halfCube + BACK_T/2);
       back.renderOrder = -50;
       back.userData.tmslKind = 'wall';
       tmslGroup.add(back);
 
-      // Laterales + techo + piso (caja sin frente)
+      // Envolvente básica (se rehace con tamaño exacto en buildTMSL_TomaselloStaudt)
+      const SIDE_T = 0.60;
       const left  = new THREE.Mesh(new THREE.BoxGeometry(SIDE_T, H, ROOM_D), mWhite.clone());
       left.position.set(-W/2 - SIDE_T/2, 0, zCenter);
       const right = new THREE.Mesh(new THREE.BoxGeometry(SIDE_T, H, ROOM_D), mWhite.clone());
       right.position.set( W/2 + SIDE_T/2, 0, zCenter);
-
       const floor = new THREE.Mesh(new THREE.BoxGeometry(W + 2*SIDE_T, SIDE_T, ROOM_D), mWhite.clone());
       floor.position.set(0, -H/2 - SIDE_T/2, zCenter);
       const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W + 2*SIDE_T, SIDE_T, ROOM_D), mWhite.clone());
       ceil.position.set(0,  H/2 + SIDE_T/2, zCenter);
 
+      // dibuja DETRÁS de halos/células (se ajustará luego con enclosure)
       left.renderOrder = right.renderOrder = floor.renderOrder = ceil.renderOrder = -45;
 
       tmslGroup.add(left, right, floor, ceil);
 
       scene.add(tmslGroup);
+      tmslGroup.traverse(o => { o.frustumCulled = false; });
     }
 
     function buildTMSL_TomaselloStaudt(){
@@ -4297,12 +4296,13 @@ void main(){
       wall.position.set(cxAll, cyAll, wallCenterZ);
 
       // — crea “caja blanca” alrededor: techo, piso y laterales —
+      //   IMPORTANTE: dibujar DESPUÉS de halos ⇒ renderOrder mayor que -40
       const enclosure = new THREE.Group();
       enclosure.userData.tmslKind = 'enclosure';
-      enclosure.renderOrder = -45; // delante de la pared, detrás del halo/volúmenes
+      enclosure.renderOrder = -20; // > -40 (halos) y > -30 (células) ⇒ queda visible delante
       tmslGroup.add(enclosure);
 
-      const THK = 1.0; // grosor de marco-blanco
+      const THK = 1.0; // grosor marco blanco
       const matWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
       const top  = new THREE.Mesh(new THREE.BoxGeometry(wAll, THK, wallDepth), matWhite);
@@ -4311,13 +4311,13 @@ void main(){
       const bot  = new THREE.Mesh(new THREE.BoxGeometry(wAll, THK, wallDepth), matWhite);
       bot.position.set(cxAll, minY - MARGIN - THK/2, wallCenterZ);
 
-      const left = new THREE.Mesh(new THREE.BoxGeometry(THK, hAll + 2*THK, wallDepth), matWhite);
-      left.position.set(minX - MARGIN - THK/2, cyAll, wallCenterZ);
+      const leftE = new THREE.Mesh(new THREE.BoxGeometry(THK, hAll + 2*THK, wallDepth), matWhite);
+      leftE.position.set(minX - MARGIN - THK/2, cyAll, wallCenterZ);
 
-      const right = new THREE.Mesh(new THREE.BoxGeometry(THK, hAll + 2*THK, wallDepth), matWhite);
-      right.position.set(maxX + MARGIN + THK/2, cyAll, wallCenterZ);
+      const rightE = new THREE.Mesh(new THREE.BoxGeometry(THK, hAll + 2*THK, wallDepth), matWhite);
+      rightE.position.set(maxX + MARGIN + THK/2, cyAll, wallCenterZ);
 
-      enclosure.add(top, bot, left, right);
+      enclosure.add(top, bot, leftE, rightE);
 
       // — el resto (animación de halos) igual —
     }
@@ -4352,16 +4352,15 @@ void main(){
       const eyeY = (controls && controls.target) ? controls.target.y : 0;
       controls.target.set(0, eyeY, 0);
 
-      // Más lejos por defecto
-      camera.position.set(0, eyeY, 60);
+      camera.position.set(0, eyeY, 70);   // ← más lejos que antes
 
       controls.enabled = true;
-      controls.enableRotate = true;    // yaw
+      controls.enableRotate = true;
       controls.enablePan    = true;
       controls.enableZoom   = true;
       controls.screenSpacePanning = true;
       controls.minDistance = 10;
-      controls.maxDistance = 260;
+      controls.maxDistance = 300;
       controls.minPolarAngle = Math.PI / 2;
       controls.maxPolarAngle = Math.PI / 2;
       controls.update();
@@ -4379,9 +4378,11 @@ void main(){
         buildTMSL();
         buildTMSL_TomaselloStaudt();
 
-        // Sin fondo negro: usa el fondo global del sistema/BUILD
-        tmslPrevBg = scene.background ? scene.background.clone() : null;
-        updateBackground(false);
+        // === FONDO: usa el del sistema y sincroniza el clearColor del renderer ===
+        tmslPrevBg    = scene.background ? scene.background.clone() : null;
+        tmslPrevClear = renderer.getClearColor(new THREE.Color()).clone();
+        updateBackground(false);                                 // pone el fondo global
+        renderer.setClearColor(scene.background || 0x000000, 1); // evita "flash" negro
 
         // Exclusividad visual
         cubeUniverse.visible     = false;
@@ -4391,7 +4392,6 @@ void main(){
         // Vista nivelada
         enterTMSLView();
 
-        // Estado (local + global, imprescindible para hooks)
         isTMSL = true;
         window.isTMSL = true;
 
@@ -4403,7 +4403,8 @@ void main(){
         }
         disposeAndRemove(tmslGroup);      tmslGroup      = null;
 
-        if (tmslPrevBg) scene.background = tmslPrevBg; else updateBackground(false);
+        if (tmslPrevBg)    scene.background = tmslPrevBg; else updateBackground(false);
+        if (tmslPrevClear) renderer.setClearColor(tmslPrevClear, 1);
 
         controls.enabled      = true;
         controls.enableRotate = true;
