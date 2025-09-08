@@ -3988,7 +3988,6 @@ void main(){
     /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
     let isTMSL = false;
     let tmslGroup = null;
-    let tmslPrevBg = null;
 
     /* === TMSL · colores “negro mate” === */
     const TMSL_BG_HEX     = 0x000000; // fondo/“pared”
@@ -4117,13 +4116,12 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      /* pared BLANCA con 2 u de “tiefe” (fondo real del modo) */
+      /* pared BLANCA base (pequeña) – la redimensionaremos en buildTMSL_TomaselloStaudt() */
       const DEPTH = 2;
-      const wallGeo = new THREE.BoxGeometry(cubeSize*3, cubeSize*3, DEPTH);
-      // ← blanco mate; MeshBasicMaterial para que la luz no la vuelva gris
+      const wallGeo = new THREE.BoxGeometry(4, 4, DEPTH);
       const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const wall = new THREE.Mesh(wallGeo, wallMat);
-      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal
+      wall.position.set(0, 0, halfCube + DEPTH/2);   // pegada al frontal (como antes)
       wall.userData.tmslKind = 'wall';
       wall.renderOrder = -50;
       tmslGroup.add(wall);
@@ -4134,12 +4132,18 @@ void main(){
     function buildTMSL_TomaselloStaudt(){
       if (!tmslGroup) return;
 
-      // — limpia todo menos la pared —
+      // — limpia todo menos la pared y el enclosure anterior —
       for (let i = tmslGroup.children.length - 1; i >= 0; i--){
         const ch = tmslGroup.children[i];
-        if (ch.userData?.tmslKind === 'wall') continue;
+        if (ch.userData?.tmslKind === 'wall' || ch.userData?.tmslKind === 'enclosure') continue;
         ch.traverse?.(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
         tmslGroup.remove(ch);
+      }
+      // borra enclosure previo si existía
+      const oldEnclosure = tmslGroup.children.find(o=>o.userData?.tmslKind==='enclosure');
+      if (oldEnclosure){
+        oldEnclosure.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+        tmslGroup.remove(oldEnclosure);
       }
 
       // — prepara grupo de halos —
@@ -4155,9 +4159,11 @@ void main(){
 
       // — pared (referencia de Z) —
       const wall = tmslGroup.children.find(o => o.userData?.tmslKind === 'wall');
-      if (!wall || !wall.geometry?.parameters) return;
+      if (!wall) return;
       wall.renderOrder = -50;
-      const wallFrontZ = wall.position.z + (wall.geometry.parameters.depth/2);
+      const wallDepth   = wall.geometry.parameters.depth;
+      const wallCenterZ = wall.position.z;
+      const wallFrontZ  = wallCenterZ + wallDepth/2;
 
       // — parrilla cuadrada homogénea —
       const GRID = 9;
@@ -4166,16 +4172,20 @@ void main(){
       const step = span / (GRID-1);
 
       // — módulo cuadrado único (lado S) y “profundidad” hacia adentro —
-      const S       = 1.80;     // lado de todos los módulos (√1: cuadrados)
-      const DEP_IN  = 0.18;     // “hacia adentro” (no sobresale)
-      const HALO_SX = 2.35;     // escala halo (anchura del “halo de borde”)
+      const S       = 1.80;
+      const DEP_IN  = 0.18;
+      const HALO_SX = 2.35;
       const HALO_SY = 2.35;
 
-      // — permisos activos SOLO para color — 
+      // — permisos activos SOLO para color —
       const perms = (typeof getSelectedPerms === 'function')
         ? getSelectedPerms()
         : Array.from(document.getElementById('permutationList').selectedOptions).map(o => o.value.split(',').map(Number));
       const permsSafe = perms.length ? perms : [[1,2,3,4,5]];
+
+      // — acumulamos bounds del halo para “hasta donde llegan los colores” —
+      let minX =  Infinity, maxX = -Infinity;
+      let minY =  Infinity, maxY = -Infinity;
 
       for (let iy=0; iy<GRID; iy++){
         for (let ix=0; ix<GRID; ix++){
@@ -4187,20 +4197,18 @@ void main(){
           // — color determinista para laterales —
           const col = tmslColorFor(pa, idxCell);
           const sideMat = new THREE.MeshLambertMaterial({ color: col, dithering:true, depthTest:false });
-          sideMat.emissive = col.clone();
-          sideMat.emissiveIntensity = 0.12;
+          sideMat.emissive = col.clone(); sideMat.emissiveIntensity = 0.12;
 
-          // — frontal invisible (para que parezca un hueco) —
+          // — frontal invisible —
           const frontInvisible = new THREE.MeshBasicMaterial({
             color: 0xffffff, transparent: true, opacity: 0.0, depthWrite: false, depthTest: false
           });
 
-          // — fondo negro (cierra el “hueco”) —
+          // — fondo negro —
           const backMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0a, dithering:true, depthTest:false });
           backMat.emissive = new THREE.Color(0x000000);
           backMat.emissiveIntensity = 0.0;
 
-          // Orden de BoxGeometry: +X, -X, +Y, -Y, +Z (front), -Z (back)
           const mats = [
             sideMat.clone(), sideMat.clone(), sideMat.clone(), sideMat.clone(),
             frontInvisible, backMat
@@ -4208,12 +4216,11 @@ void main(){
 
           const geo  = new THREE.BoxGeometry(S, S, DEP_IN);
           const cube = new THREE.Mesh(geo, mats);
-          // Coloca el “hueco” justo DETRÁS del plano de pared; depthTest:false → no lo tapa
           cube.position.set(x, y, wallFrontZ - DEP_IN/2 - 0.002);
-          cube.renderOrder = -30;                     // delante del halo, detrás de la pared
+          cube.renderOrder = -30;
           tmslGroup.add(cube);
 
-          // — HALO de borde (respira hacia dentro) —
+          // — HALO (define el alcance visible del color) —
           const PLx = S * HALO_SX;
           const PLy = S * HALO_SY;
           const pgeo = new THREE.PlaneGeometry(PLx, PLy);
@@ -4223,21 +4230,65 @@ void main(){
             blending: THREE.NormalBlending, premultipliedAlpha: false, opacity: 0.90
           });
           const halo = new THREE.Mesh(pgeo, pmat);
-          halo.position.set(x, y, wallFrontZ - 0.004); // ligeramente por detrás del borde
+          halo.position.set(x, y, wallFrontZ - 0.004);
           halo.userData.baseOpacity = 0.70;
 
-          // respiración global en la MISMA fase (todas iguales)
-          const sMin = Math.min(1 / HALO_SX, 1 / HALO_SY) * 0.82; // se mete hacia dentro
-          const sMax = 1.02;                                      // casi del tamaño del hueco
+          const sMin = Math.min(1 / HALO_SX, 1 / HALO_SY) * 0.82;
+          const sMax = 1.02;
           halo.userData.sMin = sMin;
           halo.userData.sMax = sMax;
-          halo.userData.speed = 0.35; // lento, contemplativo
-          halo.userData.phase = 0.0;  // misma fase para todos
+          halo.userData.speed = 0.35;
+          halo.userData.phase = 0.0;
 
           halo.scale.set(sMax, sMax, 1);
           tmslHaloGroup.add(halo);
+
+          // — bounds con el halo en escala máxima (área de color) —
+          const hx = PLx * sMax * 0.5;
+          const hy = PLy * sMax * 0.5;
+          minX = Math.min(minX, x - hx);
+          maxX = Math.max(maxX, x + hx);
+          minY = Math.min(minY, y - hy);
+          maxY = Math.max(maxY, y + hy);
         }
       }
+
+      // — redimensiona pared al tamaño exacto del alcance de color (+margen) —
+      const MARGIN = 1.2; // pequeño margen blanco alrededor
+      const wAll = (maxX - minX) + 2*MARGIN;
+      const hAll = (maxY - minY) + 2*MARGIN;
+      const cxAll = (minX + maxX) / 2;
+      const cyAll = (minY + maxY) / 2;
+
+      // reemplaza geometría de la pared (manteniendo Z)
+      wall.geometry.dispose();
+      wall.geometry = new THREE.BoxGeometry(wAll, hAll, wallDepth);
+      wall.position.set(cxAll, cyAll, wallCenterZ);
+
+      // — crea “caja blanca” alrededor: techo, piso y laterales —
+      const enclosure = new THREE.Group();
+      enclosure.userData.tmslKind = 'enclosure';
+      enclosure.renderOrder = -45; // delante de la pared, detrás del halo/volúmenes
+      tmslGroup.add(enclosure);
+
+      const THK = 1.0; // grosor de marco-blanco
+      const matWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+      const top  = new THREE.Mesh(new THREE.BoxGeometry(wAll, THK, wallDepth), matWhite);
+      top.position.set(cxAll, maxY + MARGIN + THK/2, wallCenterZ);
+
+      const bot  = new THREE.Mesh(new THREE.BoxGeometry(wAll, THK, wallDepth), matWhite);
+      bot.position.set(cxAll, minY - MARGIN - THK/2, wallCenterZ);
+
+      const left = new THREE.Mesh(new THREE.BoxGeometry(THK, hAll + 2*THK, wallDepth), matWhite);
+      left.position.set(minX - MARGIN - THK/2, cyAll, wallCenterZ);
+
+      const right = new THREE.Mesh(new THREE.BoxGeometry(THK, hAll + 2*THK, wallDepth), matWhite);
+      right.position.set(maxX + MARGIN + THK/2, cyAll, wallCenterZ);
+
+      enclosure.add(top, bot, left, right);
+
+      // — el resto (animación de halos) igual —
     }
 
     function updateTMSLHalos(t){
@@ -4299,10 +4350,6 @@ void main(){
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
 
-        // Fondo negro (guarda el anterior)
-        tmslPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0x000000);
-
         // Vista nivelada
         enterTMSLView();
 
@@ -4317,8 +4364,6 @@ void main(){
           tmslCellsGroup = null;
         }
         disposeAndRemove(tmslGroup);      tmslGroup      = null;
-
-        if (tmslPrevBg) scene.background = tmslPrevBg;
 
         controls.enabled      = true;
         controls.enableRotate = true;
