@@ -4118,42 +4118,47 @@ void main(){
       }
       tmslGroup = new THREE.Group();
 
-      // Campo de color (mismas constantes que usa Tomasello/Staudt)
+      // Dimensiones del campo (hasta donde llegan los colores)
       const GRID = 9;
       const PAD  = cubeSize * 0.12;
       const span = cubeSize - 2 * PAD;  // “hasta donde llegan los colores”
       const W = span, H = span;
 
-      // Pared y caja abierta (frente abierto)
+      // Pared trasera y caja abierta (frente abierto)
       const BACK_T = 0.80;
       const ROOM_D = 2.20;
-      const zFront  = halfCube + BACK_T;
-      const zCenter = zFront - ROOM_D/2;
+      const SIDE_T = 0.60;
 
       const mWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-      // Pared trasera (referencia para buildTMSL_TomaselloStaudt)
+      // Pared trasera (referencia para Tomasello/Staudt)
       const back = new THREE.Mesh(new THREE.BoxGeometry(W, H, BACK_T), mWhite.clone());
       back.position.set(0, 0, halfCube + BACK_T/2);
       back.renderOrder = -50;
       back.userData.tmslKind = 'wall';
       tmslGroup.add(back);
 
-      // Envolvente básica (se rehace con tamaño exacto en buildTMSL_TomaselloStaudt)
-      const SIDE_T = 0.60;
+      // Grupo EN CIERRE (techo/piso/laterales) — ¡marcado como enclosure!
+      const enclosure = new THREE.Group();
+      enclosure.userData.tmslKind = 'enclosure';
+      enclosure.renderOrder = -20; // por delante de halos (-40) y celdas (-30)
+      tmslGroup.add(enclosure);
+
+      const zCenter = halfCube + BACK_T - ROOM_D/2;
+
       const left  = new THREE.Mesh(new THREE.BoxGeometry(SIDE_T, H, ROOM_D), mWhite.clone());
       left.position.set(-W/2 - SIDE_T/2, 0, zCenter);
+
       const right = new THREE.Mesh(new THREE.BoxGeometry(SIDE_T, H, ROOM_D), mWhite.clone());
       right.position.set( W/2 + SIDE_T/2, 0, zCenter);
+
       const floor = new THREE.Mesh(new THREE.BoxGeometry(W + 2*SIDE_T, SIDE_T, ROOM_D), mWhite.clone());
       floor.position.set(0, -H/2 - SIDE_T/2, zCenter);
+
       const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W + 2*SIDE_T, SIDE_T, ROOM_D), mWhite.clone());
       ceil.position.set(0,  H/2 + SIDE_T/2, zCenter);
 
-      // dibuja DETRÁS de halos/células (se ajustará luego con enclosure)
-      left.renderOrder = right.renderOrder = floor.renderOrder = ceil.renderOrder = -45;
-
-      tmslGroup.add(left, right, floor, ceil);
+      enclosure.add(left, right, floor, ceil);
 
       scene.add(tmslGroup);
       tmslGroup.traverse(o => { o.frustumCulled = false; });
@@ -4374,15 +4379,15 @@ void main(){
         if (isOFFNNG) toggleOFFNNG();
         if (isKEPLR)  toggleKEPLR();
 
-        // Construye pared + halo
-        buildTMSL();
-        buildTMSL_TomaselloStaudt();
-
-        // === FONDO: usa el del sistema y sincroniza el clearColor del renderer ===
+        // === Fondo y clearColor ANTES de construir ===
         tmslPrevBg    = scene.background ? scene.background.clone() : null;
         tmslPrevClear = renderer.getClearColor(new THREE.Color()).clone();
-        updateBackground(false);                                 // pone el fondo global
+        updateBackground(false);                                 // usa el fondo global
         renderer.setClearColor(scene.background || 0x000000, 1); // evita "flash" negro
+
+        // Construye pared + halos/celdas
+        buildTMSL();
+        buildTMSL_TomaselloStaudt();
 
         // Exclusividad visual
         cubeUniverse.visible     = false;
@@ -4403,7 +4408,7 @@ void main(){
         }
         disposeAndRemove(tmslGroup);      tmslGroup      = null;
 
-        if (tmslPrevBg)    scene.background = tmslPrevBg; else updateBackground(false);
+        if (tmslPrevBg) scene.background = tmslPrevBg; else updateBackground(false);
         if (tmslPrevClear) renderer.setClearColor(tmslPrevClear, 1);
 
         controls.enabled      = true;
