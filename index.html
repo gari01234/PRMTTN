@@ -6925,37 +6925,122 @@ async function showPatternInfo(){
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
 })();
 
-// === TMSL · base visible + cámara segura + luz de cortesía + watchdog ===
-(function(){
-  // Luz de cortesía SOLO cuando TMSL está ON (intensidad baja para “negro mate”)
+/* ─────────────────────────────────────────────────────────
+ * OFFNNG patch: Back-frame (“Rahmen”) using background color
+ * ───────────────────────────────────────────────────────── */
+(function installOFFNNGBackRahmen(){
+  function ensureBackRahmen(){
+    try{
+      if (!window.isOFFNNG) return;
+      const grp = window.groupOFFNNG || null;
+      if (!grp || !scene) return;
+
+      // elimina el anterior
+      const old = grp.getObjectByName('__offnng_back_rahmen');
+      if (old){
+        try{ grp.remove(old); }catch(_){ }
+        try{ old.geometry?.dispose?.(); old.material?.dispose?.(); }catch(_){ }
+      }
+
+      // bounding box mundial del “cubo de colores”
+      const box = new THREE.Box3();
+      grp.traverse(o=>{ if (o.isMesh) box.expandByObject(o); });
+
+      if (!isFinite(box.min.x) || !isFinite(box.max.x)) return;
+
+      const cx = (box.min.x + box.max.x)/2;
+      const cy = (box.min.y + box.max.y)/2;
+      const sx = (box.max.x - box.min.x);
+      const sy = (box.max.y - box.min.y);
+      const zBack = box.min.z + 0.001;     // cara “atrás” (−Z), un pelo delante para evitar z-fighting
+
+      // marco fino como líneas (Edges) del rectángulo trasero
+      const g = new THREE.BufferGeometry();
+      // 4 aristas del rectángulo (línea cerrada con 4 segmentos)
+      const hx = sx/2, hy = sy/2;
+      const P = new Float32Array([
+        cx-hx, cy-hy, zBack,  cx+hx, cy-hy, zBack,
+        cx+hx, cy-hy, zBack,  cx+hx, cy+hy, zBack,
+        cx+hx, cy+hy, zBack,  cx-hx, cy+hy, zBack,
+        cx-hx, cy+hy, zBack,  cx-hx, cy-hy, zBack
+      ]);
+      g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+
+      const bgColor = (scene.background && scene.background.clone) ? scene.background.clone() : new THREE.Color(0x000000);
+      const mat = new THREE.LineBasicMaterial({
+        color: bgColor,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: true,
+        depthWrite: false
+      });
+
+      const lines = new THREE.LineSegments(g, mat);
+      lines.name = '__offnng_back_rahmen';
+      lines.renderOrder = 50;  // delante del propio plano trasero
+
+      grp.add(lines);
+    }catch(e){ console.warn('[OFFNNG] back-rahmen:', e); }
+  }
+
+  // Ejecutar tras construir/reconstruir OFFNNG
+  function hook(name){
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__offnng_back_hooked){
+      window[name] = function(...args){
+        const out = orig.apply(this, args);
+        setTimeout(ensureBackRahmen, 0);
+        requestAnimationFrame(ensureBackRahmen);
+        return out;
+      };
+      window[name].__offnng_back_hooked = true;
+    }
+  }
+  ['buildOFFNNG','rebuildOFFNNGIfActive','toggleOFFNNG','refreshAll','buildScene'].forEach(hook);
+
+  if (window.isOFFNNG) { ensureBackRahmen(); }
+})();
+
+/* ─────────────────────────────────────────────────────────
+ * TMSL patches: no black flash + room shell + camera + white core
+ * ───────────────────────────────────────────────────────── */
+(function patchTMSLBase(){
+  // luz de cortesía (baja) sólo cuando TMSL está ON
   function ensureTMSLLighting(on){
     try{
       if (on){
         if (!window.__tmslAmbient){
-          const amb = new THREE.AmbientLight(0xffffff, 0.12); // antes 0.55
+          const amb = new THREE.AmbientLight(0xffffff, 0.10);
           amb.name = '__tmslAmbient';
           scene.add(amb);
           window.__tmslAmbient = amb;
         } else {
-          window.__tmslAmbient.intensity = 0.12;
+          window.__tmslAmbient.intensity = 0.10;
         }
-      } else {
-        if (window.__tmslAmbient){
-          scene.remove(window.__tmslAmbient);
-          window.__tmslAmbient = null;
-        }
+      } else if (window.__tmslAmbient){
+        scene.remove(window.__tmslAmbient);
+        window.__tmslAmbient = null;
       }
-    }catch(_){}
+    }catch(_){ }
   }
 
-  // Cámara “segura” que siempre ve la pared frontal
+  // versión “segura” que NO fuerza fondo negro
+  window.ensureBaseVisibilityForTMSL = function(){
+    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
+    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
+    try{ renderer.autoClear = true; }catch(_){ }
+    ensureTMSLLighting(true);
+    if (typeof window.applyTMSLSafeCamera === 'function') window.applyTMSLSafeCamera();
+  };
+
+  // 3) Alejar un poco la cámara en la vista default
   window.applyTMSLSafeCamera = function(){
     try{
       camera.up.set(0,1,0);
       camera.fov = 60;
       camera.updateProjectionMatrix();
       if (controls && controls.target) controls.target.set(0,0,0);
-      camera.position.set(0, 0, 42);
+      camera.position.set(0, 0, 52);      // ← antes ~42, ahora más lejos
       if (controls){
         controls.enabled = true;
         controls.enableRotate = true;
@@ -6965,68 +7050,108 @@ async function showPatternInfo(){
         controls.maxPolarAngle = Math.PI;
         controls.update();
       }
-    }catch(_){}
+    }catch(_){ }
   };
 
-  // Base mínima visible + FONDO NEGRO MATE para TMSL
-  window.ensureBaseVisibilityForTMSL = function(){
+  // 2) Piso, techo y paredes laterales para TMSL (tipo RAUM)
+  //    Se crean en un grupo propio y se regeneran en cada rebuild.
+  const TMSL_W = 60, TMSL_H = 60, TMSL_D = 60, TMSL_G = 4;
+  function lambertWall(cTHREE){
+    // reutiliza tu “look” de RAUM/BUILD
+    return (typeof lambertRaumColor === 'function')
+      ? lambertRaumColor(cTHREE, 0.06, false)
+      : new THREE.MeshLambertMaterial({ color: cTHREE, dithering:true });
+  }
+  function tmslEnsureShell(){
     try{
-      scene.background = new THREE.Color(TMSL_BG_HEX);
-      if (renderer && renderer.setClearColor) renderer.setClearColor(TMSL_BG_HEX, 1);
-    }catch(_){}
-    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
-    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
-    try{ renderer.autoClear = true; }catch(_){ }
-    ensureTMSLLighting(true);
-    window.applyTMSLSafeCamera?.();
-  };
+      if (!window.isTMSL) return;
 
-  // Parchea toggleTMSL (post-entrada) — sin reactivar el cubo ni el fondo
-  (function patchToggleTMSL(){
-    const orig = window.toggleTMSL;
-    if (typeof orig === 'function' && !orig.__tmsl_base_patched){
-      window.toggleTMSL = function(...args){
-        const wasOn = !!window.isTMSL;
-        const res   = orig.apply(this, args);
-        const nowOn = !!window.isTMSL;
-
-        if (!wasOn && nowOn){
-          // Entramos a TMSL → solo luz + cámara; NO tocar background ni mostrar otros grupos
-          try{ ensureTMSLLighting(true); }catch(_){}
-          try{ window.applyTMSLSafeCamera(); }catch(_){}
-          if (typeof window.requestTMSLRebuild === 'function'){
-            requestTMSLRebuild();
-            requestAnimationFrame(requestTMSLRebuild);
-          }
-        } else if (wasOn && !nowOn){
-          // Salimos de TMSL → limpia luz de cortesía
-          try{ ensureTMSLLighting(false); }catch(_){}
-        }
-        return res;
-      };
-      window.toggleTMSL.__tmsl_base_patched = true;
-    }
-  })();
-
-  // Watchdog: durante ~¾ s tras entrar, refuerza base + rebuild (iOS tarda en “arrancar”)
-  (function tmslWatchdog(){
-    let frames = 0;
-    function tick(){
-      if (window.isTMSL){
-        if (frames < 45){
-          try{ window.ensureBaseVisibilityForTMSL(); }catch(_){ }
-          if (typeof window.requestTMSLRebuild === 'function') requestTMSLRebuild();
-          frames++;
-        }
-      } else {
-        frames = 0;
+      // limpia versión anterior
+      if (window.__tmslDecorGroup){
+        try{ scene.remove(window.__tmslDecorGroup); }catch(_){ }
+        try{
+          window.__tmslDecorGroup.traverse(o=>{
+            if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
+          });
+        }catch(_){ }
+        window.__tmslDecorGroup = null;
       }
-      requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  })();
-})();
 
+      const g = new THREE.Group();
+
+      const colCeil  = (scene.background && scene.background.clone) ? scene.background.clone() : new THREE.Color(0xffffff);
+      const colFloor = (typeof raumColorFor==='function') ? raumColorFor(2) : new THREE.Color(0xdedede);
+      const colLeft  = (typeof raumColorFor==='function') ? raumColorFor(3) : new THREE.Color(0xdedede);
+      const colRight = (typeof raumColorFor==='function') ? raumColorFor(4) : new THREE.Color(0xdedede);
+
+      const left  = new THREE.Mesh(new THREE.BoxGeometry(TMSL_G, TMSL_H, TMSL_D + 30), lambertWall(colLeft));
+      left.position.set(-TMSL_W/2 + TMSL_G/2, 0, 0);
+      const right = new THREE.Mesh(new THREE.BoxGeometry(TMSL_G, TMSL_H, TMSL_D + 30), lambertWall(colRight));
+      right.position.set( TMSL_W/2 - TMSL_G/2, 0, 0);
+
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(TMSL_W, TMSL_G, TMSL_D + 30), lambertWall(colFloor));
+      floor.position.set(0, -TMSL_H/2 + TMSL_G/2, 0);
+      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(TMSL_W, TMSL_G, TMSL_D + 30), lambertWall(colCeil));
+      ceil.position.set(0,  TMSL_H/2 - TMSL_G/2, 0);
+
+      g.add(left, right, floor, ceil);
+      g.traverse(o=>{ if (o.isMesh) { o.renderOrder = -10; } }); // detrás de halos/panes
+
+      scene.add(g);
+      window.__tmslDecorGroup = g;
+    }catch(e){ console.warn('[TMSL] shell:', e); }
+  }
+
+  // 4) Centro de los cubos (halos) en BLANCO puro.
+  //    Fuerza uniforms/colores que parezcan “core/center”.
+  function tmslForceHaloCoreWhite(){
+    try{
+      if (!window.isTMSL) return;
+      const white = new THREE.Color(0xffffff);
+      scene.traverse(o=>{
+        const mats = o && o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+        mats.forEach(m=>{
+          try{
+            // Shaders
+            if (m.isShaderMaterial && m.uniforms){
+              Object.keys(m.uniforms).forEach(k=>{
+                const u = m.uniforms[k];
+                if (u && u.value && u.value.isColor && /core|center|centre/i.test(k)){
+                  u.value.set(white);
+                }
+                // a veces el “core” va como luma/valor [0..1]
+                if (u && typeof u.value === 'number' && /core|center|centre/i.test(k)){
+                  m.uniforms[k].value = 1.0;
+                }
+              });
+            }
+            // Material básico con color en el centro (casos simples)
+            if (m.color && /halo|sprite|quad|billboard|glow/i.test((m.name||'') + (o.name||''))){
+              m.color.set(white);
+            }
+          }catch(_){ }
+        });
+      });
+    }catch(_){ }
+  }
+
+  // Hook post-rebuild TMSL (se ejecuta SIEMPRE después de tu rebuild)
+  (function hookTMSLRebuild(){
+    const prev = window.rebuildTMSLIfActive;
+    window.rebuildTMSLIfActive = function(){
+      if (typeof prev === 'function') prev();
+      // cede un frame para asegurar matrices actualizadas
+      setTimeout(()=>{ try{ tmslEnsureShell(); tmslForceHaloCoreWhite(); }catch(_){ } }, 0);
+      requestAnimationFrame(()=>{ try{ tmslEnsureShell(); tmslForceHaloCoreWhite(); }catch(_){ } });
+    };
+  })();
+
+  // Si ya estás dentro de TMSL, aplica todo ahora.
+  if (window.isTMSL){
+    window.ensureBaseVisibilityForTMSL();
+    window.rebuildTMSLIfActive();
+  }
+})();
   /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
   (function(){
     if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
