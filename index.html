@@ -5802,12 +5802,33 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       groupR5NOVA = null;
     }
 
-    // === R5NOVA · usar el cielo de FRBN como fondo, sin activar FRBN ===
+    // === R5NOVA · usar el cielo FRBN como backdrop animado =======================
     window.r5nUseFRBNBackdrop = function(){
       try{
+        // Crea esfera/cielo si hace falta y aplica la paleta FRBN
         if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
-        if (typeof buildGanzfeld === 'function') buildGanzfeld(); // colores deterministas FRBN
-        if (window.skySphere) window.skySphere.visible = true;
+        if (typeof buildGanzfeld === 'function') buildGanzfeld();
+
+        if (window.skySphere){
+          window.skySphere.visible = true;
+          window.skySphere.frustumCulled = false;
+          window.skySphere.renderOrder   = -1000;   // detrás de todo
+        }
+
+        // Asegura *tick* de FRBN aunque el motor FRBN no esté ON
+        if (typeof animateFRBN === 'function'){
+          if (!window.__r5n_frbnTicker){
+            window.__r5n_frbnTicker = true;
+            (function tick(){
+              try{
+                if (window.isR5NOVA && window.skySphere && window.skySphere.visible){
+                  animateFRBN();
+                }
+              }catch(_){ }
+              requestAnimationFrame(tick);
+            })();
+          }
+        }
       }catch(_){ }
     };
 
@@ -7018,52 +7039,108 @@ window.applyTMSLSafeCamera = function(){
   (function(){
     if (window.__tmslAmbient) window.__tmslAmbient.intensity = 0.10; // o 0 para desactivarla
   })();
-/* === TMSL · aislamiento total de BUILD (cubo + permutaciones) =============== */
-(function installTMSLIsolation(){
-  // 1) Asegura base y oculta BUILD cuando TMSL está activo
-  window.ensureBaseVisibilityForTMSL = function(){
+/* === TMSL · aislamiento total de BUILD + limpieza de frame ================== */
+(function(){
+  // Grupo “parking” para sacar BUILD de escena sin perder referencias
+  if (!window.__tmslParking) window.__tmslParking = new THREE.Group();
+
+  function parkIfInScene(obj){
     try{
-      if (renderer && renderer.setClearColor && scene.background){
-        const hex = '#' + scene.background.getHexString();
-        renderer.setClearColor(hex, 1);
+      if (obj && obj.parent === scene){
+        scene.remove(obj);
+        window.__tmslParking.add(obj);
       }
     }catch(_){ }
+  }
+  function unparkAll(){
+    try{
+      const p = window.__tmslParking;
+      while (p && p.children && p.children.length){
+        scene.add(p.children[0]);
+      }
+    }catch(_){ }
+  }
 
-    try{ if (window.cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
-    try{ if (window.permutationGroup) permutationGroup.visible = false; }catch(_){ }
-    try{ renderer.autoClear = true; }catch(_){ }
+  // Versión robusta: oculta, aparca y limpia el frame
+  window.ensureBaseVisibilityForTMSL = function(){
+    try{
+      // 1) Aparca BUILD (que no quede ni en el árbol)
+      parkIfInScene(window.cubeUniverse);
+      parkIfInScene(window.permutationGroup);
+
+      // 2) Fuerza invisibilidad si algún código los re-añade ese frame
+      if (window.cubeUniverse)     window.cubeUniverse.visible = false;
+      if (window.permutationGroup) window.permutationGroup.visible = false;
+
+      // 3) Alinea clear color al fondo actual y limpia el frame buffer ya mismo
+      if (renderer){
+        if (renderer.setClearColor && scene.background){
+          const hex = '#' + scene.background.getHexString();
+          renderer.setClearColor(hex, 1);
+        }
+        renderer.autoClear = true;
+        renderer.clear(true, true, true); // ← elimina “fantasmas” del frame previo
+      }
+    }catch(_){ }
   };
 
-  // 2) Hookea toggleTMSL para aplicar (solo si TMSL queda ON)
+  // Hookea toggleTMSL para aplicar aislamiento al entrar
   (function hookToggleTMSL(){
     const orig = window.toggleTMSL;
-    if (typeof orig === 'function' && !orig.__tmsl_isolation_hook){
+    if (typeof orig === 'function' && !orig.__tmsl_isolation_hook2){
       window.toggleTMSL = function(...args){
         const out = orig.apply(this, args);
-        try{
-          if (window.isTMSL) {
-            window.ensureBaseVisibilityForTMSL();
-          }
-        }catch(_){ }
+        try{ if (window.isTMSL) window.ensureBaseVisibilityForTMSL(); }catch(_){ }
         return out;
       };
-      window.toggleTMSL.__tmsl_isolation_hook = true;
+      window.toggleTMSL.__tmsl_isolation_hook2 = true;
     }
   })();
 
-  // 3) Watchdog: mientras TMSL esté ON, fuerza invisible cada frame
-  if (!window.__tmslIsoWatchdog){
-    window.__tmslIsoWatchdog = true;
+  // Watchdog: si algo re-inserta BUILD mientras TMSL está ON, vuelve a aparcar
+  if (!window.__tmslIsoWatchdog2){
+    window.__tmslIsoWatchdog2 = true;
     (function tick(){
       try{
         if (window.isTMSL){
-          if (window.cubeUniverse)     cubeUniverse.visible = false;
-          if (window.permutationGroup) permutationGroup.visible = false;
+          if (window.cubeUniverse && window.cubeUniverse.parent === scene)      parkIfInScene(window.cubeUniverse);
+          if (window.permutationGroup && window.permutationGroup.parent === scene) parkIfInScene(window.permutationGroup);
+          if (window.cubeUniverse)     window.cubeUniverse.visible = false;
+          if (window.permutationGroup) window.permutationGroup.visible = false;
         }
       }catch(_){ }
       requestAnimationFrame(tick);
     })();
   }
+
+  // Hard-kill TMSL también debe “desaparcar” BUILD al salir de TMSL
+  const hk = window.hardKillTMSL;
+  window.hardKillTMSL = function(){
+    try{ if (typeof hk === 'function') hk(); }catch(_){ }
+    try{ unparkAll(); }catch(_){ }
+    try{ if (window.cubeUniverse)     window.cubeUniverse.visible = true; }catch(_){ }
+    try{ if (window.permutationGroup) window.permutationGroup.visible = true; }catch(_){ }
+  };
+
+  // Salir limpio de TMSL si cambias de motor por el <select> o por el ciclo
+  (function ensureLeaveOnEngineChange(){
+    const origSel = window.applyEngineFromSelect;
+    if (typeof origSel === 'function' && !origSel.__tmsl_leave_hook){
+      window.applyEngineFromSelect = function(val){
+        if (window.isTMSL && val !== 'TMSL'){ try{ window.hardKillTMSL(); }catch(_){ } }
+        return origSel.apply(this, arguments);
+      };
+      window.applyEngineFromSelect.__tmsl_leave_hook = true;
+    }
+    const origCycle = window.cycleEngine;
+    if (typeof origCycle === 'function' && !origCycle.__tmsl_leave_hook){
+      window.cycleEngine = function(){
+        try{ if (window.isTMSL) window.hardKillTMSL(); }catch(_){ }
+        return origCycle.apply(this, arguments);
+      };
+      window.cycleEngine.__tmsl_leave_hook = true;
+    }
+  })();
 })();
 
 /* ═══════════════════════════════════════════════════════════════
