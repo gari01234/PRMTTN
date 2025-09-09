@@ -2878,123 +2878,28 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       }
     }
 
-    function applyStandardView(){
-      const target = new THREE.Vector3(0,0,0);
-
-      // RAUM: frontal fija con zoom permitido (sin rotación)
-      if (isRAUM){
-        camera.position.set(0, 0, RAUM_CAMERA_ZOOMED);
-        camera.lookAt(target);
-
-        controls.enabled      = true;
-        controls.enableRotate = false;
-        controls.enablePan    = false;
-        controls.enableZoom   = true;
-        controls.minDistance  = 25;
-        controls.maxDistance  = 140;
-
-        controls.update();
-        return;
-      }
-
-      // 13245: cámara nivelada (verticales “gerade”)
-      // Mantiene el offset vertical actual del target (no lo fuerza a 0)
-      if (is13245){
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.up.set(0,1,0);
-        camera.position.set(camera.position.x, eyeY, camera.position.z);
-        controls.target.set(0, eyeY, 0);
-
+    // === Vista estándar para todos los motores (salvo RAUM) ===
+    window.applyStandardView = function(){
+      camera.up.set(0,1,0);
+      camera.fov  = 55;
+      camera.near = 0.1;
+      camera.far  = 4000;
+      camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 42);
+      if (controls){
         controls.enabled            = true;
-        controls.enableRotate       = true;   // yaw
+        controls.enableRotate       = true;     // yaw
         controls.enablePan          = true;
         controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
         controls.screenSpacePanning = true;
-
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-
-        controls.update();
-        return;
-      }
-
-      // R5NOVA: cámara nivelada (verticales “gerade”), yaw/pan/zoom permitidos
-      if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.up.set(0,1,0);
-        camera.fov = 55;
-        camera.position.set(0, eyeY, 42);     // distancia cómoda para W=60
-        controls.target.set(0, eyeY, 0);
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw (pitch bloqueado)
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
         controls.minDistance        = 10;
         controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-
-        // bloquea pitch
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-
+        controls.minPolarAngle      = Math.PI / 2;
+        controls.maxPolarAngle      = Math.PI / 2;  // verticales rectas
         controls.update();
-        return;
       }
-
-      // ===== Otros modos (BUILD, LCHT, OFFNNG, TMSL, etc.) =====
-      const view = document.getElementById('standardView').value;
-      const pos = new THREE.Vector3();
-      switch(view){
-        case "isometric": pos.set(50,50,50); break;
-        case "top":       pos.set(0,80,0);   break;
-        case "front":     pos.set(0,0,40);   break;
-        case "side":      pos.set(50,0,0);   break;
-        case "diagonal":  pos.set(-50,50,-50); break;
-        default:          pos.set(0,0,50);
-      }
-
-      camera.position.copy(pos);
-      camera.lookAt(target);
-
-      // Detectar BUILD “puro” (ningún otro motor activado)
-      const isBuild =
-        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isKEPLR && !isR5NOVA;
-
-      if (isBuild || isLCHT){
-        // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-      } else {
-        // Resto: comportamiento previo (FRONT bloquea rotación)
-        if (view === "front"){
-          controls.enabled      = true;
-          controls.enableRotate = false;
-          controls.enablePan    = false;
-          controls.enableZoom   = true;
-          controls.minDistance  = 25;
-          controls.maxDistance  = 140;
-        } else {
-          controls.enabled      = true;
-          controls.enableRotate = true;
-          controls.enablePan    = true;
-          controls.enableZoom   = true;
-          controls.minDistance  = 10;
-          controls.maxDistance  = 200;
-        }
-      }
-
-      controls.update();
-    }
+    };
 
     function applyEmbedParams(){
       const p=new URLSearchParams(window.location.search);
@@ -3042,6 +2947,39 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
+
+    // === OFFNNG · Rahmen: igualar siempre al color del fondo ===
+    window.recolorOFFNNGRahmen = function(){
+      try{
+        const g = window.groupOFFNNG;
+        const bg = scene.background ? scene.background.clone() : new THREE.Color(0xffffff);
+        if (!g) return;
+        g.traverse(o=>{
+          if (!o || !o.material) return;
+          const isFrame =
+            (o.userData && (o.userData.isRahmen === true || o.userData.rahmen === true)) ||
+            (typeof o.name === 'string' && o.name.indexOf('__offnng_rahmen') === 0);
+          if (isFrame){
+            if (o.material.color)    o.material.color.copy(bg);
+            if (o.material.emissive) o.material.emissive.copy(bg);
+            if (o.material.needsUpdate !== undefined) o.material.needsUpdate = true;
+          }
+        });
+      }catch(_){ }
+    };
+
+    // Llama a recolor cuando cambie el fondo
+    (function hookUpdateBackground(){
+      const orig = window.updateBackground;
+      if (typeof orig === 'function' && !orig.__offnng_hooked){
+        window.updateBackground = function(...args){
+          const out = orig.apply(this, args);
+          try{ window.recolorOFFNNGRahmen(); }catch(_){ }
+          return out;
+        };
+        window.updateBackground.__offnng_hooked = true;
+      }
+    })();
 
     function mostrarDebugColores(){
       if(!permutationGroup || !permutationGroup.children.length){
@@ -3541,7 +3479,10 @@ function renderArchPanel(html){
 
       const rig = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
       rig.position.set( W/2 - t/2, 0, z);
-
+      [top, bot, lef, rig].forEach(m=>{
+        m.userData.isRahmen = true;
+        m.name = '__offnng_rahmen';
+      });
       g.add(top,bot,lef,rig);
       g.renderOrder = 2000; // por encima de casi todo
       container.add(g);
@@ -4913,32 +4854,7 @@ void main(){
         enterRaumRenderBoost();
         build13245();
 
-        // — VISTA POR DEFECTO NIVELADA (verticales rectas)
-        camera.up.set(0,1,0);
-        camera.fov = 55;
-        camera.updateProjectionMatrix();
-
-        // 2× “scroll” hacia arriba (pan en Y) y 2× zoom-out en Z
-        const yOffset = 2 * PAN_STEP_Y_13245;   // 2 · 3  = +6
-        const zOffset = 2 * ZOOM_STEP_13245;    // 2 · 5  = +10
-
-        // Misma Y para cámara y target (mantiene verticales “gerade”)
-        camera.position.set(0, yOffset, 22 + zOffset); // antes: (0, 0, 22)
-        controls.target.set(0, yOffset, 0);            // antes: (0, 0, 0)
-
-        // Controles: yaw/pan/zoom permitidos; pitch bloqueado a 90°
-        controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw (por el clamp polar)
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-
-        // Bloquea el pitch para mantener las verticales “gerade”
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-        controls.update();
+        applyStandardView();
 
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
@@ -5423,6 +5339,7 @@ void main(){
         try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
         try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
         try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+        try{ __killTMSLIfAny(); }catch(_){ }
         try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
         try{ if (is13245)  toggle13245();  }catch(_){ }
         try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
@@ -5432,24 +5349,7 @@ void main(){
 
         buildKEPLR();
 
-        // Cámara nivelada, centrada (Minimal UI); yaw/pan/zoom permitidos
-        camera.up.set(0,1,0);
-        camera.fov = 55;
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 42);
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-        controls.update();
+        applyStandardView();
 
         // Ocultar cubo/permutaciones para lectura “escultórica”
         if (typeof cubeUniverse !== 'undefined')      cubeUniverse.visible = false;
@@ -5816,24 +5716,7 @@ function toggleRAPHI(){
     window.isRAPHI = true;                 // redundante pero seguro
     window.groupRAPHI = groupRAPHI;        // refuerza la referencia global
 
-    // Cámara nivelada (verticales rectas), centrada (Minimal UI), yaw/pan/zoom ON
-    camera.up.set(0,1,0);
-    camera.fov = 55;
-    camera.updateProjectionMatrix();
-
-    if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 42);
-
-    controls.enabled            = true;
-    controls.enableRotate       = true;   // solo yaw (por el clamp polar)
-    controls.enablePan          = true;
-    controls.enableZoom         = true;
-    controls.minDistance        = 10;
-    controls.maxDistance        = 200;
-    controls.screenSpacePanning = true;
-    controls.minPolarAngle      = Math.PI / 2;
-    controls.maxPolarAngle      = Math.PI / 2;
-    controls.update();
+    applyStandardView();
 
     // Ocultar otros grupos “escultóricos”
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){}
@@ -5882,6 +5765,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       scene.remove(groupR5NOVA);
       groupR5NOVA = null;
     }
+
+    // === R5NOVA · usar el cielo de FRBN como fondo, sin activar FRBN ===
+    window.r5nUseFRBNBackdrop = function(){
+      try{
+        if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
+        if (typeof buildGanzfeld === 'function') buildGanzfeld(); // colores deterministas FRBN
+        if (window.skySphere) window.skySphere.visible = true;
+      }catch(_){ }
+    };
 
     /* Color determinista por celda (offset cromático opcional según tag) */
     /* Color determinista por celda — garantiza colores ÚNICOS por rectángulo (hasta 12) */
@@ -6129,6 +6021,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
 
+      // Fondo FRBN como backdrop
+      r5nUseFRBNBackdrop();
+
       // Fondo acoplado (no manual), igual que RAUM/BUILD
       updateBackground(false);
 
@@ -6296,6 +6191,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
         try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
         try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+        try{ __killTMSLIfAny(); }catch(_){ }
         try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
         try{ if (is13245)  toggle13245();  }catch(_){ }
         try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
@@ -6307,24 +6203,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         buildR5NOVA();
 
-        camera.up.set(0,1,0);
-        camera.fov = 55;
-        camera.updateProjectionMatrix();
-
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        if (controls && controls.target) controls.target.set(0, eyeY, 0);
-        camera.position.set(0, eyeY, 42);
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-        controls.minPolarAngle      = Math.PI / 2;
-        controls.maxPolarAngle      = Math.PI / 2;
-        controls.update();
+        applyStandardView();
 
         try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
         try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
@@ -6334,6 +6213,12 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         leaveRaumRenderBoost();
         try{ disposeGroupR5NOVA?.(); }catch(_){ }
         try{ groupR5NOVA = null; }catch(_){ }
+
+        try{
+          if (window.skySphere && !(typeof isFRBN !== 'undefined' && isFRBN)){
+            window.skySphere.visible = false;
+          }
+        }catch(_){ }
 
         camera.fov = 75;
         camera.updateProjectionMatrix();
@@ -6351,9 +6236,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     function ensureOnlyR5NOVA(){
       try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
       try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
-      try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
-      try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
-      try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
+        try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
+        try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+        try{ __killTMSLIfAny(); }catch(_){ }
+        try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
       try{ if (is13245)  toggle13245();  }catch(_){ }
       try{ if (isKEPLR)  toggleKEPLR();  }catch(_){ }
       try{ if (isRAPHI)  toggleRAPHI();  }catch(_){ }
@@ -6366,6 +6252,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (isLCHT)   toggleLCHT();   }catch(_){ }
       try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
       try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+      try{ __killTMSLIfAny(); }catch(_){ }
       try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
       try{ if (is13245)  toggle13245();  }catch(_){ }
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
@@ -6379,6 +6266,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       try{ if (isFRBN)   toggleFRBN();   }catch(_){ }
       try{ if (isOFFNNG) toggleOFFNNG(); }catch(_){ }
       try{ if (isTMSL)   toggleTMSL();   }catch(_){ }
+      try{ __killTMSLIfAny(); }catch(_){ }
       try{ if (isRAUM)   toggleRAUM();   }catch(_){ }
       try{ if (is13245)  toggle13245();  }catch(_){ }
       try{ if (isR5NOVA) toggleR5NOVA(); }catch(_){ }
@@ -7028,7 +6916,8 @@ window.applyTMSLSafeCamera = function(){
       // lo montamos 5 mm por delante de la pared para evitar z-fighting.
       if (window.groupTMSL && window.groupTMSL.position){
         const zBack = -ROOM_D/2 + WALL_G/2;
-        window.groupTMSL.position.z = zBack + 0.05;
+        // antes: zBack + 0.05 → ahora pegado al fondo con offset mínimo para evitar z-fighting
+        window.groupTMSL.position.z = zBack + 0.01;
       }
     }catch(_){ }
     return g;
@@ -7047,15 +6936,16 @@ window.applyTMSLSafeCamera = function(){
 
   // Reemplaza la “base” para NO cambiar a negro y sí asegurar cámara segura
   window.ensureBaseVisibilityForTMSL = function(){
-    // ⇨ NO tocar scene.background ni renderer.setClearColor → sin “flash” negro
-    try{ if (renderer && renderer.setClearColor && scene.background){
-      const hex = '#' + scene.background.getHexString();
-      renderer.setClearColor(hex, 1);
-    }}catch(_){ }
+    try{
+      if (renderer && renderer.setClearColor && scene.background){
+        const hex = '#' + scene.background.getHexString();
+        renderer.setClearColor(hex, 1);
+      }
+    }catch(_){ }
 
-    // deja visibles el cubo y las permutaciones (como tenías)
-    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
-    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
+    // ⇨ En TMSL NO se debe ver BUILD
+    try{ if (window.cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
+    try{ if (window.permutationGroup) permutationGroup.visible = false; }catch(_){ }
     try{ renderer.autoClear = true; }catch(_){ }
 
     // Luz suave + cámara segura
@@ -7067,7 +6957,7 @@ window.applyTMSLSafeCamera = function(){
       }else{ window.__tmslAmbient.intensity = 0.12; }
     }catch(_){ }
 
-    // Construir/asegurar el cuarto
+    // Construye/asegura el cuarto y (más abajo) pegamos el panel a la pared
     window.buildTMSLRoom();
   };
 })();
@@ -7818,6 +7708,35 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   wrap('toggleMotionPause',  ()=> window.toggleGrvtyPause());
   wrap('resetMotion',        ()=> window.resetGrvtyMotion());
 })();
+
+// === TMSL · hard-kill: apaga y limpia TODO (panel y cuarto), aunque el toggle no se haya llamado ===
+window.hardKillTMSL = function(){
+  try{ window.isTMSL = false; }catch(_){ }
+  try{
+    if (window.groupTMSL){
+      window.groupTMSL.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+      scene.remove(window.groupTMSL);
+      window.groupTMSL = null;
+    }
+  }catch(_){ }
+  try{ window.disposeTMSLRoom?.(); }catch(_){ }
+};
+
+// ⇨ Envuélvelo en los toggles para que SIEMPRE se ejecute antes de cambiar de motor
+['toggleKEPLR','toggle13245','toggleRAPHI','toggleGRVTY','toggleRAUM','toggleR5NOVA',
+ 'toggleFRBN','toggleLCHT','toggleOFFNNG'].forEach(n=>{
+  const orig = window[n];
+  if (typeof orig === 'function' && !orig.__tmsl_hardkill){
+    window[n] = function(...args){
+      try{ window.hardKillTMSL(); }catch(_){ }
+      return orig.apply(this, args);
+    };
+    window[n].__tmsl_hardkill = true;
+  }
+});
+
+// Y por si entras directamente por ensureOnly* :
+function __killTMSLIfAny(){ try{ if (window.isTMSL || window.groupTMSL || window.__tmslRoom) window.hardKillTMSL(); }catch(_){ } }
 </script>
 
 </body>
