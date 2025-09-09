@@ -3503,14 +3503,50 @@ function renderArchPanel(html){
      *  – Exclusivo: no interfiere con BUILD / LCHT / FRBN
      * ═══════════════════════════════════════════════════════════ */
 
-    let offnngGroup  = null;
-    let offnngMesh   = null;
-    let isOFFNNG     = false;
-    let offnngPrevBg = null;
-    let offnngQualityLow = true;                // Low fijo
-    let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
+let offnngGroup  = null;
+let offnngMesh   = null;
+let isOFFNNG     = false;
+let offnngPrevBg = null;
+let offnngQualityLow = true;                // Low fijo
+let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
 
-    function buildOFFNNG () {
+/* OFFNNG · Rahmen trasero visible (color = scene.background)
+ *  - se pega a la cara de atrás del cubo de colores
+ *  - depthTest desactivado + alto renderOrder ⇒ siempre visible
+ * ────────────────────────────────────────────────────────────── */
+function addOFFNNGRearRahmen(container){
+  // tamaño del cubo cromático (usa el global de tu escena)
+  const W = (typeof cubeSize==='number' ? cubeSize : 30);
+  const t = 0.80;                 // grosor del marco
+  const z = -W/2 + 0.002;         // pegado a la cara de atrás (ligerísimo offset)
+
+  const col = (scene.background ? scene.background.clone() : new THREE.Color(0x000000));
+  const mat = new THREE.MeshBasicMaterial({
+    color: col, transparent: true, opacity: 1.0,
+    depthTest: false, depthWrite: false, side: THREE.DoubleSide
+  });
+
+  const g = new THREE.Group(); g.name='__offnngRearRahmen';
+  const inner = W - 2*t;
+
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(inner, t), mat);
+  top.position.set(0,  W/2 - t/2, z);
+
+  const bot = new THREE.Mesh(new THREE.PlaneGeometry(inner, t), mat);
+  bot.position.set(0, -W/2 + t/2, z);
+
+  const lef = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
+  lef.position.set(-W/2 + t/2, 0, z);
+
+  const rig = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
+  rig.position.set( W/2 - t/2, 0, z);
+
+  g.add(top,bot,lef,rig);
+  g.renderOrder = 2000; // por encima de casi todo
+  container.add(g);
+}
+
+function buildOFFNNG () {
       // limpia versión previa
       if (offnngGroup) {
         offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
@@ -3778,6 +3814,7 @@ void main(){
 
       offnngGroup = new THREE.Group();
       offnngGroup.add(offnngMesh);
+      addOFFNNGRearRahmen(offnngGroup);
       scene.add(offnngGroup);
 
       applyOFFNNGQuality();   // aplica calidad y pixelRatio
@@ -6923,82 +6960,6 @@ async function showPatternInfo(){
 
 // 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
   if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
-})();
-
-/* ─────────────────────────────────────────────────────────
- * OFFNNG patch: Back-frame (“Rahmen”) using background color
- * ───────────────────────────────────────────────────────── */
-(function installOFFNNGBackRahmen(){
-  function ensureBackRahmen(){
-    try{
-      if (!window.isOFFNNG) return;
-      const grp = window.groupOFFNNG || null;
-      if (!grp || !scene) return;
-
-      // elimina el anterior
-      const old = grp.getObjectByName('__offnng_back_rahmen');
-      if (old){
-        try{ grp.remove(old); }catch(_){ }
-        try{ old.geometry?.dispose?.(); old.material?.dispose?.(); }catch(_){ }
-      }
-
-      // bounding box mundial del “cubo de colores”
-      const box = new THREE.Box3();
-      grp.traverse(o=>{ if (o.isMesh) box.expandByObject(o); });
-
-      if (!isFinite(box.min.x) || !isFinite(box.max.x)) return;
-
-      const cx = (box.min.x + box.max.x)/2;
-      const cy = (box.min.y + box.max.y)/2;
-      const sx = (box.max.x - box.min.x);
-      const sy = (box.max.y - box.min.y);
-      const zBack = box.min.z + 0.001;     // cara “atrás” (−Z), un pelo delante para evitar z-fighting
-
-      // marco fino como líneas (Edges) del rectángulo trasero
-      const g = new THREE.BufferGeometry();
-      // 4 aristas del rectángulo (línea cerrada con 4 segmentos)
-      const hx = sx/2, hy = sy/2;
-      const P = new Float32Array([
-        cx-hx, cy-hy, zBack,  cx+hx, cy-hy, zBack,
-        cx+hx, cy-hy, zBack,  cx+hx, cy+hy, zBack,
-        cx+hx, cy+hy, zBack,  cx-hx, cy+hy, zBack,
-        cx-hx, cy+hy, zBack,  cx-hx, cy-hy, zBack
-      ]);
-      g.setAttribute('position', new THREE.BufferAttribute(P, 3));
-
-      const bgColor = (scene.background && scene.background.clone) ? scene.background.clone() : new THREE.Color(0x000000);
-      const mat = new THREE.LineBasicMaterial({
-        color: bgColor,
-        transparent: true,
-        opacity: 0.95,
-        depthTest: true,
-        depthWrite: false
-      });
-
-      const lines = new THREE.LineSegments(g, mat);
-      lines.name = '__offnng_back_rahmen';
-      lines.renderOrder = 50;  // delante del propio plano trasero
-
-      grp.add(lines);
-    }catch(e){ console.warn('[OFFNNG] back-rahmen:', e); }
-  }
-
-  // Ejecutar tras construir/reconstruir OFFNNG
-  function hook(name){
-    const orig = window[name];
-    if (typeof orig === 'function' && !orig.__offnng_back_hooked){
-      window[name] = function(...args){
-        const out = orig.apply(this, args);
-        setTimeout(ensureBackRahmen, 0);
-        requestAnimationFrame(ensureBackRahmen);
-        return out;
-      };
-      window[name].__offnng_back_hooked = true;
-    }
-  }
-  ['buildOFFNNG','rebuildOFFNNGIfActive','toggleOFFNNG','refreshAll','buildScene'].forEach(hook);
-
-  if (window.isOFFNNG) { ensureBackRahmen(); }
 })();
 
 /* ─────────────────────────────────────────────────────────
