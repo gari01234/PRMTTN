@@ -3966,8 +3966,16 @@ void main(){
     /* ═════════════════════ FIN BLOQUE OFFNNG v4 ═════════════════════ */
 
     /* ───────────────  TMSL  ·  frontal white wall  ─────────────── */
-    let isTMSL = false;
-    let tmslGroup = null;
+    /* === TMSL · estado único global (evita duplicados) === */
+    window.isTMSL    = (typeof window.isTMSL    !== 'undefined') ? window.isTMSL    : false;
+    window.groupTMSL = (typeof window.groupTMSL !== 'undefined') ? window.groupTMSL : null;
+
+    /* Back-compat: cualquier uso de tmslGroup lee/escribe groupTMSL */
+    Object.defineProperty(window, 'tmslGroup', {
+      get(){ return window.groupTMSL; },
+      set(v){ window.groupTMSL = v; },
+      configurable: true
+    });
     let tmslPrevBg = null;
     let tmslPrevClear = null;   // ← guardamos el clearColor real del renderer
 
@@ -6958,8 +6966,34 @@ window.applyTMSLSafeCamera = function(){
     }catch(_){ }
 
     // Construye/asegura el cuarto y (más abajo) pegamos el panel a la pared
-    window.buildTMSLRoom();
+  window.buildTMSLRoom();
   };
+})();
+
+/* === TMSL · forzar construcción inmediata al activar === */
+(function hookToggleTMSLBuildNow(){
+  const orig = window.toggleTMSL;
+  if (typeof orig === 'function' && !orig.__tmsl_build_hook){
+    window.toggleTMSL = function(...args){
+      const out = orig.apply(this, args);
+      try{
+        if (window.isTMSL){
+          // base: cuarto visible + cámara segura + BUILD oculto
+          window.ensureBaseVisibilityForTMSL?.();
+          // construye “obra” ya mismo (primera vez)
+          if (typeof window.buildTMSL === 'function') { window.buildTMSL(); }
+          else {
+            window.rebuildTMSLIfActive?.();
+            window.requestTMSLRebuild?.();
+          }
+          // vuelve a pegarla al fondo (por si el builder la puso en Z=0)
+          window.buildTMSLRoom?.();
+        }
+      }catch(_){ }
+      return out;
+    };
+    window.toggleTMSL.__tmsl_build_hook = true;
+  }
 })();
   /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
   (function(){
@@ -7008,6 +7042,22 @@ window.applyTMSLSafeCamera = function(){
   (function(){
     if (window.__tmslAmbient) window.__tmslAmbient.intensity = 0.10; // o 0 para desactivarla
   })();
+
+/* === TMSL · watchdog de aislamiento: mientras TMSL esté ON, BUILD queda oculto === */
+(function installTMSLIsolationWatchdog(){
+  if (window.__tmslIsoWatchdog) return;
+  window.__tmslIsoWatchdog = true;
+  function tick(){
+    try{
+      if (window.isTMSL){
+        if (window.cubeUniverse)     cubeUniverse.visible = false;
+        if (window.permutationGroup) permutationGroup.visible = false;
+      }
+    }catch(_){ }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 
 /* ═══════════════════════════════════════════════════════════════
  * RAPHI · Animador + puente de control (BUILD ↔ RAPHI) — Hook “a prueba de orden”
@@ -7709,31 +7759,52 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   wrap('resetMotion',        ()=> window.resetGrvtyMotion());
 })();
 
-// === TMSL · hard-kill: apaga y limpia TODO (panel y cuarto), aunque el toggle no se haya llamado ===
+/* === TMSL · hard kill (limpieza total) === */
 window.hardKillTMSL = function(){
-  try{ window.isTMSL = false; }catch(_){ }
+  try{ window.isTMSL = false; }catch(_){}
+
+  // 1) Pared blanca / obra
   try{
-    if (window.groupTMSL){
-      window.groupTMSL.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
-      scene.remove(window.groupTMSL);
-      window.groupTMSL = null;
+    const g = window.groupTMSL || window.tmslGroup;
+    if (g){
+      g.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+      scene.remove(g);
     }
-  }catch(_){ }
-  try{ window.disposeTMSLRoom?.(); }catch(_){ }
+    window.groupTMSL = null; window.tmslGroup = null;
+  }catch(_){}
+
+  // 2) Cuarto (piso/techo/laterales + pared back)
+  try{ window.disposeTMSLRoom?.(); }catch(_){}
+
+  // 3) Luz auxiliar
+  try{
+    if (window.__tmslAmbient){
+      scene.remove(window.__tmslAmbient);
+      window.__tmslAmbient = null;
+    }
+  }catch(_){}
+
+  // 4) Restaura BUILD visible (otros motores lo controlan, pero dejamos limpio)
+  try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){}
+  try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){}
 };
 
-// ⇨ Envuélvelo en los toggles para que SIEMPRE se ejecute antes de cambiar de motor
-['toggleKEPLR','toggle13245','toggleRAPHI','toggleGRVTY','toggleRAUM','toggleR5NOVA',
- 'toggleFRBN','toggleLCHT','toggleOFFNNG'].forEach(n=>{
-  const orig = window[n];
-  if (typeof orig === 'function' && !orig.__tmsl_hardkill){
-    window[n] = function(...args){
-      try{ window.hardKillTMSL(); }catch(_){ }
-      return orig.apply(this, args);
-    };
-    window[n].__tmsl_hardkill = true;
-  }
-});
+/* Llama hardKillTMSL al moverte a cualquier otro motor */
+(function wrapNonTMSLToggles(){
+  [
+    'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleRAUM','toggle13245',
+    'toggleKEPLR','toggleRAPHI','toggleR5NOVA','toggleGRVTY','switchToBuild'
+  ].forEach(n=>{
+    const orig = window[n];
+    if (typeof orig === 'function' && !orig.__tmsl_kill_hook){
+      window[n] = function(...args){
+        try{ window.hardKillTMSL(); }catch(_){}
+        return orig.apply(this, args);
+      };
+      window[n].__tmsl_kill_hook = true;
+    }
+  });
+})();
 
 // Y por si entras directamente por ensureOnly* :
 function __killTMSLIfAny(){ try{ if (window.isTMSL || window.groupTMSL || window.__tmslRoom) window.hardKillTMSL(); }catch(_){ } }
