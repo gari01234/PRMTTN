@@ -6969,60 +6969,8 @@ window.applyTMSLSafeCamera = function(){
     }catch(_){ }
     window.__tmslRoom = null;
   };
-
-  // Reemplaza la “base” para NO cambiar a negro y sí asegurar cámara segura
-  window.ensureBaseVisibilityForTMSL = function(){
-    try{
-      if (renderer && renderer.setClearColor && scene.background){
-        const hex = '#' + scene.background.getHexString();
-        renderer.setClearColor(hex, 1);
-      }
-    }catch(_){ }
-
-    // ⇨ En TMSL NO se debe ver BUILD
-    try{ if (window.cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
-    try{ if (window.permutationGroup) permutationGroup.visible = false; }catch(_){ }
-    try{ renderer.autoClear = true; }catch(_){ }
-
-    // Luz suave + cámara segura
-    try{ if (typeof window.applyTMSLSafeCamera === 'function') window.applyTMSLSafeCamera(); }catch(_){ }
-    try{
-      if (!window.__tmslAmbient){
-        const amb = new THREE.AmbientLight(0xffffff, 0.12);
-        amb.name='__tmslAmbient'; scene.add(amb); window.__tmslAmbient=amb;
-      }else{ window.__tmslAmbient.intensity = 0.12; }
-    }catch(_){ }
-
-    // Construye/asegura el cuarto y (más abajo) pegamos el panel a la pared
-  window.buildTMSLRoom();
-  };
 })();
 
-/* === TMSL · forzar construcción inmediata al activar === */
-(function hookToggleTMSLBuildNow(){
-  const orig = window.toggleTMSL;
-  if (typeof orig === 'function' && !orig.__tmsl_build_hook){
-    window.toggleTMSL = function(...args){
-      const out = orig.apply(this, args);
-      try{
-        if (window.isTMSL){
-          // base: cuarto visible + cámara segura + BUILD oculto
-          window.ensureBaseVisibilityForTMSL?.();
-          // construye “obra” ya mismo (primera vez)
-          if (typeof window.buildTMSL === 'function') { window.buildTMSL(); }
-          else {
-            window.rebuildTMSLIfActive?.();
-            window.requestTMSLRebuild?.();
-          }
-          // vuelve a pegarla al fondo (por si el builder la puso en Z=0)
-          window.buildTMSLRoom?.();
-        }
-      }catch(_){ }
-      return out;
-    };
-    window.toggleTMSL.__tmsl_build_hook = true;
-  }
-})();
   /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
   (function(){
     if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
@@ -7070,21 +7018,52 @@ window.applyTMSLSafeCamera = function(){
   (function(){
     if (window.__tmslAmbient) window.__tmslAmbient.intensity = 0.10; // o 0 para desactivarla
   })();
-
-/* === TMSL · watchdog de aislamiento: mientras TMSL esté ON, BUILD queda oculto === */
-(function installTMSLIsolationWatchdog(){
-  if (window.__tmslIsoWatchdog) return;
-  window.__tmslIsoWatchdog = true;
-  function tick(){
+/* === TMSL · aislamiento total de BUILD (cubo + permutaciones) =============== */
+(function installTMSLIsolation(){
+  // 1) Asegura base y oculta BUILD cuando TMSL está activo
+  window.ensureBaseVisibilityForTMSL = function(){
     try{
-      if (window.isTMSL){
-        if (window.cubeUniverse)     cubeUniverse.visible = false;
-        if (window.permutationGroup) permutationGroup.visible = false;
+      if (renderer && renderer.setClearColor && scene.background){
+        const hex = '#' + scene.background.getHexString();
+        renderer.setClearColor(hex, 1);
       }
     }catch(_){ }
-    requestAnimationFrame(tick);
+
+    try{ if (window.cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
+    try{ if (window.permutationGroup) permutationGroup.visible = false; }catch(_){ }
+    try{ renderer.autoClear = true; }catch(_){ }
+  };
+
+  // 2) Hookea toggleTMSL para aplicar (solo si TMSL queda ON)
+  (function hookToggleTMSL(){
+    const orig = window.toggleTMSL;
+    if (typeof orig === 'function' && !orig.__tmsl_isolation_hook){
+      window.toggleTMSL = function(...args){
+        const out = orig.apply(this, args);
+        try{
+          if (window.isTMSL) {
+            window.ensureBaseVisibilityForTMSL();
+          }
+        }catch(_){ }
+        return out;
+      };
+      window.toggleTMSL.__tmsl_isolation_hook = true;
+    }
+  })();
+
+  // 3) Watchdog: mientras TMSL esté ON, fuerza invisible cada frame
+  if (!window.__tmslIsoWatchdog){
+    window.__tmslIsoWatchdog = true;
+    (function tick(){
+      try{
+        if (window.isTMSL){
+          if (window.cubeUniverse)     cubeUniverse.visible = false;
+          if (window.permutationGroup) permutationGroup.visible = false;
+        }
+      }catch(_){ }
+      requestAnimationFrame(tick);
+    })();
   }
-  requestAnimationFrame(tick);
 })();
 
 /* ═══════════════════════════════════════════════════════════════
