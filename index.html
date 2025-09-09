@@ -4706,6 +4706,33 @@ void main(){
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
 
+    /* 13245 · cámara por defecto más alta (solo al entrar) */
+    function set13245DefaultCamera(){
+      try{
+        camera.up.set(0,1,0);
+        camera.fov  = 60;
+        camera.near = 0.1;
+        camera.far  = 2000;
+        camera.updateProjectionMatrix();
+
+        // Apunta un poco por encima del plano de la losa (cara superior y=0)
+        if (controls && controls.target) controls.target.set(0, 8, 0);
+
+        // Cámara más alta y a media distancia para ver los volúmenes completos
+        camera.position.set(0, 18, 72);
+
+        if (controls){
+          controls.enabled = true;
+          controls.enableRotate = true;
+          controls.enablePan    = true;
+          controls.enableZoom   = true;
+          controls.minPolarAngle = 0;
+          controls.maxPolarAngle = Math.PI;
+          controls.update();
+        }
+      }catch(_){ }
+    }
+
     function disposeGroup(g){
       if (!g) return;
       g.traverse(o => {
@@ -4863,6 +4890,7 @@ void main(){
         build13245();
 
         applyStandardView();
+        set13245DefaultCamera();  // ← sube la cámara solo en la vista default
 
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
