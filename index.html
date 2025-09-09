@@ -6164,8 +6164,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       disposeGroupR5NOVA();
       groupR5NOVA = new THREE.Group();
 
-      // Fondo acoplado (no manual), igual que RAUM/BUILD
-      updateBackground(false);
+      // Fondo FRBN animado (como GRVTY)
+      updateBackground(false);   // mantiene consistencia de estados internos
+      r5nUseFRBNBackdrop();      // ← muestra/actualiza el cielo FRBN
 
       // ====== Colores deterministas para las paredes (reusa RAUM) ======
       const colCeil  = scene.background.clone();  // techo = color de fondo
@@ -6339,6 +6340,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
+        r5nUseFRBNBackdrop();      // ← activa el fondo FRBN al entrar
 
         buildR5NOVA();
 
@@ -6346,9 +6348,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         camera.fov = 55;
         camera.updateProjectionMatrix();
 
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        if (controls && controls.target) controls.target.set(0, eyeY, 0);
-        camera.position.set(0, eyeY, 42);
+        if (controls && controls.target) controls.target.set(0, 0, 0);  // ← target fijo
+        camera.position.set(0, 0, 42);                                  // ← cámara fija
 
         controls.enabled            = true;
         controls.enableRotate       = true;
@@ -6369,6 +6370,12 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         leaveRaumRenderBoost();
         try{ disposeGroupR5NOVA?.(); }catch(_){ }
         try{ groupR5NOVA = null; }catch(_){ }
+
+        try{
+          if (window.skySphere && !(typeof isFRBN !== 'undefined' && isFRBN)){
+            window.skySphere.visible = false;  // oculta cielo FRBN si FRBN no está activo
+          }
+        } catch(_){ }
 
         camera.fov = 75;
         camera.updateProjectionMatrix();
@@ -6496,8 +6503,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       if (isLCHT){    ensureOnlyOFFNNG(); syncUI(); return; }
       if (isOFFNNG){  ensureOnlyTMSL();   syncUI(); return; }
 
+      // ——— TMSL → RAUM (apagando TMSL de verdad) ———
       if (isTMSL){
-        try { toggleRAUM(); } catch(_){ }
+        try { toggleTMSL(); } catch(_){ }          // ← apaga TMSL
+        try { toggleRAUM(); } catch(_){ }          // enciende RAUM
         setTimeout(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } }, 0);
         requestAnimationFrame(()=>{ if (!isRAUM) { try{ toggleRAUM(); }catch(_){ } } });
         updateEngineSelectUI();
@@ -7040,10 +7049,11 @@ async function showPatternInfo(){
 
       const g = new THREE.Group();
 
-      const colCeil  = (scene.background && scene.background.clone) ? scene.background.clone() : new THREE.Color(0xffffff);
-      const colFloor = (typeof raumColorFor==='function') ? raumColorFor(2) : new THREE.Color(0xdedede);
-      const colLeft  = (typeof raumColorFor==='function') ? raumColorFor(3) : new THREE.Color(0xdedede);
-      const colRight = (typeof raumColorFor==='function') ? raumColorFor(4) : new THREE.Color(0xdedede);
+      // ——— Colores fijos en grises claros (4 tonos) ———
+      const colCeil  = new THREE.Color(0xF3F3F3); // techo
+      const colFloor = new THREE.Color(0xEDEDED); // piso
+      const colLeft  = new THREE.Color(0xE7E7E7); // pared izquierda
+      const colRight = new THREE.Color(0xE1E1E1); // pared derecha
 
       const left  = new THREE.Mesh(new THREE.BoxGeometry(TMSL_G, TMSL_H, TMSL_D + 30), lambertWall(colLeft));
       left.position.set(-TMSL_W/2 + TMSL_G/2, 0, 0);
@@ -7061,6 +7071,48 @@ async function showPatternInfo(){
       scene.add(g);
       window.__tmslDecorGroup = g;
     }catch(e){ console.warn('[TMSL] shell:', e); }
+  }
+
+  // ——— Empuja el “fondo” de TMSL hasta el borde trasero del cuarto ———
+  function tmslSendBackContentToWall(){
+    try{
+      if (!window.isTMSL) return;
+      const zBack = - (TMSL_D + 30) / 2 + 0.001;  // mismo plano que laterales/piso/techo
+
+      // No tocar el decorado TMSL ni grupos del resto de motores
+      const banned = new Set([
+        window.__tmslDecorGroup, window.cubeUniverse, window.permutationGroup,
+        window.lichtGroup, window.skySphere, window.groupR5NOVA, window.groupKEPLR,
+        window.group13245, window.groupRAPHI, window.groupGRVTY, window.groupKEPLR
+      ]);
+
+      // Candidatos: grupos visibles con meshes, colgados de scene, distintos al decorado
+      const candidates = [];
+      scene.children.forEach(o=>{
+        if (!o || !o.visible || banned.has(o)) return;
+        if (o.isCamera || o.isLight) return;
+        let hasMesh = false;
+        o.traverse(n=>{ if (n.isMesh) hasMesh = true; });
+        if (!hasMesh) return;
+        candidates.push(o);
+      });
+      if (!candidates.length) return;
+
+      // Escoge el grupo “principal” por área (aprox.)
+      let best=null, bestArea=-1, bestBox=null;
+      candidates.forEach(o=>{
+        const box = new THREE.Box3().setFromObject(o);
+        const area = Math.max(0, box.max.x-box.min.x) * Math.max(0, box.max.y-box.min.y);
+        if (area > bestArea){ bestArea = area; best = o; bestBox = box; }
+      });
+      if (!best || !bestBox) return;
+
+      // Desplaza para que su cara frontal trasera toque zBack
+      const minZ = bestBox.min.z;
+      const dz   = (zBack - minZ);
+      best.position.z += dz;
+      best.updateMatrixWorld(true);
+    }catch(_){ }
   }
 
   // 4) Centro de los cubos (halos) en BLANCO puro.
@@ -7096,14 +7148,14 @@ async function showPatternInfo(){
     }catch(_){ }
   }
 
-  // Hook post-rebuild TMSL (se ejecuta SIEMPRE después de tu rebuild)
+  // Hook post-rebuild TMSL (añade push del fondo)
   (function hookTMSLRebuild(){
     const prev = window.rebuildTMSLIfActive;
     window.rebuildTMSLIfActive = function(){
       if (typeof prev === 'function') prev();
-      // cede un frame para asegurar matrices actualizadas
-      setTimeout(()=>{ try{ tmslEnsureShell(); tmslForceHaloCoreWhite(); }catch(_){ } }, 0);
-      requestAnimationFrame(()=>{ try{ tmslEnsureShell(); tmslForceHaloCoreWhite(); }catch(_){ } });
+      const run = ()=>{ try{ tmslEnsureShell(); tmslForceHaloCoreWhite(); tmslSendBackContentToWall(); }catch(_){ } };
+      setTimeout(run, 0);
+      requestAnimationFrame(run);
     };
   })();
 
@@ -7113,6 +7165,43 @@ async function showPatternInfo(){
     window.rebuildTMSLIfActive();
   }
 })();
+
+// ── Limpieza TOTAL al salir de TMSL (paredes/piso/techo + luz) ──
+(function installTMSLCleanupHook(){
+  function tmslFullCleanup(){
+    try{
+      if (window.__tmslDecorGroup){
+        try{
+          window.__tmslDecorGroup.traverse(o=>{
+            if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
+          });
+        }catch(_){ }
+        try{ scene.remove(window.__tmslDecorGroup); }catch(_){ }
+        window.__tmslDecorGroup = null;
+      }
+    }catch(_){ }
+
+    try{
+      if (window.__tmslAmbient){
+        try{ scene.remove(window.__tmslAmbient); }catch(_){ }
+        window.__tmslAmbient = null;
+      }
+    }catch(_){ }
+  }
+
+  const prev = window.toggleTMSL;
+  if (typeof prev === 'function' && !prev.__tmsl_cleanup_hooked){
+    window.toggleTMSL = function(){
+      const wasOn = !!window.isTMSL;
+      const out = prev.apply(this, arguments);
+      const nowOn = !!window.isTMSL;
+      if (wasOn && !nowOn) tmslFullCleanup();  // ← al apagar TMSL, limpia todo
+      return out;
+    };
+    window.toggleTMSL.__tmsl_cleanup_hooked = true;
+  }
+})();
+
   /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
   (function(){
     if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
@@ -7340,6 +7429,25 @@ function grvtyUseFRBNBackdrop(){
       if (typeof animateFRBN === 'function') {
         (function tickFRBN(){
           if (window.isGRVTY && window.skySphere?.visible){
+            try{ animateFRBN(); }catch(_){ }
+            requestAnimationFrame(tickFRBN);
+          }
+        })();
+      }
+    }
+  }catch(_){ }
+}
+
+// ——— Fondo FRBN para R5NOVA (cielo + animación) ———
+function r5nUseFRBNBackdrop(){
+  try{
+    if (typeof initSkySphere === 'function' && !window.skySphere) initSkySphere();
+    if (typeof buildGanzfeld === 'function') buildGanzfeld();
+    if (window.skySphere){
+      window.skySphere.visible = true;
+      if (typeof animateFRBN === 'function'){
+        (function tickFRBN(){
+          if (window.isR5NOVA && window.skySphere?.visible){
             try{ animateFRBN(); }catch(_){ }
             requestAnimationFrame(tickFRBN);
           }
