@@ -3503,7 +3503,7 @@ function renderArchPanel(html){
      *  – Exclusivo: no interfiere con BUILD / LCHT / FRBN
      * ═══════════════════════════════════════════════════════════ */
 
-    let groupOFFNNG  = null;
+    let offnngGroup  = null;
     let offnngMesh   = null;
     let isOFFNNG     = false;
     let offnngPrevBg = null;
@@ -3515,71 +3515,44 @@ function renderArchPanel(html){
      *  - se pega a la cara de atrás del cubo de colores
      *  - depthTest desactivado + alto renderOrder ⇒ siempre visible
      * ────────────────────────────────────────────────────────────── */
-    
-    function addOFFNNGRearRahmen(){
-      const w = (typeof cubeSize==='number' ? cubeSize : 30);
-      const h = w;
-      const cx = 0, cy = 0;
-      const zPanelPlane = -w/2;
+    function addOFFNNGRearRahmen(container){
+      // tamaño del cubo cromático (usa el global de tu escena)
+      const W = (typeof cubeSize==='number' ? cubeSize : 30);
+      const t = 0.80;                 // grosor del marco
+      const z = -W/2 + 0.002;         // pegado a la cara de atrás (ligerísimo offset)
 
-// ===== RAHMEN (cara trasera) — visible y al aussenkante =====
+      const col = (scene.background ? scene.background.clone() : new THREE.Color(0x000000));
+      const mat = new THREE.MeshBasicMaterial({
+        color: col, transparent: true, opacity: 1.0,
+        depthTest: false, depthWrite: false, side: THREE.DoubleSide
+      });
 
-// Color SIEMPRE = color de fondo actual
-const bgCol = (scene.background && scene.background.isColor) ? scene.background.clone()
-                                                             : new THREE.Color(0xe1e7ea);
+      const g = new THREE.Group(); g.name='__offnngRearRahmen';
+      const inner = W - 2*t;
 
-const frameMat = new THREE.MeshLambertMaterial({
-  color: bgCol,
-  dithering: true,
-  // Para que se vea aunque haya panel detrás y evitar “z-fighting”:
-  depthTest: true,
-  depthWrite: false,
-  polygonOffset: true,
-  polygonOffsetFactor: -2,
-  polygonOffsetUnits: -2
-});
-frameMat.emissive = bgCol.clone();
-frameMat.emissiveIntensity = 0.12;
+      const top = new THREE.Mesh(new THREE.PlaneGeometry(inner, t), mat);
+      top.position.set(0,  W/2 - t/2, z);
 
-// Grosor mitad de lo que venías usando
-const tHalf = Math.max(0.001, Math.min(w, h) * 0.20) * 0.5;
+      const bot = new THREE.Mesh(new THREE.PlaneGeometry(inner, t), mat);
+      bot.position.set(0, -W/2 + t/2, z);
 
-// Los horizontales recorren TODO el ancho; los verticales TODO el alto
-const FRAME_DEPTH = 0.06;     // grosor del volumen del Rahmen en Z
-const EPSZ = 0.02;            // lo traemos levemente hacia cámara para que “asome”
+      const lef = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
+      lef.position.set(-W/2 + t/2, 0, z);
 
-const zFrame = zPanelPlane + EPSZ;
+      const rig = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
+      rig.position.set( W/2 - t/2, 0, z);
 
-const topGeo = new THREE.BoxGeometry(w,     tHalf, FRAME_DEPTH);
-const botGeo = new THREE.BoxGeometry(w,     tHalf, FRAME_DEPTH);
-const lefGeo = new THREE.BoxGeometry(tHalf, h,     FRAME_DEPTH);
-const rigGeo = new THREE.BoxGeometry(tHalf, h,     FRAME_DEPTH);
-
-const top = new THREE.Mesh(topGeo, frameMat);
-top.position.set(cx, cy + (h/2 - tHalf/2), zFrame);
-
-const bot = new THREE.Mesh(botGeo, frameMat);
-bot.position.set(cx, cy - (h/2 - tHalf/2), zFrame);
-
-const lef = new THREE.Mesh(lefGeo, frameMat);
-lef.position.set(cx - (w/2 - tHalf/2), cy, zFrame);
-
-const rig = new THREE.Mesh(rigGeo, frameMat);
-rig.position.set(cx + (w/2 - tHalf/2), cy, zFrame);
-
-// Asegurar que se pinten POR ENCIMA del panel trasero
-top.renderOrder = bot.renderOrder = lef.renderOrder = rig.renderOrder = 50;
-
-// Añadir al grupo de OFFNNG
-groupOFFNNG.add(top, bot, lef, rig);
+      g.add(top,bot,lef,rig);
+      g.renderOrder = 2000; // por encima de casi todo
+      container.add(g);
     }
 
     function buildOFFNNG () {
       // limpia versión previa
-      if (groupOFFNNG) {
-        groupOFFNNG.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-        scene.remove(groupOFFNNG);
-        groupOFFNNG = null; offnngMesh = null;
+      if (offnngGroup) {
+        offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+        scene.remove(offnngGroup);
+        offnngGroup = null; offnngMesh = null;
       }
 
       const geo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
@@ -3840,11 +3813,11 @@ void main(){
       offnngMesh.updateMatrixWorld(true);
       mat.uniforms.uInvModel.value.copy(offnngMesh.matrixWorld).invert();
 
-      groupOFFNNG = new THREE.Group();
-      groupOFFNNG.add(offnngMesh);
-        addOFFNNGRearRahmen();
-      scene.add(groupOFFNNG);
-      window.groupOFFNNG = groupOFFNNG;
+      offnngGroup = new THREE.Group();
+      offnngGroup.add(offnngMesh);
+      addOFFNNGRearRahmen(offnngGroup);
+      scene.add(offnngGroup);
+      window.groupOFFNNG = offnngGroup;
 
       applyOFFNNGQuality();   // aplica calidad y pixelRatio
       syncOFFNNGFromScene();  // ← acopla parámetros deterministas
@@ -3873,15 +3846,15 @@ void main(){
       cubeUniverse.visible     = false;
       permutationGroup.visible = false;
       if (lichtGroup) lichtGroup.visible = false;
-      if (groupOFFNNG) groupOFFNNG.visible = true;
+      if (offnngGroup) offnngGroup.visible = true;
 
       syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
 
     } else {                           /* — SALIR — */
-        if (groupOFFNNG) {
-          groupOFFNNG.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-          scene.remove(groupOFFNNG);
-          groupOFFNNG = null; offnngMesh = null;
+        if (offnngGroup) {
+          offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+          scene.remove(offnngGroup);
+          offnngGroup = null; offnngMesh = null;
         }
         if (offnngPrevBg) scene.background = offnngPrevBg;
 
@@ -6951,11 +6924,201 @@ async function showPatternInfo(){
   })();
 
 // 7) Si ya estás en R5NOVA al cargar (p.ej. por querystring), sincroniza una vez
-if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
+  if (window.isR5NOVA) window.rebuildR5NOVAIfActive();
 })();
-</script>
 
-<script>
+// ────────────── TMSL utils: lighting + safe camera + white room ─────────────
+function ensureTMSLLighting(on){
+  try{
+    if (on){
+      if (!window.__tmslAmbient){
+        const amb = new THREE.AmbientLight(0xffffff, 0.12);
+        amb.name='__tmslAmbient'; scene.add(amb); window.__tmslAmbient=amb;
+      }else{ window.__tmslAmbient.intensity = 0.12; }
+    }else if (window.__tmslAmbient){
+      scene.remove(window.__tmslAmbient);
+      window.__tmslAmbient = null;
+    }
+  }catch(_){ }
+}
+
+window.applyTMSLSafeCamera = function(){
+  try{
+    camera.up.set(0,1,0);
+    camera.fov = 60;
+    camera.updateProjectionMatrix();
+    if (controls && controls.target) controls.target.set(0,0,0);
+    camera.position.set(0, 0, 52);
+    if (controls){
+      controls.enabled = true;
+      controls.enableRotate = true;
+      controls.enablePan = true;
+      controls.enableZoom = true;
+      controls.minPolarAngle = 0;
+      controls.maxPolarAngle = Math.PI;
+      controls.update();
+    }
+  }catch(_){ }
+};
+
+/* ──────────────────────────────────────────────────────────────
+ * TMSL · Room (piso/techo/laterales + pared de fondo al ras)
+ *  - 4 blancos distintos para que “se lea” el cuarto
+ *  - NO toca scene.background → elimina el flash negro
+ *  - Se crea al entrar a TMSL y se destruye al salir
+ * ────────────────────────────────────────────────────────────── */
+(function(){
+  // grupo global del cuarto
+  window.__tmslRoom = window.__tmslRoom || null;
+
+  const ROOM_W = 60, ROOM_H = 60, ROOM_D = 60;   // caja visible
+  const WALL_G = 2.0;                            // grosor del muro
+
+  // 4 blancos diferentes
+  const W_FLOOR = new THREE.Color(0xf3f3f5);     // piso
+  const W_CEIL  = new THREE.Color(0xf7f7f9);     // techo
+  const W_LEFT  = new THREE.Color(0xf0f0f0);     // pared izquierda
+  const W_RIGHT = new THREE.Color(0xededed);     // pared derecha
+  const W_BACK  = new THREE.Color(0xffffff);     // pared de fondo (blanco puro)
+
+  function lambertWhite(c){
+    const m = new THREE.MeshLambertMaterial({ color:c, dithering:true });
+    m.emissive = c.clone(); m.emissiveIntensity = 0.06;
+    return m;
+  }
+
+  // Crea (o recrea) el cuarto. Devuelve el group.
+  window.buildTMSLRoom = function(){
+    // limpia si ya existía
+    try{ if (window.__tmslRoom){ scene.remove(window.__tmslRoom); window.__tmslRoom.traverse(o=>{ if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); } }); window.__tmslRoom=null; } }catch(_){ }
+
+    const g = new THREE.Group();
+    g.name = '__tmslRoom';
+
+    // laterales
+    const left  = new THREE.Mesh(new THREE.BoxGeometry(WALL_G, ROOM_H, ROOM_D), lambertWhite(W_LEFT));
+    left.position.set(-ROOM_W/2 + WALL_G/2, 0, 0);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(WALL_G, ROOM_H, ROOM_D), lambertWhite(W_RIGHT));
+    right.position.set( ROOM_W/2 - WALL_G/2, 0, 0);
+
+    // piso y techo
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(ROOM_W, WALL_G, ROOM_D), lambertWhite(W_FLOOR));
+    floor.position.set(0, -ROOM_H/2 + WALL_G/2, 0);
+    const ceil  = new THREE.Mesh(new THREE.BoxGeometry(ROOM_W, WALL_G, ROOM_D), lambertWhite(W_CEIL));
+    ceil.position.set(0,  ROOM_H/2 - WALL_G/2, 0);
+
+    // pared de fondo (AL RAS del kante posterior del cuarto)
+    const back  = new THREE.Mesh(new THREE.BoxGeometry(ROOM_W, ROOM_H, WALL_G), lambertWhite(W_BACK));
+    back.position.set(0, 0, -ROOM_D/2 + WALL_G/2);
+
+    // pequeños nombres por si alguna vez quieres localizar piezas
+    left.name='__tmsl_left'; right.name='__tmsl_right';
+    floor.name='__tmsl_floor'; ceil.name='__tmsl_ceil';
+    back.name='__tmsl_back';
+
+    g.add(left, right, floor, ceil, back);
+    g.traverse(o=> o.frustumCulled=false);
+
+    scene.add(g);
+    window.__tmslRoom = g;
+
+    // POSICIONA la “obra”/panel de TMSL pegado a la pared de fondo (un poco al frente)
+    try{
+      // Si tu motor TMSL coloca su panel en un Group llamado groupTMSL (común),
+      // lo montamos 5 mm por delante de la pared para evitar z-fighting.
+      if (window.groupTMSL && window.groupTMSL.position){
+        const zBack = -ROOM_D/2 + WALL_G/2;
+        window.groupTMSL.position.z = zBack + 0.05;
+      }
+    }catch(_){ }
+    return g;
+  };
+
+  // Destruye el cuarto
+  window.disposeTMSLRoom = function(){
+    if (!window.__tmslRoom) return;
+    try{
+      const g = window.__tmslRoom;
+      g.traverse(o=>{ if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }});
+      scene.remove(g);
+    }catch(_){ }
+    window.__tmslRoom = null;
+  };
+
+  // Reemplaza la “base” para NO cambiar a negro y sí asegurar cámara segura
+  window.ensureBaseVisibilityForTMSL = function(){
+    // ⇨ NO tocar scene.background ni renderer.setClearColor → sin “flash” negro
+    try{ if (renderer && renderer.setClearColor && scene.background){
+      const hex = '#' + scene.background.getHexString();
+      renderer.setClearColor(hex, 1);
+    }}catch(_){ }
+
+    // deja visibles el cubo y las permutaciones (como tenías)
+    try{ if (window.cubeUniverse)     cubeUniverse.visible = true; }catch(_){ }
+    try{ if (window.permutationGroup) permutationGroup.visible = true; }catch(_){ }
+    try{ renderer.autoClear = true; }catch(_){ }
+
+    // Luz suave + cámara segura
+    try{ if (typeof window.applyTMSLSafeCamera === 'function') window.applyTMSLSafeCamera(); }catch(_){ }
+    try{
+      if (!window.__tmslAmbient){
+        const amb = new THREE.AmbientLight(0xffffff, 0.12);
+        amb.name='__tmslAmbient'; scene.add(amb); window.__tmslAmbient=amb;
+      }else{ window.__tmslAmbient.intensity = 0.12; }
+    }catch(_){ }
+
+    // Construir/asegurar el cuarto
+    window.buildTMSLRoom();
+  };
+})();
+  /* === TMSL · coalescer: 1 rebuild por frame + halo-only === */
+  (function(){
+    if (typeof window.isTMSL === 'undefined') window.isTMSL = false;
+
+    // Rebuild coalescido (evita tormenta de renders)
+    if (typeof window.requestTMSLRebuild !== 'function'){
+      let tmslPending = false;
+      window.requestTMSLRebuild = function(){
+        if (!window.isTMSL || tmslPending) return;
+        tmslPending = true;
+        requestAnimationFrame(() => {
+          tmslPending = false;
+          try { if (window.isTMSL && typeof window.rebuildTMSLIfActive === 'function') window.rebuildTMSLIfActive(); } catch(e){ console.warn('[TMSL] rebuild:', e); }
+        });
+      };
+    }
+
+    // 2.3) Hook: reconstruir SIEMPRE la variante con halo tras acciones típicas
+    (function TMSLHook(){
+      const run = () => { try{ window.rebuildTMSLIfActive(); }catch(e){ console.warn('[TMSL] rebuild:', e); } };
+
+      [
+        'refreshAll','rebuildUniverse','buildUniverse','buildScene',
+        'applyPatternFromSelect','cyclePattern','setChromaticPattern',
+        'applyAttributeMapping','cycleAttributeMapping',
+        'randomizePermutationCenterClick','applyPermutationSet','shufflePermutations'
+      ].forEach(name=>{
+        const orig = window[name];
+        if (typeof orig === 'function' && !orig.__tmsl_hooked){
+          window[name] = function(...args){
+            const res = orig.apply(this, args);
+            setTimeout(run, 0);
+            requestAnimationFrame(run);
+            return res;
+          };
+          window[name].__tmsl_hooked = true;
+        }
+      });
+
+      window.addEventListener('resize', ()=>{ setTimeout(run,0); });
+    })();
+  })();
+
+  // Rebaja la luz de cortesía para que NO queme los halos
+  (function(){
+    if (window.__tmslAmbient) window.__tmslAmbient.intensity = 0.10; // o 0 para desactivarla
+  })();
+
 /* ═══════════════════════════════════════════════════════════════
  * RAPHI · Animador + puente de control (BUILD ↔ RAPHI) — Hook “a prueba de orden”
  *  - Pausa/reanuda y reset para RAPHI.
@@ -7656,8 +7819,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   wrap('resetMotion',        ()=> window.resetGrvtyMotion());
 })();
 </script>
-
-<script src="tmsl_isolation.js"></script>
 
 </body>
 </html>
