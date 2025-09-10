@@ -7007,15 +7007,20 @@ async function showPatternInfo(){
   window.applyTMSLSafeCamera = function(){
     try{
       camera.up.set(0,1,0);
-      camera.fov = 60;
+      camera.fov  = 40;   // ← más “normal” (menos gran angular)
+      camera.near = 0.1;
+      camera.far  = 2000;
       camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0,0,0);
-      camera.position.set(0, 0, 52);      // ← antes ~42, ahora más lejos
+
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      // distancia natural para ver la pared completa con margen
+      camera.position.set(0, 0, 56);
+
       if (controls){
         controls.enabled = true;
         controls.enableRotate = true;
-        controls.enablePan = true;
-        controls.enableZoom = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
         controls.minPolarAngle = 0;
         controls.maxPolarAngle = Math.PI;
         controls.update();
@@ -7025,7 +7030,7 @@ async function showPatternInfo(){
 
   // 2) Piso, techo y paredes laterales para TMSL (tipo RAUM)
   //    Se crean en un grupo propio y se regeneran en cada rebuild.
-  const TMSL_W = 60, TMSL_H = 60, TMSL_D = 60, TMSL_G = 4;
+  const TMSL_W = 35, TMSL_H = 35, TMSL_D = 35, TMSL_G = 2;
   function lambertWall(cTHREE){
     // reutiliza tu “look” de RAUM/BUILD
     return (typeof lambertRaumColor === 'function')
@@ -7050,7 +7055,7 @@ async function showPatternInfo(){
       const g = new THREE.Group();
 
       // ——— Colores fijos en grises claros (4 tonos) ———
-      const colCeil  = new THREE.Color(0xF3F3F3); // techo
+      const colCeil  = new THREE.Color(0xDADADA); // techo
       const colFloor = new THREE.Color(0xEDEDED); // piso
       const colLeft  = new THREE.Color(0xE7E7E7); // pared izquierda
       const colRight = new THREE.Color(0xE1E1E1); // pared derecha
