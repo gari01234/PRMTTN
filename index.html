@@ -3422,6 +3422,124 @@ function renderArchPanel(html){
       generateRandomConfigurationNoCollision().catch(console.error);
       toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
       updateEngineSelectUI(); // ← deja el menú en el valor correcto (aunque esté oculto en Minimal UI)
+      // ─────────────────────────────────────────────────────────────
+      // Muro blanco fijo con abertura 50×50 y marco de 5 (panel 60×60)
+      // ─────────────────────────────────────────────────────────────
+      let __fixedWall = null;
+
+      // Medidas en unidades de escena (coherentes con tus motores)
+      const WALL_OPENING = 50;                  // ancho/alto del hueco
+      const WALL_THICK   = 5;                   // marco por lado
+      const WALL_OUTER   = WALL_OPENING + 2*WALL_THICK; // 60 (panel total)
+
+      // Crea/rehace el muro fijo y lo ancla a la cámara
+      function buildFixedWall(){
+        try{
+          // Limpia versión previa
+          if (__fixedWall){
+            try{
+              __fixedWall.traverse(o=>{
+                if (o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
+              });
+              __fixedWall.parent?.remove(__fixedWall);
+            }catch(_){ }
+            __fixedWall = null;
+          }
+
+          // Asegura que la cámara está en la escena para poder ver sus hijos
+          try{ if (!camera.parent) scene.add(camera); }catch(_){ }
+
+          // Geometría: rectángulo exterior con agujero interior (Shape con hole)
+          const shape = new THREE.Shape();
+          const S  = WALL_OUTER;   // 60
+          const H  = WALL_OPENING; // 50
+
+          // exterior (CCW)
+          shape.moveTo(-S/2, -S/2);
+          shape.lineTo( S/2, -S/2);
+          shape.lineTo( S/2,  S/2);
+          shape.lineTo(-S/2,  S/2);
+          shape.lineTo(-S/2, -S/2);
+
+          // agujero (CW)
+          const hole = new THREE.Path();
+          hole.moveTo( H/2,  H/2);
+          hole.lineTo(-H/2,  H/2);
+          hole.lineTo(-H/2, -H/2);
+          hole.lineTo( H/2, -H/2);
+          hole.lineTo( H/2,  H/2);
+          shape.holes.push(hole);
+
+          const geo = new THREE.ShapeGeometry(shape);
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,               // MURO BLANCO
+            depthTest: false,              // SIEMPRE delante
+            depthWrite: false,
+            transparent: false
+          });
+
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.renderOrder = 10000;        // por encima de todo
+          mesh.frustumCulled = false;
+
+          // Grupo contenedor (por si quieres añadir una sombra muy sutil más adelante)
+          __fixedWall = new THREE.Group();
+          __fixedWall.add(mesh);
+
+          // anclar a la cámara para que quede FIJO en pantalla
+          camera.add(__fixedWall);
+          positionFixedWall();             // coloca justo delante del plano near
+        }catch(e){ console.warn('[FixedWall] build:', e); }
+      }
+
+      // Mantiene el muro pegado justo más allá del plano near de la cámara
+      function positionFixedWall(){
+        try{
+          if (!__fixedWall) return;
+          // Un pelín por delante del near para evitar clipping
+          const eps = 0.001;
+          // En espacio local de la CÁMARA (negativo mira hacia delante)
+          __fixedWall.position.set(0, 0, -(camera.near + eps));
+          __fixedWall.rotation.set(0,0,0);
+          __fixedWall.updateMatrixWorld(true);
+        }catch(e){ console.warn('[FixedWall] position:', e); }
+      }
+
+      // Reacciona a cambios de FOV/near/resize o alternancia de motores
+      (function installFixedWallHooks(){
+        // construir una vez
+        try{ buildFixedWall(); }catch(_){ }
+
+        // reposicionar cuando cambie el tamaño de la ventana
+        window.addEventListener('resize', ()=>{ try{ positionFixedWall(); }catch(_){ } });
+
+        // envuelve funciones típicas que tocan cámara para re-posicionar el muro
+        const names = [
+          'switchToBuild','applyStandardView',
+          'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL',
+          'toggleRAUM','toggle13245','toggleKEPLR','toggleRAPHI',
+          'toggleR5NOVA','toggleGRVTY'
+        ];
+        names.forEach(n=>{
+          const orig = window[n];
+          if (typeof orig === 'function' && !orig.__fixedwall_hooked){
+            window[n] = function(...args){
+              const out = orig.apply(this, args);
+              try{ positionFixedWall(); }catch(_){ }
+              return out;
+            };
+            window[n].__fixedwall_hooked = true;
+          }
+        });
+
+        // si cambias FOV/near en tiempo real, vuelve a posicionar
+        const _setFov = (v)=>{ camera.fov = v; camera.updateProjectionMatrix(); positionFixedWall(); };
+        const _setNear = (v)=>{ camera.near = v; camera.updateProjectionMatrix(); positionFixedWall(); };
+        // expón helpers seguros por si los quieres usar
+        window.__setCameraFov  = _setFov;
+        window.__setCameraNear = _setNear;
+      })();
+
       animate();
     }
     function onWindowResize(){
