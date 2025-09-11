@@ -3427,15 +3427,12 @@ function renderArchPanel(html){
       // ─────────────────────────────────────────────────────────────
       let __fixedWall = null;
 
-      // Medidas en unidades de escena (coherentes con tus motores)
-      const WALL_OPENING = 50;                  // ancho/alto del hueco
+      const WALL_OPENING = 50;                  // tamaño del hueco
       const WALL_THICK   = 5;                   // marco por lado
-      const WALL_OUTER   = WALL_OPENING + 2*WALL_THICK; // 60 (panel total)
+      const WALL_OUTER   = WALL_OPENING + 2*WALL_THICK; // 60 total
 
-      // Crea/rehace el muro fijo y lo ancla a la cámara
       function buildFixedWall(){
         try{
-          // Limpia versión previa
           if (__fixedWall){
             try{
               __fixedWall.traverse(o=>{
@@ -3446,22 +3443,22 @@ function renderArchPanel(html){
             __fixedWall = null;
           }
 
-          // Asegura que la cámara está en la escena para poder ver sus hijos
+          // asegura cámara dentro de la escena
           try{ if (!camera.parent) scene.add(camera); }catch(_){ }
 
-          // Geometría: rectángulo exterior con agujero interior (Shape con hole)
+          // panel con agujero (Shape + hole)
           const shape = new THREE.Shape();
           const S  = WALL_OUTER;   // 60
           const H  = WALL_OPENING; // 50
 
-          // exterior (CCW)
+          // exterior CCW
           shape.moveTo(-S/2, -S/2);
           shape.lineTo( S/2, -S/2);
           shape.lineTo( S/2,  S/2);
           shape.lineTo(-S/2,  S/2);
           shape.lineTo(-S/2, -S/2);
 
-          // agujero (CW)
+          // agujero CW
           const hole = new THREE.Path();
           hole.moveTo( H/2,  H/2);
           hole.lineTo(-H/2,  H/2);
@@ -3471,49 +3468,44 @@ function renderArchPanel(html){
           shape.holes.push(hole);
 
           const geo = new THREE.ShapeGeometry(shape);
+
+          // 🔧 CLAVE: DoubleSide para evitar el culling (miramos la cara "trasera")
           const mat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,               // MURO BLANCO
-            depthTest: false,              // SIEMPRE delante
+            color: 0xffffff,
+            side: THREE.DoubleSide,   // ← arreglo principal
+            depthTest: false,
             depthWrite: false,
             transparent: false
           });
 
           const mesh = new THREE.Mesh(geo, mat);
-          mesh.renderOrder = 10000;        // por encima de todo
+          mesh.renderOrder = 10000;   // siempre delante
           mesh.frustumCulled = false;
 
-          // Grupo contenedor (por si quieres añadir una sombra muy sutil más adelante)
           __fixedWall = new THREE.Group();
           __fixedWall.add(mesh);
 
-          // anclar a la cámara para que quede FIJO en pantalla
           camera.add(__fixedWall);
-          positionFixedWall();             // coloca justo delante del plano near
+          positionFixedWall();
         }catch(e){ console.warn('[FixedWall] build:', e); }
       }
 
-      // Mantiene el muro pegado justo más allá del plano near de la cámara
       function positionFixedWall(){
         try{
           if (!__fixedWall) return;
-          // Un pelín por delante del near para evitar clipping
           const eps = 0.001;
-          // En espacio local de la CÁMARA (negativo mira hacia delante)
+          // en el espacio LOCAL de la cámara (la cámara mira hacia -Z)
           __fixedWall.position.set(0, 0, -(camera.near + eps));
-          __fixedWall.rotation.set(0,0,0);
+          __fixedWall.rotation.set(0, 0, 0);
           __fixedWall.updateMatrixWorld(true);
         }catch(e){ console.warn('[FixedWall] position:', e); }
       }
 
-      // Reacciona a cambios de FOV/near/resize o alternancia de motores
       (function installFixedWallHooks(){
-        // construir una vez
         try{ buildFixedWall(); }catch(_){ }
 
-        // reposicionar cuando cambie el tamaño de la ventana
         window.addEventListener('resize', ()=>{ try{ positionFixedWall(); }catch(_){ } });
 
-        // envuelve funciones típicas que tocan cámara para re-posicionar el muro
         const names = [
           'switchToBuild','applyStandardView',
           'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL',
@@ -3532,12 +3524,9 @@ function renderArchPanel(html){
           }
         });
 
-        // si cambias FOV/near en tiempo real, vuelve a posicionar
-        const _setFov = (v)=>{ camera.fov = v; camera.updateProjectionMatrix(); positionFixedWall(); };
-        const _setNear = (v)=>{ camera.near = v; camera.updateProjectionMatrix(); positionFixedWall(); };
-        // expón helpers seguros por si los quieres usar
-        window.__setCameraFov  = _setFov;
-        window.__setCameraNear = _setNear;
+        // helpers por si cambias FOV/near en caliente
+        window.__setCameraFov  = v => { camera.fov = v; camera.updateProjectionMatrix(); positionFixedWall(); };
+        window.__setCameraNear = v => { camera.near = v; camera.updateProjectionMatrix(); positionFixedWall(); };
       })();
 
       animate();
