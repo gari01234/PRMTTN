@@ -6526,104 +6526,130 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     }
 
     /* ──────────────────────────────────────────────────────────────
-     * WHITE WALL 3D (con Leibung) – fijo a la cámara para TODOS los motores
-     *  - Unidades = centímetros (tu cubo BUILD = 30×30×30 cm → 30 unidades)
-     *  - Apertura 50×50 cm, pared 100×100 cm, espesor 5 cm (editables)
-     *  - Queda anclada a la cámara: no gira con OrbitControls
+     * WHITE WALL 3D OVERLAY (con Leibung) – robusto para todos los motores
+     *  Unidades = cm (tu mundo): cubo BUILD 30×30×30 ⇒ 30 unidades.
+     *  Por defecto: apertura 50×50, pared 100×100, espesor 5, a 24 cm de la cámara.
+     *  Siempre visible (renderOrder alto) y fija al encuadre (se actualiza por frame).
      * ───────────────────────────────────────────────────────────── */
+
     (function(){
-      let __ww3d = null;             // grupo anclado a la cámara
-      let __mesh = null;             // mesh de la pared
-      const __DISPOSE = o=>{
-        if (!o) return;
-        o.traverse(n=>{
+      let wwRig = null;       // rig que “sigue” a la cámara
+      let wwMesh = null;      // mesh del marco (pared con hueco)
+      let wwDistance = 24;    // distancia desde la cámara hasta la cara exterior (cm)
+      let rafId = null;
+
+      function dispose(obj){
+        if (!obj) return;
+        obj.traverse(n=>{
           if (n.isMesh){
-            n.geometry?.dispose?.();
-            if (Array.isArray(n.material)) n.material.forEach(m=>m?.dispose?.());
-            else n.material?.dispose?.();
+            n.geometry && n.geometry.dispose && n.geometry.dispose();
+            if (Array.isArray(n.material)) n.material.forEach(m=>m && m.dispose && m.dispose());
+            else n.material && n.material.dispose && n.material.dispose();
           }
         });
-        o.parent && o.parent.remove(o);
-      };
+        obj.parent && obj.parent.remove && obj.parent.remove(obj);
+      }
 
-      // Crea geometría de marco cuadrado con hueco y la extruye (Leibung)
-      function makeWhiteWallGeometry(apertura=50, lado=100, espesor=5){
-        const outer = new THREE.Shape();
-        const s2 = lado/2;
-        outer.moveTo(-s2,-s2); outer.lineTo(s2,-s2); outer.lineTo(s2,s2); outer.lineTo(-s2,s2); outer.lineTo(-s2,-s2);
+      // Marco cuadrado con hueco cuadrado y EXTRUSIÓN (Leibung)
+      function makeWallGeometry(openSize=50, wallSize=100, thickness=5){
+        const half = wallSize * 0.5;
+        const h2   = openSize * 0.5;
+
+        const shape = new THREE.Shape();
+        shape.moveTo(-half, -half);
+        shape.lineTo( half, -half);
+        shape.lineTo( half,  half);
+        shape.lineTo(-half,  half);
+        shape.lineTo(-half, -half);
 
         const hole = new THREE.Path();
-        const h2 = apertura/2;
-        hole.moveTo(-h2,-h2); hole.lineTo(h2,-h2); hole.lineTo(h2,h2); hole.lineTo(-h2,h2); hole.lineTo(-h2,-h2);
-        outer.holes.push(hole);
+        hole.moveTo(-h2, -h2);
+        hole.lineTo( h2, -h2);
+        hole.lineTo( h2,  h2);
+        hole.lineTo(-h2,  h2);
+        hole.lineTo(-h2, -h2);
+        shape.holes.push(hole);
 
-        // Extrusión = espesor (profundidad de la pared visible en la jamba)
-        const geo = new THREE.ExtrudeGeometry(outer, {
-          depth: espesor, bevelEnabled: false, curveSegments: 1, steps: 1
+        const geo = new THREE.ExtrudeGeometry(shape, {
+          depth: thickness,
+          bevelEnabled: false,
+          steps: 1,
+          curveSegments: 1
         });
 
-        // Queremos que la extrusión vaya "hacia el fondo" de la cámara.
-        // El plano del shape está en z=0; lo trasladamos a z∈[-espesor,0]
-        geo.translate(0, 0, -espesor);
+        // Coloca la extrusión hacia “atrás” del plano del marco
+        // (cara exterior del muro queda en z=0 del mesh).
+        geo.translate(0, 0, -thickness);
+        geo.computeBoundingBox();
+        geo.computeBoundingSphere();
         return geo;
       }
 
-      function buildWall(apertura=50, lado=100, espesor=5, distancia=24){
-        // Limpieza previa
-        if (__mesh){ __DISPOSE(__ww3d); __ww3d = null; __mesh = null; }
+      function buildWall(openSize, wallSize, thickness, distance){
+        // Limpia lo anterior
+        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+        dispose(wwRig); wwRig = null; wwMesh = null;
 
-        // Grupo anclado a cámara (para que permanezca fijo)
-        if (!__ww3d) __ww3d = new THREE.Group();
+        wwDistance = distance;
 
-        const geo = makeWhiteWallGeometry(apertura, lado, espesor);
+        // Rig que copia pose de la cámara pero vive en scene (más robusto)
+        wwRig = new THREE.Group();
+        wwRig.matrixAutoUpdate = false;
+        wwRig.frustumCulled = false;
+        scene.add(wwRig);
 
-        const mat = new THREE.MeshStandardMaterial({
+        // Geometría + material (básico = siempre visible, sin depender de luces)
+        const geo = makeWallGeometry(openSize, wallSize, thickness);
+        const mat = new THREE.MeshBasicMaterial({
           color: 0xffffff,
-          roughness: 0.55,
-          metalness: 0.02,
           side: THREE.DoubleSide,
-          emissive: new THREE.Color(0xffffff),
-          emissiveIntensity: 0.03,
-          depthTest: true,
-          depthWrite: true
+          depthTest: false,     // siempre por delante del resto
+          depthWrite: false,    // no escribir en z-buffer
+          transparent: false
         });
 
-        __mesh = new THREE.Mesh(geo, mat);
-        // Colocamos la cara exterior de la pared a "distancia" cm de la cámara.
-        // Como la extrusión está en z∈[-espesor,0], situar el mesh en z = -distancia
-        // deja la cara exterior en -distancia y el fondo del hueco en -distancia-espesor.
-        __mesh.position.set(0, 0, -distancia);
-        __mesh.castShadow = false; __mesh.receiveShadow = false;
+        wwMesh = new THREE.Mesh(geo, mat);
+        wwMesh.renderOrder = 100000;  // dibuja al final
+        wwMesh.frustumCulled = false;
 
-        __ww3d.add(__mesh);
+        // La cara exterior del muro en z = -wwDistance respecto al rig (que coincide con la cámara)
+        wwMesh.position.set(0, 0, -wwDistance);
+        wwRig.add(wwMesh);
 
-        // Anclar al propio objeto cámara (queda fijo al girar/zoom)
-        try{
-          // Evita dobles anexos
-          if (__ww3d.parent !== camera){
-            camera.add(__ww3d);
-          }
-        }catch(e){
-          console.warn('[WhiteWall3D] No se pudo anclar a la cámara:', e);
-        }
+        // Tick: alinea el rig con la cámara cada frame
+        (function tick(){
+          try{
+            // Copia posición y orientación exactas de la cámara
+            wwRig.position.copy(camera.position);
+            wwRig.quaternion.copy(camera.quaternion);
+            wwRig.scale.set(1,1,1);
+            wwRig.updateMatrix();
+            wwRig.updateMatrixWorld(true);
+          }catch(_){ }
+          rafId = requestAnimationFrame(tick);
+        })();
       }
 
       // API pública
       window.installWhiteWall3D = function(){
-        // Valores por defecto solicitados
-        // apertura=50 cm, pared=100 cm, espesor=5 cm, distancia=24 cm
+        // apertura 50×50, pared 100×100, espesor 5, a 24 cm de la cámara
         buildWall(50, 100, 5, 24);
       };
-      window.updateWhiteWall3D = function(apertura, lado, espesor, distancia){
+
+      // Cambia medidas en caliente
+      window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
         buildWall(
-          Number(apertura)||50,
-          Number(lado)||100,
-          Number(espesor)||5,
-          Number(distancia)||24
+          Number(openSize)||50,
+          Number(wallSize)||100,
+          Number(thickness)||5,
+          Number(distance)||24
         );
       };
+
+      // Quitar el overlay
       window.removeWhiteWall3D = function(){
-        if (__ww3d){ __DISPOSE(__ww3d); __ww3d = null; __mesh = null; }
+        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+        dispose(wwRig); wwRig = null; wwMesh = null;
       };
     })();
 
