@@ -6525,136 +6525,146 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       syncUI();
     }
 
-    /* ──────────────────────────────────────────────────────────────
-     * WHITE WALL 3D OVERLAY (con Leibung) – robusto para todos los motores
-     *  Unidades = cm (tu mundo): cubo BUILD 30×30×30 ⇒ 30 unidades.
-     *  Por defecto: apertura 50×50, pared 100×100, espesor 5, a 24 cm de la cámara.
-     *  Siempre visible (renderOrder alto) y fija al encuadre (se actualiza por frame).
-     * ───────────────────────────────────────────────────────────── */
+      /* ──────────────────────────────────────────────────────────────
+       * WHITE WALL 3D OVERLAY (con Leibung real y sombreado)
+       *  – Apertura 50×50, pared 100×100, espesor 15, a 50 cm de cámara (puedes cambiar luego).
+       *  – Dibuja al final, con depthTest ON (oclusiones correctas).
+       * ───────────────────────────────────────────────────────────── */
 
-    (function(){
-      let wwRig = null;       // rig que “sigue” a la cámara
-      let wwMesh = null;      // mesh del marco (pared con hueco)
-      let wwDistance = 24;    // distancia desde la cámara hasta la cara exterior (cm)
-      let rafId = null;
+      (function(){
+        let wwRig = null;        // grupo que sigue a la cámara
+        let wwMesh = null;       // pared con hueco (extrusión)
+        let wwAmb  = null;       // luz ambiental del rig
+        let wwDir  = null;       // luz direccional del rig
+        let wwDistance = 50;     // distancia desde la cámara a la cara exterior
+        let rafId = null;
 
-      function dispose(obj){
-        if (!obj) return;
-        obj.traverse(n=>{
-          if (n.isMesh){
-            n.geometry && n.geometry.dispose && n.geometry.dispose();
-            if (Array.isArray(n.material)) n.material.forEach(m=>m && m.dispose && m.dispose());
-            else n.material && n.material.dispose && n.material.dispose();
-          }
-        });
-        obj.parent && obj.parent.remove && obj.parent.remove(obj);
-      }
+        function dispose(obj){
+          if (!obj) return;
+          obj.traverse(n=>{
+            if (n.isLight) return;
+            if (n.isMesh){
+              n.geometry?.dispose?.();
+              if (Array.isArray(n.material)) n.material.forEach(m=>m?.dispose?.());
+              else n.material?.dispose?.();
+            }
+          });
+          obj.parent?.remove?.(obj);
+        }
 
-      // Marco cuadrado con hueco cuadrado y EXTRUSIÓN (Leibung)
-      function makeWallGeometry(openSize=50, wallSize=100, thickness=5){
-        const half = wallSize * 0.5;
-        const h2   = openSize * 0.5;
+        // Marco con hueco y EXTRUSIÓN (el hueco va en sentido inverso: CW)
+        function makeWallGeometry(openSize=50, wallSize=100, thickness=5){
+          const half = wallSize * 0.5;
+          const h2   = openSize * 0.5;
 
-        const shape = new THREE.Shape();
-        shape.moveTo(-half, -half);
-        shape.lineTo( half, -half);
-        shape.lineTo( half,  half);
-        shape.lineTo(-half,  half);
-        shape.lineTo(-half, -half);
+          const shape = new THREE.Shape();
+          // contorno exterior CCW
+          shape.moveTo(-half, -half);
+          shape.lineTo( half, -half);
+          shape.lineTo( half,  half);
+          shape.lineTo(-half,  half);
+          shape.lineTo(-half, -half);
 
-        const hole = new THREE.Path();
-        hole.moveTo(-h2, -h2);
-        hole.lineTo( h2, -h2);
-        hole.lineTo( h2,  h2);
-        hole.lineTo(-h2,  h2);
-        hole.lineTo(-h2, -h2);
-        shape.holes.push(hole);
+          // agujero interior **CW** (winding inverso)
+          const hole = new THREE.Path();
+          hole.moveTo(-h2, -h2);
+          hole.lineTo(-h2,  h2);
+          hole.lineTo( h2,  h2);
+          hole.lineTo( h2, -h2);
+          hole.lineTo(-h2, -h2);
+          shape.holes.push(hole);
 
-        const geo = new THREE.ExtrudeGeometry(shape, {
-          depth: thickness,
-          bevelEnabled: false,
-          steps: 1,
-          curveSegments: 1
-        });
+          const geo = new THREE.ExtrudeGeometry(shape, {
+            depth: thickness,
+            bevelEnabled: false,
+            steps: 1,
+            curveSegments: 1
+          });
 
-        // Coloca la extrusión hacia “atrás” del plano del marco
-        // (cara exterior del muro queda en z=0 del mesh).
-        geo.translate(0, 0, -thickness);
-        geo.computeBoundingBox();
-        geo.computeBoundingSphere();
-        return geo;
-      }
+          // Extruye hacia atrás: la cara exterior del muro queda en z=0 del mesh
+          geo.translate(0, 0, -thickness);
+          geo.computeVertexNormals();
+          geo.computeBoundingBox();
+          geo.computeBoundingSphere();
+          return geo;
+        }
 
-      function buildWall(openSize, wallSize, thickness, distance){
-        // Limpia lo anterior
-        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-        dispose(wwRig); wwRig = null; wwMesh = null;
+        function buildWall(openSize, wallSize, thickness, distance){
+          // limpia lo anterior
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+          dispose(wwRig); wwRig = wwMesh = wwAmb = wwDir = null;
 
-        wwDistance = distance;
+          wwDistance = distance;
 
-        // Rig que copia pose de la cámara pero vive en scene (más robusto)
-        wwRig = new THREE.Group();
-        wwRig.matrixAutoUpdate = false;
-        wwRig.frustumCulled = false;
-        scene.add(wwRig);
+          // rig que copia pose de la cámara y vive en scene
+          wwRig = new THREE.Group();
+          wwRig.matrixAutoUpdate = false;
+          wwRig.frustumCulled = false;
+          scene.add(wwRig);
 
-        // Geometría + material (básico = siempre visible, sin depender de luces)
-        const geo = makeWallGeometry(openSize, wallSize, thickness);
-        const mat = new THREE.MeshBasicMaterial({
-          color: 0xffffff,
-          side: THREE.DoubleSide,
-          depthTest: false,     // siempre por delante del resto
-          depthWrite: false,    // no escribir en z-buffer
-          transparent: false
-        });
+          // luz suave + direccional para leer volumen de la jamba
+          wwAmb = new THREE.AmbientLight(0xffffff, 0.28);
+          wwDir = new THREE.DirectionalLight(0xffffff, 0.65);
+          wwDir.position.set(-1.2, 1.8, 1.0).normalize();
+          wwRig.add(wwAmb);
+          wwRig.add(wwDir);
 
-        wwMesh = new THREE.Mesh(geo, mat);
-        wwMesh.renderOrder = 100000;  // dibuja al final
-        wwMesh.frustumCulled = false;
+          // geometría + material con iluminación
+          const geo = makeWallGeometry(openSize, wallSize, thickness);
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.48,
+            metalness: 0.0,
+            side: THREE.DoubleSide, // permite ver también la arista interior
+            depthTest: true,
+            depthWrite: true,
+            dithering: true
+          });
 
-        // La cara exterior del muro en z = -wwDistance respecto al rig (que coincide con la cámara)
-        wwMesh.position.set(0, 0, -wwDistance);
-        wwRig.add(wwMesh);
+          wwMesh = new THREE.Mesh(geo, mat);
+          wwMesh.renderOrder = 100000;   // dibuja al final
+          wwMesh.frustumCulled = false;
 
-        // Tick: alinea el rig con la cámara cada frame
-        (function tick(){
-          try{
-            // Copia posición y orientación exactas de la cámara
-            wwRig.position.copy(camera.position);
-            wwRig.quaternion.copy(camera.quaternion);
-            wwRig.scale.set(1,1,1);
-            wwRig.updateMatrix();
-            wwRig.updateMatrixWorld(true);
-          }catch(_){ }
-          rafId = requestAnimationFrame(tick);
-        })();
-      }
+          // coloca la cara exterior a -distancia del rig (que copia a la cámara)
+          wwMesh.position.set(0, 0, -wwDistance);
+          wwRig.add(wwMesh);
 
-      // API pública
-      window.installWhiteWall3D = function(){
-        // apertura 50×50, pared 100×100, espesor 5, a 24 cm de la cámara
-        buildWall(50, 100, 15, 50);
-      };
+          // tick de seguimiento
+          (function tick(){
+            try{
+              wwRig.position.copy(camera.position);
+              wwRig.quaternion.copy(camera.quaternion);
+              wwRig.scale.set(1,1,1);
+              wwRig.updateMatrix();
+              wwRig.updateMatrixWorld(true);
+            }catch(_){ }
+            rafId = requestAnimationFrame(tick);
+          })();
+        }
 
-      // Cambia medidas en caliente
-      window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
-        buildWall(
-          Number(openSize)||1,
-          Number(wallSize)||100,
-          Number(thickness)||5,
-          Number(distance)||.1
-        );
-      };
+        // API pública
+        window.installWhiteWall3D = function(){
+          // tus medidas actuales
+          buildWall(50, 100, 15, 50);
+        };
 
-      // Quitar el overlay
-      window.removeWhiteWall3D = function(){
-        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-        dispose(wwRig); wwRig = null; wwMesh = null;
-      };
-    })();
+        window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
+          buildWall(
+            Number(openSize)||50,
+            Number(wallSize)||100,
+            Number(thickness)||15,
+            Number(distance)||50
+          );
+        };
 
-    init();
-    installWhiteWall3D();   // ← crea y ancla la pared a la cámara
+        window.removeWhiteWall3D = function(){
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+          dispose(wwRig); wwRig = wwMesh = wwAmb = wwDir = null;
+        };
+      })();
+
+      init();
+      installWhiteWall3D();
 
 
     /* ============================================================
