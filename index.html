@@ -3421,10 +3421,9 @@ function renderArchPanel(html){
       // ← NUEVO: como si hubieras presionado BUILD al cargar
       generateRandomConfigurationNoCollision().catch(console.error);
       toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
-        updateEngineSelectUI(); // ← deja el menú en el valor correcto (aunque esté oculto en Minimal UI)
-
-        animate();
-      }
+      updateEngineSelectUI(); // ← deja el menú en el valor correcto (aunque esté oculto en Minimal UI)
+      animate();
+    }
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
@@ -7973,111 +7972,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   wrap('resumeMotion',       ()=> window.pauseGrvtyMotion(false));
   wrap('toggleMotionPause',  ()=> window.toggleGrvtyPause());
   wrap('resetMotion',        ()=> window.resetGrvtyMotion());
-})();
-</script>
-
-<script>
-// ============================================================
-// WHITE WALL OVERLAY (fixed): 50×50 opening, 5 units thick frame
-// Renders on top using a second Scene + OrthographicCamera.
-// ============================================================
-(function installWhiteWallOverlay(){
-  // --- Geometría en "unidades de pantalla" (pixeles del canvas) ---
-  const OPEN   = 50;  // lado del hueco
-  const THICK  = 5;   // espesor del marco por lado
-  const OUTER  = OPEN + 2*THICK; // 60 total
-
-  let ovScene = null, ovCamera = null, ovFrame = null;
-
-  function makeShapeGeometry(){
-    const shape = new THREE.Shape();
-
-    // rectángulo exterior CCW (OUTER × OUTER)
-    shape.moveTo(-OUTER/2, -OUTER/2);
-    shape.lineTo( OUTER/2, -OUTER/2);
-    shape.lineTo( OUTER/2,  OUTER/2);
-    shape.lineTo(-OUTER/2,  OUTER/2);
-    shape.lineTo(-OUTER/2, -OUTER/2);
-
-    // hueco interior CW (OPEN × OPEN)
-    const hole = new THREE.Path();
-    hole.moveTo( OPEN/2,  OPEN/2);
-    hole.lineTo(-OPEN/2,  OPEN/2);
-    hole.lineTo(-OPEN/2, -OPEN/2);
-    hole.lineTo( OPEN/2, -OPEN/2);
-    hole.lineTo( OPEN/2,  OPEN/2);
-    shape.holes.push(hole);
-
-    // NOTA: la geometría está en el plano XY, z=0
-    return new THREE.ShapeGeometry(shape);
-  }
-
-  function buildOverlay(){
-    ovScene = new THREE.Scene();
-    ovCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 10);
-    ovCamera.position.z = 1;
-
-    const geo = makeShapeGeometry();
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      side: THREE.DoubleSide,
-      depthTest: false,   // ← SIEMPRE delante del contenido
-      depthWrite: false
-    });
-    ovFrame = new THREE.Mesh(geo, mat);
-    ovFrame.renderOrder = 100000; // delante de todo
-    ovFrame.frustumCulled = false;
-    ovScene.add(ovFrame);
-
-    updateOverlayCameraAndUnits(); // inicializa tamaño a pixeles
-    hookRenderer();                // render tras tu render principal
-  }
-
-  function updateOverlayCameraAndUnits(){
-    // Usamos el tamaño REAL del canvas del renderer (en pixeles)
-    const w = renderer.domElement.width;
-    const h = renderer.domElement.height;
-
-    ovCamera.left   = -w/2;
-    ovCamera.right  =  w/2;
-    ovCamera.top    =  h/2;
-    ovCamera.bottom = -h/2;
-    ovCamera.updateProjectionMatrix();
-
-    // El marco está centrado en pantalla (composición simétrica por defecto)
-    if (ovFrame) ovFrame.position.set(0, 0, 0);
-  }
-
-  function hookRenderer(){
-    if (renderer.__whiteWallHooked) return;
-    renderer.__whiteWallHooked = true;
-
-    // Envolvemos renderer.render para dibujar el overlay al final SIEMPRE
-    const origRender = renderer.render.bind(renderer);
-    renderer.render = function(sceneArg, cameraArg){
-      // 1) escena 3D normal
-      origRender(sceneArg, cameraArg);
-      // 2) overlay 2D
-      try{
-        renderer.autoClear = false;
-        renderer.clearDepth();                // evita z-conflicts
-        origRender(ovScene, ovCamera);
-        renderer.autoClear = true;
-      }catch(_){ }
-    };
-  }
-
-  // Reaccionar a resize (canvas cambia de tamaño → ajustar ortográfica)
-  window.addEventListener('resize', ()=>{
-    try{
-      // retraso breve para esperar al resize real del canvas
-      setTimeout(updateOverlayCameraAndUnits, 0);
-      requestAnimationFrame(updateOverlayCameraAndUnits);
-    }catch(_){ }
-  });
-
-  // Construye overlay ahora (renderer ya debe existir en este punto)
-  try { buildOverlay(); } catch(e){ console.warn('[WhiteWallOverlay]', e); }
 })();
 </script>
 
