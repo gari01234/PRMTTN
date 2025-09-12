@@ -6525,7 +6525,110 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       syncUI();
     }
 
+    /* ──────────────────────────────────────────────────────────────
+     * WHITE WALL 3D (con Leibung) – fijo a la cámara para TODOS los motores
+     *  - Unidades = centímetros (tu cubo BUILD = 30×30×30 cm → 30 unidades)
+     *  - Apertura 50×50 cm, pared 100×100 cm, espesor 5 cm (editables)
+     *  - Queda anclada a la cámara: no gira con OrbitControls
+     * ───────────────────────────────────────────────────────────── */
+    (function(){
+      let __ww3d = null;             // grupo anclado a la cámara
+      let __mesh = null;             // mesh de la pared
+      const __DISPOSE = o=>{
+        if (!o) return;
+        o.traverse(n=>{
+          if (n.isMesh){
+            n.geometry?.dispose?.();
+            if (Array.isArray(n.material)) n.material.forEach(m=>m?.dispose?.());
+            else n.material?.dispose?.();
+          }
+        });
+        o.parent && o.parent.remove(o);
+      };
+
+      // Crea geometría de marco cuadrado con hueco y la extruye (Leibung)
+      function makeWhiteWallGeometry(apertura=50, lado=100, espesor=5){
+        const outer = new THREE.Shape();
+        const s2 = lado/2;
+        outer.moveTo(-s2,-s2); outer.lineTo(s2,-s2); outer.lineTo(s2,s2); outer.lineTo(-s2,s2); outer.lineTo(-s2,-s2);
+
+        const hole = new THREE.Path();
+        const h2 = apertura/2;
+        hole.moveTo(-h2,-h2); hole.lineTo(h2,-h2); hole.lineTo(h2,h2); hole.lineTo(-h2,h2); hole.lineTo(-h2,-h2);
+        outer.holes.push(hole);
+
+        // Extrusión = espesor (profundidad de la pared visible en la jamba)
+        const geo = new THREE.ExtrudeGeometry(outer, {
+          depth: espesor, bevelEnabled: false, curveSegments: 1, steps: 1
+        });
+
+        // Queremos que la extrusión vaya "hacia el fondo" de la cámara.
+        // El plano del shape está en z=0; lo trasladamos a z∈[-espesor,0]
+        geo.translate(0, 0, -espesor);
+        return geo;
+      }
+
+      function buildWall(apertura=50, lado=100, espesor=5, distancia=24){
+        // Limpieza previa
+        if (__mesh){ __DISPOSE(__ww3d); __ww3d = null; __mesh = null; }
+
+        // Grupo anclado a cámara (para que permanezca fijo)
+        if (!__ww3d) __ww3d = new THREE.Group();
+
+        const geo = makeWhiteWallGeometry(apertura, lado, espesor);
+
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.55,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+          emissive: new THREE.Color(0xffffff),
+          emissiveIntensity: 0.03,
+          depthTest: true,
+          depthWrite: true
+        });
+
+        __mesh = new THREE.Mesh(geo, mat);
+        // Colocamos la cara exterior de la pared a "distancia" cm de la cámara.
+        // Como la extrusión está en z∈[-espesor,0], situar el mesh en z = -distancia
+        // deja la cara exterior en -distancia y el fondo del hueco en -distancia-espesor.
+        __mesh.position.set(0, 0, -distancia);
+        __mesh.castShadow = false; __mesh.receiveShadow = false;
+
+        __ww3d.add(__mesh);
+
+        // Anclar al propio objeto cámara (queda fijo al girar/zoom)
+        try{
+          // Evita dobles anexos
+          if (__ww3d.parent !== camera){
+            camera.add(__ww3d);
+          }
+        }catch(e){
+          console.warn('[WhiteWall3D] No se pudo anclar a la cámara:', e);
+        }
+      }
+
+      // API pública
+      window.installWhiteWall3D = function(){
+        // Valores por defecto solicitados
+        // apertura=50 cm, pared=100 cm, espesor=5 cm, distancia=24 cm
+        buildWall(50, 100, 5, 24);
+      };
+      window.updateWhiteWall3D = function(apertura, lado, espesor, distancia){
+        buildWall(
+          Number(apertura)||50,
+          Number(lado)||100,
+          Number(espesor)||5,
+          Number(distancia)||24
+        );
+      };
+      window.removeWhiteWall3D = function(){
+        if (__ww3d){ __DISPOSE(__ww3d); __ww3d = null; __mesh = null; }
+      };
+    })();
+
     init();
+    installWhiteWall3D();   // ← crea y ancla la pared a la cámara
 
 
     /* ============================================================
