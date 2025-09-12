@@ -6536,7 +6536,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         let wwMesh = null;       // pared con hueco (extrusión)
         let wwAmb  = null;       // luz ambiental del rig
         let wwDir  = null;       // luz direccional del rig
-        let wwDistance = 50;     // distancia desde la cámara a la cara exterior
+        let wwDistance = 60;     // distancia desde la cámara a la cara exterior
         let rafId = null;
 
         function dispose(obj){
@@ -6645,15 +6645,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         // API pública
         window.installWhiteWall3D = function(){
           // tus medidas actuales
-          buildWall(50, 100, 15, 50);
+          buildWall(50, 100, 10, 60);
         };
 
         window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
           buildWall(
             Number(openSize)||50,
             Number(wallSize)||100,
-            Number(thickness)||15,
-            Number(distance)||50
+            Number(thickness)||10,
+            Number(distance)||60
           );
         };
 
