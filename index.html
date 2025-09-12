@@ -6645,14 +6645,14 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         // API pública
         window.installWhiteWall3D = function(){
           // tus medidas actuales
-          buildWall(50, 100, 10, 60);
+          buildWall(50, 100, 20, 60);
         };
 
         window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
           buildWall(
             Number(openSize)||50,
             Number(wallSize)||100,
-            Number(thickness)||10,
+            Number(thickness)||20,
             Number(distance)||60
           );
         };
