@@ -6639,10 +6639,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       // Cambia medidas en caliente
       window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
         buildWall(
-          Number(openSize)||10,
+          Number(openSize)||1,
           Number(wallSize)||100,
           Number(thickness)||5,
-          Number(distance)||1
+          Number(distance)||.1
         );
       };
 
