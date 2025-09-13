@@ -6705,64 +6705,61 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       installWhiteWall3D();
 
 
-    /* ──────────────────────────────────────────────────────────────
-     * WHITE-WALL VIEW MANAGER
-     * - Vista standard unificada (clon de BUILD) aplicada a TODOS los motores.
-     * - Zoom-out automático para encajar en la “apertura”.
-     * - Arreglo de GRVTY (usa la misma vista).
-     * - Alineación: TMSL y R5NOVA se quedan justo detrás del hueco del muro.
-     *   (ajuste a lo largo del eje de mirada de la cámara)
+      // aleja el muro a 80 cm (antes 50 cm)
+      updateWhiteWall3D(50, 100, 15, 80);
+
+
+        /* ──────────────────────────────────────────────────────────────
+     * WHITE-WALL VIEW MANAGER · v2
+     * - Vista standard unificada (clon de BUILD), independiente por motor.
+     * - Zoom-out por motor (LCHT, RAUM, GRVTY, 13245 → ×3).
+     * - Alineación precisa: TMSL/R5NOVA pegados al plano trasero del hueco.
      * ───────────────────────────────────────────────────────────── */
-
-    (function WWViewManager(){
-      // === 0) Utilidades base ===
+    (function WWViewManagerV2(){
       const TMP_V = new THREE.Vector3();
-      const TMP_Q = new THREE.Quaternion();
-      function cloneV3(v){ return new THREE.Vector3().copy(v); }
-      function cloneQ(q){ return new THREE.Quaternion().copy(q); }
-
       function hasControls(){ return (typeof controls !== 'undefined' && controls && controls.target); }
-
-      // === 1) Baseline de BUILD capturada una vez ===
+    
+      // 1) Baseline (se captura a los pocos ms para asegurar cámara/controles)
       const _baseline = {
-        pos    : new THREE.Vector3(0,0,60),   // fallback seguro
+        pos    : new THREE.Vector3(0,0,60),
         quat   : new THREE.Quaternion(),
         target : new THREE.Vector3(0,0,0),
         fov    : 40,
         near   : 0.1,
         far    : 4000
       };
-
       function snapshotBUILD(){
         try{
-          if (camera){ _baseline.pos.copy(camera.position); _baseline.quat.copy(camera.quaternion); _baseline.fov = camera.fov; _baseline.near = Math.min(camera.near||0.1, 0.1); _baseline.far = Math.max(camera.far||2000, 4000); }
+          if (camera){
+            _baseline.pos.copy(camera.position);
+            _baseline.quat.copy(camera.quaternion);
+            _baseline.fov  = camera.fov;
+            _baseline.near = Math.min(camera.near||0.1, 0.1);
+            _baseline.far  = Math.max(camera.far||2000, 4000);
+          }
           if (hasControls()) _baseline.target.copy(controls.target);
         }catch(_){ }
       }
-
-      // Captura baseline en el próximo frame (cuando todo existe)
+      setTimeout(snapshotBUILD, 50);
       requestAnimationFrame(snapshotBUILD);
-
-      // === 2) Mapa de vistas por motor (independientes entre sí) ===
-      const VIEWS = Object.create(null);
+    
+      // 2) Vistas por motor (independientes, inicializadas como BUILD)
       const ENGINES = ['BUILD','FRBN','LCHT','OFFNNG','TMSL','RAUM','13245','KEPLR','RAPHI','GRVTY','R5NOVA'];
-
+      const VIEWS = Object.create(null);
       function ensureViews(){
         if (VIEWS.__ready) return;
         ENGINES.forEach(n=>{
           VIEWS[n] = {
-            pos    : cloneV3(_baseline.pos),
-            quat   : cloneQ(_baseline.quat),
-            target : cloneV3(_baseline.target),
-            fov    : _baseline.fov,
-            near   : _baseline.near,
-            far    : _baseline.far
+            pos: _baseline.pos.clone(),
+            quat: _baseline.quat.clone(),
+            target: _baseline.target.clone(),
+            fov: _baseline.fov, near:_baseline.near, far:_baseline.far
           };
         });
         VIEWS.__ready = true;
       }
-
-      // Detecta motor activo
+    
+      // 3) Motor activo
       function engineId(){
         if (window.isGRVTY)  return 'GRVTY';
         if (window.isR5NOVA) return 'R5NOVA';
@@ -6776,39 +6773,43 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         if (window.isFRBN)   return 'FRBN';
         return 'BUILD';
       }
-
-      // === 3) Aplicar vista por motor + zoom-out ===
-      const ZOOM_OUT_FACTOR = 1.18;     // ligero alejamiento para “respirar” dentro del hueco
-
+    
+      // 4) Zoom por motor
+      const ZOOM_BASE = 1.18;               // alejamiento suave general
+      const ZOOM_SCALE = {                  // multiplicadores por motor
+        LCHT: 3.0, RAUM: 3.0, GRVTY: 3.0, '13245': 3.0
+      };
+      function applyZoomFromTarget(factor){
+        if (!hasControls()) return;
+        const dir = TMP_V.copy(camera.position).sub(controls.target);
+        camera.position.copy(controls.target).add(dir.multiplyScalar(factor));
+        camera.updateProjectionMatrix();
+        controls.update();
+      }
+    
+      // 5) Aplicar vista del motor actual
       function applyViewFor(id){
         ensureViews();
         const v = VIEWS[id] || VIEWS.BUILD;
-
-        // Cámara
+    
         camera.position.copy(v.pos);
         camera.quaternion.copy(v.quat);
         camera.fov  = v.fov;
         camera.near = v.near;
         camera.far  = v.far;
         camera.updateProjectionMatrix();
-
-        // OrbitControls
+    
         if (hasControls()){
           controls.target.copy(v.target);
           controls.update();
         }
-
-        // Zoom-out relativo al target
-        if (hasControls()){
-          const dir = TMP_V.copy(camera.position).sub(controls.target);
-          dir.multiplyScalar(ZOOM_OUT_FACTOR);
-          camera.position.copy(controls.target).add(dir);
-          camera.updateProjectionMatrix();
-          controls.update();
-        }
+    
+        // Alejamiento: base × escala por motor (si existe)
+        const factor = ZOOM_BASE * (ZOOM_SCALE[id] || 1.0);
+        applyZoomFromTarget(factor);
       }
-
-      // Permite que tú guardes ajustes definitivos por motor (si quisieras luego)
+    
+      // 6) Guardar vista por motor (para tu “catálogo”)
       window.setEngineDefaultView = function(id){
         ensureViews();
         const key = (id||engineId());
@@ -6818,19 +6819,20 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         v.fov = camera.fov;
         if (hasControls()) v.target.copy(controls.target);
       };
-
-      // === 4) Alineación de TMSL/R5NOVA con el hueco del muro blanco ===
-
-      // Punto del plano “trasero” de la Leibung (en mundo)
-      function wwBackPlanePoint(){
-        const d = (window.__wwDistance||50) + (window.__wwThickness||15);
-        const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
-        // Un pelín más atrás para evitar z-fighting con el borde del hueco:
-        return camera.position.clone().add(forward.multiplyScalar(-d - 0.5));
+    
+      // 7) Alineación precisa de TMSL/R5NOVA al plano trasero del hueco
+      function cameraForward(){
+        return new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
       }
-
-      // Proyecta bounding box a lo largo de una dirección y devuelve [min,max]
-      function projectRangeAlongDir(obj, dir){
+      function wwBackPlane(){
+        const d  = (window.__wwDistance||80);
+        const t  = (window.__wwThickness||15);
+        const n  = cameraForward();                    // normal (hacia delante)
+        const p0 = camera.position.clone().add(n.clone().multiplyScalar(-(d+t)));
+        return {n, p0};                                // plano: n·p = n·p0
+      }
+      function projRangeAlong(obj, n){
+        obj.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(obj);
         const pts = [
           new THREE.Vector3(box.min.x, box.min.y, box.min.z),
@@ -6843,76 +6845,76 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           new THREE.Vector3(box.max.x, box.max.y, box.max.z),
         ];
         let min=Infinity, max=-Infinity;
-        const d = dir.clone().normalize();
         for (let p of pts){
           p.applyMatrix4(obj.matrixWorld);
-          const s = p.dot(d);
+          const s = n.dot(p);
           if (s<min) min=s;
           if (s>max) max=s;
         }
-        return [min,max];
+        return {min,max};
       }
-
-      function translateAlongDir(obj, dir, delta){
-        obj.position.add(dir.clone().normalize().multiplyScalar(delta));
+      function alignToBackPlane(obj){
+        if (!obj) return;
+        const {n,p0} = wwBackPlane();
+        const s0 = n.dot(p0);
+        const {max} = projRangeAlong(obj, n); // punto “más cercano” a la cámara en dirección n
+        const EPS = 0.5;                      // 5 mm de holgura
+        const delta = (s0 - EPS) - max;       // queremos max = s0 - EPS
+        obj.position.add(n.clone().multiplyScalar(delta));
         obj.updateMatrixWorld(true);
       }
-
-      function alignShellsToWhiteWall(){
-        const backPoint = wwBackPlanePoint();
-        const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
-
-        // TMSL: usamos el decorado (paredes laterales)
-        if (window.isTMSL && window.__tmslDecorGroup){
-          const [min,max] = projectRangeAlongDir(window.__tmslDecorGroup, dir);
-          // “front” (más cerca de la cámara) debe quedar justo detrás del backPoint
-          const target = backPoint.dot(dir);
-          const move   = target - max;     // max = cara más cercana;
-          translateAlongDir(window.__tmslDecorGroup, dir, move);
-        }
-
-        // R5NOVA: movemos TODO el grupo
-        if (window.isR5NOVA && window.groupR5NOVA){
-          const [min,max] = projectRangeAlongDir(window.groupR5NOVA, dir);
-          const target = backPoint.dot(dir);
-          const move   = target - max;
-          translateAlongDir(window.groupR5NOVA, dir, move);
-        }
+      function alignShellsIfAny(){
+        try{
+          if (window.isTMSL && window.__tmslDecorGroup) alignToBackPlane(window.__tmslDecorGroup);
+        }catch(_){ }
+        try{
+          if (window.isR5NOVA && window.groupR5NOVA) alignToBackPlane(window.groupR5NOVA);
+        }catch(_){ }
       }
-
-      // === 5) Re-aplicar vista y alinear al entrar/cambiar/rebuild ===
+    
+      // 8) Reaplicar al cambiar de motor/rebuild
       function reapplyAll(){
         applyViewFor(engineId());
-        alignShellsToWhiteWall();
+        alignShellsIfAny();
       }
-
-      // Hook genérico para funciones conocidas
       function hook(name){
         const orig = window[name];
-        if (typeof orig === 'function' && !orig.__wwvm_hooked){
+        if (typeof orig === 'function' && !orig.__wwvm2){
           window[name] = function(){
             const out = orig.apply(this, arguments);
             setTimeout(reapplyAll, 0);
             requestAnimationFrame(reapplyAll);
             return out;
           };
-          window[name].__wwvm_hooked = true;
+          window[name].__wwvm2 = true;
         }
       }
-
+    
       [
         'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
         'toggle13245','toggleKEPLR','toggleRAPHI','toggleGRVTY','toggleR5NOVA',
         'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
-        'ensureOnlyGRVTY','ensureOnlyR5NOVA',
+        'ensureOnlyGRVTY','ensureOnlyR5NOVA','applyEngineFromSelect','cycleEngine',
         'rebuildTMSLIfActive','rebuildR5NOVAIfActive','rebuildGRVTYIfActive',
         'refreshAll','buildUniverse','buildScene','rebuildUniverse'
       ].forEach(hook);
-
-      // Primera aplicación cuando todo haya cargado
+    
+      // También nos re-ajustamos si cambian las medidas del muro
+      const _oldUpdateWW = window.updateWhiteWall3D;
+      if (typeof _oldUpdateWW === 'function' && !_oldUpdateWW.__wwvm2){
+        window.updateWhiteWall3D = function(){
+          const out = _oldUpdateWW.apply(this, arguments);
+          setTimeout(reapplyAll, 0);
+          requestAnimationFrame(reapplyAll);
+          return out;
+        };
+        window.updateWhiteWall3D.__wwvm2 = true;
+      }
+    
       setTimeout(reapplyAll, 0);
       requestAnimationFrame(reapplyAll);
     })();
+
 
 
     /* ============================================================
