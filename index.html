@@ -6790,15 +6790,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
   const ZOOM = {
     // 1.0 = base; <1 = acercar un poco; >1 = alejar
     FRBN   : 1.00,
-    BUILD  : 1.00,
+    BUILD  : 1.25,
     OFFNNG : 0.92,   // un poco hacia delante
-    TMSL   : 1.25,   // más atrás
-    R5NOVA : 1.25,   // más atrás
-    RAUM   : 1.38,   // más atrás (más que TMSL/R5NOVA)
+    TMSL   : 1.00,   // más atrás
+    R5NOVA : 1.00,   // más atrás
+    RAUM   : 1.00,   // más atrás (más que TMSL/R5NOVA)
     "13245": 1.38,   // más atrás
-    KEPLR  : 1.18,
-    RAPHI  : 1.22,
-    GRVTY  : 1.50    // se reajusta más abajo (cámara y escala)
+    KEPLR  : 1.00,
+    RAPHI  : 1.00,
+    GRVTY  : 1.00    // se reajusta más abajo (cámara y escala)
   };
 
   function nudgeFor(engine){
