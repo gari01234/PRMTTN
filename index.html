@@ -6535,7 +6535,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         let wwRig = null;                // rig que sigue a la cámara
         let wwFrame = null;              // marco (plano con hueco extruido)
         let wwJambs = [];                // 4 jambas (izq/der/sup/inf)
-        let wwOpen = 50, wwThk = 12, wwDist = 48;
+        let wwOpen = 50, wwWall = 100, wwThk = 12, wwDist = 48;
         let rafId = null, lastOuter = -1;
 
         function dispose(obj){
@@ -6591,12 +6591,12 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           return geo;
         }
 
-        function buildWall(openCm, thkCm, distCm){
+        function buildWall(openCm, wallCm, thkCm, distCm){
           // limpiar anterior
           if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
           dispose(wwRig); wwRig = null; wwFrame = null; wwJambs.length = 0; lastOuter = -1;
 
-          wwOpen = openCm; wwThk = thkCm; wwDist = distCm;
+          wwOpen = openCm; wwWall = wallCm; wwThk = thkCm; wwDist = distCm;
 
           // rig que sigue a la cámara
           wwRig = new THREE.Group();
@@ -6614,8 +6614,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             roughness: 0.95, metalness: 0.0, dithering: true
           });
 
-          // “pared infinita”: tamaño exterior según frustum
-          const outer = computeOuterSize(wwDist);
+          // “pared infinita”: tamaño exterior según frustum o fijo
+          const outer = wwWall || computeOuterSize(wwDist);
           const geo   = makeFrameGeometry(outer, wwOpen, wwThk);
           lastOuter = outer;
 
@@ -6666,7 +6666,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
               wwRig.scale.set(1,1,1);
               wwRig.updateMatrix(); wwRig.updateMatrixWorld(true);
 
-              const needOuter = computeOuterSize(wwDist);
+              const needOuter = wwWall || computeOuterSize(wwDist);
               if (Math.abs(needOuter - lastOuter) > 1e-2){
                 const newGeo = makeFrameGeometry(needOuter, wwOpen, wwThk);
                 wwFrame.geometry.dispose();
@@ -6679,13 +6679,21 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         }
 
         // API pública
-        window.installWhiteWall3D = function(){ buildWall(50, 12, 55); };
-        window.updateWhiteWall3D  = function(openSize, thickness, distance){
-          buildWall(
-            Number(openSize)  || 1,
-            Number(thickness) || 1,
-            Number(distance)  || 1
-          );
+        window.installWhiteWall3D = function(){
+          // apertura 50×50, pared 100×100, espesor 15, a 50 cm de la cámara
+          window.__wwDistance = 50;      // ← expone distancia global
+          window.__wwThickness = 15;     // ← expone espesor global
+          buildWall(50, 100, 15, 50);
+        };
+        // Cambia medidas en caliente
+        window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
+          const o = Number(openSize)||50;
+          const w = Number(wallSize)||100;
+          const t = Number(thickness)||15;
+          const d = Number(distance)||50;
+          window.__wwDistance  = d;   // ← actualiza globales
+          window.__wwThickness = t;   // ← actualiza globales
+          buildWall(o, w, t, d);
         };
         window.removeWhiteWall3D  = function(){
           if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
@@ -6695,6 +6703,216 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
       init();
       installWhiteWall3D();
+
+
+    /* ──────────────────────────────────────────────────────────────
+     * WHITE-WALL VIEW MANAGER
+     * - Vista standard unificada (clon de BUILD) aplicada a TODOS los motores.
+     * - Zoom-out automático para encajar en la “apertura”.
+     * - Arreglo de GRVTY (usa la misma vista).
+     * - Alineación: TMSL y R5NOVA se quedan justo detrás del hueco del muro.
+     *   (ajuste a lo largo del eje de mirada de la cámara)
+     * ───────────────────────────────────────────────────────────── */
+
+    (function WWViewManager(){
+      // === 0) Utilidades base ===
+      const TMP_V = new THREE.Vector3();
+      const TMP_Q = new THREE.Quaternion();
+      function cloneV3(v){ return new THREE.Vector3().copy(v); }
+      function cloneQ(q){ return new THREE.Quaternion().copy(q); }
+
+      function hasControls(){ return (typeof controls !== 'undefined' && controls && controls.target); }
+
+      // === 1) Baseline de BUILD capturada una vez ===
+      const _baseline = {
+        pos    : new THREE.Vector3(0,0,60),   // fallback seguro
+        quat   : new THREE.Quaternion(),
+        target : new THREE.Vector3(0,0,0),
+        fov    : 40,
+        near   : 0.1,
+        far    : 4000
+      };
+
+      function snapshotBUILD(){
+        try{
+          if (camera){ _baseline.pos.copy(camera.position); _baseline.quat.copy(camera.quaternion); _baseline.fov = camera.fov; _baseline.near = Math.min(camera.near||0.1, 0.1); _baseline.far = Math.max(camera.far||2000, 4000); }
+          if (hasControls()) _baseline.target.copy(controls.target);
+        }catch(_){ }
+      }
+
+      // Captura baseline en el próximo frame (cuando todo existe)
+      requestAnimationFrame(snapshotBUILD);
+
+      // === 2) Mapa de vistas por motor (independientes entre sí) ===
+      const VIEWS = Object.create(null);
+      const ENGINES = ['BUILD','FRBN','LCHT','OFFNNG','TMSL','RAUM','13245','KEPLR','RAPHI','GRVTY','R5NOVA'];
+
+      function ensureViews(){
+        if (VIEWS.__ready) return;
+        ENGINES.forEach(n=>{
+          VIEWS[n] = {
+            pos    : cloneV3(_baseline.pos),
+            quat   : cloneQ(_baseline.quat),
+            target : cloneV3(_baseline.target),
+            fov    : _baseline.fov,
+            near   : _baseline.near,
+            far    : _baseline.far
+          };
+        });
+        VIEWS.__ready = true;
+      }
+
+      // Detecta motor activo
+      function engineId(){
+        if (window.isGRVTY)  return 'GRVTY';
+        if (window.isR5NOVA) return 'R5NOVA';
+        if (window.isRAPHI)  return 'RAPHI';
+        if (window.isKEPLR)  return 'KEPLR';
+        if (window.is13245)  return '13245';
+        if (window.isRAUM)   return 'RAUM';
+        if (window.isTMSL)   return 'TMSL';
+        if (window.isOFFNNG) return 'OFFNNG';
+        if (window.isLCHT)   return 'LCHT';
+        if (window.isFRBN)   return 'FRBN';
+        return 'BUILD';
+      }
+
+      // === 3) Aplicar vista por motor + zoom-out ===
+      const ZOOM_OUT_FACTOR = 1.18;     // ligero alejamiento para “respirar” dentro del hueco
+
+      function applyViewFor(id){
+        ensureViews();
+        const v = VIEWS[id] || VIEWS.BUILD;
+
+        // Cámara
+        camera.position.copy(v.pos);
+        camera.quaternion.copy(v.quat);
+        camera.fov  = v.fov;
+        camera.near = v.near;
+        camera.far  = v.far;
+        camera.updateProjectionMatrix();
+
+        // OrbitControls
+        if (hasControls()){
+          controls.target.copy(v.target);
+          controls.update();
+        }
+
+        // Zoom-out relativo al target
+        if (hasControls()){
+          const dir = TMP_V.copy(camera.position).sub(controls.target);
+          dir.multiplyScalar(ZOOM_OUT_FACTOR);
+          camera.position.copy(controls.target).add(dir);
+          camera.updateProjectionMatrix();
+          controls.update();
+        }
+      }
+
+      // Permite que tú guardes ajustes definitivos por motor (si quisieras luego)
+      window.setEngineDefaultView = function(id){
+        ensureViews();
+        const key = (id||engineId());
+        const v = VIEWS[key];
+        v.pos.copy(camera.position);
+        v.quat.copy(camera.quaternion);
+        v.fov = camera.fov;
+        if (hasControls()) v.target.copy(controls.target);
+      };
+
+      // === 4) Alineación de TMSL/R5NOVA con el hueco del muro blanco ===
+
+      // Punto del plano “trasero” de la Leibung (en mundo)
+      function wwBackPlanePoint(){
+        const d = (window.__wwDistance||50) + (window.__wwThickness||15);
+        const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+        // Un pelín más atrás para evitar z-fighting con el borde del hueco:
+        return camera.position.clone().add(forward.multiplyScalar(-d - 0.5));
+      }
+
+      // Proyecta bounding box a lo largo de una dirección y devuelve [min,max]
+      function projectRangeAlongDir(obj, dir){
+        const box = new THREE.Box3().setFromObject(obj);
+        const pts = [
+          new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+          new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+          new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+          new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+          new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+          new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+          new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+          new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+        ];
+        let min=Infinity, max=-Infinity;
+        const d = dir.clone().normalize();
+        for (let p of pts){
+          p.applyMatrix4(obj.matrixWorld);
+          const s = p.dot(d);
+          if (s<min) min=s;
+          if (s>max) max=s;
+        }
+        return [min,max];
+      }
+
+      function translateAlongDir(obj, dir, delta){
+        obj.position.add(dir.clone().normalize().multiplyScalar(delta));
+        obj.updateMatrixWorld(true);
+      }
+
+      function alignShellsToWhiteWall(){
+        const backPoint = wwBackPlanePoint();
+        const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+
+        // TMSL: usamos el decorado (paredes laterales)
+        if (window.isTMSL && window.__tmslDecorGroup){
+          const [min,max] = projectRangeAlongDir(window.__tmslDecorGroup, dir);
+          // “front” (más cerca de la cámara) debe quedar justo detrás del backPoint
+          const target = backPoint.dot(dir);
+          const move   = target - max;     // max = cara más cercana;
+          translateAlongDir(window.__tmslDecorGroup, dir, move);
+        }
+
+        // R5NOVA: movemos TODO el grupo
+        if (window.isR5NOVA && window.groupR5NOVA){
+          const [min,max] = projectRangeAlongDir(window.groupR5NOVA, dir);
+          const target = backPoint.dot(dir);
+          const move   = target - max;
+          translateAlongDir(window.groupR5NOVA, dir, move);
+        }
+      }
+
+      // === 5) Re-aplicar vista y alinear al entrar/cambiar/rebuild ===
+      function reapplyAll(){
+        applyViewFor(engineId());
+        alignShellsToWhiteWall();
+      }
+
+      // Hook genérico para funciones conocidas
+      function hook(name){
+        const orig = window[name];
+        if (typeof orig === 'function' && !orig.__wwvm_hooked){
+          window[name] = function(){
+            const out = orig.apply(this, arguments);
+            setTimeout(reapplyAll, 0);
+            requestAnimationFrame(reapplyAll);
+            return out;
+          };
+          window[name].__wwvm_hooked = true;
+        }
+      }
+
+      [
+        'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
+        'toggle13245','toggleKEPLR','toggleRAPHI','toggleGRVTY','toggleR5NOVA',
+        'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
+        'ensureOnlyGRVTY','ensureOnlyR5NOVA',
+        'rebuildTMSLIfActive','rebuildR5NOVAIfActive','rebuildGRVTYIfActive',
+        'refreshAll','buildUniverse','buildScene','rebuildUniverse'
+      ].forEach(hook);
+
+      // Primera aplicación cuando todo haya cargado
+      setTimeout(reapplyAll, 0);
+      requestAnimationFrame(reapplyAll);
+    })();
 
 
     /* ============================================================
