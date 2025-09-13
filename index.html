@@ -6526,19 +6526,17 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     }
 
       /* ──────────────────────────────────────────────────────────────
-       * WHITE WALL 3D OVERLAY – “Pared infinita” + blanco arquitectónico
-       *  Unidades = cm (cubo BUILD 30×30×30 ⇒ 30).
-       *  Apertura 50×50 cm, espesor 12 cm, a 48 cm de la cámara.
-       *  El borde EXTERIOR nunca entra en cuadro (se auto-escala al frustum).
+       * WHITE WALL 3D – pared “infinita” con Leibung y luces propias
+       *  Unidades = cm. Apertura 50×50, espesor 12, distancia 48.
+       *  Las luces sólo iluminan el muro (layer aislada), no a la escena.
        * ───────────────────────────────────────────────────────────── */
       (function(){
-        let wwRig = null;       // rig que sigue a la cámara (pose idéntica)
-        let wwMesh = null;      // mesh de la pared con hueco (extrusionada)
-        let wwOpen = 50;        // lado de la apertura (cm)
-        let wwThk  = 12;        // espesor del muro (cm)
-        let wwDist = 48;        // distancia desde cámara a la cara exterior (cm)
-        let rafId  = null;
-        let lastOuter = -1;     // cache del tamaño exterior (cm) para “pared infinita”
+        const WALL_LAYER = 7;            // capa exclusiva para el muro
+        let wwRig = null;                // rig que sigue a la cámara
+        let wwFrame = null;              // marco (plano con hueco extruido)
+        let wwJambs = [];                // 4 jambas (izq/der/sup/inf)
+        let wwOpen = 50, wwThk = 12, wwDist = 48;
+        let rafId = null, lastOuter = -1;
 
         function dispose(obj){
           if (!obj) return;
@@ -6546,24 +6544,23 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             if (n.isMesh){
               n.geometry?.dispose?.();
               const mats = Array.isArray(n.material) ? n.material : [n.material];
-              mats.forEach(m => m?.dispose?.());
+              mats.forEach(m=>m?.dispose?.());
             }
           });
           obj.parent?.remove?.(obj);
         }
 
-        // Tamaño exterior cuadrado necesario para cubrir el frustum en z = -dist
+        // Tamaño exterior necesario para cubrir el frustum en z = -dist
         function computeOuterSize(distCm){
           const fovRad = THREE.MathUtils.degToRad(camera.fov);
           const halfH  = Math.tan(fovRad * 0.5) * distCm;
           const H      = 2 * halfH;
           const W      = H * camera.aspect;
-          // margen 20% para movimientos/float numérico
-          return Math.max(W, H) * 1.2;
+          return Math.max(W, H) * 1.2; // margen 20%
         }
 
-        // Geometría: cuadrado exterior (auto), hueco interior = wwOpen, extrusión = wwThk
-        function makeWallGeometry(outer, open, thickness){
+        // Geometría del marco con hueco y extrusión = espesor
+        function makeFrameGeometry(outer, open, thickness){
           const half = outer * 0.5;
           const h2   = open  * 0.5;
 
@@ -6588,60 +6585,92 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             steps: 1,
             curveSegments: 1
           });
-          // Cara exterior del muro en z = 0 del mesh (extrusión hacia atrás)
+          // cara exterior del muro en z = 0
           geo.translate(0, 0, -thickness);
-          geo.computeBoundingBox(); geo.computeBoundingSphere();
+          geo.computeBoundingSphere(); geo.computeBoundingBox();
           return geo;
         }
 
-        function buildWall(openCm, thicknessCm, distCm){
-          // Limpia anterior
+        function buildWall(openCm, thkCm, distCm){
+          // limpiar anterior
           if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-          dispose(wwRig); wwRig = null; wwMesh = null; lastOuter = -1;
+          dispose(wwRig); wwRig = null; wwFrame = null; wwJambs.length = 0; lastOuter = -1;
 
-          wwOpen = openCm; wwThk = thicknessCm; wwDist = distCm;
+          wwOpen = openCm; wwThk = thkCm; wwDist = distCm;
 
-          // Rig que copia pose de la cámara pero vive en scene
+          // rig que sigue a la cámara
           wwRig = new THREE.Group();
           wwRig.matrixAutoUpdate = false;
           wwRig.frustumCulled = false;
           scene.add(wwRig);
 
-          // Material “blanco arquitectónico” mate
-          const mat = new THREE.MeshBasicMaterial({
-            color: 0xECE9E4,          // gris cálido (no blanco puro)
-            side: THREE.DoubleSide,
-            depthTest: false,         // siempre por delante
-            depthWrite: false,
-            dithering: true
+          // materiales (mate arquitectónico)
+          const matFront = new THREE.MeshStandardMaterial({
+            color: 0xECE9E4,      // “blanco cálido” (frente del muro)
+            roughness: 0.92, metalness: 0.0, dithering: true
+          });
+          const matJamb = new THREE.MeshStandardMaterial({
+            color: 0xDEDAD4,      // un 10–12% más oscuro (Leibung)
+            roughness: 0.95, metalness: 0.0, dithering: true
           });
 
-          // Geometría inicial con “pared infinita”
+          // “pared infinita”: tamaño exterior según frustum
           const outer = computeOuterSize(wwDist);
-          const geo   = makeWallGeometry(outer, wwOpen, wwThk);
+          const geo   = makeFrameGeometry(outer, wwOpen, wwThk);
           lastOuter = outer;
 
-          wwMesh = new THREE.Mesh(geo, mat);
-          wwMesh.renderOrder = 100000;
-          wwMesh.frustumCulled = false;
-          wwMesh.position.set(0, 0, -wwDist);  // cara exterior a wwDist de cámara
-          wwRig.add(wwMesh);
+          wwFrame = new THREE.Mesh(geo, matFront);
+          wwFrame.renderOrder = 100000;
+          wwFrame.frustumCulled = false;
+          wwFrame.position.set(0, 0, -wwDist);    // cara exterior a wwDist
+          wwFrame.layers.set(WALL_LAYER);
+          wwRig.add(wwFrame);
 
-          // Tick: seguir cámara y reajustar tamaño exterior si cambia FOV/aspect/dist
+          // JAMBAS reales (4 cajas)
+          const h2 = wwOpen * 0.5, t = wwThk, zc = -wwDist - t*0.5;
+
+          const left   = new THREE.Mesh(new THREE.BoxGeometry(t, wwOpen, t), matJamb);
+          left.position.set(-h2 - t*0.5, 0, zc);
+
+          const right  = new THREE.Mesh(new THREE.BoxGeometry(t, wwOpen, t), matJamb);
+          right.position.set( h2 + t*0.5, 0, zc);
+
+          const top    = new THREE.Mesh(new THREE.BoxGeometry(wwOpen, t, t), matJamb);
+          top.position.set(0,  h2 + t*0.5, zc);
+
+          const bottom = new THREE.Mesh(new THREE.BoxGeometry(wwOpen, t, t), matJamb);
+          bottom.position.set(0, -h2 - t*0.5, zc);
+
+          [left,right,top,bottom].forEach(m=>{
+            m.renderOrder = 100001;
+            m.frustumCulled = false;
+            m.layers.set(WALL_LAYER);
+            wwRig.add(m);
+          });
+          wwJambs = [left,right,top,bottom];
+
+          // Luces AISLADAS al muro (no afectan la escena)
+          camera.layers.enable(WALL_LAYER);
+          const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.55);
+          hemi.layers.set(WALL_LAYER);
+          const dir  = new THREE.DirectionalLight(0xffffff, 0.65);
+          dir.position.set(-wwDist*0.8, wwDist*1.2, -wwDist*0.2);
+          dir.layers.set(WALL_LAYER);
+          wwRig.add(hemi, dir);
+
+          // seguir cámara + reajustar “pared infinita”
           (function tick(){
             try{
-              // Copia pose exacta de la cámara
               wwRig.position.copy(camera.position);
               wwRig.quaternion.copy(camera.quaternion);
               wwRig.scale.set(1,1,1);
               wwRig.updateMatrix(); wwRig.updateMatrixWorld(true);
 
-              // Recalcular “pared infinita” si cambian FOV/aspect o distancia
               const needOuter = computeOuterSize(wwDist);
               if (Math.abs(needOuter - lastOuter) > 1e-2){
-                const newGeo = makeWallGeometry(needOuter, wwOpen, wwThk);
-                wwMesh.geometry.dispose();
-                wwMesh.geometry = newGeo;
+                const newGeo = makeFrameGeometry(needOuter, wwOpen, wwThk);
+                wwFrame.geometry.dispose();
+                wwFrame.geometry = newGeo;
                 lastOuter = needOuter;
               }
             }catch(_){ }
@@ -6650,22 +6679,17 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         }
 
         // API pública
-        window.installWhiteWall3D = function(){
-          // Abertura 50×50, espesor 12, distancia 48 (ajustable)
-          buildWall(50, 12, 48);
-        };
-
-        window.updateWhiteWall3D = function(openSize, thickness, distance){
+        window.installWhiteWall3D = function(){ buildWall(50, 12, 48); };
+        window.updateWhiteWall3D  = function(openSize, thickness, distance){
           buildWall(
-            Number(openSize)   || 1,
-            Number(thickness)  || 1,
-            Number(distance)   || 1
+            Number(openSize)  || 1,
+            Number(thickness) || 1,
+            Number(distance)  || 1
           );
         };
-
-        window.removeWhiteWall3D = function(){
+        window.removeWhiteWall3D  = function(){
           if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
-          dispose(wwRig); wwRig = null; wwMesh = null; lastOuter = -1;
+          dispose(wwRig); wwRig = null; wwFrame = null; wwJambs.length = 0; lastOuter = -1;
         };
       })();
 
