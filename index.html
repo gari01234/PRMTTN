@@ -6526,51 +6526,59 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
     }
 
       /* ──────────────────────────────────────────────────────────────
-       * WHITE WALL 3D OVERLAY (con Leibung real y sombreado)
-       *  – Apertura 50×50, pared 100×100, espesor 15, a 50 cm de cámara (puedes cambiar luego).
-       *  – Dibuja al final, con depthTest ON (oclusiones correctas).
+       * WHITE WALL 3D OVERLAY – “Pared infinita” + blanco arquitectónico
+       *  Unidades = cm (cubo BUILD 30×30×30 ⇒ 30).
+       *  Apertura 50×50 cm, espesor 12 cm, a 48 cm de la cámara.
+       *  El borde EXTERIOR nunca entra en cuadro (se auto-escala al frustum).
        * ───────────────────────────────────────────────────────────── */
-
       (function(){
-        let wwRig = null;        // grupo que sigue a la cámara
-        let wwMesh = null;       // pared con hueco (extrusión)
-        let wwAmb  = null;       // luz ambiental del rig
-        let wwDir  = null;       // luz direccional del rig
-        let wwDistance = 60;     // distancia desde la cámara a la cara exterior
-        let rafId = null;
+        let wwRig = null;       // rig que sigue a la cámara (pose idéntica)
+        let wwMesh = null;      // mesh de la pared con hueco (extrusionada)
+        let wwOpen = 50;        // lado de la apertura (cm)
+        let wwThk  = 12;        // espesor del muro (cm)
+        let wwDist = 48;        // distancia desde cámara a la cara exterior (cm)
+        let rafId  = null;
+        let lastOuter = -1;     // cache del tamaño exterior (cm) para “pared infinita”
 
         function dispose(obj){
           if (!obj) return;
           obj.traverse(n=>{
-            if (n.isLight) return;
             if (n.isMesh){
               n.geometry?.dispose?.();
-              if (Array.isArray(n.material)) n.material.forEach(m=>m?.dispose?.());
-              else n.material?.dispose?.();
+              const mats = Array.isArray(n.material) ? n.material : [n.material];
+              mats.forEach(m => m?.dispose?.());
             }
           });
           obj.parent?.remove?.(obj);
         }
 
-        // Marco con hueco y EXTRUSIÓN (el hueco va en sentido inverso: CW)
-        function makeWallGeometry(openSize=50, wallSize=100, thickness=5){
-          const half = wallSize * 0.5;
-          const h2   = openSize * 0.5;
+        // Tamaño exterior cuadrado necesario para cubrir el frustum en z = -dist
+        function computeOuterSize(distCm){
+          const fovRad = THREE.MathUtils.degToRad(camera.fov);
+          const halfH  = Math.tan(fovRad * 0.5) * distCm;
+          const H      = 2 * halfH;
+          const W      = H * camera.aspect;
+          // margen 20% para movimientos/float numérico
+          return Math.max(W, H) * 1.2;
+        }
+
+        // Geometría: cuadrado exterior (auto), hueco interior = wwOpen, extrusión = wwThk
+        function makeWallGeometry(outer, open, thickness){
+          const half = outer * 0.5;
+          const h2   = open  * 0.5;
 
           const shape = new THREE.Shape();
-          // contorno exterior CCW
           shape.moveTo(-half, -half);
           shape.lineTo( half, -half);
           shape.lineTo( half,  half);
           shape.lineTo(-half,  half);
           shape.lineTo(-half, -half);
 
-          // agujero interior **CW** (winding inverso)
           const hole = new THREE.Path();
           hole.moveTo(-h2, -h2);
-          hole.lineTo(-h2,  h2);
-          hole.lineTo( h2,  h2);
           hole.lineTo( h2, -h2);
+          hole.lineTo( h2,  h2);
+          hole.lineTo(-h2,  h2);
           hole.lineTo(-h2, -h2);
           shape.holes.push(hole);
 
@@ -6580,63 +6588,62 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             steps: 1,
             curveSegments: 1
           });
-
-          // Extruye hacia atrás: la cara exterior del muro queda en z=0 del mesh
+          // Cara exterior del muro en z = 0 del mesh (extrusión hacia atrás)
           geo.translate(0, 0, -thickness);
-          geo.computeVertexNormals();
-          geo.computeBoundingBox();
-          geo.computeBoundingSphere();
+          geo.computeBoundingBox(); geo.computeBoundingSphere();
           return geo;
         }
 
-        function buildWall(openSize, wallSize, thickness, distance){
-          // limpia lo anterior
+        function buildWall(openCm, thicknessCm, distCm){
+          // Limpia anterior
           if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-          dispose(wwRig); wwRig = wwMesh = wwAmb = wwDir = null;
+          dispose(wwRig); wwRig = null; wwMesh = null; lastOuter = -1;
 
-          wwDistance = distance;
+          wwOpen = openCm; wwThk = thicknessCm; wwDist = distCm;
 
-          // rig que copia pose de la cámara y vive en scene
+          // Rig que copia pose de la cámara pero vive en scene
           wwRig = new THREE.Group();
           wwRig.matrixAutoUpdate = false;
           wwRig.frustumCulled = false;
           scene.add(wwRig);
 
-          // luz suave + direccional para leer volumen de la jamba
-          wwAmb = new THREE.AmbientLight(0xffffff, 0.28);
-          wwDir = new THREE.DirectionalLight(0xffffff, 0.65);
-          wwDir.position.set(-1.2, 1.8, 1.0).normalize();
-          wwRig.add(wwAmb);
-          wwRig.add(wwDir);
-
-          // geometría + material con iluminación
-          const geo = makeWallGeometry(openSize, wallSize, thickness);
-          const mat = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            roughness: 0.48,
-            metalness: 0.0,
-            side: THREE.DoubleSide, // permite ver también la arista interior
-            depthTest: true,
-            depthWrite: true,
+          // Material “blanco arquitectónico” mate
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0xECE9E4,          // gris cálido (no blanco puro)
+            side: THREE.DoubleSide,
+            depthTest: false,         // siempre por delante
+            depthWrite: false,
             dithering: true
           });
 
-          wwMesh = new THREE.Mesh(geo, mat);
-          wwMesh.renderOrder = 100000;   // dibuja al final
-          wwMesh.frustumCulled = false;
+          // Geometría inicial con “pared infinita”
+          const outer = computeOuterSize(wwDist);
+          const geo   = makeWallGeometry(outer, wwOpen, wwThk);
+          lastOuter = outer;
 
-          // coloca la cara exterior a -distancia del rig (que copia a la cámara)
-          wwMesh.position.set(0, 0, -wwDistance);
+          wwMesh = new THREE.Mesh(geo, mat);
+          wwMesh.renderOrder = 100000;
+          wwMesh.frustumCulled = false;
+          wwMesh.position.set(0, 0, -wwDist);  // cara exterior a wwDist de cámara
           wwRig.add(wwMesh);
 
-          // tick de seguimiento
+          // Tick: seguir cámara y reajustar tamaño exterior si cambia FOV/aspect/dist
           (function tick(){
             try{
+              // Copia pose exacta de la cámara
               wwRig.position.copy(camera.position);
               wwRig.quaternion.copy(camera.quaternion);
               wwRig.scale.set(1,1,1);
-              wwRig.updateMatrix();
-              wwRig.updateMatrixWorld(true);
+              wwRig.updateMatrix(); wwRig.updateMatrixWorld(true);
+
+              // Recalcular “pared infinita” si cambian FOV/aspect o distancia
+              const needOuter = computeOuterSize(wwDist);
+              if (Math.abs(needOuter - lastOuter) > 1e-2){
+                const newGeo = makeWallGeometry(needOuter, wwOpen, wwThk);
+                wwMesh.geometry.dispose();
+                wwMesh.geometry = newGeo;
+                lastOuter = needOuter;
+              }
             }catch(_){ }
             rafId = requestAnimationFrame(tick);
           })();
@@ -6644,22 +6651,21 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         // API pública
         window.installWhiteWall3D = function(){
-          // tus medidas actuales
-          buildWall(50, 100, 20, 60);
+          // Abertura 50×50, espesor 12, distancia 48 (ajustable)
+          buildWall(50, 12, 48);
         };
 
-        window.updateWhiteWall3D = function(openSize, wallSize, thickness, distance){
+        window.updateWhiteWall3D = function(openSize, thickness, distance){
           buildWall(
-            Number(openSize)||50,
-            Number(wallSize)||100,
-            Number(thickness)||20,
-            Number(distance)||60
+            Number(openSize)   || 1,
+            Number(thickness)  || 1,
+            Number(distance)   || 1
           );
         };
 
         window.removeWhiteWall3D = function(){
-          if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-          dispose(wwRig); wwRig = wwMesh = wwAmb = wwDir = null;
+          if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+          dispose(wwRig); wwRig = null; wwMesh = null; lastOuter = -1;
         };
       })();
 
