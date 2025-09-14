@@ -6534,17 +6534,17 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         // Especificaciones por motor (puedes ajustar cada una cuando quieras)
         const SPECS = {
-          BUILD : { open:50, wall:100, thk:12, dist:50 },
-          FRBN  : { open:50, wall:100, thk:12, dist:50 },
-          LCHT  : { open:50, wall:100, thk:12, dist:50 },
-          OFFNNG: { open:50, wall:100, thk:12, dist:50 },
-          TMSL  : { open:50, wall:120, thk:12, dist:50 },
-          RAUM  : { open:50, wall:100, thk:12, dist:50 },
+          BUILD : { open:50, wall:100, thk:12, dist:80 },
+          FRBN  : { open:50, wall:100, thk:12, dist:80 },
+          LCHT  : { open:50, wall:100, thk:12, dist:80 },
+          OFFNNG: { open:50, wall:100, thk:12, dist:80 },
+          TMSL  : { open:50, wall:120, thk:12, dist:80 },
+          RAUM  : { open:50, wall:100, thk:12, dist:80 },
           "13245":{ open:50, wall:100, thk:12, dist:50 },
-          KEPLR : { open:50, wall:100, thk:12, dist:50 },
-          RAPHI : { open:50, wall:100, thk:12, dist:50 },
-          GRVTY : { open:50, wall:120, thk:12, dist:50 },
-          R5NOVA: { open:50, wall:120, thk:12, dist:50 },
+          KEPLR : { open:50, wall:100, thk:12, dist:80 },
+          RAPHI : { open:50, wall:100, thk:12, dist:80 },
+          GRVTY : { open:50, wall:120, thk:12, dist:80 },
+          R5NOVA: { open:50, wall:120, thk:12, dist:80 },
         };
 
         const walls = new Map();      // engine -> {rig, frame, jambs[], specs}
