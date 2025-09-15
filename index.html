@@ -6525,198 +6525,374 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       syncUI();
     }
 
+      init();
+
       /* ──────────────────────────────────────────────────────────────
-       * WHITE WALL · per-engine (una pared por motor) + DIST SCALE
-       *  Dos “zooms” globales hacia atrás sobre la pared (distScale=1.5625).
+       * WHITE WALLS · Multi-engine manager (una pared por motor)
+       * - Apertura fija: 50×50 cm
+       * - Espesor: 12 cm
+       * - Distancia desde cámara: 60 cm
+       * - Tamaño exterior (outer): 200 cm  ← 2× del que veníamos usando
+       * - Cada motor tiene su propia pared y se activa/oculta al cambiar
+       * - Sin doble montaje (no hay install/update globales)
        * ───────────────────────────────────────────────────────────── */
-      (function(){
+      (function WhiteWallMulti(){
         const WALL_LAYER = 7;
 
-        // Especificaciones base por motor (puedes editarlas cuando quieras)
-        const SPECS = {
-          BUILD : { open:50, wall:100, thk:12, dist:60 },
-          FRBN  : { open:50, wall:100, thk:12, dist:60 },
-          LCHT  : { open:50, wall:100, thk:12, dist:60 },
-          OFFNNG: { open:50, wall:100, thk:12, dist:60 },
-          TMSL  : { open:50, wall:120, thk:12, dist:60 },
-          RAUM  : { open:50, wall:100, thk:12, dist:60 },
-          "13245":{ open:50, wall:100, thk:12, dist:60 },
-          KEPLR : { open:50, wall:100, thk:12, dist:60 },
-          RAPHI : { open:50, wall:100, thk:12, dist:60 },
-          GRVTY : { open:50, wall:120, thk:12, dist:60 },
-          R5NOVA: { open:50, wall:120, thk:12, dist:60 },
-        };
-
-        // ← NUEVO: factor global de distancia (dos “zooms” hacia atrás)
-        const DIST_SCALE_DEFAULT = 1.5625; // 1.25 * 1.25
-        const walls = new Map();           // engine -> {rig, frame, jambs[], dir, specs, _outer, _effDist}
-        let activeEngine = null;
-        let rafId = null;
-
-        const WW = {
-          _distScale: DIST_SCALE_DEFAULT,
-          SPECS,
-          ensureAll, show, update, activeInfo,
-          setDistanceScale(s){ this._distScale = Number(s)||1; }
-        };
-        window.WW = WW;
-
-        function dispose(obj){
-          if (!obj) return;
-          obj.traverse(n=>{
-            if (n.isMesh){
-              n.geometry?.dispose?.();
-              const mats = Array.isArray(n.material) ? n.material : [n.material];
-              mats.forEach(m=>m?.dispose?.());
-            }
-            if (n.isLight) n.dispose?.();
-          });
-          obj.parent?.remove?.(obj);
-        }
-
-        function computeOuterSize(distCm){
-          const fovRad = THREE.MathUtils.degToRad(camera.fov);
-          const halfH  = Math.tan(fovRad * 0.5) * distCm;
-          const H      = 2 * halfH;
-          const W      = H * camera.aspect;
-          return Math.max(W, H) * 1.2;
-        }
-
+        // ---------- utilidades ----------
         function makeFrameGeometry(outer, open, thickness){
           const half = outer * 0.5;
           const h2   = open  * 0.5;
 
           const shape = new THREE.Shape();
-          shape.moveTo(-half,-half); shape.lineTo(half,-half);
-          shape.lineTo(half,half);   shape.lineTo(-half,half);
-          shape.lineTo(-half,-half);
+          shape.moveTo(-half, -half); shape.lineTo( half, -half);
+          shape.lineTo( half,  half); shape.lineTo(-half,  half);
+          shape.lineTo(-half, -half);
 
           const hole = new THREE.Path();
-          hole.moveTo(-h2,-h2); hole.lineTo(h2,-h2);
-          hole.lineTo(h2,h2);   hole.lineTo(-h2,h2);
-          hole.lineTo(-h2,-h2);
+          hole.moveTo(-h2, -h2); hole.lineTo( h2, -h2);
+          hole.lineTo( h2,  h2); hole.lineTo(-h2,  h2);
+          hole.lineTo(-h2, -h2);
           shape.holes.push(hole);
 
-          const geo = new THREE.ExtrudeGeometry(shape,{ depth:thickness, bevelEnabled:false, steps:1, curveSegments:1 });
-          geo.translate(0,0,-thickness);
+          const geo = new THREE.ExtrudeGeometry(shape, {
+            depth: thickness, bevelEnabled: false, steps: 1, curveSegments: 1
+          });
+          // cara exterior del muro en z = 0 del mesh
+          geo.translate(0, 0, -thickness);
           geo.computeBoundingSphere(); geo.computeBoundingBox();
           return geo;
         }
+        function dispose(obj){
+          if (!obj) return;
+          obj.traverse(n=>{
+            if (n.isMesh){
+              n.geometry && n.geometry.dispose && n.geometry.dispose();
+              const mats = Array.isArray(n.material) ? n.material : [n.material];
+              mats.forEach(m=>m && m.dispose && m.dispose());
+            }
+          });
+          obj.parent && obj.parent.remove && obj.parent.remove(obj);
+        }
 
-        function buildGroup(spec){
-          const {open, wall, thk, dist} = spec;
-
+        // ---------- fábrica de una pared (para un motor) ----------
+        function createWall({open=50, outer=200, thickness=12, distance=60}={}){
           const rig = new THREE.Group();
           rig.matrixAutoUpdate = false;
-          rig.frustumCulled = false;
+          rig.frustumCulled    = false;
+          scene.add(rig);
 
-          const matFront = new THREE.MeshStandardMaterial({ color:0xECE9E4, roughness:0.92, metalness:0.0, dithering:true });
-          const matJamb  = new THREE.MeshStandardMaterial({ color:0xDEDAD4, roughness:0.95, metalness:0.0, dithering:true });
+          const matFront = new THREE.MeshStandardMaterial({
+            color: 0xECE9E4, roughness: 0.92, metalness: 0.0, dithering: true
+          });
+          const matJamb  = new THREE.MeshStandardMaterial({
+            color: 0xDEDAD4, roughness: 0.95, metalness: 0.0, dithering: true
+          });
 
-          const outer = wall || computeOuterSize(dist);
-          const geo   = makeFrameGeometry(outer, open, thk);
+          const geo = makeFrameGeometry(outer, open, thickness);
           const frame = new THREE.Mesh(geo, matFront);
-          frame.renderOrder = 100000;
+          frame.renderOrder   = 100000;
           frame.frustumCulled = false;
+          frame.position.set(0, 0, -distance);
           frame.layers.set(WALL_LAYER);
           rig.add(frame);
 
-          const h2 = open*0.5, t = thk;
+          // Jambas reales (Leibung)
+          const h2 = open * 0.5, t = thickness, zc = -distance - t*0.5;
           const left   = new THREE.Mesh(new THREE.BoxGeometry(t, open, t), matJamb);
           const right  = new THREE.Mesh(new THREE.BoxGeometry(t, open, t), matJamb);
           const top    = new THREE.Mesh(new THREE.BoxGeometry(open, t, t), matJamb);
           const bottom = new THREE.Mesh(new THREE.BoxGeometry(open, t, t), matJamb);
-          [left,right,top,bottom].forEach(m=>{ m.renderOrder=100001; m.frustumCulled=false; m.layers.set(WALL_LAYER); rig.add(m); });
+          left.position.set( -h2 - t*0.5, 0, zc);
+          right.position.set(  h2 + t*0.5, 0, zc);
+          top.position.set(0,  h2 + t*0.5, zc);
+          bottom.position.set(0,-h2 - t*0.5, zc);
+          [left,right,top,bottom].forEach(m=>{
+            m.renderOrder=100001; m.frustumCulled=false; m.layers.set(WALL_LAYER); rig.add(m);
+          });
 
+          // Luces solo para el muro
           camera.layers.enable(WALL_LAYER);
-          const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.55); hemi.layers.set(WALL_LAYER);
-          const dir  = new THREE.DirectionalLight(0xffffff, 0.65);          dir.layers.set(WALL_LAYER);
+          const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.55);
+          hemi.layers.set(WALL_LAYER);
+          const dir  = new THREE.DirectionalLight(0xffffff, 0.65);
+          dir.position.set(-distance*0.8, distance*1.2, -distance*0.2);
+          dir.layers.set(WALL_LAYER);
           rig.add(hemi, dir);
 
-          // pos/z dependientes de la distancia efectiva → se fijan en followActive()
-          return { rig, frame, jambs:[left,right,top,bottom], dir, specs:spec, _outer:outer, _effDist:-1 };
+          return {
+            rig, frame,
+            params: {open, outer, thickness, distance},
+            setVisible(v){ rig.visible = !!v; },
+            setDistance(d){
+              this.params.distance = d;
+              frame.position.set(0,0,-d);
+              const zc = -d - this.params.thickness*0.5;
+              left.position.z = right.position.z = top.position.z = bottom.position.z = zc;
+            },
+            setOuter(o){
+              this.params.outer = o;
+              const newGeo = makeFrameGeometry(o, this.params.open, this.params.thickness);
+              this.frame.geometry.dispose(); this.frame.geometry = newGeo;
+            },
+            dispose(){ dispose(rig); }
+          };
         }
 
-        function ensureAll(){
-          if (walls.size) return;
-          Object.keys(SPECS).forEach(engine=>{
-            const g = buildGroup(SPECS[engine]);
-            g.rig.visible = false;
-            scene.add(g.rig);
-            walls.set(engine, g);
-          });
+        // ---------- manager por motor ----------
+        const ENGINES = ['BUILD','FRBN','LCHT','OFFNNG','TMSL','RAUM','13245','KEPLR','RAPHI','GRVTY','R5NOVA'];
+        const walls = Object.create(null);
+        let active = null, rafId = null;
+
+        function ensure(engine){
+          if (walls[engine]) return walls[engine];
+          // configuración base para TODOS: outer=200 (2×), open=50, thk=12, dist=60
+          walls[engine] = createWall({open:50, outer:200, thickness:12, distance:60});
+          walls[engine].setVisible(false);
+          return walls[engine];
+        }
+        function engineId(){
+          if (window.isGRVTY)  return 'GRVTY';
+          if (window.isR5NOVA) return 'R5NOVA';
+          if (window.isRAPHI)  return 'RAPHI';
+          if (window.isKEPLR)  return 'KEPLR';
+          if (window.is13245)  return '13245';
+          if (window.isRAUM)   return 'RAUM';
+          if (window.isTMSL)   return 'TMSL';
+          if (window.isOFFNNG) return 'OFFNNG';
+          if (window.isLCHT)   return 'LCHT';
+          if (window.isFRBN)   return 'FRBN';
+          return 'BUILD';
+        }
+        function setActive(id){
+          const key = id || engineId();
+          ENGINES.forEach(k=>ensure(k).setVisible(k===key));
+          active = ensure(key);
         }
 
-        function followActive(){
+        // seguir cámara (solo para la pared activa)
+        (function tick(){
           try{
-            if (!activeEngine) return rafId = requestAnimationFrame(followActive);
-            const g = walls.get(activeEngine);
-            if (!g)      return rafId = requestAnimationFrame(followActive);
-
-            // sincroniza orientación/posición con la cámara
-            g.rig.position.copy(camera.position);
-            g.rig.quaternion.copy(camera.quaternion);
-            g.rig.updateMatrix(); g.rig.updateMatrixWorld(true);
-
-            // distancia efectiva (dos “zooms” hacia atrás)
-            const effDist = g.specs.dist * WW._distScale;
-            if (effDist !== g._effDist){
-              g.frame.position.set(0,0,-effDist);
-              const t = g.specs.thk, h2 = g.specs.open*0.5, zc = -effDist - t*0.5;
-              g.jambs[0].position.set(-h2 - t*0.5, 0, zc);  // left
-              g.jambs[1].position.set( h2 + t*0.5, 0, zc);  // right
-              g.jambs[2].position.set(0,  h2 + t*0.5, zc);  // top
-              g.jambs[3].position.set(0, -h2 - t*0.5, zc);  // bottom
-              g.dir.position.set(-effDist*0.8, effDist*1.2, -effDist*0.2);
-              g._effDist = effDist;
-            }
-
-            // “pared infinita” acorde a la nueva distancia
-            const needOuter = g.specs.wall || computeOuterSize(g._effDist);
-            if (Math.abs(needOuter - g._outer) > 1e-2){
-              const newGeo = makeFrameGeometry(needOuter, g.specs.open, g.specs.thk);
-              g.frame.geometry.dispose();
-              g.frame.geometry = newGeo;
-              g._outer = needOuter;
+            if (active){
+              active.rig.position.copy(camera.position);
+              active.rig.quaternion.copy(camera.quaternion);
+              active.rig.updateMatrix(); active.rig.updateMatrixWorld(true);
             }
           }catch(_){ }
-          rafId = requestAnimationFrame(followActive);
-        }
+          rafId = requestAnimationFrame(tick);
+        })();
 
-        function show(engine){
-          ensureAll();
-          walls.forEach((g,key)=>{ g.rig.visible = (key===engine); });
-          activeEngine = engine;
-          if (!rafId) rafId = requestAnimationFrame(followActive);
-        }
+        // API pública mínima (por si quieres ajustar alguno puntualmente)
+        window.WW = {
+          ensure, setActive,
+          setDistance(engine, d){ ensure(engine).setDistance(d); },
+          setOuter(engine, o){ ensure(engine).setOuter(o); },
+          get(engine){ return ensure(engine); }
+        };
 
-        function update(engine, spec){
-          ensureAll();
-          const old = walls.get(engine);
-          if (!old) return;
-          const wasVisible = old.rig.visible;
-          dispose(old.rig);
-          walls.delete(engine);
-          const g = buildGroup(spec);
-          g.rig.visible = !!wasVisible;
-          scene.add(g.rig);
-          walls.set(engine, g);
-          if (wasVisible) activeEngine = engine;
-        }
+        // activar el actual al inicio
+        setActive(engineId());
 
-        function activeInfo(){
-          if (!activeEngine) return null;
-          const g = walls.get(activeEngine);
-          if (!g) return null;
-          const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-          const distEff = g.specs.dist * WW._distScale;
-          const frontCenter = camera.position.clone().add(dir.clone().multiplyScalar(distEff));
-          const backCenter  = frontCenter.clone().add(dir.clone().multiplyScalar(g.specs.thk));
-          return { engine:activeEngine, dir, frontCenter, backCenter, distance:distEff, thickness:g.specs.thk };
+        // enganchar cambios de motor para alternar paredes
+        function hook(name){
+          const orig = window[name];
+          if (typeof orig === 'function' && !orig.__wwMulti){
+            window[name] = function(){
+              const out = orig.apply(this, arguments);
+              setTimeout(()=>setActive(engineId()), 0);
+              requestAnimationFrame(()=>setActive(engineId()));
+              return out;
+            };
+            window[name].__wwMulti = true;
+          }
         }
+        [
+          'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
+          'toggle13245','toggleKEPLR','toggleRAPHI','toggleGRVTY','toggleR5NOVA',
+          'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
+          'ensureOnlyGRVTY','ensureOnlyR5NOVA','applyEngineFromSelect','cycleEngine',
+          'rebuildTMSLIfActive','rebuildR5NOVAIfActive','rebuildGRVTYIfActive',
+          'refreshAll','buildUniverse','buildScene','rebuildUniverse'
+        ].forEach(hook);
       })();
 
-      init();
+      /* ──────────────────────────────────────────────────────────────
+       * WW · Engine fine-tuning EXACTO según tus imágenes
+       *  - outer = 200 en todos (ya lo hace WhiteWallMulti)
+       *  - distance por motor (cm) y zoom de cámara por motor
+       *  - autoalineado de shells TMSL / R5NOVA al plano trasero del hueco
+       * ───────────────────────────────────────────────────────────── */
+      (function WW_ExactTuning(){
+
+        // --- utilidades de cámara/zoom ---
+        const TMP = new THREE.Vector3();
+        function hasControls(){ return (typeof controls !== 'undefined' && controls && controls.target); }
+        function applyZoomFromTarget(factor){
+          if (!hasControls()) return;
+          const dir = TMP.copy(camera.position).sub(controls.target);
+          camera.position.copy(controls.target).add(dir.multiplyScalar(factor));
+          camera.updateProjectionMatrix();
+          controls.update();
+        }
+
+        // --- plano trasero del hueco, usando la pared ACTIVA del manager ---
+        function backPlaneOfActive(){
+          const act = WW.get( engineId() );
+          if (!act) return null;
+          const d = act.params.distance;
+          const t = act.params.thickness;
+          const n = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize(); // hacia delante
+          const p0 = camera.position.clone().add( n.clone().multiplyScalar(-(d+t)) );
+          return {n, p0};
+        }
+        function projRangeAlong(obj, n){
+          obj.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(obj);
+          const pts = [
+            new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+            new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+            new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+            new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+            new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+            new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+            new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+            new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+          ];
+          let min= Infinity, max=-Infinity;
+          for (let p of pts){
+            p.applyMatrix4(obj.matrixWorld);
+            const s = n.dot(p);
+            if (s<min) min=s;
+            if (s>max) max=s;
+          }
+          return {min,max};
+        }
+        function alignToBackPlane(obj){
+          if (!obj) return;
+          const bp = backPlaneOfActive(); if (!bp) return;
+          const {n,p0} = bp;
+          const s0 = n.dot(p0);
+          const {max} = projRangeAlong(obj, n); // punto más cercano a cámara
+          const EPS = 0.5;                      // 5 mm holgura
+          const delta = (s0 - EPS) - max;       // queremos max = s0 - EPS
+          obj.position.add(n.clone().multiplyScalar(delta));
+          obj.updateMatrixWorld(true);
+        }
+
+        // --- presets EXACTOS (distancias y zooms) ---
+        //   Distancias (cm): según tus capturas/anotaciones
+        //   Zoom: <1 acerca, >1 aleja (respecto a la vista base del motor)
+        const DIST = {
+          BUILD: 60,
+          FRBN : 60,
+          LCHT : 80,   // más atrás
+          OFFNNG: 55,  // un poco hacia delante
+          TMSL:  68,   // atrás
+          RAUM:  70,   // atrás
+          '13245': 72, // atrás
+          KEPLR: 55,   // hacia delante
+          RAPHI: 55,   // hacia delante
+          GRVTY: 62,   // centrado sin asomar ni quedar lejos
+          R5NOVA: 60
+        };
+
+        const ZOOM = {
+          BUILD: 1.00,
+          FRBN : 1.00,
+          LCHT : 1.30,  // alejar (se vea más pequeña como en tu imagen)
+          OFFNNG: 0.92, // acercar ligeramente
+          TMSL:  1.15,  // alejar
+          RAUM:  1.25,  // alejar
+          '13245':1.22, // alejar
+          KEPLR: 0.92,  // acercar
+          RAPHI: 0.92,  // acercar
+          GRVTY: 1.05,  // leve alejar
+          R5NOVA:1.05
+        };
+
+        // --- almacén de vistas base por motor (para que el zoom sea determinista) ---
+        const VIEWS = Object.create(null);
+        function captureIfFirst(id){
+          if (VIEWS[id]) return;
+          VIEWS[id] = {
+            pos: camera.position.clone(),
+            quat: camera.quaternion.clone(),
+            fov: camera.fov,
+            target: hasControls() ? controls.target.clone() : new THREE.Vector3()
+          };
+        }
+        function restoreBase(id){
+          const v = VIEWS[id]; if (!v) return;
+          camera.position.copy(v.pos);
+          camera.quaternion.copy(v.quat);
+          camera.fov = v.fov; camera.updateProjectionMatrix();
+          if (hasControls()){ controls.target.copy(v.target); controls.update(); }
+        }
+
+        // --- motor activo (mismo helper que en el manager) ---
+        function engineId(){
+          if (window.isGRVTY)  return 'GRVTY';
+          if (window.isR5NOVA) return 'R5NOVA';
+          if (window.isRAPHI)  return 'RAPHI';
+          if (window.isKEPLR)  return 'KEPLR';
+          if (window.is13245)  return '13245';
+          if (window.isRAUM)   return 'RAUM';
+          if (window.isTMSL)   return 'TMSL';
+          if (window.isOFFNNG) return 'OFFNNG';
+          if (window.isLCHT)   return 'LCHT';
+          if (window.isFRBN)   return 'FRBN';
+          return 'BUILD';
+        }
+
+        // --- aplicar preset del motor (pared + zoom + alineación de shells) ---
+        function applyExactFor(id){
+          const key = id || engineId();
+
+          // 1) asegurar pared de ese motor y fijar distance exacta
+          WW.setActive(key);
+          const d = DIST[key] ?? 60;
+          WW.setDistance(key, d);
+          WW.setOuter(key, 200); // outer doble en todos (por si alguien lo cambió)
+
+          // 2) capturar vista base la primera vez y restaurarla siempre
+          captureIfFirst(key);
+          restoreBase(key);
+
+          // 3) aplicar zoom exacto
+          const z = ZOOM[key] ?? 1.0;
+          applyZoomFromTarget(z);
+
+          // 4) alinear shells decorativos (si existen) al plano trasero del hueco
+          try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignToBackPlane(window.__tmslDecorGroup); }catch(_){ }
+          try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignToBackPlane(window.groupR5NOVA); }catch(_){ }
+        }
+
+        // --- enganchar a cambios de motor / rebuilds ---
+        function hook(name){
+          const orig = window[name];
+          if (typeof orig === 'function' && !orig.__wwExact){
+            window[name] = function(){
+              const out = orig.apply(this, arguments);
+              setTimeout(()=>applyExactFor(engineId()), 0);
+              requestAnimationFrame(()=>applyExactFor(engineId()));
+              return out;
+            };
+            window[name].__wwExact = true;
+          }
+        }
+        [
+          'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
+          'toggle13245','toggleKEPLR','toggleRAPHI','toggleGRVTY','toggleR5NOVA',
+          'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
+          'ensureOnlyGRVTY','ensureOnlyR5NOVA','applyEngineFromSelect','cycleEngine',
+          'rebuildTMSLIfActive','rebuildR5NOVAIfActive','rebuildGRVTYIfActive',
+          'refreshAll','buildUniverse','buildScene','rebuildUniverse'
+        ].forEach(hook);
+
+        // aplicar al arranque
+        setTimeout(()=>applyExactFor(engineId()), 0);
+        requestAnimationFrame(()=>applyExactFor(engineId()));
+      })();
 
       /* ──────────────────────────────────────────────────────────────
        * VIEW MANAGER · per-engine + zoom global BACK×2
@@ -6808,10 +6984,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           // muestra la pared del motor
           window.WW?.show?.(engine);
 
-          // ← 1) ajusta la distancia de TODAS las paredes (dos “zooms”)
-          window.WW?.setDistanceScale?.(GLOBAL_BACK2);
-
-          // 2) vista base + zooms (global * por motor)
+          // vista base + zooms (global * por motor)
           applyBaseView();
           const f = (ZOOM[engine] || 1.0) * GLOBAL_BACK2;
           applyZoomFromTarget(f);
@@ -8463,8 +8636,22 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   const $scnMinus  = $root.querySelector('#wwScnMinus');
   const $scnPlus   = $root.querySelector('#wwScnPlus');
 
-  $wallMinus.onclick = ()=>{ const cur = window.WW? window.WW._distScale : 1; window.WW?.setDistanceScale(cur/STEP); updateInfo(); };
-  $wallPlus .onclick = ()=>{ const cur = window.WW? window.WW._distScale : 1; window.WW?.setDistanceScale(cur*STEP); updateInfo(); };
+  $wallMinus.onclick = ()=>{
+    try{
+      const eng = activeEngineId();
+      const w = window.WW && window.WW.get ? window.WW.get(eng) : null;
+      if (w){ window.WW.setDistance(eng, w.params.distance/STEP); }
+    }catch(_){ }
+    updateInfo();
+  };
+  $wallPlus .onclick = ()=>{
+    try{
+      const eng = activeEngineId();
+      const w = window.WW && window.WW.get ? window.WW.get(eng) : null;
+      if (w){ window.WW.setDistance(eng, w.params.distance*STEP); }
+    }catch(_){ }
+    updateInfo();
+  };
 
   $camMinus.onclick  = ()=>{ window.setCameraGlobalScale(window.getCameraGlobalScale()/STEP); updateInfo(); };
   $camPlus .onclick  = ()=>{ window.setCameraGlobalScale(window.getCameraGlobalScale()*STEP); updateInfo(); };
@@ -8479,7 +8666,7 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   function updateInfo(){
     try{
       const eng = activeEngineId();
-      const info = window.WW?.activeInfo?.() || null;
+      const wall = window.WW && window.WW.get ? window.WW.get(eng) : null;
       const camPos = camera.position.clone();
       const fov    = camera.fov;
       const tgt    = (window.controls && controls.target) ? controls.target.clone() : new THREE.Vector3();
@@ -8491,9 +8678,9 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
       lines.push(`cam.fov: ${fmt(fov)}°`);
       lines.push(`CAM scale: ${fmt(window.getCameraGlobalScale())}`);
 
-      if (info){
-        lines.push(`wall.distEff: ${fmt(info.distance)}  (thk: ${fmt(info.thickness)}  open: ${fmt(info.open)}  outer: ${fmt(info.outer)})`);
-        lines.push(`WALL scale: ${fmt(window.WW._distScale)}`);
+      if (wall){
+        const p = wall.params;
+        lines.push(`wall.dist: ${fmt(p.distance)}  (thk: ${fmt(p.thickness)}  open: ${fmt(p.open)}  outer: ${fmt(p.outer)})`);
       }else{
         lines.push(`wall: (no info)`);
       }
