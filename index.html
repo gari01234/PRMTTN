@@ -8318,6 +8318,226 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   wrap('toggleMotionPause',  ()=> window.toggleGrvtyPause());
   wrap('resetMotion',        ()=> window.resetGrvtyMotion());
 })();
+/* ──────────────────────────────────────────────────────────────
+ * WW TUNING PANEL (no-minimal UI)
+ * - Tres toggles: WALL, CAM y SCENE (± con paso 1.25).
+ * - Info en vivo para anotar valores finales.
+ * - Registro automático de roots por motor + API para añadir más.
+ * ───────────────────────────────────────────────────────────── */
+(function(){
+  if (window.__WW_TUNING_INSTALLED__) return; // evita doble instalación
+  window.__WW_TUNING_INSTALLED__ = true;
+
+  // ── Parámetros y helpers ─────────────────────────────────────
+  const STEP = 1.25; // cada clic multiplica/divide por este factor
+
+  // Escala global de cámara (ya existe internamente: usamos variable pública)
+  if (typeof window.__CAM_SCALE !== 'number') window.__CAM_SCALE = 1.5625;
+  window.setCameraGlobalScale = function(v){
+    window.__CAM_SCALE = Math.max(0.01, Number(v)||1);
+    // reaplica vista actual
+    setTimeout(()=>{ try{ const e = activeEngineId(); __applyFor && __applyFor(e); }catch(_){ } },0);
+  };
+  window.getCameraGlobalScale = function(){ return window.__CAM_SCALE; };
+
+  // Registro/escala por motor del root de escena (contenido)
+  const _sceneRoots = new Map();        // engine -> Object3D
+  const _sceneScale = Object.create(null); // engine -> number (1 por defecto)
+  function activeEngineId(){
+    if (window.isGRVTY)  return 'GRVTY';
+    if (window.isR5NOVA) return 'R5NOVA';
+    if (window.isRAPHI)  return 'RAPHI';
+    if (window.isKEPLR)  return 'KEPLR';
+    if (window.is13245)  return '13245';
+    if (window.isRAUM)   return 'RAUM';
+    if (window.isTMSL)   return 'TMSL';
+    if (window.isOFFNNG) return 'OFFNNG';
+    if (window.isLCHT)   return 'LCHT';
+    if (window.isFRBN)   return 'FRBN';
+    return 'BUILD';
+  }
+  // API pública para registrar roots extra:
+  window.registerEngineRoot = function(engine, root){
+    if (!engine || !root) return;
+    _sceneRoots.set(engine, root);
+  };
+  // Autoregistro heurístico (los que ya conocemos)
+  function autoRegisterRoots(){
+    try{ if (window.groupGRVTY)   _sceneRoots.set('GRVTY', window.groupGRVTY); }catch(_){ }
+    try{ if (window.groupR5NOVA)  _sceneRoots.set('R5NOVA', window.groupR5NOVA); }catch(_){ }
+    try{ if (window.__tmslDecorGroup) _sceneRoots.set('TMSL', window.__tmslDecorGroup); }catch(_){ }
+    // si tienes otros grupos, regístralos así:
+    // registerEngineRoot('BUILD', window.groupBUILD);
+    // registerEngineRoot('FRBN',  window.groupFRBN);
+  }
+  autoRegisterRoots();
+
+  function setSceneScaleFor(engine, s){
+    s = Math.max(0.01, Number(s)||1);
+    _sceneScale[engine] = s;
+    const root = _sceneRoots.get(engine);
+    if (root){ root.scale.set(s,s,s); root.updateMatrixWorld(true); }
+  }
+  function getSceneScaleFor(engine){ return _sceneScale[engine] || 1; }
+
+  // Exponer para que otros bloques puedan reaplicar:
+  window.__applyFor = window.__applyFor || null; // el VIEW MANAGER ya lo define internamente
+  // Si aún no está expuesto, lo parcheamos cuando exista:
+  const _waitApply = setInterval(()=>{
+    if (typeof window.__applyFor === 'function'){
+      clearInterval(_waitApply);
+      // Cada vez que se aplique un motor volvemos a aplicar escala guardada
+      const _orig = window.__applyFor;
+      window.__applyFor = function(eng){
+        const out = _orig.apply(this, arguments);
+        try{
+          const e = eng || activeEngineId();
+          setSceneScaleFor(e, getSceneScaleFor(e)); // reaplica
+        }catch(_){ }
+        updateInfo();
+        return out;
+      };
+    }
+  }, 50);
+
+  // ── UI (DOM) ─────────────────────────────────────────────────
+  function css(str){ const el = document.createElement('style'); el.textContent = str; document.head.appendChild(el); }
+  css(`
+    .wwpanel{position:fixed; right:16px; top:16px; font-family:system-ui,Segoe UI,Roboto,Arial; z-index:999999;}
+    .wwcard{background:#ffffffee; backdrop-filter:saturate(1.2) blur(4px); border:1px solid #ddd; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.12); padding:12px 14px; width:330px;}
+    .wwtitle{font-weight:600; font-size:14px; margin:0 0 8px 0; letter-spacing:.2px;}
+    .wwrow{display:flex; align-items:center; justify-content:space-between; margin:6px 0;}
+    .wwrow .lbl{font-size:12px; color:#334; opacity:.9;}
+    .wwbtns button{margin-left:6px; padding:6px 8px; border-radius:8px; border:1px solid #ccc; background:#f7f7f7; cursor:pointer;}
+    .wwbtns button:active{transform:translateY(1px);}
+    .wwmono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; padding:6px 8px; background:#f3f3f6; border-radius:8px; border:1px solid #e3e3e9; margin-top:8px; white-space:pre-wrap; color:#222;}
+    .wwhint{font-size:11px; color:#445; margin-top:8px; line-height:1.35;}
+  `);
+
+  const $root = document.createElement('div');
+  $root.className = 'wwpanel';
+  $root.innerHTML = `
+    <div class="wwcard">
+      <div class="wwtitle">WW TUNING</div>
+
+      <div class="wwrow">
+        <div class="lbl">WALL (distancia)</div>
+        <div class="wwbtns">
+          <button id="wwWallMinus">÷1.25</button>
+          <button id="wwWallPlus">×1.25</button>
+        </div>
+      </div>
+
+      <div class="wwrow">
+        <div class="lbl">CAM (cámara)</div>
+        <div class="wwbtns">
+          <button id="wwCamMinus">÷1.25</button>
+          <button id="wwCamPlus">×1.25</button>
+        </div>
+      </div>
+
+      <div class="wwrow">
+        <div class="lbl">SCENE (contenido)</div>
+        <div class="wwbtns">
+          <button id="wwScnMinus">÷1.25</button>
+          <button id="wwScnPlus">×1.25</button>
+        </div>
+      </div>
+
+      <div id="wwInfo" class="wwmono">loading…</div>
+      <div class="wwhint">
+        Copia estos datos cuando encuentres tu encuadre ideal:<br>
+        • engine, cámara (pos/target/FOV),<br>
+        • muro (distancia efectiva, apertura, espesor),<br>
+        • outer (tamaño exterior auto),<br>
+        • sceneScale (escala del contenido).
+      </div>
+    </div>`;
+  document.body.appendChild($root);
+
+  // ── Wire-up de botones ───────────────────────────────────────
+  const $wallMinus = $root.querySelector('#wwWallMinus');
+  const $wallPlus  = $root.querySelector('#wwWallPlus');
+  const $camMinus  = $root.querySelector('#wwCamMinus');
+  const $camPlus   = $root.querySelector('#wwCamPlus');
+  const $scnMinus  = $root.querySelector('#wwScnMinus');
+  const $scnPlus   = $root.querySelector('#wwScnPlus');
+
+  $wallMinus.onclick = ()=>{ const cur = window.WW? window.WW._distScale : 1; window.WW?.setDistanceScale(cur/STEP); updateInfo(); };
+  $wallPlus .onclick = ()=>{ const cur = window.WW? window.WW._distScale : 1; window.WW?.setDistanceScale(cur*STEP); updateInfo(); };
+
+  $camMinus.onclick  = ()=>{ window.setCameraGlobalScale(window.getCameraGlobalScale()/STEP); updateInfo(); };
+  $camPlus .onclick  = ()=>{ window.setCameraGlobalScale(window.getCameraGlobalScale()*STEP); updateInfo(); };
+
+  $scnMinus.onclick  = ()=>{ const eng = activeEngineId(); setSceneScaleFor(eng, getSceneScaleFor(eng)/STEP); updateInfo(); };
+  $scnPlus .onclick  = ()=>{ const eng = activeEngineId(); setSceneScaleFor(eng, getSceneScaleFor(eng)*STEP); updateInfo(); };
+
+  // ── Info en vivo ─────────────────────────────────────────────
+  function fmt(n){ return (Math.round(n*100)/100).toFixed(2); }
+  function vec(v){ return `${fmt(v.x)}, ${fmt(v.y)}, ${fmt(v.z)}`; }
+
+  function updateInfo(){
+    try{
+      const eng = activeEngineId();
+      const info = window.WW?.activeInfo?.() || null;
+      const camPos = camera.position.clone();
+      const fov    = camera.fov;
+      const tgt    = (window.controls && controls.target) ? controls.target.clone() : new THREE.Vector3();
+
+      const lines = [];
+      lines.push(`engine: ${eng}`);
+      lines.push(`cam.pos: [${vec(camPos)}]`);
+      lines.push(`cam.target: [${vec(tgt)}]`);
+      lines.push(`cam.fov: ${fmt(fov)}°`);
+      lines.push(`CAM scale: ${fmt(window.getCameraGlobalScale())}`);
+
+      if (info){
+        lines.push(`wall.distEff: ${fmt(info.distance)}  (thk: ${fmt(info.thickness)}  open: ${fmt(info.open)}  outer: ${fmt(info.outer)})`);
+        lines.push(`WALL scale: ${fmt(window.WW._distScale)}`);
+      }else{
+        lines.push(`wall: (no info)`);
+      }
+
+      const s = getSceneScaleFor(eng);
+      lines.push(`sceneScale(${eng}): ${fmt(s)}`);
+      if (!_sceneRoots.get(eng)) lines.push(`sceneRoot: (no registrado) usa registerEngineRoot('${eng}', root)`);
+
+      $root.querySelector('#wwInfo').textContent = lines.join('\n');
+    }catch(err){
+      $root.querySelector('#wwInfo').textContent = 'error: '+err.message;
+    }
+  }
+
+  // refresca cada frame (suave) y también tras re-aplicar vistas
+  function loop(){ updateInfo(); requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+
+  // Integra la info extra de activeInfo(): open y outer del muro
+  // (Añadimos si aún no lo expone el módulo de pared)
+  if (window.WW && !window.WW.__extendedInfo){
+    const _old = window.WW.activeInfo;
+    if (typeof _old === 'function'){
+      window.WW.activeInfo = function(){
+        const base = _old.call(window.WW);
+        if (!base) return base;
+        try{
+          // buscamos el grupo activo para recuperar outer/open
+          const walls = (window.WW && window.WW.SPECS) ? window.WW.SPECS : null;
+          const eng = activeEngineId();
+          const spec = walls ? walls[eng] : null;
+          base.open  = spec ? spec.open : 50;
+          base.outer = spec ? (spec.wall || base.distance*2) : base.distance*2;
+        }catch(_){ }
+        return base;
+      };
+      window.WW.__extendedInfo = true;
+    }
+  }
+
+  // Recalcula info tras cada cambio de motor (si el VM expone __applyFor)
+  setTimeout(updateInfo,0);
+})();
+
 </script>
 
 </body>
