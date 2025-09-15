@@ -6709,6 +6709,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
          * - Base de cámara determinista y zoom por motor (ZOOM)
          * - Debounce real + lock de re-entrada ⇒ 1 sola aplicación final
          * - API para UI: wwTune(kind, factor) + WW_UI.mulWall/mulCam/mulScene
+         * - Escena 4 (Pattern 4): zoom extra ×1.20 en LCHT, RAUM, R5NOVA, GRVTY
+         * - WWTUNING solo visible fuera de Minimal UI
          * ───────────────────────────────────────────────────────────── */
         (function WW_PROFILES_SINGLE(){
           if (window.__WW_PROFILES_READY) return;     // guardia anti-doble carga
@@ -6758,6 +6760,16 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             '13245':1.22, KEPLR:0.92, RAPHI:0.92, GRVTY:1.30, R5NOVA:1.30
           };
 
+          // —— zoom adicional para “escena 4” (Pattern 4) en motores indicados ——
+          const ZOOM_SCENE4_EXTRA = 1.20;
+          function zoomFor(key){
+            let f = ZOOM[key] ?? 1.0;
+            if (window.activePatternId === 4 && (key==='LCHT' || key==='RAUM' || key==='R5NOVA' || key==='GRVTY')){
+              f *= ZOOM_SCENE4_EXTRA;   // zoom hacia atrás en escena 4
+            }
+            return f;
+          }
+
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
           function alignShellToBackPlane(obj){
             if (!obj) return;
@@ -6799,7 +6811,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             WW.setDistance(key, DIST[key] ?? 60); // distancia exacta
 
             setBaseCamera(key);                   // base determinista
-            applyZoomFromTarget(ZOOM[key] ?? 1.0);
+            applyZoomFromTarget( zoomFor(key) );  // zoom (con escena 4 si aplica)
 
             try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
             try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
@@ -6893,6 +6905,29 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
              const el = document.getElementById(id);
              if (el) el.onclick = ()=>{ id.startsWith('ww_wall')?mulWall(f):id.startsWith('ww_cam')?mulCam(f):mulScene(f); };
           });
+
+          // —— WWTUNING visible solo fuera de Minimal UI ——
+          function __ww_setTuningVisible(show){
+            ['ww_wall_m','ww_wall_p','ww_cam_m','ww_cam_p','ww_scn_m','ww_scn_p'].forEach(id=>{
+              const el = document.getElementById(id);
+              if (el) el.style.display = show ? '' : 'none';
+            });
+          }
+          (function(){
+            const orig = window.toggleTexts;
+            if (typeof orig === 'function' && !orig.__wwWrap){
+              window.toggleTexts = function(){
+                const out = orig.apply(this, arguments);
+                const show = (typeof window.textsVisible !== 'undefined') ? !!window.textsVisible : true;
+                __ww_setTuningVisible(show);
+                return out;
+              };
+              window.toggleTexts.__wwWrap = true;
+            }
+            // aplicar estado inicial
+            const show0 = (typeof window.textsVisible !== 'undefined') ? !!window.textsVisible : true;
+            __ww_setTuningVisible(show0);
+          })();
 
           // arranque (una sola aplicación, sin saltos)
           scheduleApply();
