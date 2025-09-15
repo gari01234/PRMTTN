@@ -6709,8 +6709,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
          * - Base de cámara determinista y zoom por motor (ZOOM)
          * - Debounce real + lock de re-entrada ⇒ 1 sola aplicación final
          * - API para UI: wwTune(kind, factor) + WW_UI.mulWall/mulCam/mulScene
-         * - Escena 4 (Pattern 4): ahora ACERCA la cámara (×0.8333) en LCHT, RAUM, R5NOVA, GRVTY
-         * - WWTUNING solo visible fuera de Minimal UI
          * ───────────────────────────────────────────────────────────── */
         (function WW_PROFILES_SINGLE(){
           if (window.__WW_PROFILES_READY) return;     // guardia anti-doble carga
@@ -6760,17 +6758,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             '13245':1.22, KEPLR:0.92, RAPHI:0.92, GRVTY:1.30, R5NOVA:1.30
           };
 
-          // —— zoom adicional para “escena 4” (Pattern 4) en motores indicados ——
-          //     AHORA ACERCA (×0.8333333333333334), antes alejaba (×1.20).
-          const ZOOM_SCENE4_EXTRA = 0.8333333333333334;
-          function zoomFor(key){
-            let f = ZOOM[key] ?? 1.0;
-            if (window.activePatternId === 4 && (key==='LCHT' || key==='RAUM' || key==='R5NOVA' || key==='GRVTY')){
-              f *= ZOOM_SCENE4_EXTRA;   // ACERCA en escena 4
-            }
-            return f;
-          }
-
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
           function alignShellToBackPlane(obj){
             if (!obj) return;
@@ -6812,7 +6799,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             WW.setDistance(key, DIST[key] ?? 60); // distancia exacta
 
             setBaseCamera(key);                   // base determinista
-            applyZoomFromTarget( zoomFor(key) );  // zoom (con escena 4 si aplica)
+            applyZoomFromTarget(ZOOM[key] ?? 1.0);
 
             try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
             try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
@@ -6906,35 +6893,6 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
              const el = document.getElementById(id);
              if (el) el.onclick = ()=>{ id.startsWith('ww_wall')?mulWall(f):id.startsWith('ww_cam')?mulCam(f):mulScene(f); };
           });
-
-          // —— WWTUNING visible solo fuera de Minimal UI ——
-          function __ww_setTuningVisible(show){
-            // Forzamos display explícito para evitar estilos heredados
-            ['ww_wall_m','ww_wall_p','ww_cam_m','ww_cam_p','ww_scn_m','ww_scn_p'].forEach(id=>{
-              const el = document.getElementById(id);
-              if (el){
-                el.style.display = show ? 'inline-block' : 'none';
-                el.style.pointerEvents = show ? 'auto' : 'none';
-              }
-            });
-          }
-          (function(){
-            // Enganche a toggleTexts (botón “Minimal UI”)
-            const orig = window.toggleTexts;
-            if (typeof orig === 'function' && !orig.__wwWrap){
-              window.toggleTexts = function(){
-                const out = orig.apply(this, arguments);
-                // Si textsVisible === true → UI completa; false → Minimal UI
-                const show = (typeof window.textsVisible !== 'undefined') ? !!window.textsVisible : true;
-                __ww_setTuningVisible(show);
-                return out;
-              };
-              window.toggleTexts.__wwWrap = true;
-            }
-            // Aplicar estado inicial (ocultar si ya estamos en Minimal UI)
-            const show0 = (typeof window.textsVisible !== 'undefined') ? !!window.textsVisible : true;
-            __ww_setTuningVisible(show0);
-          })();
 
           // arranque (una sola aplicación, sin saltos)
           scheduleApply();
