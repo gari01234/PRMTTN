@@ -6532,9 +6532,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
        * - Apertura fija: 50×50 cm
        * - Espesor: 12 cm
        * - Distancia desde cámara: 60 cm
-       * - Tamaño exterior (outer): 200 cm  ← 2× del que veníamos usando
+       * - Tamaño exterior (outer): 200 cm
        * - Cada motor tiene su propia pared y se activa/oculta al cambiar
-       * - Sin doble montaje (no hay install/update globales)
+       * - Sin doble montaje: **NO** activamos pared al cargar (lo hará WW_PROFILES)
        * ───────────────────────────────────────────────────────────── */
       (function WhiteWallMulti(){
         const WALL_LAYER = 7;
@@ -6699,15 +6699,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           }
         };
 
-        // activar el actual al inicio (una sola vez, sin hooks aquí)
-        setActive(engineId());
+        // **Importante**: NO activamos ninguna pared aquí.
+        // WW_PROFILES_SINGLE será quien haga WW.show() con debounce único.
       })();
 
         /* ──────────────────────────────────────────────────────────────
          * WW_PROFILES · Gestor ÚNICO (sin duplicados, sin rebuild hooks)
          * - Pared por motor: outer=200, distancia por motor (DIST)
          * - Base de cámara determinista y zoom por motor (ZOOM)
-         * - Debounce real (cancela previos), aplica 1 sola vez al final
+         * - Debounce real + lock de re-entrada ⇒ 1 sola aplicación final
          * - API para UI: wwTune(kind, factor) + WW_UI.mulWall/mulCam/mulScene
          * ───────────────────────────────────────────────────────────── */
         (function WW_PROFILES_SINGLE(){
@@ -6822,6 +6822,14 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             });
           }
 
+          // —— Lock de re-entrada para evitar “doble/triple” schedule ——
+          let __ww_sched_lock = 0;
+          const LOCKED_WRAPPERS = new Set([
+            'applyEngineFromSelect','cycleEngine',
+            'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
+            'ensureOnlyGRVTY','ensureOnlyR5NOVA'
+          ]);
+
           // SOLO hooks de cambio de motor (NO rebuilds genéricos)
           const HOOKS = [
             'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
@@ -6832,11 +6840,25 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           HOOKS.forEach(name=>{
             const orig = window[name];
             if (typeof orig === 'function' && !orig.__wwProfile){
-              window[name] = function(){
-                const out = orig.apply(this, arguments);
-                scheduleApply();
-                return out;
-              };
+              if (LOCKED_WRAPPERS.has(name)){
+                // Envoltorio “externo”: agrupa todas las llamadas internas (toggles, etc.)
+                window[name] = function(){
+                  __ww_sched_lock++;
+                  try{
+                    return orig.apply(this, arguments);
+                  } finally {
+                    __ww_sched_lock--;
+                    if (__ww_sched_lock === 0) scheduleApply();
+                  }
+                };
+              } else {
+                // Envoltorio “interno”: solo agenda si no estamos dentro de un cambio compuesto
+                window[name] = function(){
+                  const out = orig.apply(this, arguments);
+                  if (__ww_sched_lock === 0) scheduleApply();
+                  return out;
+                };
+              }
               window[name].__wwProfile = true;
             }
           });
