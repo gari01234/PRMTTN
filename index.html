@@ -6682,12 +6682,21 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           rafId = requestAnimationFrame(tick);
         })();
 
-        // API pública mínima (por si quieres ajustar alguno puntualmente)
+        // API pública (ampliada)
         window.WW = {
           ensure, setActive,
           setDistance(engine, d){ ensure(engine).setDistance(d); },
           setOuter(engine, o){ ensure(engine).setOuter(o); },
-          get(engine){ return ensure(engine); }
+          get(engine){ return ensure(engine); },
+          show(engine){ setActive(engine); },             // alias cómodo
+          activeEngine(){ return engineId(); },           // id del motor activo
+          activeInfo(){                                   // datos geom. del hueco
+            if (!active) return null;
+            const d = active.params.distance, t = active.params.thickness;
+            const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+            const backCenter = camera.position.clone().add(dir.clone().multiplyScalar(-(d+t)));
+            return { dir, backCenter, distance:d, thickness:t };
+          }
         };
 
         // activar el actual al inicio
@@ -6716,15 +6725,15 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         ].forEach(hook);
       })();
 
-      /* ──────────────────────────────────────────────────────────────
-       * WW · Engine fine-tuning EXACTO según tus imágenes
-       *  - outer = 200 en todos (ya lo hace WhiteWallMulti)
-       *  - distance por motor (cm) y zoom de cámara por motor
-       *  - autoalineado de shells TMSL / R5NOVA al plano trasero del hueco
+      /* ─────────────────────────────────────────────────────────────-
+       * WW_PROFILES · Un único gestor (sin duplicados)
+       *  - outer=200 en todos (pared 2×)
+       *  - distance y zoom por motor (tal como en tus imágenes)
+       *  - alinea las “paredes laterales” de TMSL y R5NOVA al plano trasero
+       *  - usa un debounce por RAF → no hay doble aplicación al refrescar
        * ───────────────────────────────────────────────────────────── */
-      (function WW_ExactTuning(){
-
-        // --- utilidades de cámara/zoom ---
+      (function WW_PROFILES_SINGLE(){
+        // ---------- utilidades ----------
         const TMP = new THREE.Vector3();
         function hasControls(){ return (typeof controls !== 'undefined' && controls && controls.target); }
         function applyZoomFromTarget(factor){
@@ -6734,18 +6743,76 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           camera.updateProjectionMatrix();
           controls.update();
         }
-
-        // --- plano trasero del hueco, usando la pared ACTIVA del manager ---
-        function backPlaneOfActive(){
-          const act = WW.get( engineId() );
-          if (!act) return null;
-          const d = act.params.distance;
-          const t = act.params.thickness;
-          const n = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize(); // hacia delante
-          const p0 = camera.position.clone().add( n.clone().multiplyScalar(-(d+t)) );
-          return {n, p0};
+        function engineId(){
+          if (window.isGRVTY)  return 'GRVTY';
+          if (window.isR5NOVA) return 'R5NOVA';
+          if (window.isRAPHI)  return 'RAPHI';
+          if (window.isKEPLR)  return 'KEPLR';
+          if (window.is13245)  return '13245';
+          if (window.isRAUM)   return 'RAUM';
+          if (window.isTMSL)   return 'TMSL';
+          if (window.isOFFNNG) return 'OFFNNG';
+          if (window.isLCHT)   return 'LCHT';
+          if (window.isFRBN)   return 'FRBN';
+          return 'BUILD';
         }
-        function projRangeAlong(obj, n){
+
+        // ---------- perfiles EXACTOS ----------
+        // Distancias (cm) desde cámara a cara exterior del muro:
+        const DIST = {
+          BUILD: 60,
+          FRBN : 60,
+          LCHT : 80,   // atrás
+          OFFNNG: 55,  // un poco delante
+          TMSL:  68,   // atrás
+          RAUM:  70,   // atrás
+          '13245': 72, // atrás
+          KEPLR: 55,   // delante
+          RAPHI: 55,   // delante
+          GRVTY: 62,   // centrado
+          R5NOVA: 60
+        };
+        // Zoom relativo a la vista del motor: (<1 acerca, >1 aleja)
+        const ZOOM = {
+          BUILD: 1.00,
+          FRBN : 1.00,
+          LCHT : 1.30,
+          OFFNNG: 0.92,
+          TMSL:  1.15,
+          RAUM:  1.25,
+          '13245':1.22,
+          KEPLR: 0.92,
+          RAPHI: 0.92,
+          GRVTY: 1.05,
+          R5NOVA:1.00
+        };
+
+        // Guardamos la vista “base” por motor para que el zoom sea determinista
+        const BASE = Object.create(null);
+        function captureBaseIfNeeded(id){
+          if (BASE[id]) return;
+          BASE[id] = {
+            pos: camera.position.clone(),
+            quat: camera.quaternion.clone(),
+            fov: camera.fov,
+            target: hasControls() ? controls.target.clone() : new THREE.Vector3()
+          };
+        }
+        function restoreBase(id){
+          const v = BASE[id]; if (!v) return;
+          camera.position.copy(v.pos);
+          camera.quaternion.copy(v.quat);
+          camera.fov = v.fov; camera.updateProjectionMatrix();
+          if (hasControls()){ controls.target.copy(v.target); controls.update(); }
+        }
+
+        // Alineación de “shells” al plano trasero del hueco
+        function alignShellToBackPlane(obj){
+          if (!obj) return;
+          const info = window.WW && window.WW.activeInfo && window.WW.activeInfo();
+          if (!info) return;
+          const n = info.dir.clone(); // normal hacia delante
+          const s0 = n.dot(info.backCenter);
           obj.updateMatrixWorld(true);
           const box = new THREE.Box3().setFromObject(obj);
           const pts = [
@@ -6758,290 +6825,65 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             new THREE.Vector3(box.max.x, box.max.y, box.min.z),
             new THREE.Vector3(box.max.x, box.max.y, box.max.z),
           ];
-          let min= Infinity, max=-Infinity;
-          for (let p of pts){
-            p.applyMatrix4(obj.matrixWorld);
-            const s = n.dot(p);
-            if (s<min) min=s;
-            if (s>max) max=s;
+          let max = -Infinity;
+          for (let p of pts){ p.applyMatrix4(obj.matrixWorld); const s = n.dot(p); if (s>max) max=s; }
+          const EPS = 0.5;                         // 5 mm de holgura
+          const delta = (s0 - EPS) - max;          // queremos max = s0 - EPS
+          if (Math.abs(delta) > 1e-6){
+            obj.position.add(n.multiplyScalar(delta));
+            obj.updateMatrixWorld(true);
           }
-          return {min,max};
-        }
-        function alignToBackPlane(obj){
-          if (!obj) return;
-          const bp = backPlaneOfActive(); if (!bp) return;
-          const {n,p0} = bp;
-          const s0 = n.dot(p0);
-          const {max} = projRangeAlong(obj, n); // punto más cercano a cámara
-          const EPS = 0.5;                      // 5 mm holgura
-          const delta = (s0 - EPS) - max;       // queremos max = s0 - EPS
-          obj.position.add(n.clone().multiplyScalar(delta));
-          obj.updateMatrixWorld(true);
         }
 
-        // --- presets EXACTOS (distancias y zooms) ---
-        //   Distancias (cm): según tus capturas/anotaciones
-        //   Zoom: <1 acerca, >1 aleja (respecto a la vista base del motor)
-        const DIST = {
-          BUILD: 60,
-          FRBN : 60,
-          LCHT : 80,   // más atrás
-          OFFNNG: 55,  // un poco hacia delante
-          TMSL:  68,   // atrás
-          RAUM:  70,   // atrás
-          '13245': 72, // atrás
-          KEPLR: 55,   // hacia delante
-          RAPHI: 55,   // hacia delante
-          GRVTY: 62,   // centrado sin asomar ni quedar lejos
-          R5NOVA: 60
-        };
-
-        const ZOOM = {
-          BUILD: 1.00,
-          FRBN : 1.00,
-          LCHT : 1.30,  // alejar (se vea más pequeña como en tu imagen)
-          OFFNNG: 0.92, // acercar ligeramente
-          TMSL:  1.15,  // alejar
-          RAUM:  1.25,  // alejar
-          '13245':1.22, // alejar
-          KEPLR: 0.92,  // acercar
-          RAPHI: 0.92,  // acercar
-          GRVTY: 1.05,  // leve alejar
-          R5NOVA:1.05
-        };
-
-        // --- almacén de vistas base por motor (para que el zoom sea determinista) ---
-        const VIEWS = Object.create(null);
-        function captureIfFirst(id){
-          if (VIEWS[id]) return;
-          VIEWS[id] = {
-            pos: camera.position.clone(),
-            quat: camera.quaternion.clone(),
-            fov: camera.fov,
-            target: hasControls() ? controls.target.clone() : new THREE.Vector3()
-          };
-        }
-        function restoreBase(id){
-          const v = VIEWS[id]; if (!v) return;
-          camera.position.copy(v.pos);
-          camera.quaternion.copy(v.quat);
-          camera.fov = v.fov; camera.updateProjectionMatrix();
-          if (hasControls()){ controls.target.copy(v.target); controls.update(); }
-        }
-
-        // --- motor activo (mismo helper que en el manager) ---
-        function engineId(){
-          if (window.isGRVTY)  return 'GRVTY';
-          if (window.isR5NOVA) return 'R5NOVA';
-          if (window.isRAPHI)  return 'RAPHI';
-          if (window.isKEPLR)  return 'KEPLR';
-          if (window.is13245)  return '13245';
-          if (window.isRAUM)   return 'RAUM';
-          if (window.isTMSL)   return 'TMSL';
-          if (window.isOFFNNG) return 'OFFNNG';
-          if (window.isLCHT)   return 'LCHT';
-          if (window.isFRBN)   return 'FRBN';
-          return 'BUILD';
-        }
-
-        // --- aplicar preset del motor (pared + zoom + alineación de shells) ---
-        function applyExactFor(id){
+        // Aplicación del perfil del motor (pared + zoom + alineación)
+        function applyFor(id){
           const key = id || engineId();
 
-          // 1) asegurar pared de ese motor y fijar distance exacta
-          WW.setActive(key);
-          const d = DIST[key] ?? 60;
-          WW.setDistance(key, d);
-          WW.setOuter(key, 200); // outer doble en todos (por si alguien lo cambió)
+          // 1) activar/mostrar la pared del motor y fijar parámetros exactos
+          WW.show(key);
+          WW.setOuter(key, 200);                  // pared doble en todos
+          WW.setDistance(key, DIST[key] ?? 60);   // distancia exacta
 
-          // 2) capturar vista base la primera vez y restaurarla siempre
-          captureIfFirst(key);
+          // 2) vista base + zoom del motor
+          captureBaseIfNeeded(key);
           restoreBase(key);
+          applyZoomFromTarget(ZOOM[key] ?? 1.0);
 
-          // 3) aplicar zoom exacto
-          const z = ZOOM[key] ?? 1.0;
-          applyZoomFromTarget(z);
-
-          // 4) alinear shells decorativos (si existen) al plano trasero del hueco
-          try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignToBackPlane(window.__tmslDecorGroup); }catch(_){ }
-          try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignToBackPlane(window.groupR5NOVA); }catch(_){ }
+          // 3) shells
+          try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
+          try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
         }
 
-        // --- enganchar a cambios de motor / rebuilds ---
-        function hook(name){
-          const orig = window[name];
-          if (typeof orig === 'function' && !orig.__wwExact){
-            window[name] = function(){
-              const out = orig.apply(this, arguments);
-              setTimeout(()=>applyExactFor(engineId()), 0);
-              requestAnimationFrame(()=>applyExactFor(engineId()));
-              return out;
-            };
-            window[name].__wwExact = true;
-          }
+        // ---------- enganches SIN duplicados (debounce por RAF) ----------
+        let pending = false;
+        function scheduleApply(id){
+          if (pending) return;
+          pending = true;
+          requestAnimationFrame(()=>{ pending = false; applyFor(id || engineId()); });
         }
-        [
+
+        const HOOKS = [
           'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
           'toggle13245','toggleKEPLR','toggleRAPHI','toggleGRVTY','toggleR5NOVA',
           'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
           'ensureOnlyGRVTY','ensureOnlyR5NOVA','applyEngineFromSelect','cycleEngine',
           'rebuildTMSLIfActive','rebuildR5NOVAIfActive','rebuildGRVTYIfActive',
           'refreshAll','buildUniverse','buildScene','rebuildUniverse'
-        ].forEach(hook);
-
-        // aplicar al arranque
-        setTimeout(()=>applyExactFor(engineId()), 0);
-        requestAnimationFrame(()=>applyExactFor(engineId()));
-      })();
-
-      /* ──────────────────────────────────────────────────────────────
-       * VIEW MANAGER · per-engine + zoom global BACK×2
-       *  Aplica dos “zooms” hacia atrás a la cámara en todos los motores.
-       * ───────────────────────────────────────────────────────────── */
-      (function(){
-        const TMP_V = new THREE.Vector3();
-        function hasControls(){ return (typeof controls !== 'undefined' && controls && controls.target); }
-
-        function applyBaseView(){
-          try{
-            camera.up.set(0,1,0);
-            if (hasControls()) controls.target.set(0,0,0);
-            camera.fov = 34;
-            camera.near = 0.1;
-            camera.far  = 4000;
-            camera.position.set(0,0,84);
-            camera.updateProjectionMatrix();
-            controls?.update?.();
-          }catch(_){ }
-        }
-
-        function engineId(){
-          if (window.isGRVTY)  return 'GRVTY';
-          if (window.isR5NOVA) return 'R5NOVA';
-          if (window.isRAPHI)  return 'RAPHI';
-          if (window.isKEPLR)  return 'KEPLR';
-          if (window.is13245)  return '13245';
-          if (window.isRAUM)   return 'RAUM';
-          if (window.isTMSL)   return 'TMSL';
-          if (window.isOFFNNG) return 'OFFNNG';
-          if (window.isLCHT)   return 'LCHT';
-          if (window.isFRBN)   return 'FRBN';
-          return 'BUILD';
-        }
-
-        // tamaño del “paso” y factores por motor
-        const STEP = 1.25;
-        const GLOBAL_BACK2 = 1.5625; // ← dos “zooms” hacia atrás para todos
-        const ZOOM = {
-          LCHT  : STEP*STEP,   // sigue aplicando su ajuste propio
-          RAUM  : STEP*STEP,
-          TMSL  : STEP,
-          OFFNNG: 1/STEP,
-          KEPLR : 1/STEP,
-          RAPHI : 1/STEP
-        };
-
-        function applyZoomFromTarget(factor){
-          if (!hasControls()) return;
-          const dir = TMP_V.copy(camera.position).sub(controls.target);
-          camera.position.copy(controls.target).add(dir.multiplyScalar(factor));
-          camera.updateProjectionMatrix();
-          controls.update();
-        }
-
-        function alignShellsIfAny(){
-          const info = window.WW?.activeInfo?.();
-          if (!info) return;
-          const n  = info.dir.clone();
-          const s0 = n.dot(info.backCenter);
-          const EPS = 0.10;
-
-          function pushBehind(obj){
-            if (!obj) return;
-            obj.updateMatrixWorld(true);
-            const box = new THREE.Box3().setFromObject(obj);
-            const pts = [
-              new THREE.Vector3(box.min.x, box.min.y, box.min.z),
-              new THREE.Vector3(box.min.x, box.min.y, box.max.z),
-              new THREE.Vector3(box.min.x, box.max.y, box.min.z),
-              new THREE.Vector3(box.min.x, box.max.y, box.max.z),
-              new THREE.Vector3(box.max.x, box.min.y, box.min.z),
-              new THREE.Vector3(box.max.x, box.min.y, box.max.z),
-              new THREE.Vector3(box.max.x, box.max.y, box.min.z),
-              new THREE.Vector3(box.max.x, box.max.y, box.max.z),
-            ];
-            let max = -Infinity;
-            for (let p of pts){ p.applyMatrix4(obj.matrixWorld); const s = n.dot(p); if (s>max) max=s; }
-            const delta = (s0 - EPS) - max;
-            if (delta !== 0){ obj.position.add(n.clone().multiplyScalar(delta)); obj.updateMatrixWorld(true); }
-          }
-
-          try{ if (window.isTMSL   && window.__tmslDecorGroup) pushBehind(window.__tmslDecorGroup); }catch(_){ }
-          try{ if (window.isR5NOVA && window.groupR5NOVA)      pushBehind(window.groupR5NOVA);      }catch(_){ }
-        }
-
-        function applyFor(engine){
-          // muestra la pared del motor
-          window.WW?.show?.(engine);
-
-          // vista base + zooms (global * por motor)
-          applyBaseView();
-          const f = (ZOOM[engine] || 1.0) * GLOBAL_BACK2;
-          applyZoomFromTarget(f);
-
-          // 3) ajustes específicos (ejemplo GRVTY)
-          if (engine === 'GRVTY'){
-            try{
-              camera.fov = 20;
-              camera.updateProjectionMatrix();
-              if (hasControls()) controls.target.set(0,6,0);
-              camera.position.set(0,8,190);
-              controls?.update?.();
-              if (window.groupGRVTY){ groupGRVTY.scale.set(0.86,1.0,0.86); groupGRVTY.updateMatrixWorld(true); }
-            }catch(_){ }
-          }
-
-          alignShellsIfAny();
-        }
-
-        function hook(name, engine){
+        ];
+        HOOKS.forEach(name=>{
           const orig = window[name];
-          if (typeof orig !== 'function' || orig.__view_hooked) return;
-          window[name] = function(){
-            const out = orig.apply(this, arguments);
-            setTimeout(()=>applyFor(engine), 0);
-            requestAnimationFrame(()=>applyFor(engine));
-            return out;
-          };
-          window[name].__view_hooked = true;
-        }
-
-        const MAP = {
-          toggleFRBN:'FRBN', toggleLCHT:'LCHT', toggleOFFNNG:'OFFNNG',
-          toggleTMSL:'TMSL', toggleRAUM:'RAUM', toggle13245:'13245',
-          toggleKEPLR:'KEPLR', toggleRAPHI:'RAPHI', toggleGRVTY:'GRVTY',
-          toggleR5NOVA:'R5NOVA',
-          ensureOnlyFRBN:'FRBN', ensureOnlyLCHT:'LCHT', ensureOnlyOFFNNG:'OFFNNG',
-          ensureOnlyTMSL:'TMSL', ensureOnlyGRVTY:'GRVTY', ensureOnlyR5NOVA:'R5NOVA'
-        };
-        Object.keys(MAP).forEach(fn=>hook(fn, MAP[fn]));
-
-        ['rebuildTMSLIfActive','rebuildR5NOVAIfActive','rebuildGRVTYIfActive','refreshAll','buildUniverse','buildScene','rebuildUniverse'].forEach(name=>{
-          const orig = window[name];
-          if (typeof orig === 'function' && !orig.__view_hooked2){
+          if (typeof orig === 'function' && !orig.__wwSingle){
             window[name] = function(){
               const out = orig.apply(this, arguments);
-              const eng = (window.WW && engineId()) || 'BUILD';
-              setTimeout(()=>applyFor(eng), 0);
-              requestAnimationFrame(()=>applyFor(eng));
+              scheduleApply();
               return out;
             };
-            window[name].__view_hooked2 = true;
+            window[name].__wwSingle = true;
           }
         });
 
-        setTimeout(()=>applyFor(engineId()), 0);
-        requestAnimationFrame(()=>applyFor(engineId()));
+        // arranque (una sola vez)
+        scheduleApply();
       })();
 
 
