@@ -1055,6 +1055,25 @@ function initSkySphere() {
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
 
+        // ——— Cámara tipo BUILD ———
+        camera.up.set(0,1,0);
+        camera.near = 0.1;
+        camera.far  = 4000;
+        camera.fov  = 34;                 // FOV de BUILD
+        camera.updateProjectionMatrix();
+
+        if (controls && controls.target) controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, 84);    // posición de BUILD
+
+        controls.enabled            = true;
+        controls.enableRotate       = true;
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+
       } else {                            // ——— SALIR ———
         skySphere.visible        = false;
         cubeUniverse.visible     = true;
@@ -1295,7 +1314,16 @@ function buildLCHT() {
         cubeUniverse.visible      = false;
         permutationGroup.visible  = false;
 
-        // Controles: ORBIT LIBRE en LCHT
+        // ——— Cámara tipo BUILD ———
+        camera.up.set(0,1,0);
+        camera.near = 0.1;
+        camera.far  = 4000;
+        camera.fov  = 34;                 // FOV de BUILD
+        camera.updateProjectionMatrix();
+
+        if (controls && controls.target) controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, 84);    // posición de BUILD
+
         controls.enabled            = true;
         controls.enableRotate       = true;
         controls.enablePan          = true;
@@ -3848,6 +3876,25 @@ void main(){
 
       syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
 
+      // ——— Cámara tipo BUILD ———
+      camera.up.set(0,1,0);
+      camera.near = 0.1;
+      camera.far  = 4000;
+      camera.fov  = 34;                 // FOV de BUILD
+      camera.updateProjectionMatrix();
+
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);    // posición de BUILD
+
+      controls.enabled            = true;
+      controls.enableRotate       = true;
+      controls.enablePan          = true;
+      controls.enableZoom         = true;
+      controls.minPolarAngle      = 0;
+      controls.maxPolarAngle      = Math.PI;
+      controls.screenSpacePanning = false;
+      controls.update();
+
     } else {                           /* — SALIR — */
         if (offnngGroup) {
           offnngGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
@@ -4714,16 +4761,23 @@ void main(){
         leaveBuildRenderBoost();
         enterRaumRenderBoost();
 
-        // Controles: vista frontal fija con zoom permitido
-        controls.enabled      = true;
-        controls.enableRotate = false;
-        controls.enablePan    = false;
-        controls.enableZoom   = true;
-        controls.minDistance  = 25;
-        controls.maxDistance  = 140;
+        // ——— Cámara tipo BUILD ———
+        camera.up.set(0,1,0);
+        camera.near = 0.1;
+        camera.far  = 4000;
+        camera.fov  = 34;                 // FOV de BUILD
+        camera.updateProjectionMatrix();
 
-        camera.position.set(0, 0, RAUM_CAMERA_ZOOMED);
-        camera.lookAt(0,0,0);
+        if (controls && controls.target) controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, 84);    // posición de BUILD
+
+        controls.enabled            = true;
+        controls.enableRotate       = true;
+        controls.enablePan          = true;
+        controls.enableZoom         = true;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
         controls.update();
 
         buildRAUM();
@@ -4948,31 +5002,23 @@ void main(){
         enterRaumRenderBoost();
         build13245();
 
-        // — VISTA POR DEFECTO NIVELADA (verticales rectas)
+        // ——— Cámara tipo BUILD ———
         camera.up.set(0,1,0);
-        camera.fov = 55;
+        camera.near = 0.1;
+        camera.far  = 4000;
+        camera.fov  = 34;                 // FOV de BUILD
         camera.updateProjectionMatrix();
 
-        // 2× “scroll” hacia arriba (pan en Y) y 2× zoom-out en Z
-        const yOffset = 2 * PAN_STEP_Y_13245;   // 2 · 3  = +6
-        const zOffset = 2 * ZOOM_STEP_13245;    // 2 · 5  = +10
+        if (controls && controls.target) controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, 84);    // posición de BUILD
 
-        // Misma Y para cámara y target (mantiene verticales “gerade”)
-        camera.position.set(0, yOffset, 22 + zOffset); // antes: (0, 0, 22)
-        controls.target.set(0, yOffset, 0);            // antes: (0, 0, 0)
-
-        // Controles: yaw/pan/zoom permitidos; pitch bloqueado a 90°
         controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw (por el clamp polar)
+        controls.enableRotate       = true;
         controls.enablePan          = true;
         controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-
-        // Bloquea el pitch para mantener las verticales “gerade”
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
         controls.update();
 
         cubeUniverse.visible     = false;
@@ -5467,23 +5513,23 @@ void main(){
 
         buildKEPLR();
 
-        // Cámara nivelada, centrada (Minimal UI); yaw/pan/zoom permitidos
+        // ——— Cámara tipo BUILD ———
         camera.up.set(0,1,0);
-        camera.fov = 55;
+        camera.near = 0.1;
+        camera.far  = 4000;
+        camera.fov  = 34;                 // FOV de BUILD
         camera.updateProjectionMatrix();
 
         if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 42);
+        camera.position.set(0, 0, 84);    // posición de BUILD
 
         controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw
+        controls.enableRotate       = true;
         controls.enablePan          = true;
         controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
         controls.update();
 
         // Ocultar cubo/permutaciones para lectura “escultórica”
@@ -5851,23 +5897,23 @@ function toggleRAPHI(){
     window.isRAPHI = true;                 // redundante pero seguro
     window.groupRAPHI = groupRAPHI;        // refuerza la referencia global
 
-    // Cámara nivelada (verticales rectas), centrada (Minimal UI), yaw/pan/zoom ON
+    // ——— Cámara tipo BUILD ———
     camera.up.set(0,1,0);
-    camera.fov = 55;
+    camera.near = 0.1;
+    camera.far  = 4000;
+    camera.fov  = 34;                 // FOV de BUILD
     camera.updateProjectionMatrix();
 
     if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 42);
+    camera.position.set(0, 0, 84);    // posición de BUILD
 
     controls.enabled            = true;
-    controls.enableRotate       = true;   // solo yaw (por el clamp polar)
+    controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
-    controls.minDistance        = 10;
-    controls.maxDistance        = 200;
-    controls.screenSpacePanning = true;
-    controls.minPolarAngle      = Math.PI / 2;
-    controls.maxPolarAngle      = Math.PI / 2;
+    controls.minPolarAngle      = 0;
+    controls.maxPolarAngle      = Math.PI;
+    controls.screenSpacePanning = false;
     controls.update();
 
     // Ocultar otros grupos “escultóricos”
@@ -6344,22 +6390,23 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         buildR5NOVA();
 
+        // ——— Cámara tipo BUILD ———
         camera.up.set(0,1,0);
-        camera.fov = 55;
+        camera.near = 0.1;
+        camera.far  = 4000;
+        camera.fov  = 34;                 // FOV de BUILD
         camera.updateProjectionMatrix();
 
-        if (controls && controls.target) controls.target.set(0, 0, 0);  // ← target fijo
-        camera.position.set(0, 0, 42);                                  // ← cámara fija
+        if (controls && controls.target) controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, 84);    // posición de BUILD
 
         controls.enabled            = true;
         controls.enableRotate       = true;
         controls.enablePan          = true;
         controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-        controls.minPolarAngle      = Math.PI / 2;
-        controls.maxPolarAngle      = Math.PI / 2;
+        controls.minPolarAngle      = 0;
+        controls.maxPolarAngle      = Math.PI;
+        controls.screenSpacePanning = false;
         controls.update();
 
         try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
@@ -7373,14 +7420,13 @@ async function showPatternInfo(){
   window.applyTMSLSafeCamera = function(){
     try{
       camera.up.set(0,1,0);
-      camera.fov  = 40;   // ← más “normal” (menos gran angular)
       camera.near = 0.1;
-      camera.far  = 2000;
+      camera.far  = 4000;
+      camera.fov  = 34;                 // FOV de BUILD
       camera.updateProjectionMatrix();
 
       if (controls && controls.target) controls.target.set(0, 0, 0);
-      // distancia natural para ver la pared completa con margen
-      camera.position.set(0, 0, 56);
+      camera.position.set(0, 0, 84);    // posición de BUILD
 
       if (controls){
         controls.enabled = true;
@@ -7389,6 +7435,7 @@ async function showPatternInfo(){
         controls.enableZoom   = true;
         controls.minPolarAngle = 0;
         controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
         controls.update();
       }
     }catch(_){ }
@@ -8173,31 +8220,23 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // Cámara “horizonte” — AJUSTE: más cielo y sin color bajo la grilla
+    // ——— Cámara tipo BUILD ———
     camera.up.set(0,1,0);
-    camera.fov  = 16;      // un pelín más cerrado: empuja el horizonte y da más cielo
     camera.near = 0.1;
     camera.far  = 4000;
+    camera.fov  = 34;                 // FOV de BUILD
     camera.updateProjectionMatrix();
 
-    // Mira ligeramente por encima del plano para bajar la grilla en pantalla
-    if (controls && controls.target) controls.target.set(0, 6, 0);
-
-    // Coloca la cámara dentro del plano (z < GRVTY_D/2 = 240) para que el plano cubra el borde inferior
-    camera.position.set(0, 6, 160);
+    if (controls && controls.target) controls.target.set(0, 0, 0);
+    camera.position.set(0, 0, 84);    // posición de BUILD
 
     controls.enabled            = true;
     controls.enableRotate       = true;
     controls.enablePan          = true;
     controls.enableZoom         = true;
-    // No permitimos acercarse tanto como para “salirse” por delante del borde del plano
-    controls.minDistance        = 90;
-    controls.maxDistance        = 600;
-    controls.screenSpacePanning = true;
-
-    // Ángulo restringido: leve inclinación hacia arriba → más cielo, grilla abajo
-    controls.minPolarAngle      = Math.PI * 0.49;
-    controls.maxPolarAngle      = Math.PI * 0.525;
+    controls.minPolarAngle      = 0;
+    controls.maxPolarAngle      = Math.PI;
+    controls.screenSpacePanning = false;
 
     controls.update();
 
