@@ -6754,8 +6754,17 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
           };
           const ZOOM = {              // <1 acerca, >1 aleja (relativo a base)
-            BUILD:1.00, FRBN:1.00, LCHT:1.30, OFFNNG:0.92, TMSL:1.30, RAUM:1.50,
-            '13245':1.22, KEPLR:0.92, RAPHI:0.92, GRVTY:1.30, R5NOVA:1.30
+            BUILD: 1.25,              // antes 1.00  → 1 scroll hacia atrás
+            FRBN:  1.00,
+            LCHT:  2.539062,          // antes 1.30  → 3 scrolls hacia atrás
+            OFFNNG:0.92,
+            TMSL:  1.30,
+            RAUM:  2.929688,          // antes 1.50  → 3 scrolls hacia atrás
+            '13245': 2.978516,        // antes 1.22  → 4 scrolls hacia atrás
+            KEPLR: 0.92,
+            RAPHI: 0.92,
+            GRVTY: 3.173828,          // antes 1.30  → 4 scrolls hacia atrás
+            R5NOVA:1.30
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
@@ -8429,6 +8438,7 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
 
   // ── UI (DOM) ─────────────────────────────────────────────────
   function css(str){ const el = document.createElement('style'); el.textContent = str; document.head.appendChild(el); }
+  css(`body.minimal-ui .wwpanel, body.minimal .wwpanel, body[data-ui="minimal"] .wwpanel { display:none !important; }`);
   css(`
     .wwpanel{position:fixed; right:16px; top:16px; font-family:system-ui,Segoe UI,Roboto,Arial; z-index:999999;}
     .wwcard{background:#ffffffee; backdrop-filter:saturate(1.2) blur(4px); border:1px solid #ddd; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.12); padding:12px 14px; width:330px;}
@@ -8479,8 +8489,23 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         • outer (tamaño exterior auto),<br>
         • sceneScale (escala del contenido).
       </div>
-    </div>`;
+  </div>`;
   document.body.appendChild($root);
+
+  // Oculta si Minimal UI está activo en el momento de crear el panel
+  (function(){
+    try{
+      const isMin = !!(
+        window.MINIMAL_UI || window.minimalUI || window.isMinimalUI ||
+        (document.body && (
+          document.body.classList.contains('minimal') ||
+          document.body.classList.contains('minimal-ui') ||
+          document.body.dataset.ui === 'minimal'
+        ))
+      );
+      if (isMin) $root.style.display = 'none';
+    }catch(_){ }
+  })();
 
   // ── Wire-up de botones ───────────────────────────────────────
   const $wallMinus = $root.querySelector('#wwWallMinus');
