@@ -6751,192 +6751,141 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
       })();
 
         /* ──────────────────────────────────────────────────────────────
-         * WW_PROFILES · Gestor ÚNICO (sin duplicados, sin rebuild hooks)
-         * - Pared por motor: outer=200, distancia por motor (DIST)
-         * - Base de cámara determinista y zoom por motor (ZOOM)
-         * - Debounce real + lock de re-entrada ⇒ 1 sola aplicación final
-         * - API para UI: wwTune(kind, factor) + WW_UI.mulWall/mulCam/mulScene
+         * WW_PROFILES · Modo PASIVO (no toca cámara, sin auto-schedule)
+         * - Pared por motor: outer fijo (200 por defecto desde aquí), distancia por motor (DIST)
+         * - Sin envoltorios de hooks globales, sin debounce: se llama explícitamente
+         * - Expone: window.WW_applyFor(key)  ← úsalo al encender cada motor
          * ───────────────────────────────────────────────────────────── */
         (function WW_PROFILES_SINGLE(){
-          if (window.__WW_PROFILES_READY) return;     // guardia anti-doble carga
+          if (window.__WW_PROFILES_READY) return;
           window.__WW_PROFILES_READY = true;
 
-          // ---------- helpers ----------
-          const TMP = new THREE.Vector3();
-          function hasControls(){ return (typeof controls !== 'undefined' && controls && controls.target); }
-          function engineId(){
-            if (window.isGRVTY)  return 'GRVTY';
-            if (window.isR5NOVA) return 'R5NOVA';
-            if (window.isRAPHI)  return 'RAPHI';
-            if (window.isKEPLR)  return 'KEPLR';
-            if (window.is13245)  return '13245';
-            if (window.isRAUM)   return 'RAUM';
-            if (window.isTMSL)   return 'TMSL';
-            if (window.isOFFNNG) return 'OFFNNG';
-            if (window.isLCHT)   return 'LCHT';
-            if (window.isFRBN)   return 'FRBN';
-            return 'BUILD';
-          }
-          function applyZoomFromTarget(f){
-            if (!hasControls()) return;
-            const dir = TMP.copy(camera.position).sub(controls.target);
-            camera.position.copy(controls.target).add(dir.multiplyScalar(f));
-            camera.updateProjectionMatrix();
-            controls.update();
-          }
-          function setBaseCamera(id){
-            // NO-OP: la cámara queda a cargo de cada motor (toggleX/apply...).
-            // (Antes: fijaba up/target/fov/pos base y provocaba "doble montaje")
-          }
-
-          // ---------- perfiles EXACTOS ----------
-          const DIST = {              // distancia del muro (cm) por motor
+          // —— Distancias del muro por motor (no afecta cámara) ——
+          const DIST = {
             BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
             KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
-          };
-          const ZOOM = {
-            BUILD:1.00, FRBN:1.00, LCHT:1.00, OFFNNG:1.00, TMSL:1.00,
-            RAUM:1.00, '13245':1.00, KEPLR:1.00, RAPHI:1.00, GRVTY:1.00, R5NOVA:1.00
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
           function alignShellToBackPlane(obj){
-            if (!obj) return;
-            const info = window.WW?.activeInfo?.(); if (!info) return;
-            const n  = info.dir.clone();
-            const s0 = n.dot(info.backCenter);
-            obj.updateMatrixWorld(true);
-            const box = new THREE.Box3().setFromObject(obj);
-            const pts = [
-              new THREE.Vector3(box.min.x, box.min.y, box.min.z),
-              new THREE.Vector3(box.min.x, box.min.y, box.max.z),
-              new THREE.Vector3(box.min.x, box.max.y, box.min.z),
-              new THREE.Vector3(box.min.x, box.max.y, box.max.z),
-              new THREE.Vector3(box.max.x, box.min.y, box.min.z),
-              new THREE.Vector3(box.max.x, box.min.y, box.max.z),
-              new THREE.Vector3(box.max.x, box.max.y, box.min.z),
-              new THREE.Vector3(box.max.x, box.max.y, box.max.z),
-            ];
-            let max = -Infinity;
-            for (let p of pts){ p.applyMatrix4(obj.matrixWorld); const s = n.dot(p); if (s>max) max=s; }
-            const EPS = 0.5;
-            const delta = (s0 - EPS) - max;
-            if (Math.abs(delta) > 1e-6){
-              obj.position.add(n.multiplyScalar(delta));
+            try{
+              if (!obj || !window.WW || !window.WW.activeInfo) return;
+              const info = window.WW.activeInfo(); if (!info) return;
+              const n  = info.dir.clone();
+              const s0 = n.dot(info.backCenter);
               obj.updateMatrixWorld(true);
-            }
+              const box = new THREE.Box3().setFromObject(obj);
+              const pts = [
+                new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+                new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+                new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+                new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+                new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+                new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+                new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+                new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+              ];
+              let max = -Infinity;
+              for (let p of pts){ p.applyMatrix4(obj.matrixWorld); const s = n.dot(p); if (s>max) max=s; }
+              const EPS = 0.5;
+              const delta = (s0 - EPS) - max;
+              if (Math.abs(delta) > 1e-6){
+                obj.position.add(n.multiplyScalar(delta));
+                obj.updateMatrixWorld(true);
+              }
+            }catch(_){ }
           }
 
-          // Raíces de escena para “SCENE”
+          // —— Aplicación explícita: pared visible + distancia + alineación shells ——
+          function applyFor(key){
+            try{
+              if (!window.WW) return;
+              const id = key || (window.WW.activeEngine ? window.WW.activeEngine() : 'BUILD');
+              window.WW.show(id);
+              window.WW.setOuter(id, 200);
+              window.WW.setDistance(id, DIST[id] ?? 93);
+
+              // Ajustes de shells (NO cambia cámara)
+              try{ if (id==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
+              try{ if (id==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
+            }catch(_){ }
+          }
+
+          // API pública: los toggles llamarán esto cuando queden encendidos
+          window.WW_applyFor = applyFor;
+
+          // ——— UI opcional (WALL / CAM / SCENE): CAM se vuelve NO-OP para no tocar cámara ———
           const ROOTS = Object.create(null);
           window.registerEngineRoot = function(id, root){ ROOTS[id] = root; };
 
-          // Aplicar perfil (pared + base + zoom + shells)
-          function applyFor(id){
-            const key = id || engineId();
-
-            WW.show(key);                         // muestra la pared del motor
-            WW.setOuter(key, 200);                // pared 2× para todos
-            WW.setDistance(key, DIST[key] ?? 60); // distancia exacta
-
-            // --- cámara a cargo de cada motor ---
-            // setBaseCamera(key);
-            // applyZoomFromTarget(ZOOM[key] ?? 1.0);
-
-            try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
-            try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
-          }
-          window.__applyFor = applyFor;
-
-          // Debounce REAL: una sola aplicación final por frame (última gana)
-          let __sched_token = 0, __scheduled = false;
-          function scheduleApply(id){
-            __sched_token++;
-            if (__scheduled) return;
-            __scheduled = true;
-            const my = __sched_token;
-            Promise.resolve().then(()=>{
-              requestAnimationFrame(()=>{
-                requestAnimationFrame(()=>{
-                  if (my === __sched_token) applyFor(id);
-                  __scheduled = false;
-                });
-              });
-            });
-          }
-
-          // —— Lock de re-entrada para evitar “doble/triple” schedule ——
-          let __ww_sched_lock = 0;
-          const LOCKED_WRAPPERS = new Set([
-            'applyEngineFromSelect','cycleEngine',
-            'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
-            'ensureOnlyGRVTY','ensureOnlyR5NOVA'
-          ]);
-
-          // SOLO hooks de cambio de motor (sin envolver los toggles directos)
-          const HOOKS = [
-            'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
-            'ensureOnlyGRVTY','ensureOnlyR5NOVA','applyEngineFromSelect','cycleEngine'
-          ];
-          HOOKS.forEach(name=>{
-            const orig = window[name];
-            if (typeof orig === 'function' && !orig.__wwProfile){
-              if (LOCKED_WRAPPERS.has(name)){
-                // Envoltorio “externo”: agrupa todas las llamadas internas (toggles, etc.)
-                window[name] = function(){
-                  __ww_sched_lock++;
-                  try{
-                    return orig.apply(this, arguments);
-                  } finally {
-                    __ww_sched_lock--;
-                    if (__ww_sched_lock === 0) scheduleApply();
-                  }
-                };
-              } else {
-                // Envoltorio “interno”: solo agenda si no estamos dentro de un cambio compuesto
-                window[name] = function(){
-                  const out = orig.apply(this, arguments);
-                  if (__ww_sched_lock === 0) scheduleApply();
-                  return out;
-                };
-              }
-              window[name].__wwProfile = true;
-            }
-          });
-
-          // Controles para el panel (WALL / CAM / SCENE)
           function mulWall(f){
-            const id = engineId(); const w = WW.get(id); if (!w) return;
-            const newDist = Math.max(5, (w.params.distance||60) * f);
-            WW.setDistance(id, newDist);
+            try{
+              const id = window.WW?.activeEngine?.() || 'BUILD';
+              const w  = window.WW?.get?.(id);
+              if (!w) return;
+              const newDist = Math.max(5, (w.params.distance||60) * f);
+              window.WW.setDistance(id, newDist);
+            }catch(_){ }
           }
-          function mulCam(f){ applyZoomFromTarget(f); }
+          function mulCam(_f){ /* NO-OP: no tocamos la cámara desde aquí */ }
           function mulScene(f){
-            const root = ROOTS[engineId()];
-            if (!root) return;
-            root.scale.multiplyScalar(f);
-            root.updateMatrixWorld(true);
+            try{
+              const id = (window.WW?.activeEngine?.()) || 'BUILD';
+              const root = ROOTS[id];
+              if (!root) return;
+              root.scale.multiplyScalar(f);
+              root.updateMatrixWorld(true);
+            }catch(_){ }
           }
           window.WW_UI = { mulWall, mulCam, mulScene };
 
-          // Puente genérico (por si tu UI llama wwTune)
-          window.wwTune = function(kind, factor){
-            const f = Number(factor) || 1.25;
-            if      (kind==='wall')  mulWall(f);
-            else if (kind==='cam')   mulCam(f);
-            else if (kind==='scene') mulScene(f);
-          };
+          // SIN auto-bind a botones, SIN schedule inicial: pasivo.
+        })();
 
-          // auto-bind si existen ids
-          [['ww_wall_m',1/1.25],['ww_wall_p',1.25],
-           ['ww_cam_m', 1/1.25],['ww_cam_p', 1.25],
-           ['ww_scn_m', 1/1.25],['ww_scn_p', 1.25]].forEach(([id,f])=>{
-             const el = document.getElementById(id);
-             if (el) el.onclick = ()=>{ id.startsWith('ww_wall')?mulWall(f):id.startsWith('ww_cam')?mulCam(f):mulScene(f); };
-          });
+        /* ───────── Vincula pared WW cuando un motor queda encendido (1 sola vez) ───────── */
+        (function BindWallsToEngineToggles(){
+          function bind(name, flag, key){
+            const orig = window[name];
+            if (typeof orig !== 'function' || orig.__wwBindApplied) return;
+            window[name] = function(){
+              const wasOn = !!window[flag];
+              const out   = orig.apply(this, arguments);
+              const nowOn = !!window[flag];
+              if (!wasOn && nowOn){ try{ window.WW_applyFor && window.WW_applyFor(key); }catch(_){ } }
+              return out;
+            };
+            window[name].__wwBindApplied = true;
+          }
 
-          // arranque (una sola aplicación, sin saltos)
-          scheduleApply();
+          bind('toggleFRBN',   'isFRBN',   'FRBN');
+          bind('toggleLCHT',   'isLCHT',   'LCHT');
+          bind('toggleOFFNNG', 'isOFFNNG', 'OFFNNG');
+          bind('toggleTMSL',   'isTMSL',   'TMSL');
+          bind('toggleRAUM',   'isRAUM',   'RAUM');
+          bind('toggle13245',  'is13245',  '13245');
+          bind('toggleKEPLR',  'isKEPLR',  'KEPLR');
+          bind('toggleRAPHI',  'isRAPHI',  'RAPHI');
+          bind('toggleGRVTY',  'isGRVTY',  'GRVTY');
+          bind('toggleR5NOVA', 'isR5NOVA', 'R5NOVA');
+
+          // Opcional: al cargar, si ya hay uno activo, sincroniza su pared una vez
+          setTimeout(()=>{
+            try{
+              const id =
+                (window.isGRVTY   && 'GRVTY')  ||
+                (window.isR5NOVA  && 'R5NOVA') ||
+                (window.isRAPHI   && 'RAPHI')  ||
+                (window.isKEPLR   && 'KEPLR')  ||
+                (window.is13245   && '13245')  ||
+                (window.isRAUM    && 'RAUM')   ||
+                (window.isTMSL    && 'TMSL')   ||
+                (window.isOFFNNG  && 'OFFNNG') ||
+                (window.isLCHT    && 'LCHT')   ||
+                (window.isFRBN    && 'FRBN')   ||
+                'BUILD';
+              if (window.WW_applyFor) window.WW_applyFor(id);
+            }catch(_){ }
+          }, 0);
         })();
 
 
