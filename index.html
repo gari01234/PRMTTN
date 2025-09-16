@@ -8364,12 +8364,15 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   if (window.__WW_TUNING_INSTALLED__) return; // evita doble instalación
   window.__WW_TUNING_INSTALLED__ = true;
 
-  // ——— NO crear el panel si estamos en Minimal UI ———
+  // ——— Detecta Minimal UI con varias heurísticas robustas ———
   function __isMinimalUI(){
     try{
+      // flags comunes
       if (window.__MINIMAL_UI__ === true) return true;
       if (window.MINIMAL_UI === true)     return true;
       if (window.minimalUI === true)      return true;
+
+      // atributos/clases habituales en <body>
       const b = document.body;
       if (b){
         const c = b.classList;
@@ -8377,12 +8380,16 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
         if (b.getAttribute('data-ui') === 'minimal') return true;
         if (b.getAttribute('data-minimal-ui') === 'true') return true;
       }
-      // Heurística común: botón "Show UI" presente en modo minimal
-      const showBtn = document.getElementById('showUI') || document.querySelector('.show-ui');
-      if (showBtn) return true;
+
+      // Heurística: botón/link "Show UI" visible (como en tus capturas)
+      const anyWithShowUI = Array.from(document.querySelectorAll('button,a,span,div'))
+        .some(el => /^\s*Show UI\s*$/i.test((el.textContent||'')));
+      if (anyWithShowUI) return true;
     }catch(_){ }
     return false;
   }
+
+  // Si al cargar ya estás en Minimal UI, NO crear el panel
   if (__isMinimalUI()) return;
 
   // ── Parámetros y helpers ─────────────────────────────────────
@@ -8513,20 +8520,25 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   </div>`;
   document.body.appendChild($root);
 
-  // Oculta si Minimal UI está activo en el momento de crear el panel
-  (function(){
+  // ——— Oculta/mostrar en caliente si el modo Minimal UI cambia ———
+  function __updateWWVisibility(){
     try{
-      const isMin = !!(
-        window.MINIMAL_UI || window.minimalUI || window.isMinimalUI ||
-        (document.body && (
-          document.body.classList.contains('minimal') ||
-          document.body.classList.contains('minimal-ui') ||
-          document.body.dataset.ui === 'minimal'
-        ))
-      );
-      if (isMin) $root.style.display = 'none';
+      const minimal = (function(){
+        try{
+          if (document.body.classList.contains('minimal-ui')) return true;
+          if (document.body.classList.contains('minimal')) return true;
+          if (document.body.getAttribute('data-ui') === 'minimal') return true;
+          const anyWithShowUI = Array.from(document.querySelectorAll('button,a,span,div'))
+            .some(el => /^\s*Show UI\s*$/i.test((el.textContent||'')));
+          return anyWithShowUI;
+        }catch(_){ return false; }
+      })();
+      $root.style.display = minimal ? 'none' : '';
     }catch(_){ }
-  })();
+  }
+  __updateWWVisibility();
+  new MutationObserver(__updateWWVisibility).observe(document.documentElement, {subtree:true, childList:true, attributes:true});
+  window.addEventListener('click', __updateWWVisibility, true);
 
   // ── Wire-up de botones ───────────────────────────────────────
   const $wallMinus = $root.querySelector('#wwWallMinus');
@@ -8623,6 +8635,82 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
 
   // Recalcula info tras cada cambio de motor (si el VM expone __applyFor)
   setTimeout(updateInfo,0);
+})();
+
+/* ============================================================
+ * ENGINE ZOOM PATCH — Aplica el equivalente a "scroll hacia atrás"
+ *  después de CADA toggle/cambio de motor (queda como último paso).
+ *  BUILD: 1 paso · LCHT/RAUM: 3 pasos · GRVTY/13245: 4 pasos
+ * ============================================================ */
+(function(){
+  if (window.__ENGINE_ZOOM_PATCH__) return;
+  window.__ENGINE_ZOOM_PATCH__ = true;
+
+  // 1 paso de rueda = ×1.25 (mismo factor que usa tu panel WW TUNING)
+  function __scrollBackSteps(steps){
+    try{
+      if (!window.camera) return;
+      const f = Math.pow(1.25, steps);
+      const tgt = (window.controls && controls.target)
+        ? controls.target.clone()
+        : new THREE.Vector3(0,0,0);
+      const dir = camera.position.clone().sub(tgt);
+      camera.position.copy(tgt).add(dir.multiplyScalar(f));
+      camera.updateProjectionMatrix();
+      if (window.controls) controls.update();
+    }catch(_){ }
+  }
+
+  function __activeEngineId(){
+    try{
+      if (window.isGRVTY)  return 'GRVTY';
+      if (window.isR5NOVA) return 'R5NOVA';
+      if (window.isRAPHI)  return 'RAPHI';
+      if (window.isKEPLR)  return 'KEPLR';
+      if (window.is13245)  return '13245';
+      if (window.isRAUM)   return 'RAUM';
+      if (window.isTMSL)   return 'TMSL';
+      if (window.isOFFNNG) return 'OFFNNG';
+      if (window.isLCHT)   return 'LCHT';
+      if (window.isFRBN)   return 'FRBN';
+      return 'BUILD';
+    }catch(_){ return 'BUILD'; }
+  }
+
+  // Pasos de "scroll hacia atrás" por motor
+  const __STEPS = { BUILD:1, LCHT:3, RAUM:3, '13245':4, GRVTY:4 };
+
+  function __applyForActive(){
+    try{
+      const id = __activeEngineId();
+      const n = __STEPS[id] || 0;
+      if (n > 0){
+        // Ejecutar DESPUÉS de que el motor termine de tocar la cámara
+        requestAnimationFrame(()=>requestAnimationFrame(()=>__scrollBackSteps(n)));
+      }
+    }catch(_){ }
+  }
+
+  // Envuelve toggles y selectores para aplicar ajuste al final
+  [
+    'toggleGRVTY','toggleRAUM','toggleLCHT','toggle13245',
+    'toggleFRBN','toggleOFFNNG','toggleTMSL','toggleKEPLR','toggleRAPHI','toggleR5NOVA',
+    'switchToBuild','applyEngineFromSelect','cycleEngine',
+    'ensureOnlyGRVTY','ensureOnlyR5NOVA','ensureOnlyLCHT','ensureOnlyTMSL','ensureOnlyOFFNNG'
+  ].forEach(name=>{
+    const orig = window[name];
+    if (typeof orig === 'function' && !orig.__zoompatch){
+      window[name] = function(){
+        const out = orig.apply(this, arguments);
+        __applyForActive();
+        return out;
+      };
+      window[name].__zoompatch = true;
+    }
+  });
+
+  // También aplica una vez al cargar (por si ya hay un motor activo)
+  __applyForActive();
 })();
 
 </script>
