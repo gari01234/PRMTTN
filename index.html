@@ -6754,17 +6754,17 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
           };
           const ZOOM = {              // <1 acerca, >1 aleja (relativo a base)
-            BUILD: 1.25,              // antes 1.00  → 1 scroll hacia atrás
-            FRBN:  1.00,
-            LCHT:  2.539062,          // antes 1.30  → 3 scrolls hacia atrás
-            OFFNNG:0.92,
-            TMSL:  1.30,
-            RAUM:  2.929688,          // antes 1.50  → 3 scrolls hacia atrás
-            '13245': 2.978516,        // antes 1.22  → 4 scrolls hacia atrás
-            KEPLR: 0.92,
-            RAPHI: 0.92,
-            GRVTY: 3.173828,          // antes 1.30  → 4 scrolls hacia atrás
-            R5NOVA:1.30
+            BUILD:  1.25,             // 1 scroll hacia atrás
+            FRBN:   1.00,             // sin cambio
+            LCHT:   1.953125,         // 3 scrolls hacia atrás
+            OFFNNG: 1.00,             // respeta vista actual
+            TMSL:   1.30,             // respeta vista actual
+            RAUM:   1.953125,         // 3 scrolls hacia atrás
+            '13245':2.44140625,       // 4 scrolls hacia atrás
+            KEPLR:  1.00,             // respeta vista actual
+            RAPHI:  1.00,             // respeta vista actual
+            GRVTY:  2.44140625,       // 4 scrolls hacia atrás
+            R5NOVA: 1.30              // respeta vista actual
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
@@ -6813,19 +6813,20 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
             try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
           }
+          window.__applyFor = applyFor;
 
-          // Debounce real: cancela previos y aplica SOLO el último (post toggles)
-          let raf1 = 0, raf2 = 0, token = 0;
+          // Debounce REAL: una sola aplicación final por frame (última gana)
+          let __sched_token = 0, __scheduled = false;
           function scheduleApply(id){
-            token++;
-            if (raf1) cancelAnimationFrame(raf1);
-            if (raf2) cancelAnimationFrame(raf2);
-            const my = token;
-            // microtask → RAF → RAF (dejamos terminar todos los toggles internos)
+            __sched_token++;
+            if (__scheduled) return;
+            __scheduled = true;
+            const my = __sched_token;
             Promise.resolve().then(()=>{
-              raf1 = requestAnimationFrame(()=>{
-                raf2 = requestAnimationFrame(()=>{
-                  if (my === token) applyFor(id);
+              requestAnimationFrame(()=>{
+                requestAnimationFrame(()=>{
+                  if (my === __sched_token) applyFor(id);
+                  __scheduled = false;
                 });
               });
             });
@@ -8637,80 +8638,42 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   setTimeout(updateInfo,0);
 })();
 
-/* ============================================================
- * ENGINE ZOOM PATCH — Aplica el equivalente a "scroll hacia atrás"
- *  después de CADA toggle/cambio de motor (queda como último paso).
- *  BUILD: 1 paso · LCHT/RAUM: 3 pasos · GRVTY/13245: 4 pasos
- * ============================================================ */
+/* ====== PLAN B: forzar "scroll hacia atrás" al final de cada toggle ====== */
 (function(){
-  if (window.__ENGINE_ZOOM_PATCH__) return;
-  window.__ENGINE_ZOOM_PATCH__ = true;
+  if (window.__CAM_BACK_PATCH__) return;
+  window.__CAM_BACK_PATCH__ = true;
 
-  // 1 paso de rueda = ×1.25 (mismo factor que usa tu panel WW TUNING)
-  function __scrollBackSteps(steps){
+  function cameraScrollBack(steps){
     try{
-      if (!window.camera) return;
-      const f = Math.pow(1.25, steps);
-      const tgt = (window.controls && controls.target)
-        ? controls.target.clone()
-        : new THREE.Vector3(0,0,0);
+      const factor = Math.pow(1.25, steps);
+      const tgt = (window.controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
       const dir = camera.position.clone().sub(tgt);
-      camera.position.copy(tgt).add(dir.multiplyScalar(f));
+      camera.position.copy(tgt).add(dir.multiplyScalar(factor));
       camera.updateProjectionMatrix();
       if (window.controls) controls.update();
     }catch(_){ }
   }
 
-  function __activeEngineId(){
-    try{
-      if (window.isGRVTY)  return 'GRVTY';
-      if (window.isR5NOVA) return 'R5NOVA';
-      if (window.isRAPHI)  return 'RAPHI';
-      if (window.isKEPLR)  return 'KEPLR';
-      if (window.is13245)  return '13245';
-      if (window.isRAUM)   return 'RAUM';
-      if (window.isTMSL)   return 'TMSL';
-      if (window.isOFFNNG) return 'OFFNNG';
-      if (window.isLCHT)   return 'LCHT';
-      if (window.isFRBN)   return 'FRBN';
-      return 'BUILD';
-    }catch(_){ return 'BUILD'; }
-  }
-
-  // Pasos de "scroll hacia atrás" por motor
-  const __STEPS = { BUILD:1, LCHT:3, RAUM:3, '13245':4, GRVTY:4 };
-
-  function __applyForActive(){
-    try{
-      const id = __activeEngineId();
-      const n = __STEPS[id] || 0;
-      if (n > 0){
-        // Ejecutar DESPUÉS de que el motor termine de tocar la cámara
-        requestAnimationFrame(()=>requestAnimationFrame(()=>__scrollBackSteps(n)));
-      }
-    }catch(_){ }
-  }
-
-  // Envuelve toggles y selectores para aplicar ajuste al final
-  [
-    'toggleGRVTY','toggleRAUM','toggleLCHT','toggle13245',
-    'toggleFRBN','toggleOFFNNG','toggleTMSL','toggleKEPLR','toggleRAPHI','toggleR5NOVA',
-    'switchToBuild','applyEngineFromSelect','cycleEngine',
-    'ensureOnlyGRVTY','ensureOnlyR5NOVA','ensureOnlyLCHT','ensureOnlyTMSL','ensureOnlyOFFNNG'
-  ].forEach(name=>{
+  function wrap(name, steps){
     const orig = window[name];
-    if (typeof orig === 'function' && !orig.__zoompatch){
+    if (typeof orig === 'function' && !orig.__camBackPatched){
       window[name] = function(){
         const out = orig.apply(this, arguments);
-        __applyForActive();
+        // ejecuta al FINAL del cambio de motor
+        requestAnimationFrame(()=>requestAnimationFrame(()=>cameraScrollBack(steps)));
         return out;
       };
-      window[name].__zoompatch = true;
+      window[name].__camBackPatched = true;
     }
-  });
+  }
 
-  // También aplica una vez al cargar (por si ya hay un motor activo)
-  __applyForActive();
+  // BUILD no tiene toggle específico → lo enganchamos a switchToBuild
+  wrap('switchToBuild', 1);  // 1 scroll hacia atrás
+  wrap('toggleLCHT',    3);  // 3 scrolls
+  wrap('toggleRAUM',    3);  // 3 scrolls
+  wrap('toggleGRVTY',   4);  // 4 scrolls
+  wrap('toggle13245',   4);  // 4 scrolls
+  // (si quisieras aplicar a otros motores, añade más wrap('toggleXXX', pasos))
 })();
 
 </script>
