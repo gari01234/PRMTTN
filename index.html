@@ -6713,6 +6713,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         (function WW_PROFILES_SINGLE(){
           if (window.__WW_PROFILES_READY) return;     // guardia anti-doble carga
           window.__WW_PROFILES_READY = true;
+          // — Desactivar manejo de cámara desde WW_PROFILES (lo hará cada motor) —
+          if (typeof window.__WW_CAM_DISABLED__ === 'undefined') window.__WW_CAM_DISABLED__ = true;
 
           // ---------- helpers ----------
           const TMP = new THREE.Vector3();
@@ -6753,18 +6755,18 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
             KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
           };
-          const ZOOM = {              // <1 acerca, >1 aleja (relativo a base)
-            BUILD:  1.25,             // 1 scroll hacia atrás
-            FRBN:   1.00,             // sin cambio
-            LCHT:   1.953125,         // 3 scrolls hacia atrás
-            OFFNNG: 1.00,             // respeta vista actual
-            TMSL:   1.30,             // respeta vista actual
-            RAUM:   1.953125,         // 3 scrolls hacia atrás
-            '13245':2.44140625,       // 4 scrolls hacia atrás
-            KEPLR:  1.00,             // respeta vista actual
-            RAPHI:  1.00,             // respeta vista actual
-            GRVTY:  2.44140625,       // 4 scrolls hacia atrás
-            R5NOVA: 1.30              // respeta vista actual
+          const ZOOM = {
+            BUILD:  1.25,        // 1 scroll atrás
+            FRBN:   1.00,
+            LCHT:   1.953125,     // 3 scrolls atrás
+            OFFNNG: 1.00,
+            TMSL:   1.30,
+            RAUM:   1.953125,     // 3 scrolls atrás
+            '13245':2.44140625,   // 4 scrolls atrás
+            KEPLR:  1.00,
+            RAPHI:  1.00,
+            GRVTY:  2.44140625,   // 4 scrolls atrás
+            R5NOVA: 1.30
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
@@ -6807,8 +6809,10 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             WW.setOuter(key, 200);                // pared 2× para todos
             WW.setDistance(key, DIST[key] ?? 60); // distancia exacta
 
-            setBaseCamera(key);                   // base determinista
-            applyZoomFromTarget(ZOOM[key] ?? 1.0);
+            if (!window.__WW_CAM_DISABLED__) {
+              setBaseCamera(key);
+              applyZoomFromTarget(ZOOM[key] ?? 1.0);
+            }
 
             try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
             try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
@@ -7208,7 +7212,62 @@ openssl dgst -sha256 prmttn_config.json</pre>
       }
     }
 
- 
+
+/* ====== Zoom por motor al FINAL del toggle (sin pelear con WW_PROFILES) ====== */
+(function installPerEngineZoom(){
+  if (window.__ENGINE_ZOOM_PATCHED__) return;
+  window.__ENGINE_ZOOM_PATCHED__ = true;
+
+  function camScrollBackSteps(steps){
+    try{
+      const factor = Math.pow(1.25, steps);
+      const tgt = (window.controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
+      const dir = camera.position.clone().sub(tgt);
+      camera.position.copy(tgt).add(dir.multiplyScalar(factor));
+      camera.updateProjectionMatrix();
+      if (window.controls) controls.update();
+    }catch(_){ }
+  }
+
+  function wrapToggle(name, flagName, steps){
+    const orig = window[name];
+    if (typeof orig !== 'function' || orig.__zoomWrapped) return;
+    window[name] = function(){
+      const out = orig.apply(this, arguments);
+      // aplicamos SOLO si quedó encendido ese motor
+      const isOn = !!window[flagName];
+      if (isOn){
+        // lo hacemos al final-del-final, cuando todos los rebuilds ya acabaron
+        requestAnimationFrame(()=>requestAnimationFrame(()=>camScrollBackSteps(steps)));
+      }
+      return out;
+    };
+    window[name].__zoomWrapped = true;
+  }
+
+  // BUILD no tiene toggle propio → lo enganchamos a switchToBuild (si existe)
+  if (typeof window.switchToBuild === 'function' && !window.switchToBuild.__zoomWrapped){
+    const orig = window.switchToBuild;
+    window.switchToBuild = function(){
+      const out = orig.apply(this, arguments);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>camScrollBackSteps(1))); // 1 scroll atrás
+      return out;
+    };
+    window.switchToBuild.__zoomWrapped = true;
+  }
+
+  // LCHT y RAUM → 3 “scrolls atrás”
+  wrapToggle('toggleLCHT',  'isLCHT',   3);
+  wrapToggle('toggleRAUM',  'isRAUM',   3);
+
+  // GRVTY y 13245 → 4 “scrolls atrás”
+  wrapToggle('toggleGRVTY', 'isGRVTY',  4);
+  wrapToggle('toggle13245','is13245',  4);
+
+  // (No tocamos otros motores)
+})();
+
+
 // ── R5NOVA · hook + watchdog para asegurar la ejecución ─────────────────────
 (function R5NovaHook(){
   // 1) Detección robusta de motor activo
