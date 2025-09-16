@@ -6738,14 +6738,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             controls.update();
           }
           function setBaseCamera(id){
-            // Base determinista (clon de BUILD): evita drift/variaciones entre motores
-            camera.up.set(0,1,0);
-            if (hasControls()) controls.target.set(0,0,0);
-            camera.near = 0.1; camera.far = 4000;
-            camera.fov  = 34;                 // FOV estable (incluye GRVTY)
-            camera.position.set(0,0,84);
-            camera.updateProjectionMatrix();
-            controls?.update?.();
+            // NO-OP: la cámara queda a cargo de cada motor (toggleX/apply...).
+            // (Antes: fijaba up/target/fov/pos base y provocaba "doble montaje")
           }
 
           // ---------- perfiles EXACTOS ----------
@@ -6753,18 +6747,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
             KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
           };
-          const ZOOM = {              // <1 acerca, >1 aleja (relativo a base)
-            BUILD:  1.25,             // 1 scroll hacia atrás
-            FRBN:   1.00,             // sin cambio
-            LCHT:   1.953125,         // 3 scrolls hacia atrás
-            OFFNNG: 1.00,             // respeta vista actual
-            TMSL:   1.30,             // respeta vista actual
-            RAUM:   1.953125,         // 3 scrolls hacia atrás
-            '13245':2.44140625,       // 4 scrolls hacia atrás
-            KEPLR:  1.00,             // respeta vista actual
-            RAPHI:  1.00,             // respeta vista actual
-            GRVTY:  2.44140625,       // 4 scrolls hacia atrás
-            R5NOVA: 1.30              // respeta vista actual
+          const ZOOM = {
+            BUILD:1.00, FRBN:1.00, LCHT:1.00, OFFNNG:1.00, TMSL:1.00,
+            RAUM:1.00, '13245':1.00, KEPLR:1.00, RAPHI:1.00, GRVTY:1.00, R5NOVA:1.00
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
@@ -6807,8 +6792,9 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             WW.setOuter(key, 200);                // pared 2× para todos
             WW.setDistance(key, DIST[key] ?? 60); // distancia exacta
 
-            setBaseCamera(key);                   // base determinista
-            applyZoomFromTarget(ZOOM[key] ?? 1.0);
+            // --- cámara a cargo de cada motor ---
+            // setBaseCamera(key);
+            // applyZoomFromTarget(ZOOM[key] ?? 1.0);
 
             try{ if (key==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
             try{ if (key==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
@@ -8361,6 +8347,15 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
  * ───────────────────────────────────────────────────────────── */
 (function(){
   if (window.__WW_TUNING_INSTALLED__) return; // evita doble instalación
+
+  // ⛔ No mostrar en Minimal UI
+  try{
+    // Cualquiera de estas condiciones corta la creación del panel
+    if (typeof window.isMinimalUI === 'boolean' && window.isMinimalUI) return;
+    if (typeof window.__MINIMAL_UI__ === 'boolean' && window.__MINIMAL_UI__) return;
+    if (document.body && document.body.classList && document.body.classList.contains('minimal-ui')) return;
+  }catch(_){}
+
   window.__WW_TUNING_INSTALLED__ = true;
 
   // ── Parámetros y helpers ─────────────────────────────────────
@@ -8613,6 +8608,17 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
 
   // Recalcula info tras cada cambio de motor (si el VM expone __applyFor)
   setTimeout(updateInfo,0);
+
+  // Ocultar/mostrar dinámico si la clase del body cambia en runtime
+  try{
+    const mo = new MutationObserver(()=>{
+      const isMin = document.body.classList.contains('minimal-ui');
+      const el = document.querySelector('.wwpanel');
+      if (!el) return;
+      el.style.display = isMin ? 'none' : '';
+    });
+    mo.observe(document.body, { attributes:true, attributeFilter:['class'] });
+  }catch(_){}
 })();
 
 // ===================================================================
