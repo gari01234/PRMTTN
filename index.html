@@ -8364,6 +8364,27 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   if (window.__WW_TUNING_INSTALLED__) return; // evita doble instalación
   window.__WW_TUNING_INSTALLED__ = true;
 
+  // ——— NO crear el panel si estamos en Minimal UI ———
+  function __isMinimalUI(){
+    try{
+      if (window.__MINIMAL_UI__ === true) return true;
+      if (window.MINIMAL_UI === true)     return true;
+      if (window.minimalUI === true)      return true;
+      const b = document.body;
+      if (b){
+        const c = b.classList;
+        if (c.contains('minimal-ui') || c.contains('minimal') || c.contains('ui-min') || c.contains('uiMinimal')) return true;
+        if (b.getAttribute('data-ui') === 'minimal') return true;
+        if (b.getAttribute('data-minimal-ui') === 'true') return true;
+      }
+      // Heurística común: botón "Show UI" presente en modo minimal
+      const showBtn = document.getElementById('showUI') || document.querySelector('.show-ui');
+      if (showBtn) return true;
+    }catch(_){ }
+    return false;
+  }
+  if (__isMinimalUI()) return;
+
   // ── Parámetros y helpers ─────────────────────────────────────
   const STEP = 1.25; // cada clic multiplica/divide por este factor
 
@@ -8438,7 +8459,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
 
   // ── UI (DOM) ─────────────────────────────────────────────────
   function css(str){ const el = document.createElement('style'); el.textContent = str; document.head.appendChild(el); }
-  css(`body.minimal-ui .wwpanel, body.minimal .wwpanel, body[data-ui="minimal"] .wwpanel { display:none !important; }`);
   css(`
     .wwpanel{position:fixed; right:16px; top:16px; font-family:system-ui,Segoe UI,Roboto,Arial; z-index:999999;}
     .wwcard{background:#ffffffee; backdrop-filter:saturate(1.2) blur(4px); border:1px solid #ddd; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.12); padding:12px 14px; width:330px;}
@@ -8450,6 +8470,7 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
     .wwmono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; padding:6px 8px; background:#f3f3f6; border-radius:8px; border:1px solid #e3e3e9; margin-top:8px; white-space:pre-wrap; color:#222;}
     .wwhint{font-size:11px; color:#445; margin-top:8px; line-height:1.35;}
   `);
+  css(`body.minimal-ui .wwpanel, body.minimal .wwpanel, .ui-min .wwpanel, [data-ui="minimal"] .wwpanel{display:none!important;}`);
 
   const $root = document.createElement('div');
   $root.className = 'wwpanel';
