@@ -6752,21 +6752,20 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         /* ──────────────────────────────────────────────────────────────
          * WW_PROFILES · Modo PASIVO (no toca cámara, sin auto-schedule)
-         * - Pared por motor: outer fijo (200 por defecto desde aquí), distancia por motor (DIST)
-         * - Sin envoltorios de hooks globales, sin debounce: se llama explícitamente
-         * - Expone: window.WW_applyFor(key)  ← úsalo al encender cada motor
+         * - Sólo ajusta la pared por motor cuando se le invoca explícitamente.
+         * - Expone: window.WW_applyFor(key)  ← úsalo al encender cada motor.
          * ───────────────────────────────────────────────────────────── */
         (function WW_PROFILES_SINGLE(){
           if (window.__WW_PROFILES_READY) return;
           window.__WW_PROFILES_READY = true;
 
-          // —— Distancias del muro por motor (no afecta cámara) ——
+          // Distancia del muro por motor (NO afecta cámara)
           const DIST = {
             BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
             KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
           };
 
-          // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco
+          // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco (NO toca cámara)
           function alignShellToBackPlane(obj){
             try{
               if (!obj || !window.WW || !window.WW.activeInfo) return;
@@ -6796,28 +6795,27 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             }catch(_){ }
           }
 
-          // —— Aplicación explícita: pared visible + distancia + alineación shells ——
+          // Aplicación explícita: mostrar pared + fijar distancia + alinear shells si aplica
           function applyFor(key){
             try{
               if (!window.WW) return;
               const id = key || (window.WW.activeEngine ? window.WW.activeEngine() : 'BUILD');
-              window.WW.show(id);
-              window.WW.setOuter(id, 200);
+              window.WW.show(id);                    // muestra sólo la pared del motor activo
+              window.WW.setOuter(id, 200);           // outer estable (no afecta cámara)
               window.WW.setDistance(id, DIST[id] ?? 93);
 
-              // Ajustes de shells (NO cambia cámara)
+              // Ajustes que NO tocan la cámara:
               try{ if (id==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
               try{ if (id==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
             }catch(_){ }
           }
 
-          // API pública: los toggles llamarán esto cuando queden encendidos
+          // API pública: los toggles de motor llamarán a esto
           window.WW_applyFor = applyFor;
 
-          // ——— UI opcional (WALL / CAM / SCENE): CAM se vuelve NO-OP para no tocar cámara ———
+          // UI opcional: dejamos NO-OP la cámara para evitar interferencias
           const ROOTS = Object.create(null);
           window.registerEngineRoot = function(id, root){ ROOTS[id] = root; };
-
           function mulWall(f){
             try{
               const id = window.WW?.activeEngine?.() || 'BUILD';
@@ -6838,12 +6836,13 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             }catch(_){ }
           }
           window.WW_UI = { mulWall, mulCam, mulScene };
-
-          // SIN auto-bind a botones, SIN schedule inicial: pasivo.
         })();
 
-        /* ───────── Vincula pared WW cuando un motor queda encendido (1 sola vez) ───────── */
+        /* ───────── Llama a WW_applyFor(key) una vez cuando cada motor entra ON ───────── */
         (function BindWallsToEngineToggles(){
+          if (window.__WW_BOUNDS_INSTALLED__) return;
+          window.__WW_BOUNDS_INSTALLED__ = true;
+
           function bind(name, flag, key){
             const orig = window[name];
             if (typeof orig !== 'function' || orig.__wwBindApplied) return;
@@ -6868,7 +6867,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           bind('toggleGRVTY',  'isGRVTY',  'GRVTY');
           bind('toggleR5NOVA', 'isR5NOVA', 'R5NOVA');
 
-          // Opcional: al cargar, si ya hay uno activo, sincroniza su pared una vez
+          // Sincroniza pared una sola vez si al cargar ya hay un motor activo
           setTimeout(()=>{
             try{
               const id =
