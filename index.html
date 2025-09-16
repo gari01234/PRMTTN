@@ -6576,7 +6576,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         }
 
         // ---------- fábrica de una pared (para un motor) ----------
-        function createWall({open=50, outer=200, thickness=15, distance=93}={}){
+        function createWall({open=70, outer=200, thickness=15, distance=93}={}){
           const rig = new THREE.Group();
           rig.matrixAutoUpdate = false;
           rig.frustumCulled    = false;
@@ -6647,7 +6647,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
         function ensure(engine){
           if (walls[engine]) return walls[engine];
           // configuración base para TODOS: outer=200 (2×), open=50, thk=12, dist=60
-          walls[engine] = createWall({open:50, outer:200, thickness:15, distance:93});
+          walls[engine] = createWall({open:100, outer:600, thickness:15, distance:93});
           walls[engine].setVisible(false);
           return walls[engine];
         }
