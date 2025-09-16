@@ -1055,24 +1055,7 @@ function initSkySphere() {
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
 
-        // ——— Cámara tipo BUILD ———
-        camera.up.set(0,1,0);
-        camera.near = 0.1;
-        camera.far  = 4000;
-        camera.fov  = 34;                 // FOV de BUILD
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 84);    // posición de BUILD
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        applyBuildCamera(0);
 
       } else {                            // ——— SALIR ———
         skySphere.visible        = false;
@@ -1080,6 +1063,7 @@ function initSkySphere() {
         permutationGroup.visible = true;
         if (isLCHT && lichtGroup) lichtGroup.visible = true;
         refreshAll({ keepManual: true }); // reconstruye escena normal
+        restoreBuildView();
       }
   // ← muestra el mini‑botón solo en FRBN
   const ib = document.getElementById('frbnInfoButton');
@@ -1314,24 +1298,7 @@ function buildLCHT() {
         cubeUniverse.visible      = false;
         permutationGroup.visible  = false;
 
-        // ——— Cámara tipo BUILD ———
-        camera.up.set(0,1,0);
-        camera.near = 0.1;
-        camera.far  = 4000;
-        camera.fov  = 34;                 // FOV de BUILD
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 84);    // posición de BUILD
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        applyBuildCamera(0);
 
       } else {
         /* — restaura material original — */
@@ -1345,16 +1312,7 @@ function buildLCHT() {
         lchtPrevBg = null;
         cubeUniverse.visible      = true;
         permutationGroup.visible  = true;
-
-        // Al salir de LCHT dejamos controles en modo “normal” (libre)
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        restoreBuildView();
       }
       const b = document.getElementById('lchtButton');
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
@@ -1384,6 +1342,54 @@ function buildLCHT() {
       controls.maxPolarAngle      = Math.PI;
       controls.screenSpacePanning = false;
       controls.update();
+    }
+
+    // ——— Canon para motores tipo BUILD (frontal libre)
+    const BUILD_FOV = 34;
+    const BUILD_Z   = 84;
+
+    function applyBuildCamera(eyeY = 0){
+      camera.up.set(0,1,0);
+      camera.near = 0.1;
+      camera.far  = 4000;
+      camera.fov  = BUILD_FOV;
+      camera.updateProjectionMatrix();
+
+      if (controls && controls.target) controls.target.set(0, eyeY, 0);
+      camera.position.set(0, eyeY, BUILD_Z);
+
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    // ——— Volver al BUILD “normal” (usa tu selector de vista)
+    function restoreBuildView(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1;
+      camera.far  = 4000;
+      camera.fov  = 75;                // tu FOV por defecto en BUILD/UI
+      camera.updateProjectionMatrix();
+
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+      // reposiciona según el dropdown (front/top/iso…)
+      try { applyStandardView(); } catch(_){ }
     }
 
     // === BUILD render boost (solo activo en BUILD) ==============================
@@ -3876,24 +3882,7 @@ void main(){
 
       syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
 
-      // ——— Cámara tipo BUILD ———
-      camera.up.set(0,1,0);
-      camera.near = 0.1;
-      camera.far  = 4000;
-      camera.fov  = 34;                 // FOV de BUILD
-      camera.updateProjectionMatrix();
-
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 84);    // posición de BUILD
-
-      controls.enabled            = true;
-      controls.enableRotate       = true;
-      controls.enablePan          = true;
-      controls.enableZoom         = true;
-      controls.minPolarAngle      = 0;
-      controls.maxPolarAngle      = Math.PI;
-      controls.screenSpacePanning = false;
-      controls.update();
+      applyBuildCamera(0);
 
     } else {                           /* — SALIR — */
         if (offnngGroup) {
@@ -3914,6 +3903,7 @@ void main(){
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
         if (lichtGroup && isLCHT) lichtGroup.visible = true;
+        restoreBuildView();
       }
     }
 
@@ -4494,11 +4484,7 @@ void main(){
 
         if (tmslPrevBg) scene.background = tmslPrevBg; else updateBackground(false);
         if (tmslPrevClear) renderer.setClearColor(tmslPrevClear, 1);
-
-        controls.enabled      = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
+        restoreBuildView();
 
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
@@ -4793,11 +4779,7 @@ void main(){
         clearGroup(raumGroup);
         raumGroup = null;
 
-        // Restaurar comportamiento libre
-        controls.enabled      = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
+        restoreBuildView();
 
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
@@ -5030,12 +5012,7 @@ void main(){
         disposeGroup(group13245);
         group13245 = null;
 
-        // Restaurar ajustes por defecto al salir de 13245
-        camera.fov = 75;
-        camera.updateProjectionMatrix();
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
+        restoreBuildView();
 
         cubeUniverse.visible     = true;
         permutationGroup.visible = true;
@@ -5513,24 +5490,7 @@ void main(){
 
         buildKEPLR();
 
-        // ——— Cámara tipo BUILD ———
-        camera.up.set(0,1,0);
-        camera.near = 0.1;
-        camera.far  = 4000;
-        camera.fov  = 34;                 // FOV de BUILD
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 84);    // posición de BUILD
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        applyBuildCamera(0);
 
         // Ocultar cubo/permutaciones para lectura “escultórica”
         if (typeof cubeUniverse !== 'undefined')      cubeUniverse.visible = false;
@@ -5541,12 +5501,7 @@ void main(){
         leaveRaumRenderBoost();
         disposeGroupKEPLR();
 
-        // Restaurar ajustes por defecto al salir
-        camera.fov = 75;
-        camera.updateProjectionMatrix();
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
+        restoreBuildView();
 
         if (typeof cubeUniverse !== 'undefined')      cubeUniverse.visible = true;
         if (typeof permutationGroup !== 'undefined')  permutationGroup.visible = true;
@@ -5897,24 +5852,7 @@ function toggleRAPHI(){
     window.isRAPHI = true;                 // redundante pero seguro
     window.groupRAPHI = groupRAPHI;        // refuerza la referencia global
 
-    // ——— Cámara tipo BUILD ———
-    camera.up.set(0,1,0);
-    camera.near = 0.1;
-    camera.far  = 4000;
-    camera.fov  = 34;                 // FOV de BUILD
-    camera.updateProjectionMatrix();
-
-    if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 84);    // posición de BUILD
-
-    controls.enabled            = true;
-    controls.enableRotate       = true;
-    controls.enablePan          = true;
-    controls.enableZoom         = true;
-    controls.minPolarAngle      = 0;
-    controls.maxPolarAngle      = Math.PI;
-    controls.screenSpacePanning = false;
-    controls.update();
+    applyBuildCamera(0);
 
     // Ocultar otros grupos “escultóricos”
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){}
@@ -5926,11 +5864,7 @@ function toggleRAPHI(){
     disposeGroupRAPHI();
     window.isRAPHI = false;                // estado global coherente
 
-    camera.fov = 75;
-    camera.updateProjectionMatrix();
-    controls.minPolarAngle      = 0;
-    controls.maxPolarAngle      = Math.PI;
-    controls.screenSpacePanning = false;
+    restoreBuildView();
 
     try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){}
     try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){}
@@ -6390,24 +6324,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         buildR5NOVA();
 
-        // ——— Cámara tipo BUILD ———
-        camera.up.set(0,1,0);
-        camera.near = 0.1;
-        camera.far  = 4000;
-        camera.fov  = 34;                 // FOV de BUILD
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 84);    // posición de BUILD
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        applyBuildCamera(0);
 
         try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
         try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
@@ -6424,11 +6341,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           }
         } catch(_){ }
 
-        camera.fov = 75;
-        camera.updateProjectionMatrix();
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
+        restoreBuildView();
 
         try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
         try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
@@ -8168,25 +8081,7 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    // ——— Cámara tipo BUILD ———
-    camera.up.set(0,1,0);
-    camera.near = 0.1;
-    camera.far  = 4000;
-    camera.fov  = 34;                 // FOV de BUILD
-    camera.updateProjectionMatrix();
-
-    if (controls && controls.target) controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 84);    // posición de BUILD
-
-    controls.enabled            = true;
-    controls.enableRotate       = true;
-    controls.enablePan          = true;
-    controls.enableZoom         = true;
-    controls.minPolarAngle      = 0;
-    controls.maxPolarAngle      = Math.PI;
-    controls.screenSpacePanning = false;
-
-    controls.update();
+    applyBuildCamera(0);
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
     try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
@@ -8202,11 +8097,7 @@ function toggleGRVTY(){
     }catch(_){ }
     window.isGRVTY = false;
 
-    camera.fov = 75;
-    camera.updateProjectionMatrix();
-    controls.minPolarAngle      = 0;
-    controls.maxPolarAngle      = Math.PI;
-    controls.screenSpacePanning = false;
+    restoreBuildView();
 
     try{ if (cubeUniverse)      cubeUniverse.visible = true; }catch(_){ }
     try{ if (permutationGroup)  permutationGroup.visible = true; }catch(_){ }
