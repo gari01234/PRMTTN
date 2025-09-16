@@ -6840,10 +6840,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
             'ensureOnlyGRVTY','ensureOnlyR5NOVA'
           ]);
 
-          // SOLO hooks de cambio de motor (NO rebuilds genéricos)
+          // SOLO hooks de cambio de motor (sin envolver los toggles directos)
           const HOOKS = [
-            'toggleFRBN','toggleLCHT','toggleOFFNNG','toggleTMSL','toggleRAUM',
-            'toggle13245','toggleKEPLR','toggleRAPHI','toggleGRVTY','toggleR5NOVA',
             'ensureOnlyFRBN','ensureOnlyLCHT','ensureOnlyOFFNNG','ensureOnlyTMSL',
             'ensureOnlyGRVTY','ensureOnlyR5NOVA','applyEngineFromSelect','cycleEngine'
           ];
@@ -8365,34 +8363,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   if (window.__WW_TUNING_INSTALLED__) return; // evita doble instalación
   window.__WW_TUNING_INSTALLED__ = true;
 
-  // ——— Detecta Minimal UI con varias heurísticas robustas ———
-  function __isMinimalUI(){
-    try{
-      // flags comunes
-      if (window.__MINIMAL_UI__ === true) return true;
-      if (window.MINIMAL_UI === true)     return true;
-      if (window.minimalUI === true)      return true;
-
-      // atributos/clases habituales en <body>
-      const b = document.body;
-      if (b){
-        const c = b.classList;
-        if (c.contains('minimal-ui') || c.contains('minimal') || c.contains('ui-min') || c.contains('uiMinimal')) return true;
-        if (b.getAttribute('data-ui') === 'minimal') return true;
-        if (b.getAttribute('data-minimal-ui') === 'true') return true;
-      }
-
-      // Heurística: botón/link "Show UI" visible (como en tus capturas)
-      const anyWithShowUI = Array.from(document.querySelectorAll('button,a,span,div'))
-        .some(el => /^\s*Show UI\s*$/i.test((el.textContent||'')));
-      if (anyWithShowUI) return true;
-    }catch(_){ }
-    return false;
-  }
-
-  // Si al cargar ya estás en Minimal UI, NO crear el panel
-  if (__isMinimalUI()) return;
-
   // ── Parámetros y helpers ─────────────────────────────────────
   const STEP = 1.25; // cada clic multiplica/divide por este factor
 
@@ -8478,7 +8448,13 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
     .wwmono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; padding:6px 8px; background:#f3f3f6; border-radius:8px; border:1px solid #e3e3e9; margin-top:8px; white-space:pre-wrap; color:#222;}
     .wwhint{font-size:11px; color:#445; margin-top:8px; line-height:1.35;}
   `);
-  css(`body.minimal-ui .wwpanel, body.minimal .wwpanel, .ui-min .wwpanel, [data-ui="minimal"] .wwpanel{display:none!important;}`);
+  css(`
+  body.minimal-ui .wwpanel,
+  body.minimal .wwpanel,
+  [data-ui="minimal"] .wwpanel,
+  [data-minimal-ui="true"] .wwpanel,
+  .ui-min .wwpanel { display:none !important; }
+`);
 
   const $root = document.createElement('div');
   $root.className = 'wwpanel';
@@ -8521,25 +8497,26 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   </div>`;
   document.body.appendChild($root);
 
-  // ——— Oculta/mostrar en caliente si el modo Minimal UI cambia ———
-  function __updateWWVisibility(){
-    try{
-      const minimal = (function(){
-        try{
-          if (document.body.classList.contains('minimal-ui')) return true;
-          if (document.body.classList.contains('minimal')) return true;
-          if (document.body.getAttribute('data-ui') === 'minimal') return true;
-          const anyWithShowUI = Array.from(document.querySelectorAll('button,a,span,div'))
-            .some(el => /^\s*Show UI\s*$/i.test((el.textContent||'')));
-          return anyWithShowUI;
-        }catch(_){ return false; }
-      })();
-      $root.style.display = minimal ? 'none' : '';
-    }catch(_){ }
-  }
-  __updateWWVisibility();
-  new MutationObserver(__updateWWVisibility).observe(document.documentElement, {subtree:true, childList:true, attributes:true});
-  window.addEventListener('click', __updateWWVisibility, true);
+  (function keepWWHiddenInMinimal(){
+    const root = document.querySelector('.wwpanel');
+    if (!root) return;
+    function isMinimal(){
+      const b = document.body;
+      return !!(b && (
+        b.classList.contains('minimal-ui') ||
+        b.classList.contains('minimal')    ||
+        b.classList.contains('ui-min')     ||
+        b.getAttribute('data-ui') === 'minimal' ||
+        b.getAttribute('data-minimal-ui') === 'true'
+      ));
+    }
+    function update(){ root.style.display = isMinimal() ? 'none' : ''; }
+    const obs = new MutationObserver(update);
+    obs.observe(document.documentElement, {attributes:true, childList:true, subtree:true});
+    window.addEventListener('click', update, true);
+    window.addEventListener('keydown', update, true);
+    update();
+  })();
 
   // ── Wire-up de botones ───────────────────────────────────────
   const $wallMinus = $root.querySelector('#wwWallMinus');
@@ -8638,42 +8615,63 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   setTimeout(updateInfo,0);
 })();
 
-/* ====== PLAN B: forzar "scroll hacia atrás" al final de cada toggle ====== */
-(function(){
-  if (window.__CAM_BACK_PATCH__) return;
-  window.__CAM_BACK_PATCH__ = true;
+// ===================================================================
+// ENGINE ZOOM (desde motores) — aplica el "scroll hacia atrás" al entrar
+// BUILD: 1 paso  ·  LCHT: 3 pasos  ·  RAUM: 3 pasos
+// GRVTY: 4 pasos ·  13245: 4 pasos
+// ===================================================================
+(function installEngineZoomOverrides(){
+  if (window.__ENGINE_ZOOM_OVR__) return;
+  window.__ENGINE_ZOOM_OVR__ = true;
 
-  function cameraScrollBack(steps){
+  function zoomOutBySteps(steps){
     try{
-      const factor = Math.pow(1.25, steps);
+      if (!steps || steps <= 0) return;
       const tgt = (window.controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
       const dir = camera.position.clone().sub(tgt);
+      const factor = Math.pow(1.25, steps);
       camera.position.copy(tgt).add(dir.multiplyScalar(factor));
       camera.updateProjectionMatrix();
       if (window.controls) controls.update();
     }catch(_){ }
   }
 
-  function wrap(name, steps){
-    const orig = window[name];
-    if (typeof orig === 'function' && !orig.__camBackPatched){
-      window[name] = function(){
-        const out = orig.apply(this, arguments);
-        // ejecuta al FINAL del cambio de motor
-        requestAnimationFrame(()=>requestAnimationFrame(()=>cameraScrollBack(steps)));
-        return out;
-      };
-      window[name].__camBackPatched = true;
-    }
+  // Envuelve un toggle y aplica zoom cuando queda ACTIVADO (antes estaba off)
+  function wrapToggleZoom(name, flagName, steps){
+    const fn = window[name];
+    if (typeof fn !== 'function' || fn.__zoomWrapped) return;
+    window[name] = function(...args){
+      const wasOn = !!window[flagName];
+      const out   = fn.apply(this, args);
+      const nowOn = !!window[flagName];
+      if (!wasOn && nowOn){
+        // Se aplica al final del frame para respetar la cámara base del motor
+        requestAnimationFrame(()=>requestAnimationFrame(()=>zoomOutBySteps(steps)));
+      }
+      return out;
+    };
+    window[name].__zoomWrapped = true;
   }
 
-  // BUILD no tiene toggle específico → lo enganchamos a switchToBuild
-  wrap('switchToBuild', 1);  // 1 scroll hacia atrás
-  wrap('toggleLCHT',    3);  // 3 scrolls
-  wrap('toggleRAUM',    3);  // 3 scrolls
-  wrap('toggleGRVTY',   4);  // 4 scrolls
-  wrap('toggle13245',   4);  // 4 scrolls
-  // (si quisieras aplicar a otros motores, añade más wrap('toggleXXX', pasos))
+  // LCHT y RAUM → 3 pasos; GRVTY y 13245 → 4 pasos
+  wrapToggleZoom('toggleLCHT',  'isLCHT',  3);
+  wrapToggleZoom('toggleRAUM',  'isRAUM',  3);
+  wrapToggleZoom('toggleGRVTY', 'isGRVTY', 4);
+  wrapToggleZoom('toggle13245','is13245', 4);
+
+  // BUILD: al volver a la vista base (sea switchToBuild o applyStandardView) → 1 paso
+  function wrapSimple(name, steps){
+    const fn = window[name];
+    if (typeof fn !== 'function' || fn.__zoomWrapped) return;
+    window[name] = function(...args){
+      const out = fn.apply(this, args);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>zoomOutBySteps(steps)));
+      return out;
+    };
+    window[name].__zoomWrapped = true;
+  }
+  wrapSimple('switchToBuild',    1);
+  wrapSimple('applyStandardView',1);
 })();
 
 </script>
