@@ -1055,7 +1055,7 @@ function initSkySphere() {
         permutationGroup.visible = false;
         if (lichtGroup) lichtGroup.visible = false;
 
-        applyBuildCamera(0);
+        setCamera_FRBN();
 
       } else {                            // ——— SALIR ———
         skySphere.visible        = false;
@@ -1298,7 +1298,7 @@ function buildLCHT() {
         cubeUniverse.visible      = false;
         permutationGroup.visible  = false;
 
-        applyBuildCamera(0);
+        setCamera_LCHT();
 
       } else {
         /* — restaura material original — */
@@ -1347,6 +1347,212 @@ function buildLCHT() {
     // ——— Canon para motores tipo BUILD (frontal libre)
     const BUILD_FOV = 34;
     const BUILD_Z   = 84;
+
+    /* ============================================================
+       CAMERAS · definición independiente por motor (fuente única)
+       ============================================================ */
+    function setCamera_FRBN(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    function setCamera_LCHT(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    function setCamera_OFFNNG(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    function setCamera_KEPLR(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    function setCamera_RAPHI(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    function setCamera_R5NOVA(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    function setCamera_GRVTY(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 84);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
+    /* 13245: verticales “gerade”, yaw/pan/zoom; fija pitch en π/2 y respeta eyeY */
+    function setCamera_13245(){
+      const eyeY = (controls && controls.target) ? controls.target.y : 0;
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      // mantenemos FOV actual para no introducir saltos
+      camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, eyeY, 0);
+      const x = camera.position.x, z = camera.position.z;
+      camera.position.set(x, eyeY, z);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true; // yaw
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minDistance  = 10;
+        controls.maxDistance  = 200;
+        controls.screenSpacePanning = true;
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.update();
+      }
+    }
+
+    /* RAUM: frontal fija, sin rotación/pan; zoom limitado */
+    function setCamera_RAUM(){
+      const target = (controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 34; camera.updateProjectionMatrix();
+      camera.position.set(0, 0, (typeof RAUM_CAMERA_ZOOMED !== 'undefined') ? RAUM_CAMERA_ZOOMED : 80);
+      camera.lookAt(target);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = false;
+        controls.enablePan    = false;
+        controls.enableZoom   = true;
+        controls.minDistance  = 25;
+        controls.maxDistance  = 140;
+        controls.update();
+      }
+    }
+
+    /* TMSL: nivelada (solo yaw), alejada y con límites amplios */
+    function setCamera_TMSL(){
+      camera.up.set(0,1,0);
+      camera.fov = 55; camera.updateProjectionMatrix();
+      const eyeY = (controls && controls.target) ? controls.target.y : 0;
+      if (controls && controls.target) controls.target.set(0, eyeY, 0);
+      camera.position.set(0, eyeY, 70);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.screenSpacePanning = true;
+        controls.minDistance = 10;
+        controls.maxDistance = 300;
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.update();
+      }
+    }
+
+    Object.assign(window, {
+      setCamera_FRBN,
+      setCamera_LCHT,
+      setCamera_OFFNNG,
+      setCamera_KEPLR,
+      setCamera_RAPHI,
+      setCamera_R5NOVA,
+      setCamera_GRVTY,
+      setCamera_13245,
+      setCamera_RAUM,
+      setCamera_TMSL
+    });
 
     function applyBuildCamera(eyeY = 0){
       camera.up.set(0,1,0);
@@ -2915,90 +3121,28 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     function applyStandardView(){
       const target = new THREE.Vector3(0,0,0);
 
-      // RAUM: frontal fija con zoom permitido (sin rotación)
-      if (isRAUM){
-        camera.position.set(0, 0, RAUM_CAMERA_ZOOMED);
+      // === VIEW MANAGER (solo para BUILD; NO tocar cámaras de motores) ==============
+      {
+        // Si hay un motor activo, no tocar la cámara aquí.
+        if (isFRBN || isLCHT || isOFFNNG || isTMSL || isRAUM || is13245 || isKEPLR || isR5NOVA || (typeof isGRVTY !== 'undefined' && isGRVTY) || (typeof isRAPHI !== 'undefined' && isRAPHI)) {
+          controls.update();
+          return;
+        }
+
+        // BUILD “puro”: aplica la vista estándar seleccionada
+        const view = document.getElementById('standardView').value;
+        const pos = new THREE.Vector3();
+        switch(view){
+          case "isometric": pos.set(50,50,50); break;
+          case "top":       pos.set(0,80,0);   break;
+          case "front":     pos.set(0,0,40);   break;
+          case "side":      pos.set(50,0,0);   break;
+          case "diagonal":  pos.set(-50,50,-50); break;
+          default:          pos.set(0,0,50);
+        }
+        camera.position.copy(pos);
         camera.lookAt(target);
 
-        controls.enabled      = true;
-        controls.enableRotate = false;
-        controls.enablePan    = false;
-        controls.enableZoom   = true;
-        controls.minDistance  = 25;
-        controls.maxDistance  = 140;
-
-        controls.update();
-        return;
-      }
-
-      // 13245: cámara nivelada (verticales “gerade”)
-      // Mantiene el offset vertical actual del target (no lo fuerza a 0)
-      if (is13245){
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.up.set(0,1,0);
-        camera.position.set(camera.position.x, eyeY, camera.position.z);
-        controls.target.set(0, eyeY, 0);
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;   // yaw
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-
-        controls.update();
-        return;
-      }
-
-      // R5NOVA: cámara nivelada (verticales “gerade”), yaw/pan/zoom permitidos
-      if (typeof isR5NOVA !== 'undefined' && isR5NOVA){
-        const eyeY = (controls && controls.target) ? controls.target.y : 0;
-        camera.up.set(0,1,0);
-        camera.fov = 55;
-        camera.position.set(0, eyeY, 42);     // distancia cómoda para W=60
-        controls.target.set(0, eyeY, 0);
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;   // solo yaw (pitch bloqueado)
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.screenSpacePanning = true;
-
-        // bloquea pitch
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-
-        controls.update();
-        return;
-      }
-
-      // ===== Otros modos (BUILD, LCHT, OFFNNG, TMSL, etc.) =====
-      const view = document.getElementById('standardView').value;
-      const pos = new THREE.Vector3();
-      switch(view){
-        case "isometric": pos.set(50,50,50); break;
-        case "top":       pos.set(0,80,0);   break;
-        case "front":     pos.set(0,0,40);   break;
-        case "side":      pos.set(50,0,0);   break;
-        case "diagonal":  pos.set(-50,50,-50); break;
-        default:          pos.set(0,0,50);
-      }
-
-      camera.position.copy(pos);
-      camera.lookAt(target);
-
-      // Detectar BUILD “puro” (ningún otro motor activado)
-      const isBuild =
-        !isFRBN && !isLCHT && !isOFFNNG && !isTMSL && !isRAUM && !is13245 && !isKEPLR && !isR5NOVA;
-
-      if (isBuild || isLCHT){
-        // ORBIT LIBRE en BUILD y LCHT (aunque la vista sea FRONT)
         controls.enabled            = true;
         controls.enableRotate       = true;
         controls.enablePan          = true;
@@ -3008,26 +3152,10 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         controls.minPolarAngle      = 0;
         controls.maxPolarAngle      = Math.PI;
         controls.screenSpacePanning = false;
-      } else {
-        // Resto: comportamiento previo (FRONT bloquea rotación)
-        if (view === "front"){
-          controls.enabled      = true;
-          controls.enableRotate = false;
-          controls.enablePan    = false;
-          controls.enableZoom   = true;
-          controls.minDistance  = 25;
-          controls.maxDistance  = 140;
-        } else {
-          controls.enabled      = true;
-          controls.enableRotate = true;
-          controls.enablePan    = true;
-          controls.enableZoom   = true;
-          controls.minDistance  = 10;
-          controls.maxDistance  = 200;
-        }
-      }
 
-      controls.update();
+        controls.update();
+        return;
+      }
     }
 
     function applyEmbedParams(){
@@ -3882,7 +4010,7 @@ void main(){
 
       syncOFFNNGFromScene();  // ← asegura acoplamiento inicial
 
-      applyBuildCamera(0);
+      setCamera_OFFNNG();
 
     } else {                           /* — SALIR — */
         if (offnngGroup) {
@@ -4423,28 +4551,6 @@ void main(){
       });
     }
 
-    function enterTMSLView(){
-      camera.up.set(0,1,0);
-      camera.fov = 55;
-      camera.updateProjectionMatrix();
-
-      const eyeY = (controls && controls.target) ? controls.target.y : 0;
-      controls.target.set(0, eyeY, 0);
-
-      camera.position.set(0, eyeY, 70);   // ← más lejos que antes
-
-      controls.enabled = true;
-      controls.enableRotate = true;
-      controls.enablePan    = true;
-      controls.enableZoom   = true;
-      controls.screenSpacePanning = true;
-      controls.minDistance = 10;
-      controls.maxDistance = 300;
-      controls.minPolarAngle = Math.PI / 2;
-      controls.maxPolarAngle = Math.PI / 2;
-      controls.update();
-    }
-
     function toggleTMSL(){
       if (!isTMSL){ // ENTRAR
         leaveBuildRenderBoost();
@@ -4469,7 +4575,7 @@ void main(){
         if (lichtGroup) lichtGroup.visible = false;
 
         // Vista nivelada
-        enterTMSLView();
+        setCamera_TMSL();
 
         isTMSL = true;
         window.isTMSL = true;
@@ -4748,23 +4854,7 @@ void main(){
         enterRaumRenderBoost();
 
         // ——— Cámara tipo BUILD ———
-        camera.up.set(0,1,0);
-        camera.near = 0.1;
-        camera.far  = 4000;
-        camera.fov  = 34;                 // FOV de BUILD
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 84);    // posición de BUILD
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        setCamera_RAUM();
 
         buildRAUM();
 
@@ -4985,23 +5075,7 @@ void main(){
         build13245();
 
         // ——— Cámara tipo BUILD ———
-        camera.up.set(0,1,0);
-        camera.near = 0.1;
-        camera.far  = 4000;
-        camera.fov  = 34;                 // FOV de BUILD
-        camera.updateProjectionMatrix();
-
-        if (controls && controls.target) controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, 84);    // posición de BUILD
-
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
+        setCamera_13245();
 
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
@@ -5490,7 +5564,7 @@ void main(){
 
         buildKEPLR();
 
-        applyBuildCamera(0);
+        setCamera_KEPLR();
 
         // Ocultar cubo/permutaciones para lectura “escultórica”
         if (typeof cubeUniverse !== 'undefined')      cubeUniverse.visible = false;
@@ -5852,7 +5926,7 @@ function toggleRAPHI(){
     window.isRAPHI = true;                 // redundante pero seguro
     window.groupRAPHI = groupRAPHI;        // refuerza la referencia global
 
-    applyBuildCamera(0);
+    setCamera_RAPHI();
 
     // Ocultar otros grupos “escultóricos”
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){}
@@ -6324,7 +6398,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
         buildR5NOVA();
 
-        applyBuildCamera(0);
+        setCamera_R5NOVA();
 
         try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
         try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
@@ -7280,6 +7354,11 @@ async function showPatternInfo(){
   // 3) Alejar un poco la cámara en la vista default
   window.applyTMSLSafeCamera = function(){
     try{
+      if (typeof window.setCamera_TMSL === 'function'){
+        window.setCamera_TMSL();
+        return;
+      }
+
       camera.up.set(0,1,0);
       camera.near = 0.1;
       camera.far  = 4000;
@@ -8081,7 +8160,7 @@ function toggleGRVTY(){
 
     buildGRVTY();
 
-    applyBuildCamera(0);
+    setCamera_GRVTY();
 
     try{ if (cubeUniverse)     cubeUniverse.visible = false; }catch(_){ }
     try{ if (permutationGroup) permutationGroup.visible = false; }catch(_){ }
@@ -8497,65 +8576,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
     });
     mo.observe(document.body, { attributes:true, attributeFilter:['class'] });
   }catch(_){}
-})();
-
-// ===================================================================
-// ENGINE ZOOM (desde motores) — aplica el "scroll hacia atrás" al entrar
-// BUILD: 1 paso  ·  LCHT: 3 pasos  ·  RAUM: 3 pasos
-// GRVTY: 4 pasos ·  13245: 4 pasos
-// ===================================================================
-(function installEngineZoomOverrides(){
-  if (window.__ENGINE_ZOOM_OVR__) return;
-  window.__ENGINE_ZOOM_OVR__ = true;
-
-  function zoomOutBySteps(steps){
-    try{
-      if (!steps || steps <= 0) return;
-      const tgt = (window.controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
-      const dir = camera.position.clone().sub(tgt);
-      const factor = Math.pow(1.25, steps);
-      camera.position.copy(tgt).add(dir.multiplyScalar(factor));
-      camera.updateProjectionMatrix();
-      if (window.controls) controls.update();
-    }catch(_){ }
-  }
-
-  // Envuelve un toggle y aplica zoom cuando queda ACTIVADO (antes estaba off)
-  function wrapToggleZoom(name, flagName, steps){
-    const fn = window[name];
-    if (typeof fn !== 'function' || fn.__zoomWrapped) return;
-    window[name] = function(...args){
-      const wasOn = !!window[flagName];
-      const out   = fn.apply(this, args);
-      const nowOn = !!window[flagName];
-      if (!wasOn && nowOn){
-        // Se aplica al final del frame para respetar la cámara base del motor
-        requestAnimationFrame(()=>requestAnimationFrame(()=>zoomOutBySteps(steps)));
-      }
-      return out;
-    };
-    window[name].__zoomWrapped = true;
-  }
-
-  // LCHT y RAUM → 3 pasos; GRVTY y 13245 → 4 pasos
-  wrapToggleZoom('toggleLCHT',  'isLCHT',  3);
-  wrapToggleZoom('toggleRAUM',  'isRAUM',  3);
-  wrapToggleZoom('toggleGRVTY', 'isGRVTY', 4);
-  wrapToggleZoom('toggle13245','is13245', 4);
-
-  // BUILD: al volver a la vista base (sea switchToBuild o applyStandardView) → 1 paso
-  function wrapSimple(name, steps){
-    const fn = window[name];
-    if (typeof fn !== 'function' || fn.__zoomWrapped) return;
-    window[name] = function(...args){
-      const out = fn.apply(this, args);
-      requestAnimationFrame(()=>requestAnimationFrame(()=>zoomOutBySteps(steps)));
-      return out;
-    };
-    window[name].__zoomWrapped = true;
-  }
-  wrapSimple('switchToBuild',    1);
-  wrapSimple('applyStandardView',1);
 })();
 
 </script>
