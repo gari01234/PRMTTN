@@ -6952,7 +6952,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           // Distancia del muro por motor (NO afecta cámara)
           const DIST = {
             BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
-            KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
+            KEPLR:93, RAPHI:93, GRVTY:93, R5NOVA:93
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco (NO toca cámara)
@@ -6991,7 +6991,14 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
               if (!window.WW) return;
               const id = key || (window.WW.activeEngine ? window.WW.activeEngine() : 'BUILD');
               window.WW.show(id);                    // muestra sólo la pared del motor activo
-              window.WW.setOuter(id, 200);           // outer estable (no afecta cámara)
+              // outer = 2× del base (o al menos 2× del hueco + marcos) para tapar laterales
+              try{
+                const w = window.WW.get(id);
+                const baseOuter = (w && w.params && typeof w.params.outer === 'number') ? w.params.outer : 400;
+                const minOuter  = (w && w.params) ? (w.params.open + w.params.thickness * 2) * 2 : 400;
+                const newOuter  = Math.max(baseOuter * 2, minOuter);
+                window.WW.setOuter(id, newOuter);
+              }catch(_){ }
               window.WW.setDistance(id, DIST[id] ?? 93);
 
               // Ajustes que NO tocan la cámara:
@@ -7075,6 +7082,21 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
               if (window.WW_applyFor) window.WW_applyFor(id);
             }catch(_){ }
           }, 0);
+        })();
+
+        /* ==== WALLS SHIM: desactiva el bloque antiguo y delega todo en WW_applyFor ==== */
+        (function replaceLegacyWallSetters(){
+          window.setWall_BUILD  = function(){ try{ window.WW_applyFor('BUILD'); }catch(_){ } };
+          window.setWall_FRBN   = function(){ try{ window.WW_applyFor('FRBN'); }catch(_){ } };
+          window.setWall_LCHT   = function(){ try{ window.WW_applyFor('LCHT'); }catch(_){ } };
+          window.setWall_OFFNNG = function(){ try{ window.WW_applyFor('OFFNNG'); }catch(_){ } };
+          window.setWall_TMSL   = function(){ try{ window.WW_applyFor('TMSL'); }catch(_){ } };
+          window.setWall_RAUM   = function(){ try{ window.WW_applyFor('RAUM'); }catch(_){ } };
+          window.setWall_13245  = function(){ try{ window.WW_applyFor('13245'); }catch(_){ } };
+          window.setWall_KEPLR  = function(){ try{ window.WW_applyFor('KEPLR'); }catch(_){ } };
+          window.setWall_RAPHI  = function(){ try{ window.WW_applyFor('RAPHI'); }catch(_){ } };
+          window.setWall_GRVTY  = function(){ try{ window.WW_applyFor('GRVTY'); }catch(_){ } };
+          window.setWall_R5NOVA = function(){ try{ window.WW_applyFor('R5NOVA'); }catch(_){ } };
         })();
 
 
