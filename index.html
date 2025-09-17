@@ -1470,36 +1470,38 @@ function buildLCHT() {
     }
 
     function setCamera_GRVTY(){
-      // Horizonte/mar: ojo más bajo, un poco más atrás y FOV más estrecho
-      camera.up.set(0,1,0);
-      camera.near = 0.1;
-      camera.far  = 4000;
-      camera.fov  = 75;                 
-      camera.updateProjectionMatrix();
+// Vista tipo “horizonte/mar”: más baja y mirando más hacia abajo.
+  camera.up.set(0,1,0);
+  camera.near = 0.1;
+  camera.far  = 4000;
+  camera.fov  = 75;                 // mantenemos tu FOV actual
+  camera.updateProjectionMatrix();
 
-      // Encadre: mira un poco hacia abajo (target más bajo que el ojo)
-      const eyeX = 0.0, eyeY = 38.0, eyeZ = 260.0;
-      const tgtY = 6.0;
+  // Ojo un poco más bajo y un pelín más atrás
+  const eyeX = 0.0, eyeY = 32.0, eyeZ = 275.0;
+  // Apunta más abajo para que el suelo (grid) llene la parte inferior
+  const tgtY = -12.0;
 
-      if (controls && controls.target) controls.target.set(0, tgtY, 0);
-      camera.position.set(eyeX, eyeY, eyeZ);
-      camera.lookAt(0, tgtY, 0);
+  if (controls && controls.target) controls.target.set(0, tgtY, 0);
+  camera.position.set(eyeX, eyeY, eyeZ);
+  camera.lookAt(0, tgtY, 0);
 
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.screenSpacePanning = false;
+  if (controls){
+    controls.enabled = true;
+    controls.enableRotate = true;
+    controls.enablePan    = true;
+    controls.enableZoom   = true;
+    controls.screenSpacePanning = false;
 
-        // Limita el pitch a un rango “mar/horizonte” (ligero tilt hacia abajo)
-        // π/2 es horizontal; permitimos -0.2..+0.1 rad respecto a horizontal.
-        controls.minPolarAngle = Math.PI/2 - 0.20;   //  ~1.37
-        controls.maxPolarAngle = Math.PI/2 + 0.10;   //  ~1.67
+    // Restringimos el pitch a un rango “mirando hacia abajo”
+    // (π/2 es horizontal). Permitimos ~−0.35..+0.05 rad respecto a horizontal.
+    controls.minPolarAngle = Math.PI/2 - 0.35;
+    controls.maxPolarAngle = Math.PI/2 + 0.05;
 
-        // Rango de zoom razonable para este encuadre (no afecta a otros motores)
-        controls.minDistance = 160;
-        controls.maxDistance = 600;
+    // Zoom útil para este encuadre (no afecta a otros motores)
+    controls.minDistance = 170;
+    controls.maxDistance = 520;
+
 
         controls.update();
       }
