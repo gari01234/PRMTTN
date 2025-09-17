@@ -1419,6 +1419,11 @@ function buildLCHT() {
         controls.minPolarAngle = 0;
         controls.maxPolarAngle = Math.PI;
         controls.screenSpacePanning = false;
+
+        // ← IMPORTANTE: resetear límites de zoom para este motor
+        controls.minDistance = 0;
+        controls.maxDistance = Infinity;
+
         controls.update();
       }
     }
@@ -1437,6 +1442,11 @@ function buildLCHT() {
         controls.minPolarAngle = 0;
         controls.maxPolarAngle = Math.PI;
         controls.screenSpacePanning = false;
+
+        // ← IMPORTANTE: resetear límites de zoom para este motor
+        controls.minDistance = 0;
+        controls.maxDistance = Infinity;
+
         controls.update();
       }
     }
@@ -1477,26 +1487,25 @@ function buildLCHT() {
       }
     }
 
-    /* 13245: “ventana” — cámara detrás del muro con misma escala del DESEADO
-       - Movemos la cámara 93 unidades MÁS atrás (la distancia del muro) respecto
-         a tu encuadre deseado z≈44.57 → z=137.57, así el muro queda entre cámara y escena.
-       - Para conservar el mismo tamaño aparente, estrechamos el FOV a 27.9213376644°
-         (sale de: FOV' = 2*atan(tan(75/2)*(44.57/137.57)) ).
-       - Mantiene verticales rectas (pitch bloqueado a π/2). */
+    /* 13245: ventana — cámara detrás del muro manteniendo escala del DESEADO
+       - Cámara 93 unidades MÁS atrás (mismo distance del muro).
+       - FOV ajustado para que todo se vea igual de grande que a z≈44.57.
+       - Pitch bloqueado (verticales rectas). */
     function setCamera_13245(){
       const eyeY = 4.55;                 // altura de ojo del DESEADO
       camera.up.set(0,1,0);
       camera.near = 0.1;
       camera.far  = 4000;
 
-      // FOV calculado para que todo “se vea igual de grande” que con z≈44.57
+      // FOV' = 2*atan(tan(75/2)*(44.57/137.57))
       camera.fov  = 27.9213376644;
       camera.updateProjectionMatrix();
 
       if (controls && controls.target) controls.target.set(0, eyeY, 0);
 
-      // Cámara detrás del muro: 44.57 + 93 = 137.57  (muro a 93 delante de la cámara)
+      // Cámara detrás del muro: 44.57 + 93 = 137.57
       camera.position.set(0, eyeY, 137.57);
+      camera.lookAt(0, eyeY, 0);
 
       if (controls){
         controls.enabled = true;
@@ -1505,13 +1514,14 @@ function buildLCHT() {
         controls.enableZoom   = true;
         controls.screenSpacePanning = true;
 
-        // Solo yaw (pitch nivelado)
+        // SOLO yaw (nivelado)
         controls.minPolarAngle = Math.PI / 2;
         controls.maxPolarAngle = Math.PI / 2;
 
-        // Rango de zoom cómodo alrededor del encuadre
+        // Limites de zoom de 13245 (no afectan a otros motores)
         controls.minDistance = 120;
         controls.maxDistance = 220;
+
         controls.update();
       }
     }
@@ -5300,8 +5310,11 @@ void main(){
         enterRaumRenderBoost();
         build13245();
 
-        // ——— Cámara tipo BUILD ———
+        // ——— Cámara tipo “ventana” propia de 13245 ———
         setCamera_13245();
+
+        // Activa su pared
+        try { if (window.WW_applyFor) window.WW_applyFor('13245'); } catch(_){ }
 
         cubeUniverse.visible     = false;
         permutationGroup.visible = false;
@@ -7018,8 +7031,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
           // Distancia del muro por motor (NO afecta cámara)
           const DIST = {
-            BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:91, '13245':93,
-            KEPLR:93, RAPHI:93, GRVTY:93, R5NOVA:93
+            BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
+            KEPLR:105, RAPHI:105, GRVTY:95, R5NOVA:93
           };
 
           // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco (NO toca cámara)
