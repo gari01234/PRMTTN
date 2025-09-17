@@ -6872,6 +6872,48 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
               const newGeo = makeFrameGeometry(o, this.params.open, this.params.thickness);
               this.frame.geometry.dispose(); this.frame.geometry = newGeo;
             },
+            setOpen(o){
+              this.params.open = o;
+              const t  = this.params.thickness;
+              const zc = -this.params.distance - t*0.5;
+              const h2 = o * 0.5;
+
+              // marco
+              const gFrame = makeFrameGeometry(this.params.outer, o, t);
+              this.frame.geometry.dispose(); this.frame.geometry = gFrame;
+
+              // jambas (Leibung)
+              left.geometry.dispose();   left.geometry   = new THREE.BoxGeometry(t, o, t);
+              right.geometry.dispose();  right.geometry  = new THREE.BoxGeometry(t, o, t);
+              top.geometry.dispose();    top.geometry    = new THREE.BoxGeometry(o, t, t);
+              bottom.geometry.dispose(); bottom.geometry = new THREE.BoxGeometry(o, t, t);
+
+              left.position.set( -h2 - t*0.5, 0, zc);
+              right.position.set(  h2 + t*0.5, 0, zc);
+              top.position.set(0,  h2 + t*0.5, zc);
+              bottom.position.set(0,-h2 - t*0.5, zc);
+            },
+            setThickness(t){
+              this.params.thickness = t;
+              const o  = this.params.open;
+              const zc = -this.params.distance - t*0.5;
+              const h2 = o * 0.5;
+
+              // marco
+              const gFrame = makeFrameGeometry(this.params.outer, o, t);
+              this.frame.geometry.dispose(); this.frame.geometry = gFrame;
+
+              // jambas
+              left.geometry.dispose();   left.geometry   = new THREE.BoxGeometry(t, o, t);
+              right.geometry.dispose();  right.geometry  = new THREE.BoxGeometry(t, o, t);
+              top.geometry.dispose();    top.geometry    = new THREE.BoxGeometry(o, t, t);
+              bottom.geometry.dispose(); bottom.geometry = new THREE.BoxGeometry(o, t, t);
+
+              left.position.set( -h2 - t*0.5, 0, zc);
+              right.position.set(  h2 + t*0.5, 0, zc);
+              top.position.set(0,  h2 + t*0.5, zc);
+              bottom.position.set(0,-h2 - t*0.5, zc);
+            },
             dispose(){ dispose(rig); }
           };
         }
@@ -6924,6 +6966,8 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
           ensure, setActive,
           setDistance(engine, d){ ensure(engine).setDistance(d); },
           setOuter(engine, o){ ensure(engine).setOuter(o); },
+          setOpen(engine, o){ ensure(engine).setOpen(o); },
+          setThickness(engine, t){ ensure(engine).setThickness(t); },
           get(engine){ return ensure(engine); },
           show(engine){ setActive(engine); },              // alias
           activeEngine(){ return engineId(); },            // id actual
