@@ -1499,7 +1499,7 @@ function buildLCHT() {
 
         // Rango de zoom razonable para este encuadre (no afecta a otros motores)
         controls.minDistance = 160;
-        controls.maxDistance = 420;
+        controls.maxDistance = 600;
 
         controls.update();
       }
@@ -8152,7 +8152,7 @@ function disposeGroupGRVTY(){
 }
 
 /* ====== Parámetros del plano y wells ====== */
-const GRVTY_W = 720.0, GRVTY_D = 960.0;   // malla muy amplia tipo horizonte
+const GRVTY_W = 360.0, GRVTY_D = 220.0;   // malla muy amplia tipo horizonte
 const GRVTY_RES_DESKTOP = 360;            // más subdivisiones para ondulación suave
 const GRVTY_RES_MOBILE  = 220;
 /* Tope alto seguro para WebGL (sumatorio de uniforms): 64 pozos máx por draw */
