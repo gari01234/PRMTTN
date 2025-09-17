@@ -1477,26 +1477,41 @@ function buildLCHT() {
       }
     }
 
-    /* 13245: verticales “gerade”, yaw/pan/zoom; fija pitch en π/2 y respeta eyeY */
+    /* 13245: “ventana” — cámara detrás del muro con misma escala del DESEADO
+       - Movemos la cámara 93 unidades MÁS atrás (la distancia del muro) respecto
+         a tu encuadre deseado z≈44.57 → z=137.57, así el muro queda entre cámara y escena.
+       - Para conservar el mismo tamaño aparente, estrechamos el FOV a 27.9213376644°
+         (sale de: FOV' = 2*atan(tan(75/2)*(44.57/137.57)) ).
+       - Mantiene verticales rectas (pitch bloqueado a π/2). */
     function setCamera_13245(){
-      const eyeY = (controls && controls.target) ? controls.target.y : 0;
+      const eyeY = 4.55;                 // altura de ojo del DESEADO
       camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      // mantenemos FOV actual para no introducir saltos
+      camera.near = 0.1;
+      camera.far  = 4000;
+
+      // FOV calculado para que todo “se vea igual de grande” que con z≈44.57
+      camera.fov  = 27.9213376644;
       camera.updateProjectionMatrix();
+
       if (controls && controls.target) controls.target.set(0, eyeY, 0);
-      const x = camera.position.x, z = camera.position.z;
-      camera.position.set(x, eyeY, z);
+
+      // Cámara detrás del muro: 44.57 + 93 = 137.57  (muro a 93 delante de la cámara)
+      camera.position.set(0, eyeY, 137.57);
+
       if (controls){
         controls.enabled = true;
-        controls.enableRotate = true; // yaw
+        controls.enableRotate = true;     // yaw
         controls.enablePan    = true;
         controls.enableZoom   = true;
-        controls.minDistance  = 10;
-        controls.maxDistance  = 200;
         controls.screenSpacePanning = true;
+
+        // Solo yaw (pitch nivelado)
         controls.minPolarAngle = Math.PI / 2;
         controls.maxPolarAngle = Math.PI / 2;
+
+        // Rango de zoom cómodo alrededor del encuadre
+        controls.minDistance = 120;
+        controls.maxDistance = 220;
         controls.update();
       }
     }
@@ -5124,7 +5139,7 @@ void main(){
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
     const SLAB_EXTRA_X = 90.00; // ← ya existente (45u por lado en X)
-    const SLAB_EXTRA_Z = 90.00; // ← NUEVO (45u al frente y 45u atrás en Z)
+    const SLAB_EXTRA_Z = 58.00; // ajustado: 15 + 58/2 = 44 < 44.57 ⇒ no invade el muro
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
