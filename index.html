@@ -1501,20 +1501,28 @@ function buildLCHT() {
       }
     }
 
-    /* RAUM: frontal fija, sin rotación/pan; zoom limitado */
+    /* RAUM: frontal fija, sin rotación/pan; zoom limitado (encuadre “DESEADO”) */
     function setCamera_RAUM(){
       const target = (controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
+
       camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      camera.position.set(0, 0, (typeof RAUM_CAMERA_ZOOMED !== 'undefined') ? RAUM_CAMERA_ZOOMED : 80);
+      camera.near = 0.1;
+      camera.far  = 4000;
+      camera.fov  = 75;
+      camera.updateProjectionMatrix();
+
+      // Posición exacta deseada (ver captura): z = 82.90
+      camera.position.set(0, 0, 82.90);
       camera.lookAt(target);
+
       if (controls){
         controls.enabled = true;
-        controls.enableRotate = false;
-        controls.enablePan    = false;
-        controls.enableZoom   = true;
-        controls.minDistance  = 25;
+        controls.enableRotate = false;  // sin rotación
+        controls.enablePan    = false;  // sin pan
+        controls.enableZoom   = true;   // sólo zoom (limitado)
+
+        // Limites de zoom ajustados a este encuadre
+        controls.minDistance  = 78;     // evita “acercarte de más”
         controls.maxDistance  = 140;
         controls.update();
       }
@@ -6995,7 +7003,7 @@ function ensureOnlyRAPHIFromUI(){ ensureOnlyRAPHI(); updateEngineSelectUI(); }
 
           // Distancia del muro por motor (NO afecta cámara)
           const DIST = {
-            BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
+            BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:91, '13245':93,
             KEPLR:93, RAPHI:93, GRVTY:93, R5NOVA:93
           };
 
