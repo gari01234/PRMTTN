@@ -1539,7 +1539,7 @@ function buildLCHT() {
         controls.maxPolarAngle = Math.PI / 2;
 
         // Limites de zoom de 13245 (no afectan a otros motores)
-        controls.minDistance = 120;
+        controls.minDistance = 600;
         controls.maxDistance = 220;
 
         controls.update();
@@ -1567,7 +1567,7 @@ function buildLCHT() {
         controls.enableZoom   = true;   // sólo zoom (limitado)
 
         // Limites de zoom ajustados a este encuadre
-        controls.minDistance  = 78;     // evita “acercarte de más”
+        controls.minDistance  = 600;     // evita “acercarte de más”
         controls.maxDistance  = 140;
         controls.update();
       }
