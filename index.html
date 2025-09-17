@@ -1541,7 +1541,27 @@ function buildLCHT() {
       }
     }
 
+    /* BUILD: vista base (frontal libre) — aislada como los demás motores */
+    function setCamera_BUILD(){
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov  = 75;  camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 50);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
+      }
+    }
+
     Object.assign(window, {
+      setCamera_BUILD,
       setCamera_FRBN,
       setCamera_LCHT,
       setCamera_OFFNNG,
@@ -1553,6 +1573,189 @@ function buildLCHT() {
       setCamera_RAUM,
       setCamera_TMSL
     });
+
+    /* Cámara por motor: wrapper sin parpadeo ni doble carga */
+    (function installCameraPerEngine(){
+      const pairs = [
+        ['toggleFRBN',   'isFRBN',   'setCamera_FRBN'],
+        ['toggleLCHT',   'isLCHT',   'setCamera_LCHT'],
+        ['toggleOFFNNG', 'isOFFNNG', 'setCamera_OFFNNG'],
+        ['toggleTMSL',   'isTMSL',   'setCamera_TMSL'],
+        ['toggleRAUM',   'isRAUM',   'setCamera_RAUM'],
+        ['toggle13245',  'is13245',  'setCamera_13245'],
+        ['toggleKEPLR',  'isKEPLR',  'setCamera_KEPLR'],
+        ['toggleRAPHI',  'isRAPHI',  'setCamera_RAPHI'],
+        ['toggleR5NOVA', 'isR5NOVA', 'setCamera_R5NOVA'],
+        ['toggleGRVTY',  'isGRVTY',  'setCamera_GRVTY']
+      ];
+      pairs.forEach(([fname, flag, cset])=>{
+        const fn = window[fname];
+        if (typeof fn !== 'function' || fn.__camHooked) return;
+        window[fname] = function(...args){
+          const wasOn = !!window[flag];
+          const out   = fn.apply(this, args);
+          const nowOn = !!window[flag];
+          if (!wasOn && nowOn && typeof window[cset] === 'function'){
+            window[cset]();
+          }
+          return out;
+        };
+        window[fname].__camHooked = true;
+      });
+
+      // BUILD no tiene flag toggle: interceptamos “switchToBuild” y “applyStandardView”
+      ['switchToBuild','applyStandardView'].forEach(name=>{
+        const fn = window[name];
+        if (typeof fn !== 'function' || fn.__camHooked) return;
+        window[name] = function(...args){
+          const out = fn.apply(this, args);
+          try{ window.setCamera_BUILD(); }catch(_){ }
+          return out;
+        };
+        window[name].__camHooked = true;
+      });
+    })();
+
+    /* ============================================================
+       WALLS · definición independiente por motor (fuente única)
+       - Misma apertura por defecto en todos los motores
+       - outer (ancho total) = 2 × (auto) para tapar laterales
+       - KEPLR deja de “verse más chico” al tener su spec propia
+       ============================================================ */
+
+    /* Valores base (puedes cambiar aquí si quieres otro estándar):
+       distance = separación del muro
+       thickness = grosor del “marco”
+       open = tamaño de apertura
+       outer = ancho total del muro (lo forzamos a 2× más abajo)
+    */
+    const WALL_BASE = { distance: 110, thickness: 15, open: 100 };
+
+    const WALL_SPECS = {
+      BUILD : { ...WALL_BASE },
+      FRBN  : { ...WALL_BASE },
+      LCHT  : { ...WALL_BASE, distance: 130 }, // mismo look que tu cámara
+      OFFNNG: { ...WALL_BASE, distance: 110 },
+      TMSL  : { ...WALL_BASE, distance: 120 },
+      RAUM  : { ...WALL_BASE, distance: 110 },
+      '13245':{ ...WALL_BASE, distance: 110 },
+      KEPLR : { ...WALL_BASE, distance: 110 }, // evita “apertura más chica”
+      RAPHI : { ...WALL_BASE, distance: 110 },
+      R5NOVA: { ...WALL_BASE, distance: 118 },
+      GRVTY : { ...WALL_BASE, distance: 600, open: 420 } // horizonte muy lejos
+    };
+
+    /* Aplica un spec al motor indicado y fuerza outer=2× */
+    function applyWallSpec(engine){
+      try{
+        const WW = window.WW || null;
+        if (!WW) return;
+
+        // Spec explícito para este motor
+        const s = Object.assign({}, WALL_SPECS[engine] || WALL_BASE);
+
+        // “outer” (largo lateral) 2×. Si WW.get() ya tiene uno, lo duplicamos.
+        let outerAuto = null;
+        try{
+          const g = WW.get ? WW.get(engine) : null;
+          if (g && g.params && typeof g.params.outer === 'number') outerAuto = g.params.outer;
+        }catch(_){ }
+        const fallbackOuter = (s.open + s.thickness * 2);   // aproximación razonable
+        const outer2x = (outerAuto ? outerAuto * 2.0 : fallbackOuter * 2.0);
+
+        // Intenta setters específicos si existen, y registra en SPECS
+        if (!WW.SPECS) WW.SPECS = Object.create(null);
+        WW.SPECS[engine] = { distance: s.distance, thickness: s.thickness, open: s.open, outer: outer2x };
+
+        if (typeof WW.setDistance === 'function') WW.setDistance(engine, s.distance);
+        if (typeof WW.setThickness === 'function') WW.setThickness(engine, s.thickness);
+        if (typeof WW.setOpen === 'function')      WW.setOpen(engine,      s.open);
+        if (typeof WW.setOuter === 'function')     WW.setOuter(engine,     outer2x);
+
+        // Fuerza reconstrucción/aplicación si el módulo la expone
+        if (typeof WW.apply === 'function')        WW.apply(engine);
+        if (typeof WW.rebuild === 'function')      WW.rebuild(engine);
+        if (typeof WW.update === 'function')       WW.update();
+      }catch(_){ }
+    }
+
+    /* Helpers por motor – misma interfaz que las cámaras */
+    function setWall_BUILD(){  applyWallSpec('BUILD'); }
+    function setWall_FRBN(){   applyWallSpec('FRBN'); }
+    function setWall_LCHT(){   applyWallSpec('LCHT'); }
+    function setWall_OFFNNG(){ applyWallSpec('OFFNNG'); }
+    function setWall_TMSL(){   applyWallSpec('TMSL'); }
+    function setWall_RAUM(){   applyWallSpec('RAUM'); }
+    function setWall_13245(){  applyWallSpec('13245'); }
+    function setWall_KEPLR(){  applyWallSpec('KEPLR'); }
+    function setWall_RAPHI(){  applyWallSpec('RAPHI'); }
+    function setWall_R5NOVA(){ applyWallSpec('R5NOVA'); }
+    function setWall_GRVTY(){  applyWallSpec('GRVTY'); }
+
+    Object.assign(window, {
+      setWall_BUILD, setWall_FRBN, setWall_LCHT, setWall_OFFNNG, setWall_TMSL,
+      setWall_RAUM, setWall_13245, setWall_KEPLR, setWall_RAPHI, setWall_R5NOVA, setWall_GRVTY
+    });
+
+    /* Hook automático: cuando entras a un motor, aplica SU muro */
+    (function installWallPerEngine(){
+      const pairs = [
+        ['toggleFRBN',   'isFRBN',   'setWall_FRBN'],
+        ['toggleLCHT',   'isLCHT',   'setWall_LCHT'],
+        ['toggleOFFNNG', 'isOFFNNG', 'setWall_OFFNNG'],
+        ['toggleTMSL',   'isTMSL',   'setWall_TMSL'],
+        ['toggleRAUM',   'isRAUM',   'setWall_RAUM'],
+        ['toggle13245',  'is13245',  'setWall_13245'],
+        ['toggleKEPLR',  'isKEPLR',  'setWall_KEPLR'],
+        ['toggleRAPHI',  'isRAPHI',  'setWall_RAPHI'],
+        ['toggleR5NOVA', 'isR5NOVA', 'setWall_R5NOVA'],
+        ['toggleGRVTY',  'isGRVTY',  'setWall_GRVTY']
+      ];
+      pairs.forEach(([fname, flag, wset])=>{
+        const fn = window[fname];
+        if (typeof fn !== 'function' || fn.__wallHooked) return;
+        window[fname] = function(...args){
+          const wasOn = !!window[flag];
+          const out   = fn.apply(this, args);
+          const nowOn = !!window[flag];
+          if (!wasOn && nowOn && typeof window[wset] === 'function'){
+            window[wset]();
+          }
+          return out;
+        };
+        window[fname].__wallHooked = true;
+      });
+
+      // Para BUILD, interceptamos “switchToBuild” y “applyStandardView”
+      ['switchToBuild','applyStandardView'].forEach(name=>{
+        const fn = window[name];
+        if (typeof fn !== 'function' || fn.__wallHooked) return;
+        window[name] = function(...args){
+          const out = fn.apply(this, args);
+          try{ window.setWall_BUILD(); }catch(_){ }
+          return out;
+        };
+        window[name].__wallHooked = true;
+      });
+
+      // Aplica de inicio el muro del motor activo (o BUILD si ninguno está ON)
+      const applyInitial = ()=>{
+        try{
+          if (window.isFRBN)      return setWall_FRBN();
+          if (window.isLCHT)      return setWall_LCHT();
+          if (window.isOFFNNG)    return setWall_OFFNNG();
+          if (window.isTMSL)      return setWall_TMSL();
+          if (window.isRAUM)      return setWall_RAUM();
+          if (window.is13245)     return setWall_13245();
+          if (window.isKEPLR)     return setWall_KEPLR();
+          if (window.isRAPHI)     return setWall_RAPHI();
+          if (window.isR5NOVA)    return setWall_R5NOVA();
+          if (window.isGRVTY)     return setWall_GRVTY();
+          return setWall_BUILD();
+        }catch(_){ }
+      };
+      applyInitial();
+    })();
 
     function applyBuildCamera(eyeY = 0){
       camera.up.set(0,1,0);
