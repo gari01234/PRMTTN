@@ -8774,27 +8774,6 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   </div>`;
   document.body.appendChild($root);
 
-  (function keepWWHiddenInMinimal(){
-    const root = document.querySelector('.wwpanel');
-    if (!root) return;
-    function isMinimal(){
-      const b = document.body;
-      return !!(b && (
-        b.classList.contains('minimal-ui') ||
-        b.classList.contains('minimal')    ||
-        b.classList.contains('ui-min')     ||
-        b.getAttribute('data-ui') === 'minimal' ||
-        b.getAttribute('data-minimal-ui') === 'true'
-      ));
-    }
-    function update(){ root.style.display = isMinimal() ? 'none' : ''; }
-    const obs = new MutationObserver(update);
-    obs.observe(document.documentElement, {attributes:true, childList:true, subtree:true});
-    window.addEventListener('click', update, true);
-    window.addEventListener('keydown', update, true);
-    update();
-  })();
-
   // ── Wire-up de botones ───────────────────────────────────────
   const $wallMinus = $root.querySelector('#wwWallMinus');
   const $wallPlus  = $root.querySelector('#wwWallPlus');
@@ -8891,16 +8870,60 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
   // Recalcula info tras cada cambio de motor (si el VM expone __applyFor)
   setTimeout(updateInfo,0);
 
-  // Ocultar/mostrar dinámico si la clase del body cambia en runtime
-  try{
-    const mo = new MutationObserver(()=>{
-      const isMin = document.body.classList.contains('minimal-ui');
-      const el = document.querySelector('.wwpanel');
-      if (!el) return;
-      el.style.display = isMin ? 'none' : '';
-    });
-    mo.observe(document.body, { attributes:true, attributeFilter:['class'] });
-  }catch(_){}
+  /* ───────────────────────────────────────────────────────────
+   * WW TUNING · Ocultar automáticamente en Minimal UI
+   * - Si está el botón “Show UI” → estamos en Minimal UI → ocultar.
+   * - En UI completo → mostrar normal.
+   * - No modifica otros paneles ni estilos globales.
+   * ─────────────────────────────────────────────────────────── */
+  (function hideWWTuningInMinimalUI(){
+    // localiza el panel y asígnale un id estable
+    function getWWPanel(){
+      let p = document.getElementById('ww-tuning');
+      if (p) return p;
+
+      // Busca el contenedor que contiene el título “WW TUNING”
+      const candidates = document.querySelectorAll('div,aside,section');
+      for (const el of candidates){
+        const txt = (el.textContent || '').trim();
+        if (txt && /WW TUNING/i.test(txt)){
+          // evitamos coger los elementos internos: buscamos el contenedor más grande
+          // que tiene el título y botones dentro (heurística simple: que tenga al menos un botón)
+          const hasButton = el.querySelector('button, [role="button"]');
+          if (hasButton){
+            el.id = 'ww-tuning';
+            return el;
+          }
+        }
+      }
+      return null;
+    }
+
+    // Heurística robusta: si aparece el botón "Show UI" estamos en Minimal UI
+    function isMinimalUI(){
+      // Limitamos el coste: miramos los últimos nodos y elementos visibles
+      const all = document.querySelectorAll('button, a, [role="button"], .btn, .toggle');
+      for (const el of all){
+        const t = (el.textContent || '').trim();
+        if (t && /^(show ui)$/i.test(t)) return true;
+      }
+      return false;
+    }
+
+    function apply(){
+      const panel = getWWPanel();
+      if (!panel) return;
+      panel.style.display = isMinimalUI() ? 'none' : '';
+    }
+
+    // Observa cambios en el DOM para reaccionar cuando entras/sales de Minimal UI
+    const obs = new MutationObserver(apply);
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true });
+
+    window.addEventListener('load', apply, { once: true });
+    window.addEventListener('resize', apply);
+    apply();
+  })();
 })();
 
 </script>
