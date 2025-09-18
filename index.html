@@ -1507,12 +1507,12 @@ function buildLCHT() {
       }
     }
 
-    /* 13245: cámara libre tipo BUILD (Orbit completo: yaw+pitch, pan y zoom) */
+    /* 13245: Orbit completo + PAN vertical (arrastre) como en BUILD */
     function setCamera_13245(){
-      // Punto de pivote centrado en la “ventana”
+      // Pivot al centro de la “ventana”
       const targetX = 0, targetY = 0, targetZ = 0;
 
-      // Arranque cómodo (tú luego orbitas y haces pan a gusto)
+      // Punto de partida cómodo; tú luego orbitas y haces pan a gusto
       const eyeX = 0, eyeY = 12, eyeZ = 168.90;
 
       camera.up.set(0, 1, 0);
@@ -1528,17 +1528,32 @@ function buildLCHT() {
       if (controls){
         controls.enabled = true;
 
-        // Orbit completo (como BUILD)
-        controls.enableRotate = true;          // yaw + pitch
-        controls.enablePan    = true;
+        // Orbit completo
+        controls.enableRotate = true;         // yaw + pitch
+        controls.enablePan    = true;         // ← imprescindible para arrastrar
         controls.enableZoom   = true;
-        controls.screenSpacePanning = false;
+
+        // PAN en coordenadas de pantalla: arrastrar hacia arriba mueve hacia arriba
+        controls.screenSpacePanning = true;   // ← clave para pan vertical “natural”
+        controls.panSpeed       = 0.9;        // pan con buena sensibilidad
+        controls.keyPanSpeed    = 50.0;       // por si usas flechas/WASD
+
+        // Mapeo de botones/touch (como BUILD)
+        controls.mouseButtons = {
+          LEFT:   THREE.MOUSE.ROTATE,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT:  THREE.MOUSE.PAN
+        };
+        controls.touches = {
+          ONE: THREE.TOUCH.ROTATE,
+          TWO: THREE.TOUCH.PAN
+        };
 
         // Rango estándar de pitch (sin bloquear a horizontal)
         controls.minPolarAngle = 0;
         controls.maxPolarAngle = Math.PI;
 
-        // Rango de zoom amplio para este motor (no afecta a otros)
+        // Rango de zoom amplio (sólo 13245)
         controls.minDistance = 40;
         controls.maxDistance = 260;
 
