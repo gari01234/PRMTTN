@@ -1512,33 +1512,31 @@ function buildLCHT() {
        - FOV ajustado para que todo se vea igual de grande que a z≈44.57.
        - Pitch bloqueado (verticales rectas). */
     function setCamera_13245(){
-      const eyeY = 4.55;                 // altura de ojo del DESEADO
+      const eyeY = 7.25;            // ↑ antes 4.55 — baja la línea de encuentro en pantalla
       camera.up.set(0,1,0);
       camera.near = 0.1;
       camera.far  = 4000;
 
-      // FOV' = 2*atan(tan(75/2)*(44.57/137.57))
       camera.fov  = 75;
       camera.updateProjectionMatrix();
 
       if (controls && controls.target) controls.target.set(0, eyeY, 0);
 
-      // Cámara detrás del muro: 44.57 + 93 = 137.57
-      camera.position.set(0, eyeY, 168.9);
+      // Mantén la misma distancia para conservar escala en la ventana
+      camera.position.set(0, eyeY, 168.90);
       camera.lookAt(0, eyeY, 0);
 
       if (controls){
         controls.enabled = true;
-        controls.enableRotate = true;     // yaw
+        controls.enableRotate = true;     // solo yaw
         controls.enablePan    = true;
         controls.enableZoom   = true;
         controls.screenSpacePanning = true;
 
-        // SOLO yaw (nivelado)
+        // Cámara nivelada: sin inclinación (frontal)
         controls.minPolarAngle = Math.PI / 2;
         controls.maxPolarAngle = Math.PI / 2;
 
-        // Limites de zoom de 13245 (no afectan a otros motores)
         controls.minDistance = 120;
         controls.maxDistance = 220;
 
@@ -5231,6 +5229,9 @@ void main(){
       // limpia versión previa
       disposeGroup(group13245);
       group13245 = new THREE.Group();
+
+      // ★ ajuste fino: asentamos el plano en la unterkante del hueco
+      group13245.position.set(0, -0.75, 0);
 
       // ★ Escala global del contenido 13245 (sin tocar muro ni cámara)
       const SCALE_13245 = 2.5;
