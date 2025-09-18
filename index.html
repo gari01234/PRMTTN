@@ -1507,14 +1507,10 @@ function buildLCHT() {
       }
     }
 
-    /* 13245: ventana — cámara detrás del muro manteniendo escala del DESEADO
-       - Cámara 93 unidades MÁS atrás (mismo distance del muro).
-       - FOV ajustado para que todo se vea igual de grande que a z≈44.57.
-       - Pitch bloqueado (verticales rectas). */
+    /* 13245: ventana — nivelada, ojo bajo (sensación planta baja) */
     function setCamera_13245(){
-      const EYE_Y     = 6.0;          // ojo cercano al suelo
-      const DIST_Z    = 168.90;       // misma distancia (mantiene escala)
-      const PITCH_UP  = 0.08;         // ≈ 4.58° hacia arriba
+      const EYE_Y  = 2.0;       // ojo muy bajo (planta baja)
+      const DIST_Z = 168.90;    // misma distancia → misma escala
 
       camera.up.set(0,1,0);
       camera.near = 0.1;
@@ -1522,24 +1518,20 @@ function buildLCHT() {
       camera.fov  = 75;
       camera.updateProjectionMatrix();
 
-      // Calcula el target para fijar exactamente ese pitch
-      const targetY = EYE_Y + Math.tan(PITCH_UP) * DIST_Z;
-
-      if (controls && controls.target) controls.target.set(0, targetY, 0);
+      if (controls && controls.target) controls.target.set(0, EYE_Y, 0);
       camera.position.set(0, EYE_Y, DIST_Z);
-      camera.lookAt(0, targetY, 0);
+      camera.lookAt(0, EYE_Y, 0);          // ← pitch 0 (frontal, sin mirar arriba/abajo)
 
       if (controls){
         controls.enabled = true;
-        controls.enableRotate = true;     // yaw solamente
+        controls.enableRotate = true;      // yaw
         controls.enablePan    = true;
         controls.enableZoom   = true;
         controls.screenSpacePanning = true;
 
-        // Bloquea el pitch a +PITCH_UP (mirando ligeramente hacia arriba)
-        const lock = Math.PI/2 - PITCH_UP;
-        controls.minPolarAngle = lock;
-        controls.maxPolarAngle = lock;
+        // Bloquea el pitch en horizontal (sin tilt)
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
 
         controls.minDistance = 120;
         controls.maxDistance = 220;
@@ -5230,12 +5222,11 @@ void main(){
 
     /* Construye/rehace toda la escena 13245 */
     function build13245(){
-      // limpia versión previa
       disposeGroup(group13245);
       group13245 = new THREE.Group();
 
-      // Ajuste fino: que la unterkante se vea natural desde planta baja
-      group13245.position.set(0, -0.25, 0);
+      // Alineación exacta: sin offset vertical (top de losa en y=0 coincide con unterkante)
+      group13245.position.set(0, 0, 0);
 
       // ★ Escala global del contenido 13245 (sin tocar muro ni cámara)
       const SCALE_13245 = 2.5;
