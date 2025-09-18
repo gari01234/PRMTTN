@@ -5232,6 +5232,11 @@ void main(){
       disposeGroup(group13245);
       group13245 = new THREE.Group();
 
+      // ★ Escala global del contenido 13245 (sin tocar muro ni cámara)
+      const SCALE_13245 = 1.35;
+      group13245.scale.set(SCALE_13245, SCALE_13245, SCALE_13245);
+      try { if (typeof registerEngineRoot === 'function') registerEngineRoot('13245', group13245); } catch(_){}
+
       // Fondo acoplado (no manual)
       updateBackground(false);
 
