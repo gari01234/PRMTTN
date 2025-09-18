@@ -1507,34 +1507,40 @@ function buildLCHT() {
       }
     }
 
-    /* 13245: ventana — nivelada, ojo bajo (sensación planta baja) */
+    /* 13245: cámara libre tipo BUILD (Orbit completo: yaw+pitch, pan y zoom) */
     function setCamera_13245(){
-      const EYE_Y  = 2.0;       // ojo muy bajo (planta baja)
-      const DIST_Z = 168.90;    // misma distancia → misma escala
+      // Punto de pivote centrado en la “ventana”
+      const targetX = 0, targetY = 0, targetZ = 0;
 
-      camera.up.set(0,1,0);
+      // Arranque cómodo (tú luego orbitas y haces pan a gusto)
+      const eyeX = 0, eyeY = 12, eyeZ = 168.90;
+
+      camera.up.set(0, 1, 0);
       camera.near = 0.1;
       camera.far  = 4000;
       camera.fov  = 75;
       camera.updateProjectionMatrix();
 
-      if (controls && controls.target) controls.target.set(0, EYE_Y, 0);
-      camera.position.set(0, EYE_Y, DIST_Z);
-      camera.lookAt(0, EYE_Y, 0);          // ← pitch 0 (frontal, sin mirar arriba/abajo)
+      if (controls && controls.target) controls.target.set(targetX, targetY, targetZ);
+      camera.position.set(eyeX, eyeY, eyeZ);
+      camera.lookAt(targetX, targetY, targetZ);
 
       if (controls){
         controls.enabled = true;
-        controls.enableRotate = true;      // yaw
+
+        // Orbit completo (como BUILD)
+        controls.enableRotate = true;          // yaw + pitch
         controls.enablePan    = true;
         controls.enableZoom   = true;
-        controls.screenSpacePanning = true;
+        controls.screenSpacePanning = false;
 
-        // Bloquea el pitch en horizontal (sin tilt)
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        // Rango estándar de pitch (sin bloquear a horizontal)
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
 
-        controls.minDistance = 120;
-        controls.maxDistance = 220;
+        // Rango de zoom amplio para este motor (no afecta a otros)
+        controls.minDistance = 40;
+        controls.maxDistance = 260;
 
         controls.update();
       }
