@@ -1524,7 +1524,7 @@ function buildLCHT() {
       if (controls && controls.target) controls.target.set(0, eyeY, 0);
 
       // Cámara detrás del muro: 44.57 + 93 = 137.57
-      camera.position.set(0, eyeY, 137.57);
+      camera.position.set(0, eyeY, 168.9);
       camera.lookAt(0, eyeY, 0);
 
       if (controls){
@@ -5169,7 +5169,7 @@ void main(){
     // ★ NUEVO: espesor de la losa global (cara superior en y = 0)
     const SLAB_THICK  = 30.00;
     const SLAB_EXTRA_X = 90.00; // ← ya existente (45u por lado en X)
-    const SLAB_EXTRA_Z = 58.00; // ajustado: 15 + 58/2 = 44 < 44.57 ⇒ no invade el muro
+    const SLAB_EXTRA_Z = 15.00; // ajustado: 15 + 58/2 = 44 < 44.57 ⇒ no invade el muro
 
     // salto coprimo para open-addressing
     const STEP_OPEN_ADDR = 37;
@@ -5233,7 +5233,7 @@ void main(){
       group13245 = new THREE.Group();
 
       // ★ Escala global del contenido 13245 (sin tocar muro ni cámara)
-      const SCALE_13245 = 1.35;
+      const SCALE_13245 = 2.5;
       group13245.scale.set(SCALE_13245, SCALE_13245, SCALE_13245);
       try { if (typeof registerEngineRoot === 'function') registerEngineRoot('13245', group13245); } catch(_){}
 
@@ -5241,9 +5241,9 @@ void main(){
       updateBackground(false);
 
       // ★ ACTUALIZADO: losa global extendida
-      //   X = 30 + 90  (45u extra por lado)
+      //   X = 30 
       //   Y = THICK
-      //   Z = 30 + 90  (45u extra al frente y atrás)
+      //   Z = 30 
       //   cara superior en y = 0
       {
         const slabGeo = new THREE.BoxGeometry(
