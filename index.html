@@ -1512,30 +1512,34 @@ function buildLCHT() {
        - FOV ajustado para que todo se vea igual de grande que a z≈44.57.
        - Pitch bloqueado (verticales rectas). */
     function setCamera_13245(){
-      const eyeY = 52.25;            // ↑ antes 4.55 — baja la línea de encuentro en pantalla
+      const EYE_Y     = 6.0;          // ojo cercano al suelo
+      const DIST_Z    = 168.90;       // misma distancia (mantiene escala)
+      const PITCH_UP  = 0.08;         // ≈ 4.58° hacia arriba
+
       camera.up.set(0,1,0);
       camera.near = 0.1;
       camera.far  = 4000;
-
       camera.fov  = 75;
       camera.updateProjectionMatrix();
 
-      if (controls && controls.target) controls.target.set(0, eyeY, 0);
+      // Calcula el target para fijar exactamente ese pitch
+      const targetY = EYE_Y + Math.tan(PITCH_UP) * DIST_Z;
 
-      // Mantén la misma distancia para conservar escala en la ventana
-      camera.position.set(0, eyeY, 168.90);
-      camera.lookAt(0, eyeY, 0);
+      if (controls && controls.target) controls.target.set(0, targetY, 0);
+      camera.position.set(0, EYE_Y, DIST_Z);
+      camera.lookAt(0, targetY, 0);
 
       if (controls){
         controls.enabled = true;
-        controls.enableRotate = true;     // solo yaw
+        controls.enableRotate = true;     // yaw solamente
         controls.enablePan    = true;
         controls.enableZoom   = true;
         controls.screenSpacePanning = true;
 
-        // Cámara nivelada: sin inclinación (frontal)
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
+        // Bloquea el pitch a +PITCH_UP (mirando ligeramente hacia arriba)
+        const lock = Math.PI/2 - PITCH_UP;
+        controls.minPolarAngle = lock;
+        controls.maxPolarAngle = lock;
 
         controls.minDistance = 120;
         controls.maxDistance = 220;
@@ -5230,8 +5234,8 @@ void main(){
       disposeGroup(group13245);
       group13245 = new THREE.Group();
 
-      // ★ ajuste fino: asentamos el plano en la unterkante del hueco
-      group13245.position.set(0, -0.75, 0);
+      // Ajuste fino: que la unterkante se vea natural desde planta baja
+      group13245.position.set(0, -0.25, 0);
 
       // ★ Escala global del contenido 13245 (sin tocar muro ni cámara)
       const SCALE_13245 = 2.5;
