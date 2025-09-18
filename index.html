@@ -1507,55 +1507,47 @@ function buildLCHT() {
       }
     }
 
-    /* 13245: Orbit completo + PAN vertical (arrastre) como en BUILD */
+    /* 13245 · ventana nivelada (verticales rectas) con yaw + pan/zoom
+       - Usa tu encuadre de referencia del WW Tuning (X/Z iguales)
+       - Altura de ojo = 22.92 (de tu captura)
+       - IMPORTANTE: target.y = eyeY para bloquear el pitch (sin ver “desde arriba”)
+    */
     function setCamera_13245(){
-      // Pivot al centro de la “ventana”
-      const targetX = 0, targetY = 0, targetZ = 0;
+      const eyeY = 22.92;                // altura de ojo (planta baja sensación nivel)
+      const eyeX = 9.70, eyeZ = 172.66;  // desde tu WW Tuning
+      const tgtX = 6.41, tgtZ = -0.18;   // desde tu WW Tuning (pero nivelado en Y)
 
-      // Punto de partida cómodo; tú luego orbitas y haces pan a gusto
-      const eyeX = 0, eyeY = 12, eyeZ = 168.90;
-
-      camera.up.set(0, 1, 0);
+      camera.up.set(0,1,0);
       camera.near = 0.1;
       camera.far  = 4000;
       camera.fov  = 75;
       camera.updateProjectionMatrix();
 
-      if (controls && controls.target) controls.target.set(targetX, targetY, targetZ);
+      // Cámara y target: MISMA Y → sin inclinación (verticales “derechas”)
       camera.position.set(eyeX, eyeY, eyeZ);
-      camera.lookAt(targetX, targetY, targetZ);
+      if (controls && controls.target) controls.target.set(tgtX, eyeY, tgtZ);
+      camera.lookAt(tgtX, eyeY, tgtZ);
 
       if (controls){
         controls.enabled = true;
 
-        // Orbit completo
-        controls.enableRotate = true;         // yaw + pitch
-        controls.enablePan    = true;         // ← imprescindible para arrastrar
-        controls.enableZoom   = true;
+        // Rotación permitida solo en yaw (sin pitch): bloqueamos el ángulo polar
+        controls.enableRotate = true;
+        controls.minPolarAngle = Math.PI / 2; // horizontal
+        controls.maxPolarAngle = Math.PI / 2; // horizontal
 
-        // PAN en coordenadas de pantalla: arrastrar hacia arriba mueve hacia arriba
-        controls.screenSpacePanning = true;   // ← clave para pan vertical “natural”
-        controls.panSpeed       = 0.9;        // pan con buena sensibilidad
-        controls.keyPanSpeed    = 50.0;       // por si usas flechas/WASD
+        // Pan libre (incluye mover arriba/abajo) manteniendo cámara nivelada
+        controls.enablePan = true;
+        controls.screenSpacePanning = true;
 
-        // Mapeo de botones/touch (como BUILD)
-        controls.mouseButtons = {
-          LEFT:   THREE.MOUSE.ROTATE,
-          MIDDLE: THREE.MOUSE.DOLLY,
-          RIGHT:  THREE.MOUSE.PAN
-        };
-        controls.touches = {
-          ONE: THREE.TOUCH.ROTATE,
-          TWO: THREE.TOUCH.PAN
-        };
-
-        // Rango estándar de pitch (sin bloquear a horizontal)
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-
-        // Rango de zoom amplio (sólo 13245)
-        controls.minDistance = 40;
+        // Zoom útil alrededor de tu distancia (~173) sin permitir acercarse demasiado
+        controls.enableZoom = true;
+        controls.minDistance = 120;
         controls.maxDistance = 260;
+
+        // (Opcional cómodo) algo de velocidad para pan/orbit
+        controls.rotateSpeed = 0.9;
+        controls.panSpeed    = 0.8;
 
         controls.update();
       }
