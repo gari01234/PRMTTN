@@ -2002,6 +2002,253 @@ const PATTERNS = {
                    return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[1]+seed+i*2)%12];}
 };
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PRMTTN · Scene Color Conditioner (SCC) — determinista y global (11 patrones)
+   - Mantiene PATTERNS como generadores crudos (índices H/S/V).
+   - Aplica un post-proceso de escena: clave (V), cromaticidad (S),
+     compresión/expansión de H, separación mínima angular ΔH, y ajuste
+     de luminancia (Y) para “sentir más”, sin romper el determinismo.
+   - Se instala transparentemente interceptando PATTERNS e idxToHSV.
+   - Compatible con todos los motores; sin dependencias nuevas.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+(function installPRMTTN_SCC(){
+  if (window.__SCC_INSTALLED__) return;
+  window.__SCC_INSTALLED__ = true;
+
+  /* ─────────────────── Utilidades básicas (RGB/Luma/Ángulos) ─────────────────── */
+  // Esperamos que ya existan: hsvToRgb(h,s,v) -> [0..255], applyBuildVibranceToColor, etc.
+  // Si hsvToRgb devuelve [0..255], normalizamos a [0..1] para luma y regresamos.
+
+  function srgb2lin(c){ // c: [0..1]
+    return (c <= 0.04045) ? (c/12.92) : Math.pow((c+0.055)/1.055, 2.4);
+  }
+  function lin2srgb(c){
+    return (c <= 0.0031308) ? (12.92*c) : (1.055*Math.pow(c, 1/2.4) - 0.055);
+  }
+  function rgbToLuma(rgb01){ // rgb01 ∈ [0..1]
+    // Luma Rec.709 en espacio lineal
+    const R = srgb2lin(rgb01[0]), G = srgb2lin(rgb01[1]), B = srgb2lin(rgb01[2]);
+    return 0.2126*R + 0.7152*G + 0.0722*B; // [0..1]
+  }
+  function clamp01(x){ return x<0?0:(x>1?1:x); }
+  function wrapDeg(a){ a%=360; if (a<0) a+=360; return a; }
+  function angDistDeg(a,b){ // distancia circular mínima
+    const d = Math.abs(wrapDeg(a)-wrapDeg(b));
+    return d>180 ? 360-d : d;
+  }
+
+  // Hash determinista pequeño (entero→[0,1))
+  function hash01(n){
+    let x = Math.imul((n>>>0) ^ 0x9E3779B9, 0x85EBCA6B)>>>0;
+    x ^= x>>>16; x = Math.imul(x, 0xC2B2AE35)>>>0; x ^= x>>>16;
+    return (x>>>8) / 0xFFFFFF; // [0,1)
+  }
+
+  /* ───────────────── Configuración por patrón (11 “regímenes afectivos”) ─────────────────
+     Cada patrón define:
+       - hueMode: 'analog' | 'split' | 'triad' | 'wide' | 'narrow'
+       - spanDeg: amplitud base de H
+       - Vmean,Vspan: clave tonal (luma aproximada vía V→Y), span reducido = campo estable
+       - Smean,Sspan: cromaticidad “corporal”
+       - dHmin: separación angular mínima entre slots (en deg) cuando aplique
+       - lumaMean,lumaSpan: objetivo de Y (post-ajuste de V para acercar a luma)
+     Los números son conservadores (deterministas) y diseñados con tus descripciones.
+  */
+  const SCC_PRESETS = {
+    1:  { hueMode:'narrow', spanDeg: 40,  Vmean:0.82, Vspan:0.10, Smean:0.66, Sspan:0.14, dHmin:10,  lumaMean:0.65, lumaSpan:0.06 },
+    2:  { hueMode:'split',  spanDeg: 130, Vmean:0.72, Vspan:0.22, Smean:0.82, Sspan:0.20, dHmin:35,  lumaMean:0.55, lumaSpan:0.18 },
+    3:  { hueMode:'wide',   spanDeg: 220, Vmean:0.75, Vspan:0.16, Smean:0.68, Sspan:0.16, dHmin:18,  lumaMean:0.58, lumaSpan:0.10 },
+    4:  { hueMode:'narrow', spanDeg: 55,  Vmean:0.74, Vspan:0.12, Smean:0.64, Sspan:0.14, dHmin:12,  lumaMean:0.57, lumaSpan:0.08 },
+    5:  { hueMode:'analog', spanDeg: 28,  Vmean:0.70, Vspan:0.08, Smean:0.58, Sspan:0.10, dHmin:8,   lumaMean:0.50, lumaSpan:0.06 },
+    6:  { hueMode:'wide',   spanDeg: 200, Vmean:0.76, Vspan:0.16, Smean:0.70, Sspan:0.18, dHmin:16,  lumaMean:0.60, lumaSpan:0.10 },
+    7:  { hueMode:'analog', spanDeg: 60,  Vmean:0.73, Vspan:0.14, Smean:0.66, Sspan:0.16, dHmin:12,  lumaMean:0.56, lumaSpan:0.09 },
+    8:  { hueMode:'wide',   spanDeg: 240, Vmean:0.71, Vspan:0.20, Smean:0.74, Sspan:0.18, dHmin:20,  lumaMean:0.54, lumaSpan:0.14 },
+    9:  { hueMode:'analog', spanDeg: 36,  Vmean:0.72, Vspan:0.10, Smean:0.62, Sspan:0.12, dHmin:10,  lumaMean:0.52, lumaSpan:0.07 },
+    10: { hueMode:'narrow', spanDeg: 48,  Vmean:0.60, Vspan:0.14, Smean:0.64, Sspan:0.14, dHmin:12,  lumaMean:0.44, lumaSpan:0.10 },
+    11: { hueMode:'wide',   spanDeg: 180, Vmean:0.78, Vspan:0.18, Smean:0.60, Sspan:0.18, dHmin:16,  lumaMean:0.58, lumaSpan:0.10 }
+  };
+
+  /* ─────────────────────── Estado de escena y precomputación ─────────────────────── */
+  const SCC = {
+    enabled: true,
+    patternId: 1,
+    anchorH: 0,           // ancla de H por escena (deg)
+    slotHue: new Array(12).fill(0),  // H final por slot (0..11), cumpliendo dHmin/mode/span
+    Vmean:0.75, Vspan:0.12,
+    Smean:0.66, Sspan:0.14,
+    lumaMean:0.58, lumaSpan:0.10,
+    dHmin: 12
+  };
+
+  // Deriva determinista desde la escena (sin tiempo): usa sceneSeed, S_global, sumR...
+  function computeSceneAnchorH(){
+    try{
+      // sceneSeed, S_global deben existir en tu código base
+      const seed = ((sceneSeed|0)*37 + (S_global|0)*101) % 360;
+      return wrapDeg(seed);
+    }catch(_){
+      return 0;
+    }
+  }
+
+  // Construye distribución de H por slots (0..11) según el preset (modo y span)
+  function buildSlotHueMap(preset, anchorH){
+    const out = new Array(12);
+    const span = preset.spanDeg;             // amplitud total
+    const half = span * 0.5;
+    const base = anchorH;
+
+    // Distribuimos con jitter determinista por slot/seed para que no sea cristalino
+    for (let i=0;i<12;i++){
+      const u = (i + 0.5)/12;               // posición nominal 0..1
+      const jit = (hash01(i*2654435761 + (sceneSeed|0)) - 0.5) * 0.18; // ±0.09
+      let h;
+      switch (preset.hueMode){
+        case 'analog':
+        case 'narrow': {
+          // compactar alrededor del ancla
+          const t = clamp01(u + jit);
+          h = wrapDeg(base - half + t*span);
+          break;
+        }
+        case 'split': {
+          // dos lóbulos: base±(span/2); asignamos pares alternos
+          const lob = (i%2===0) ? -half*0.9 : +half*0.9;
+          const t = clamp01(((i>>1)+0.5)/6 + jit);
+          h = wrapDeg(base + lob + (t-0.5)*0.2*span); // leve espesor en cada lóbulo
+          break;
+        }
+        case 'triad': {
+          // triada aproximada: base + {0, 120, -120} con estrechamiento local
+          const tri = [0, +120, -120];
+          const idx = i%3;
+          const t = clamp01(((i/3|0)+0.5)/4 + jit);
+          const local = (span/3)*0.5; // zona local en cada lóbulo
+          h = wrapDeg(base + tri[idx] + (t-0.5)*local*2);
+          break;
+        }
+        case 'wide':
+        default: {
+          // reparto amplio casi completo, pero limitado por span
+          const t = clamp01(u + jit);
+          h = wrapDeg(base - half + t*span);
+          break;
+        }
+      }
+      out[i] = h;
+    }
+
+    // Enforce dHmin simple: si colisionan, empujamos circularmente de forma determinista
+    const minGap = preset.dHmin||12;
+    for (let pass=0; pass<3; pass++){
+      for (let i=0;i<12;i++){
+        for (let j=i+1;j<12;j++){
+          const d = angDistDeg(out[i], out[j]);
+          if (d < minGap){
+            const push = (minGap - d) * 0.5 + 0.0001;
+            // dirección de empuje determinista por índice
+            out[i] = wrapDeg(out[i] - push);
+            out[j] = wrapDeg(out[j] + push);
+          }
+        }
+      }
+    }
+
+    return out;
+  }
+
+  // Inicializa/actualiza SCC para la escena actual (llamar en refreshAll / cambios de patrón)
+  function setupSCC(){
+    try{
+      SCC.patternId = (typeof activePatternId === 'number' ? activePatternId : 1);
+    }catch(_){ SCC.patternId = 1; }
+
+    const P = SCC_PRESETS[SCC.patternId] || SCC_PRESETS[1];
+    SCC.anchorH = computeSceneAnchorH();
+    SCC.slotHue = buildSlotHueMap(P, SCC.anchorH);
+
+    SCC.Vmean = P.Vmean; SCC.Vspan = P.Vspan;
+    SCC.Smean = P.Smean; SCC.Sspan = P.Sspan;
+    SCC.dHmin = P.dHmin;
+    SCC.lumaMean = P.lumaMean; SCC.lumaSpan = P.lumaSpan;
+  }
+
+  // Llamamos una vez ahora y también colgamos a un hook ligero si existe refreshAll
+  setupSCC();
+  try{
+    const _refreshAll = window.refreshAll;
+    if (typeof _refreshAll === 'function' && !_refreshAll.__sccHooked){
+      window.refreshAll = function(...args){
+        const out = _refreshAll.apply(this, args);
+        try{ setupSCC(); }catch(_){ }
+        return out;
+      };
+      window.refreshAll.__sccHooked = true;
+    }
+  }catch(_){ }
+
+  /* ───────────── Interceptamos PATTERNS para capturar el “slot” (i % 12) ───────────── */
+  let __SCC_lastSlot = 0;
+  Object.keys(PATTERNS).forEach(k=>{
+    const f = PATTERNS[k];
+    if (typeof f === 'function' && !f.__sccWrapped){
+      const g = function(sig, seed, i){
+        __SCC_lastSlot = ((i|0)%12+12)%12;
+        return f(sig, seed, i);
+      };
+      g.__sccWrapped = true;
+      PATTERNS[k] = g;
+    }
+  });
+
+  /* ───────────── Interceptamos idxToHSV para aplicar el acondicionador ───────────── */
+  if (!window.__orig_idxToHSV && typeof idxToHSV === 'function'){
+    window.__orig_idxToHSV = idxToHSV;
+
+    window.idxToHSV = function(hI, sI, vI){
+      // 1) Base “cruda” (tu mapeo original)
+      const base = window.__orig_idxToHSV(hI, sI, vI); // {h,s,v} en [deg, 0..1, 0..1]
+      if (!SCC.enabled) return base;
+
+      // 2) Aplicamos SCC determinista
+      const slot = __SCC_lastSlot|0;
+      // 2a) H · re-map hacia el H del slot
+      let h = wrapDeg(base.h);
+      const targetH = SCC.slotHue[slot] || h;
+      // Mezcla leve para conservar micro-variación original
+      h = wrapDeg(targetH*0.85 + h*0.15);
+
+      // 2b) S/V · compresión alrededor de medias de patrón
+      let s = base.s, v = base.v;
+      // Convertimos s y v a z-scores “suaves” en [−1,1] con hash determinista p/ no cristalizar
+      const uS = (s - 0.5)*2 + (hash01(slot*131 + (sceneSeed|0))*0.12 - 0.06);
+      const uV = (v - 0.5)*2 + (hash01(slot*197 + (S_global|0))*0.12 - 0.06);
+      s = clamp01( SCC.Smean + (SCC.Sspan*0.5) * uS );
+      v = clamp01( SCC.Vmean + (SCC.Vspan*0.5) * uV );
+
+      // 2c) Ajuste de luma (Y) post HSV→RGB para acercar a objetivo (lumaMean ± span)
+      //     — sin semántica, sólo estructura perceptual (clave luminosa).
+      const rgb255 = hsvToRgb(h, s, v); // [0..255]
+      let rgb01 = [rgb255[0]/255, rgb255[1]/255, rgb255[2]/255];
+      const Y = rgbToLuma(rgb01); // 0..1
+      const Yt = clamp01( SCC.lumaMean + (hash01(slot*733 + (sceneSeed|0))*2-1) * (SCC.lumaSpan*0.5) );
+
+      // aproximamos corrigiendo V con una ganancia γ (0.7) hacia Yt
+      const eps = 1e-6;
+      const gain = Math.pow((Yt+eps)/(Y+eps), 0.7);
+      v = clamp01( v * gain );
+
+      // recomputa RGB sólo para asegurar consistencia interna, pero devolvemos HSV
+      return { h, s, v };
+    };
+  }
+
+  // Exponemos un puntito por si quieres TUNEAR/DEBUG
+  window.__SCC = SCC;
+  window.__SCC_setup = setupSCC;
+})();
+
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
 const ANG7 = [
   [0,0,0,0,0,0,0],                         // monocromo (idx 0)
