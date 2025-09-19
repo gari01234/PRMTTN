@@ -1951,303 +1951,240 @@ function buildLCHT() {
       return ((deg % 360) + 360) % 360;
     }
 
-    /* ═════════ 11 patrones cromáticos — versión PHI_H (89) ═════════ */
+    /* ════════════════════════════════════════════════════════════════
+       COLOR CONDITIONER · por patrón (local, determinista, sin hooks)
+       — Trabaja en el espacio de ÍNDICES (H_idx, S_idx, V_idx)
+       — Mantiene tu discretización original: H:144, S:12, V:12
+       — NO altera funciones globales ni motores.
+       — Determinismo: usa (patternId, slot, seed, sceneSeed, S_global).
+       ════════════════════════════════════════════════════════════════ */
+
+    const _SC_PI   = Math.PI;
+    const _SC_TAU  = Math.PI * 2.0;
+
+    /* Índices → valores de tu rejilla HSV */
+    function _sc_idxToH(hIdx){ return (hIdx % 144) * 2.5; }         // grados
+    function _sc_idxToS(sIdx){ return 0.25 + 0.72 * ( (sIdx%12) / 11 ); }
+    function _sc_idxToV(vIdx){ return 0.20 + 0.75 * ( (vIdx%12) / 11 ); }
+
+    /* Valores → índices de tu rejilla HSV (con clamp) */
+    function _sc_HtoIdx(Hdeg){
+      let h = Hdeg % 360; if (h < 0) h += 360;
+      return Math.round(h / 2.5) % 144;
+    }
+    function _sc_StoIdx(S){
+      const x = (S - 0.25) / 0.72;                // 0..1 ideal
+      return Math.max(0, Math.min(11, Math.round(x * 11)));
+    }
+    function _sc_VtoIdx(V){
+      const x = (V - 0.20) / 0.75;                // 0..1 ideal
+      return Math.max(0, Math.min(11, Math.round(x * 11)));
+    }
+
+    /* HSV → RGB (para ajuste suave de luminancia) */
+    function _sc_hsv2rgb(Hdeg, S, V){
+      const h = ( (Hdeg % 360) + 360 ) % 360 / 60.0;
+      const c = V * S;
+      const x = c * (1 - Math.abs((h % 2) - 1));
+      const m = V - c;
+      let r=0,g=0,b=0;
+      if      (h < 1){ r=c; g=x; b=0; }
+      else if (h < 2){ r=x; g=c; b=0; }
+      else if (h < 3){ r=0; g=c; b=x; }
+      else if (h < 4){ r=0; g=x; b=c; }
+      else if (h < 5){ r=x; g=0; b=c; }
+      else           { r=c; g=0; b=x; }
+      return [r+m, g+m, b+m];
+    }
+
+    /* Luma (Rec.709) */
+    function _sc_lumaRGB(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
+
+    /* Envuelve diferencia angular en [-180, +180] */
+    function _sc_angDiff(a, b){
+      let d = (a - b) % 360; if (d < -180) d += 360; if (d > 180) d -= 360; return d;
+    }
+
+    /* Semilla determinista suave (0..1) desde escena + patrón + slot */
+    function _sc_hash01(patternId, slot, seed){
+      const sceneSeedVal = (typeof sceneSeed !== 'undefined') ? (sceneSeed|0) : 0;
+      const SGlobalVal = (typeof S_global !== 'undefined') ? (S_global|0) : 0;
+      const a = sceneSeedVal, b = SGlobalVal;
+      let x = ( (a*73856093) ^ (b*19349663) ^ (patternId*83492791) ^ (slot*2971215073) ^ (seed*1664525) ) >>> 0;
+      // LCG un paso
+      x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+      return (x & 0xFFFFFF) / 0xFFFFFF; // 0..1
+    }
+
+    /* Tabla de “intenciones” por patrón (resumen de tu teoría)
+       spanH:   compresión/expansión del abanico angular (1=sin cambio)
+       sMean/vMean: medias objetivo
+       sTight/vTight: 0..1 (0 = no mover, 1 = llevar a la media)
+       luma:   luminancia objetivo (0..1, ajuste leve)
+       mode:   estrategia de separación (none | altHiLo | jitter | narrow)
+    */
+    const _SC_POLICY = {
+      1:  { spanH:0.75, sMean:0.62, vMean:0.78, sTight:0.35, vTight:0.35, luma:0.68, mode:'narrow' },        // Contención estructural
+      2:  { spanH:1.40, sMean:0.70, vMean:0.72, sTight:0.15, vTight:0.10, luma:0.64, mode:'altHiLo' },       // Contraste & Disonancia
+      3:  { spanH:1.00, sMean:0.55, vMean:0.72, sTight:0.30, vTight:0.30, luma:0.66, mode:'none' },          // Disposición no semántica
+      4:  { spanH:0.85, sMean:0.58, vMean:0.74, sTight:0.30, vTight:0.30, luma:0.67, mode:'jitter' },        // Ambigüedad estructurada
+      5:  { spanH:0.60, sMean:0.52, vMean:0.76, sTight:0.45, vTight:0.35, luma:0.68, mode:'narrow' },        // Campo sin centro
+      6:  { spanH:1.10, sMean:0.64, vMean:0.80, sTight:0.25, vTight:0.25, luma:0.70, mode:'none' },          // Presencia autosuficiente
+      7:  { spanH:0.95, sMean:0.60, vMean:0.76, sTight:0.25, vTight:0.25, luma:0.68, mode:'altHiLo' },       // Asimetría asociativa
+      8:  { spanH:1.20, sMean:0.66, vMean:0.78, sTight:0.20, vTight:0.25, luma:0.69, mode:'jitter' },        // Dinámica irregular
+      9:  { spanH:0.80, sMean:0.56, vMean:0.74, sTight:0.35, vTight:0.30, luma:0.67, mode:'narrow' },        // Habitable sin traducción
+      10: { spanH:0.90, sMean:0.60, vMean:0.78, sTight:0.25, vTight:0.30, luma:0.69, mode:'jitter' },        // Resonancia
+      11: { spanH:0.95, sMean:0.48, vMean:0.86, sTight:0.40, vTight:0.30, luma:0.75, mode:'none' }           // Transparencia activa
+    };
+
+    /* Acondicionador principal: recibe índices crudos del patrón y devuelve
+       NUEVOS índices (H_idx, S_idx, V_idx) ya ajustados al patrón. */
+    function conditionHSV(hIdx, sIdx, vIdx, patternId, slot, seed){
+      const pol = _SC_POLICY[patternId] || _SC_POLICY[1];
+
+      // 1) Índices → valores
+      let H = _sc_idxToH(hIdx);   // grados
+      let S = _sc_idxToS(sIdx);
+      let V = _sc_idxToV(vIdx);
+
+      // 2) Ancla y span de H (determinista por escena / patrón / slot)
+      const sceneSeedVal = (typeof sceneSeed !== 'undefined') ? (sceneSeed|0) : 0;
+      const SGlobalVal = (typeof S_global !== 'undefined') ? (S_global|0) : 0;
+      const baseAnchor = ((37*sceneSeedVal + 53*SGlobalVal + 11*patternId + 7*(slot|0)) % 144) * 2.5; // deg
+      const d = _sc_angDiff(H, baseAnchor);            // [-180,180]
+      H = baseAnchor + d * pol.spanH;
+
+      // 3) Ajuste de S/V hacia medias (mezcla controlada)
+      S = S + (pol.sMean - S) * pol.sTight;
+      V = V + (pol.vMean - V) * pol.vTight;
+
+      // 4) Separación/variación determinista por “modo”
+      const r = _sc_hash01(patternId, slot, seed) - 0.5;   // [-0.5,0.5]
+      if (pol.mode === 'altHiLo'){
+        const sign = (slot % 2 === 0) ? +1 : -1;
+        S = Math.max(0.25, Math.min(0.97, S + sign * (0.08 + 0.04*r)));
+        V = Math.max(0.20, Math.min(0.98, V + sign * (0.05 + 0.03*r)));
+        // empujón extra en H para ΔH grande
+        H += sign * (18 + 8*r); // grados
+      }else if (pol.mode === 'jitter'){
+        // irregularidad leve, sin crear foco
+        H += (8 * r);
+        S = Math.max(0.25, Math.min(0.97, S + 0.04*r));
+        V = Math.max(0.20, Math.min(0.98, V + 0.03*r));
+      }else if (pol.mode === 'narrow'){
+        // span ya lo hace; micro-variación para evitar coincidencias exactas
+        H += (4 * r);
+      }
+
+      // 5) Luma objetivo (ajuste MUY leve sobre V manteniendo S/H)
+      //    — calculamos luma actual y acercamos a pol.luma
+      {
+        const [rC,gC,bC] = _sc_hsv2rgb(H, Math.max(0,Math.min(1,S)), Math.max(0,Math.min(1,V)));
+        const Y = _sc_lumaRGB(rC, gC, bC);
+        const dY = pol.luma - Y;
+        // ganancia pequeña para no “romper” la paleta (máx ±0.06 aprox)
+        V = Math.max(0.20, Math.min(0.98, V + 0.20 * dY));
+      }
+
+      // 6) Volver a ÍNDICES (clamp a tu rejilla discreta)
+      const Hn = _sc_HtoIdx(H);
+      const Sn = _sc_StoIdx(S);
+      const Vn = _sc_VtoIdx(V);
+      return [Hn, Sn, Vn];
+    }
+
+
+    /* ═════════ 11 patrones cromáticos — versión PHI_H (89) + acondicionador local ═════════ */
 const PATTERNS = {
   1: (sig, seed, i) => {
     const base = (sig.reduce((a,v)=>a+v,0) + seed*7) % 144;
     const hIdx = (base + (i%12)*6) % 144;
-    return [
-      hIdx,
-      (sig[3] + seed + i) % 12,
-      (sig[1] + sig[4] + i) % 12
-    ];
+    const sIdx = (sig[3] + seed + i) % 12;
+    const vIdx = (sig[1] + sig[4] + i) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 1, i, seed);
   },
 
   2: (sig, seed, i) => {
     const base = (sig[0]*17 + seed*5) % 144;
     const hIdx = (base + ((i%12)*48)) % 144;
-    return [
-      hIdx,
-      (sig[1] + i*3 + seed) % 12,
-      (sig[2]*2 + i + seed) % 12
-    ];
+    const sIdx = (sig[1] + i*3 + seed) % 12;
+    const vIdx = (sig[2]*2 + i + seed) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 2, i, seed);
   },
 
-  3:  (s,seed,i)=>{const b=(s[2]*13+seed*5+i*11)%144;
-                   return [(b+i*PHI_H)%144,(s[0]+i*2+seed)%12,(s[1]+s[3]+i)%12];},
+  3: (s,seed,i) => {
+    const b = (s[2]*13 + seed*5 + i*11) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[0] + i*2 + seed) % 12;
+    const vIdx = (s[1] + s[3] + i)   % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 3, i, seed);
+  },
 
-  4:  (s,seed,i)=>{const b=(s[1]*15+seed*3+i*7)%144;
-                   return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[2]+s[4]+seed+i)%12];},
+  4: (s,seed,i) => {
+    const b = (s[1]*15 + seed*3 + i*7) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[0] + seed + i) % 12;
+    const vIdx = (s[2] + s[4] + seed + i) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 4, i, seed);
+  },
 
-  5:  (s,seed,i)=>{const b=(i*31+s[3]*13+seed*5)%144;
-                   return [(b+i*PHI_H)%144,(s[1]+seed+i)%12,(s[2]+seed+i)%12];},
+  5: (s,seed,i) => {
+    const b = (i*31 + s[3]*13 + seed*5) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[1] + seed + i) % 12;
+    const vIdx = (s[2] + seed + i) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 5, i, seed);
+  },
 
-  6:  (s,seed,i)=>{const b=(s[1]*31+seed*13+i*7)%144;
-                   return [(b+i*PHI_H)%144,(s[2]+seed+i)%12,(s[3]+s[4]+seed+i)%12];},
+  6: (s,seed,i) => {
+    const b = (s[1]*31 + seed*13 + i*7) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[2] + seed + i) % 12;
+    const vIdx = (s[3] + s[4] + seed + i) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 6, i, seed);
+  },
 
-  7:  (s,seed,i)=>{const b=(s[0]*11+seed*3+i*37)%144;
-                   return [(b+i*PHI_H)%144,(s[2]+seed+i*2)%12,(s[4]+s[1]*2+seed+i)%12];},
+  7: (s,seed,i) => {
+    const b = (s[0]*11 + seed*3 + i*37) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[2] + seed + i*2) % 12;
+    const vIdx = (s[4] + s[1]*2 + seed + i) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 7, i, seed);
+  },
 
-  8:  (s,seed,i)=>{const r=Math.abs(s[4]-s[0])+Math.abs(s[3]-s[1])+s[2];
-                   const b=(r*13+seed*7)%144;
-                   return [(b+i*PHI_H)%144,(s[1]*3+seed+i*2)%12,(s[3]+i*5+seed*3)%12];},
+  8: (s,seed,i) => {
+    const r = Math.abs(s[4]-s[0]) + Math.abs(s[3]-s[1]) + s[2];
+    const b = (r*13 + seed*7) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[1]*3 + seed + i*2) % 12;
+    const vIdx = (s[3] + i*5 + seed*3) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 8, i, seed);
+  },
 
-  9:  (s,seed,i)=>{const b=(s[4]*12+seed*7+i*11)%144;
-                   return [(b+i*PHI_H)%144,(s[2]+seed+i)%12,(s[1]+seed+i*2)%12];},
+  9: (s,seed,i) => {
+    const b = (s[4]*12 + seed*7 + i*11) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[2] + seed + i) % 12;
+    const vIdx = (s[1] + seed + i*2) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 9, i, seed);
+  },
 
- 10:  (s,seed,i)=>{const b=(seed*5+s.reduce((a,v)=>a+v,0)*3+i*7)%144;
-                   return [(b+i*PHI_H)%144,(s[2]+seed+i)%12,(s[4]*2+seed+i*3)%12];},
+ 10: (s,seed,i) => {
+    const b = (seed*5 + s.reduce((a,v)=>a+v,0)*3 + i*7) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[2] + seed + i) % 12;
+    const vIdx = (s[4]*2 + seed + i*3) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 10, i, seed);
+  },
 
- 11:  (s,seed,i)=>{const b=(s[3]*13+seed*11+i*7)%144;
-                   return [(b+i*PHI_H)%144,(s[0]+seed+i)%12,(s[1]+seed+i*2)%12];}
+ 11: (s,seed,i) => {
+    const b = (s[3]*13 + seed*11 + i*7) % 144;
+    const hIdx = (b + i*PHI_H) % 144;
+    const sIdx = (s[0] + seed + i)   % 12;
+    const vIdx = (s[1] + seed + i*2) % 12;
+    return conditionHSV(hIdx, sIdx, vIdx, 11, i, seed);
+  }
 };
-
-/* ═══════════════════════════════════════════════════════════════════════
-   PRMTTN · Scene Color Conditioner (SCC) — determinista y global (11 patrones)
-   - Mantiene PATTERNS como generadores crudos (índices H/S/V).
-   - Aplica un post-proceso de escena: clave (V), cromaticidad (S),
-     compresión/expansión de H, separación mínima angular ΔH, y ajuste
-     de luminancia (Y) para “sentir más”, sin romper el determinismo.
-   - Se instala transparentemente interceptando PATTERNS e idxToHSV.
-   - Compatible con todos los motores; sin dependencias nuevas.
-   ═══════════════════════════════════════════════════════════════════════ */
-
-(function installPRMTTN_SCC(){
-  if (window.__SCC_INSTALLED__) return;
-  window.__SCC_INSTALLED__ = true;
-
-  /* ─────────────────── Utilidades básicas (RGB/Luma/Ángulos) ─────────────────── */
-  // Esperamos que ya existan: hsvToRgb(h,s,v) -> [0..255], applyBuildVibranceToColor, etc.
-  // Si hsvToRgb devuelve [0..255], normalizamos a [0..1] para luma y regresamos.
-
-  function srgb2lin(c){ // c: [0..1]
-    return (c <= 0.04045) ? (c/12.92) : Math.pow((c+0.055)/1.055, 2.4);
-  }
-  function lin2srgb(c){
-    return (c <= 0.0031308) ? (12.92*c) : (1.055*Math.pow(c, 1/2.4) - 0.055);
-  }
-  function rgbToLuma(rgb01){ // rgb01 ∈ [0..1]
-    // Luma Rec.709 en espacio lineal
-    const R = srgb2lin(rgb01[0]), G = srgb2lin(rgb01[1]), B = srgb2lin(rgb01[2]);
-    return 0.2126*R + 0.7152*G + 0.0722*B; // [0..1]
-  }
-  function clamp01(x){ return x<0?0:(x>1?1:x); }
-  function wrapDeg(a){ a%=360; if (a<0) a+=360; return a; }
-  function angDistDeg(a,b){ // distancia circular mínima
-    const d = Math.abs(wrapDeg(a)-wrapDeg(b));
-    return d>180 ? 360-d : d;
-  }
-
-  // Hash determinista pequeño (entero→[0,1))
-  function hash01(n){
-    let x = Math.imul((n>>>0) ^ 0x9E3779B9, 0x85EBCA6B)>>>0;
-    x ^= x>>>16; x = Math.imul(x, 0xC2B2AE35)>>>0; x ^= x>>>16;
-    return (x>>>8) / 0xFFFFFF; // [0,1)
-  }
-
-  /* ───────────────── Configuración por patrón (11 “regímenes afectivos”) ─────────────────
-     Cada patrón define:
-       - hueMode: 'analog' | 'split' | 'triad' | 'wide' | 'narrow'
-       - spanDeg: amplitud base de H
-       - Vmean,Vspan: clave tonal (luma aproximada vía V→Y), span reducido = campo estable
-       - Smean,Sspan: cromaticidad “corporal”
-       - dHmin: separación angular mínima entre slots (en deg) cuando aplique
-       - lumaMean,lumaSpan: objetivo de Y (post-ajuste de V para acercar a luma)
-     Los números son conservadores (deterministas) y diseñados con tus descripciones.
-  */
-  const SCC_PRESETS = {
-    1:  { hueMode:'narrow', spanDeg: 40,  Vmean:0.82, Vspan:0.10, Smean:0.66, Sspan:0.14, dHmin:10,  lumaMean:0.65, lumaSpan:0.06 },
-    2:  { hueMode:'split',  spanDeg: 130, Vmean:0.72, Vspan:0.22, Smean:0.82, Sspan:0.20, dHmin:35,  lumaMean:0.55, lumaSpan:0.18 },
-    3:  { hueMode:'wide',   spanDeg: 220, Vmean:0.75, Vspan:0.16, Smean:0.68, Sspan:0.16, dHmin:18,  lumaMean:0.58, lumaSpan:0.10 },
-    4:  { hueMode:'narrow', spanDeg: 55,  Vmean:0.74, Vspan:0.12, Smean:0.64, Sspan:0.14, dHmin:12,  lumaMean:0.57, lumaSpan:0.08 },
-    5:  { hueMode:'analog', spanDeg: 28,  Vmean:0.70, Vspan:0.08, Smean:0.58, Sspan:0.10, dHmin:8,   lumaMean:0.50, lumaSpan:0.06 },
-    6:  { hueMode:'wide',   spanDeg: 200, Vmean:0.76, Vspan:0.16, Smean:0.70, Sspan:0.18, dHmin:16,  lumaMean:0.60, lumaSpan:0.10 },
-    7:  { hueMode:'analog', spanDeg: 60,  Vmean:0.73, Vspan:0.14, Smean:0.66, Sspan:0.16, dHmin:12,  lumaMean:0.56, lumaSpan:0.09 },
-    8:  { hueMode:'wide',   spanDeg: 240, Vmean:0.71, Vspan:0.20, Smean:0.74, Sspan:0.18, dHmin:20,  lumaMean:0.54, lumaSpan:0.14 },
-    9:  { hueMode:'analog', spanDeg: 36,  Vmean:0.72, Vspan:0.10, Smean:0.62, Sspan:0.12, dHmin:10,  lumaMean:0.52, lumaSpan:0.07 },
-    10: { hueMode:'narrow', spanDeg: 48,  Vmean:0.60, Vspan:0.14, Smean:0.64, Sspan:0.14, dHmin:12,  lumaMean:0.44, lumaSpan:0.10 },
-    11: { hueMode:'wide',   spanDeg: 180, Vmean:0.78, Vspan:0.18, Smean:0.60, Sspan:0.18, dHmin:16,  lumaMean:0.58, lumaSpan:0.10 }
-  };
-
-  /* ─────────────────────── Estado de escena y precomputación ─────────────────────── */
-  const SCC = {
-    enabled: true,
-    patternId: 1,
-    anchorH: 0,           // ancla de H por escena (deg)
-    slotHue: new Array(12).fill(0),  // H final por slot (0..11), cumpliendo dHmin/mode/span
-    Vmean:0.75, Vspan:0.12,
-    Smean:0.66, Sspan:0.14,
-    lumaMean:0.58, lumaSpan:0.10,
-    dHmin: 12
-  };
-
-  // Deriva determinista desde la escena (sin tiempo): usa sceneSeed, S_global, sumR...
-  function computeSceneAnchorH(){
-    try{
-      // sceneSeed, S_global deben existir en tu código base
-      const seed = ((sceneSeed|0)*37 + (S_global|0)*101) % 360;
-      return wrapDeg(seed);
-    }catch(_){
-      return 0;
-    }
-  }
-
-  // Construye distribución de H por slots (0..11) según el preset (modo y span)
-  function buildSlotHueMap(preset, anchorH){
-    const out = new Array(12);
-    const span = preset.spanDeg;             // amplitud total
-    const half = span * 0.5;
-    const base = anchorH;
-
-    // Distribuimos con jitter determinista por slot/seed para que no sea cristalino
-    for (let i=0;i<12;i++){
-      const u = (i + 0.5)/12;               // posición nominal 0..1
-      const jit = (hash01(i*2654435761 + (sceneSeed|0)) - 0.5) * 0.18; // ±0.09
-      let h;
-      switch (preset.hueMode){
-        case 'analog':
-        case 'narrow': {
-          // compactar alrededor del ancla
-          const t = clamp01(u + jit);
-          h = wrapDeg(base - half + t*span);
-          break;
-        }
-        case 'split': {
-          // dos lóbulos: base±(span/2); asignamos pares alternos
-          const lob = (i%2===0) ? -half*0.9 : +half*0.9;
-          const t = clamp01(((i>>1)+0.5)/6 + jit);
-          h = wrapDeg(base + lob + (t-0.5)*0.2*span); // leve espesor en cada lóbulo
-          break;
-        }
-        case 'triad': {
-          // triada aproximada: base + {0, 120, -120} con estrechamiento local
-          const tri = [0, +120, -120];
-          const idx = i%3;
-          const t = clamp01(((i/3|0)+0.5)/4 + jit);
-          const local = (span/3)*0.5; // zona local en cada lóbulo
-          h = wrapDeg(base + tri[idx] + (t-0.5)*local*2);
-          break;
-        }
-        case 'wide':
-        default: {
-          // reparto amplio casi completo, pero limitado por span
-          const t = clamp01(u + jit);
-          h = wrapDeg(base - half + t*span);
-          break;
-        }
-      }
-      out[i] = h;
-    }
-
-    // Enforce dHmin simple: si colisionan, empujamos circularmente de forma determinista
-    const minGap = preset.dHmin||12;
-    for (let pass=0; pass<3; pass++){
-      for (let i=0;i<12;i++){
-        for (let j=i+1;j<12;j++){
-          const d = angDistDeg(out[i], out[j]);
-          if (d < minGap){
-            const push = (minGap - d) * 0.5 + 0.0001;
-            // dirección de empuje determinista por índice
-            out[i] = wrapDeg(out[i] - push);
-            out[j] = wrapDeg(out[j] + push);
-          }
-        }
-      }
-    }
-
-    return out;
-  }
-
-  // Inicializa/actualiza SCC para la escena actual (llamar en refreshAll / cambios de patrón)
-  function setupSCC(){
-    try{
-      SCC.patternId = (typeof activePatternId === 'number' ? activePatternId : 1);
-    }catch(_){ SCC.patternId = 1; }
-
-    const P = SCC_PRESETS[SCC.patternId] || SCC_PRESETS[1];
-    SCC.anchorH = computeSceneAnchorH();
-    SCC.slotHue = buildSlotHueMap(P, SCC.anchorH);
-
-    SCC.Vmean = P.Vmean; SCC.Vspan = P.Vspan;
-    SCC.Smean = P.Smean; SCC.Sspan = P.Sspan;
-    SCC.dHmin = P.dHmin;
-    SCC.lumaMean = P.lumaMean; SCC.lumaSpan = P.lumaSpan;
-  }
-
-  // Llamamos una vez ahora y también colgamos a un hook ligero si existe refreshAll
-  setupSCC();
-  try{
-    const _refreshAll = window.refreshAll;
-    if (typeof _refreshAll === 'function' && !_refreshAll.__sccHooked){
-      window.refreshAll = function(...args){
-        const out = _refreshAll.apply(this, args);
-        try{ setupSCC(); }catch(_){ }
-        return out;
-      };
-      window.refreshAll.__sccHooked = true;
-    }
-  }catch(_){ }
-
-  /* ───────────── Interceptamos PATTERNS para capturar el “slot” (i % 12) ───────────── */
-  let __SCC_lastSlot = 0;
-  Object.keys(PATTERNS).forEach(k=>{
-    const f = PATTERNS[k];
-    if (typeof f === 'function' && !f.__sccWrapped){
-      const g = function(sig, seed, i){
-        __SCC_lastSlot = ((i|0)%12+12)%12;
-        return f(sig, seed, i);
-      };
-      g.__sccWrapped = true;
-      PATTERNS[k] = g;
-    }
-  });
-
-  /* ───────────── Interceptamos idxToHSV para aplicar el acondicionador ───────────── */
-  if (!window.__orig_idxToHSV && typeof idxToHSV === 'function'){
-    window.__orig_idxToHSV = idxToHSV;
-
-    window.idxToHSV = function(hI, sI, vI){
-      // 1) Base “cruda” (tu mapeo original)
-      const base = window.__orig_idxToHSV(hI, sI, vI); // {h,s,v} en [deg, 0..1, 0..1]
-      if (!SCC.enabled) return base;
-
-      // 2) Aplicamos SCC determinista
-      const slot = __SCC_lastSlot|0;
-      // 2a) H · re-map hacia el H del slot
-      let h = wrapDeg(base.h);
-      const targetH = SCC.slotHue[slot] || h;
-      // Mezcla leve para conservar micro-variación original
-      h = wrapDeg(targetH*0.85 + h*0.15);
-
-      // 2b) S/V · compresión alrededor de medias de patrón
-      let s = base.s, v = base.v;
-      // Convertimos s y v a z-scores “suaves” en [−1,1] con hash determinista p/ no cristalizar
-      const uS = (s - 0.5)*2 + (hash01(slot*131 + (sceneSeed|0))*0.12 - 0.06);
-      const uV = (v - 0.5)*2 + (hash01(slot*197 + (S_global|0))*0.12 - 0.06);
-      s = clamp01( SCC.Smean + (SCC.Sspan*0.5) * uS );
-      v = clamp01( SCC.Vmean + (SCC.Vspan*0.5) * uV );
-
-      // 2c) Ajuste de luma (Y) post HSV→RGB para acercar a objetivo (lumaMean ± span)
-      //     — sin semántica, sólo estructura perceptual (clave luminosa).
-      const rgb255 = hsvToRgb(h, s, v); // [0..255]
-      let rgb01 = [rgb255[0]/255, rgb255[1]/255, rgb255[2]/255];
-      const Y = rgbToLuma(rgb01); // 0..1
-      const Yt = clamp01( SCC.lumaMean + (hash01(slot*733 + (sceneSeed|0))*2-1) * (SCC.lumaSpan*0.5) );
-
-      // aproximamos corrigiendo V con una ganancia γ (0.7) hacia Yt
-      const eps = 1e-6;
-      const gain = Math.pow((Yt+eps)/(Y+eps), 0.7);
-      v = clamp01( v * gain );
-
-      // recomputa RGB sólo para asegurar consistencia interna, pero devolvemos HSV
-      return { h, s, v };
-    };
-  }
-
-  // Exponemos un puntito por si quieres TUNEAR/DEBUG
-  window.__SCC = SCC;
-  window.__SCC_setup = setupSCC;
-})();
 
 /* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
 const ANG7 = [
