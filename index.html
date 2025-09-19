@@ -3935,41 +3935,8 @@ let offnngPrevBg = null;
 let offnngQualityLow = true;                // Low fijo
 let prevPixelRatio_OFFNNG = null;           // para restaurar al salir de OFFNNG
 
-/* OFFNNG · Rahmen trasero visible (color = scene.background)
- *  - se pega a la cara de atrás del cubo de colores
- *  - depthTest desactivado + alto renderOrder ⇒ siempre visible
- * ────────────────────────────────────────────────────────────── */
-function addOFFNNGRearRahmen(container){
-  // tamaño del cubo cromático (usa el global de tu escena)
-  const W = (typeof cubeSize==='number' ? cubeSize : 30);
-  const t = 0.80;                 // grosor del marco
-  const z = -W/2 + 0.002;         // pegado a la cara de atrás (ligerísimo offset)
-
-  const col = (scene.background ? scene.background.clone() : new THREE.Color(0x000000));
-  const mat = new THREE.MeshBasicMaterial({
-    color: col, transparent: true, opacity: 1.0,
-    depthTest: false, depthWrite: false, side: THREE.DoubleSide
-  });
-
-  const g = new THREE.Group(); g.name='__offnngRearRahmen';
-  const inner = W - 2*t;
-
-  const top = new THREE.Mesh(new THREE.PlaneGeometry(inner, t), mat);
-  top.position.set(0,  W/2 - t/2, z);
-
-  const bot = new THREE.Mesh(new THREE.PlaneGeometry(inner, t), mat);
-  bot.position.set(0, -W/2 + t/2, z);
-
-  const lef = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
-  lef.position.set(-W/2 + t/2, 0, z);
-
-  const rig = new THREE.Mesh(new THREE.PlaneGeometry(t, inner), mat);
-  rig.position.set( W/2 - t/2, 0, z);
-
-  g.add(top,bot,lef,rig);
-  g.renderOrder = 2000; // por encima de casi todo
-  container.add(g);
-}
+/* OFFNNG · Rear Rahmen — REMOVIDO (no se usa) */
+function addOFFNNGRearRahmen(){ /* intentionally empty */ }
 
 function buildOFFNNG () {
       // limpia versión previa
@@ -4035,6 +4002,12 @@ function buildOFFNNG () {
           uAxisMixS    : { value: new THREE.Vector2(0.0, 0.0) }, // (wSx, wSy)
           uAxisMixV    : { value: new THREE.Vector2(0.0, 0.0) }, // (wVx, wVz)
 
+          // === NUEVO: "palette gating" (subconjunto determinista por escena) ===
+          uHueCenterDeg : { value: 0.0 },                 // centro de H (en grados)
+          uHueHalfSpanDeg: { value: 24.0 },               // semiancho de H (grados)
+          uSatBand      : { value: new THREE.Vector2(0.30, 0.90) }, // [Smin, Smax]
+          uValBand      : { value: new THREE.Vector2(0.35, 0.95) }, // [Vmin, Vmax]
+
           // === NUEVO: LFOs para HUE (°/s) ===
           uHueLFO1Amp  : { value: 0.35 },
           uHueLFO1Hz   : { value: 0.03 },
@@ -4087,6 +4060,10 @@ uniform int   uOpaque;
 uniform vec2  uAxisMixH; // (wHy, wHz)
 uniform vec2  uAxisMixS; // (wSx, wSy)
 uniform vec2  uAxisMixV; // (wVx, wVz)
+
+// Palette gating
+uniform float uHueCenterDeg, uHueHalfSpanDeg;
+uniform vec2  uSatBand, uValBand;
 
 // LFOs HUE (°/s)
 uniform float uHueLFO1Amp, uHueLFO1Hz, uHueLFO1Phase;
@@ -4187,16 +4164,23 @@ void main(){
     float uVy = clamp(u.y + dot(uAxisMixV, vec2(u.x - 0.5, u.z - 0.5)), 0.0, 1.0);
 
     // — mapeo HSV base (X→H, Y→V, Z→S) con drift y “breathing”
-    float H = mod(uHx * 360.0 + uHueBias + uTime * hueDrift, 360.0);
+    // ANTES:
+    // float H = mod(uHx * 360.0 + uHueBias + uTime * hueDrift, 360.0);
 
-    float V = clamp(uVy, 0.0, 1.0);
+    // AHORA: remapeo de H a banda determinista alrededor de uHueCenterDeg
+    float Hraw  = uHx * 2.0 - 1.0;                            // [-1, +1]
+    float Hband = uHueCenterDeg + Hraw * uHueHalfSpanDeg;     // banda centrada
+    float H     = mod(Hband + uHueBias + uTime * hueDrift, 360.0);
+
+    // V y S con bandas deterministas (previo a gains y floors)
+    float V = clamp(uVy, uValBand.x, uValBand.y);
     V *= (1.0 + uVBreathAmp * sin(6.2831853 * uVBreathHz * uTime + uVBreathPhase));
     V = clamp(V, 0.0, 1.0);
     V = pow(V, uGammaV);
     V = max(V, uVMin);
     V = clamp(V * uValGain, 0.0, 1.0);
 
-    float S = clamp(uSz, 0.0, 1.0);
+    float S = clamp(uSz, uSatBand.x, uSatBand.y);
     S = max(S, uSMin);
     S = clamp(S * uSatGain, 0.0, 1.0);
 
@@ -4239,7 +4223,6 @@ void main(){
 
       offnngGroup = new THREE.Group();
       offnngGroup.add(offnngMesh);
-      addOFFNNGRearRahmen(offnngGroup);
       scene.add(offnngGroup);
 
       applyOFFNNGQuality();   // aplica calidad y pixelRatio
@@ -4431,6 +4414,69 @@ void main(){
     U.uVBreathHz.value    = 0.06;
     const phase0 = ((sceneSeed + S_global) % 144) / 144;
     U.uVBreathPhase.value = 2.0 * Math.PI * phase0;
+
+    /* === PALETA & TEMPO GATING determinista por escena (desde BUILD) === */
+    (function applyScenePaletteAndTempo(){
+      // 1) Recolectar perms activas (ya tienes selPerms arriba)
+      const perms = selPerms && selPerms.length ? selPerms : [[1,2,3,4,5]];
+
+      // 2) Convertir cada perm en índices H/S/V usando tu gramática actual:
+      //    Usamos PATTERNS[activePatternId](sig, sceneSeed, slot) + idxToHSV(...)
+      const hues = []; const sats = []; const vals = [];
+      perms.forEach(p => {
+        const sig  = computeSignature(p);
+        const r    = lehmerRank(p);
+        const slot = (r % 12);
+        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
+        // idx→HSV reales (h∈[0,360), s,v∈[0,1])
+        const {h,s,v} = idxToHSV(hI, sI, vI);
+        hues.push(h); sats.push(s); vals.push(v);
+      });
+
+      // 3) Estadísticos en H tienen topología circular (0/360); usamos media circular
+      function circMeanDeg(arr){
+        let sx=0, sy=0;
+        arr.forEach(a => { const rad = a * Math.PI/180; sx += Math.cos(rad); sy += Math.sin(rad); });
+        const ang = Math.atan2(sy, sx) * 180/Math.PI;
+        return (ang < 0 ? ang + 360 : ang);
+      }
+      function circArcDeg(arr){
+        // arco mínimo que contiene todos los puntos (aprox: usa min/max tras rotar por media)
+        const c = circMeanDeg(arr);
+        const norm = arr.map(a=>{
+          let d = a - c; while(d < -180) d += 360; while(d > 180) d -= 360; return d;
+        });
+        const mn = Math.min.apply(null, norm);
+        const mx = Math.max.apply(null, norm);
+        return {center:c, halfSpan: Math.max(8, (mx - mn)*0.5)}; // piso 8°
+      }
+
+      const hueStats = circArcDeg(hues);
+      // Limitar suavemente el semiancho (distintivo pero no monocromático)
+      const hueHalf = Math.max(10, Math.min(42, hueStats.halfSpan + 6)); // +6° de holgura
+
+      // Bandas S/V: min..max con acolchado suave y clamps útiles
+      const sMin = Math.max(0.18, Math.min(0.92, Math.min.apply(null, sats) - 0.03));
+      const sMax = Math.max(sMin+0.10, Math.min(0.98, Math.max.apply(null, sats) + 0.03));
+
+      const vMin = Math.max(0.18, Math.min(0.95, Math.min.apply(null, vals) - 0.03));
+      const vMax = Math.max(vMin+0.10, Math.min(0.99, Math.max.apply(null, vals) + 0.03));
+
+      // 4) Aplicar a uniforms
+      U.uHueCenterDeg.value   = hueStats.center;
+      U.uHueHalfSpanDeg.value = hueHalf;
+      U.uSatBand.value.set(sMin, sMax);
+      U.uValBand.value.set(vMin, vMax);
+
+      // 5) Tempo: ajusta “respiración” y deriva de tono por complejidad de escena
+      //    (ya usas nr & sigN arriba; aquí solo afilamos amplitud y Hz según dispersión de H)
+      const spread01 = Math.min(1, hueHalf / 42); // 0..1 (42° = techo actual)
+      // respiración más lenta y menos profunda cuando la gama es estrecha (más “monástica”)
+      U.uVBreathAmp.value = 0.10 + 0.06 * (1.0 - spread01);       // 0.10..0.16
+      U.uHueRate.value    = 5.8 + 2.2 * spread01;                 // ~5.8..8.0 °/s
+      // sutil desaceleración de rotación volumétrica si gama estrecha
+      U.uRotRateDeg.value = (U.uRotRateDeg.value||3.8) * (0.92 + 0.16*spread01);
+    })();
 
     // —— Eje de giro (como antes) ——
     const toRad = Math.PI / 180;
