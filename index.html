@@ -5433,94 +5433,253 @@ void main(){
       return hits;
     }
 
-// ===== Determinismo base para Parkett (15 familias lógicas) =====
-    function fnv1a32_step(h, x){
-      h ^= (x>>>0); h = Math.imul(h, 16777619)>>>0; return h>>>0;
-    }
-    function raumParkettFamilyHash(){
-      let h = 2166136261>>>0;
-      try{
-        const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
-        h = fnv1a32_step(h, st.sumR|0);
-        h = fnv1a32_step(h, st.sumR2|0);
-        h = fnv1a32_step(h, st.mRank|0);
-      }catch(_){ }
-      h = fnv1a32_step(h, sceneSeed|0);
-      h = fnv1a32_step(h, S_global|0);
-      return h>>>0;
-    }
-
 // ===== Material procedimental "pentagonal raster" =====
-// === Canvas → Texture para las 15 familias de pentágonos ===
-// Nota: por ahora implementamos Cairo (familia 2) como ejemplo visual estable.
-// Las demás familias usan el mismo "dispatcher"; se pueden completar en Camino B.
-    function makeParkettTexture(opts){
-      const {W=1024, H=1024, family=1, density=1.0, theta=0.0, luma=0.84} = opts||{};
-      const c = document.createElement('canvas'); c.width=W; c.height=H;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = `rgb(255,255,255)`; // fondo blanco
-      ctx.fillRect(0,0,W,H);
-      const L = Math.round(255*luma);
-      ctx.strokeStyle = `rgb(${L},${L},${L})`;
-      ctx.lineWidth = Math.max(1, Math.round(0.004*W));
+// RAUM v2 · Parkettierung (15 familias) via Canvas2D → Texture
+// • Contraste y grosor suben con DPI (sharp en cualquier zoom)
+// • Selección determinista por hash (misma escena → mismo tipo)
+// • Tipo 2 (Cairo) fiel. Resto: patrones pentagonales afines
+//   claramente distintos (base sólida para iterar a "académico").
+// ============================================================
 
-      function rot(x,y,a){ const ca=Math.cos(a),sa=Math.sin(a); return [x*ca-y*sa, x*sa+y*ca]; }
-      function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+    (function(){
+      // ---------- utilidades ----------
+      function rot(x,y,a){ const c=Math.cos(a),s=Math.sin(a); return [x*c-y*s, x*s+y*c]; }
+      function lerp(a,b,t){ return a+(b-a)*t; }
+      function clamp(x,a,b){ return Math.max(a, Math.min(b, x)); }
+      function dpr(){ return (window.devicePixelRatio||1); }
 
-      // === Familia Cairo (2) ===
-      function drawCairo(){
-        const s = 42 / density;
+      // Grosor/contraste globales (más fuerte que antes)
+      const PARK_LINE_LUMA_MIN = 0.65; // 0.65..0.78 -> mucho más visible
+      const PARK_LINE_LUMA_MAX = 0.78;
+      const PARK_BASE_STROKE   = 0.0065; // relativo al ancho (antes ~0.004)
+      const PARK_STROKE_GAIN   = 1.15;   // boost adicional
+
+      // ---------- Dispatcher de dibujo ----------
+      // Cada "drawTypeX" traza *aristas* de un mosaico pentagonal periódico
+      // parametrizado por (step/escala, cizalla, alternancia). Todos generan
+      // líneas limpias (sin relleno), con la rotación global 'theta'.
+
+      // Cairo (tipo 2) — exacto
+      function drawType2_Cairo(ctx, W,H, density, theta){
+        const s = 48 / density;
         const h = s*Math.sqrt(3)/2;
-        const pad = 2*s;
+        const pad = 3*s;
+
         ctx.save();
         ctx.translate(W/2,H/2); ctx.rotate(theta); ctx.translate(-W/2,-H/2);
-        for (let yy=-pad; yy<H+pad; yy+=h){
+
+        for (let yy=-pad; yy<=H+pad; yy+=h){
           const offset = ((Math.round(yy/h)&1)? s/2 : 0);
-          for (let xx=-pad; xx<W+pad; xx+=s){
+          for (let xx=-pad; xx<=W+pad; xx+=s){
             const x=xx+offset, y=yy;
-            line(x,y, x+s/2, y+h);
-            line(x+s/2,y+h, x+s, y);
-            line(x,y, x+s, y);
-            line(x,y, x+s/2, y-h);
-            line(x+s/2,y-h, x+s, y);
+            // pentágonos “Kairo”: rombo + triángulos formando pentágonos
+            // aristas principales:
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x+s/2, y+h);
+            ctx.lineTo(x+s, y);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x+s/2, y-h);
+            ctx.lineTo(x+s, y);
+            ctx.stroke();
+            // base superior/inferior
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x+s, y);
+            ctx.stroke();
           }
         }
         ctx.restore();
       }
 
-      // === Placeholder de las 15 familias ===
-      function drawFamily(fid){
-        switch(fid){
-          case 2: drawCairo(); break; // Cairo exacto
-          default:
-            // Fallback: Cairo también, hasta implementar cada familia real
-            drawCairo();
+      // Familia genérica A: “house/offset” (tipos 1/3/4/5 afines)
+      function drawGenericA(ctx, W,H, density, theta, sk=0.18, alt=true){
+        const s = 46 / density;            // paso base
+        const h = s*0.6;                    // altura del “techo”
+        const pad = 3*s;
+        ctx.save();
+        ctx.translate(W/2,H/2); ctx.rotate(theta); ctx.translate(-W/2,-H/2);
+
+        for (let y=-pad, r=0; y<=H+pad; y+= (h + s*0.4), r++){
+          const ox = alt ? ((r&1)? s*0.5 : 0) : 0;
+          for (let x=-pad; x<=W+pad; x+= s){
+            const X = x+ox, Y=y;
+            // pentágono tipo "casa" con cizalla sk
+            const p0 = [X, Y];                 // izquierda-base
+            const p1 = [X+s, Y];               // derecha-base
+            const p2 = [X+s, Y+h];             // derecha-altura
+            const p3 = [X+s*0.5*(1+sk), Y+h+s*0.2]; // cumbrera desplazada
+            const p4 = [X, Y+h];               // izquierda-altura
+            ctx.beginPath();
+            ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]);
+            ctx.lineTo(p2[0],p2[1]); ctx.lineTo(p3[0],p3[1]);
+            ctx.lineTo(p4[0],p4[1]); ctx.closePath();
+            ctx.stroke();
+          }
         }
+        ctx.restore();
       }
 
-      drawFamily(family);
+      // Familia genérica B: “kite/arrow” (tipos 6/7/8 afines)
+      function drawGenericB(ctx,W,H,density,theta, shear=0.12, skew=0.22){
+        const s = 44 / density;
+        const pad = 4*s;
+        ctx.save();
+        ctx.translate(W/2,H/2); ctx.rotate(theta); ctx.translate(-W/2,-H/2);
 
-      const tex = new THREE.CanvasTexture(c);
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      return tex;
-    }
+        for (let y=-pad, r=0; y<=H+pad; y+= s*0.86, r++){
+          const ox = (r&1)? s*0.5:0;
+          for (let x=-pad; x<=W+pad; x+= s){
+            const X=x+ox, Y=y;
+            const a=[X, Y], b=[X+s*0.5, Y+s*skew], c=[X+s, Y],
+                  d=[X+s*0.75, Y-s*shear], e=[X+s*0.25, Y-s*shear];
+            ctx.beginPath();
+            ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]);
+            ctx.lineTo(d[0],d[1]); ctx.lineTo(c[0],c[1]);
+            ctx.lineTo(e[0],e[1]); ctx.closePath(); ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
 
-// === Material Parkett basado en CanvasTexture ===
-    function makeParkettMaterial(wallIndex){
-      const H = raumParkettFamilyHash();
-      const family = 1 + (H % 15);
-      function rotl(x,b){ return ((x<<b)|(x>>> (32-b)))>>>0; }
-      const Fw  = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
+      // Familia genérica C: “diamond-pentagon” (tipos 9/10/11 afines)
+      function drawGenericC(ctx,W,H,density,theta, r1=0.35, r2=0.18){
+        const s = 48 / density;
+        const pad = 3*s;
+        ctx.save();
+        ctx.translate(W/2,H/2); ctx.rotate(theta); ctx.translate(-W/2,-H/2);
 
-      const dens  = 0.90 + ((Fw>>>10)&1023)/1023 * 0.45;     // densidad
-      const theta = ((rotl(Fw,13)&2047)/2048)*Math.PI*2.0;   // rotación
-      const luma  = 0.80 + ((rotl(Fw,17)&255)/255)*0.05;     // luma 0.80–0.85
+        for (let y=-pad, r=0; y<=H+pad; y+= s, r++){
+          const ox = (r&1)? s*0.5:0;
+          for (let x=-pad; x<=W+pad; x+= s){
+            const X=x+ox, Y=y;
+            const a=[X, Y], b=[X+s*0.5, Y+s*r1], c=[X+s, Y],
+                  d=[X+s*(1-r2), Y-s*r2], e=[X+s*r2, Y-s*r2];
+            ctx.beginPath();
+            ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.lineTo(c[0],c[1]);
+            ctx.lineTo(d[0],d[1]); ctx.lineTo(e[0],e[1]); ctx.closePath(); ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
 
-      const tex = makeParkettTexture({W:1024,H:1024,family,density:dens,theta,luma});
-      return new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff });
-    }
+      // Familia genérica D: “stretched-cairo” (tipos 12/13/14/15 afines)
+      function drawGenericD(ctx,W,H,density,theta, k=1.25){
+        const s = 46 / density;
+        const h = s*Math.sqrt(3)/2;
+        const pad = 3*s;
+        ctx.save();
+        ctx.translate(W/2,H/2); ctx.rotate(theta); ctx.translate(-W/2,-H/2);
+        for (let yy=-pad; yy<=H+pad; yy+=h){
+          const off = ((Math.round(yy/h)&1)? s/2 : 0);
+          for (let xx=-pad; xx<=W+pad; xx+=s){
+            const x=xx+off, y=yy;
+            // cairo "estirado" en X → familias afines
+            ctx.beginPath();
+            ctx.moveTo(x-k*s*0.0, y);
+            ctx.lineTo(x+s*0.5*k, y+h);
+            ctx.lineTo(x+s*k, y);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x+s*0.5*k, y-h);
+            ctx.lineTo(x+s*k, y);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x+s*k, y);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      // ---------- Canvas → Texture ----------
+      function makeParkettTexture(opts){
+        const {W=1024, H=1024, family=1, density=1.0, theta=0.0, luma=0.72} = opts||{};
+        const scaleDPI = dpr();
+        const cw = Math.round(W*scaleDPI), ch = Math.round(H*scaleDPI);
+        const c = document.createElement('canvas'); c.width=cw; c.height=ch;
+        const ctx = c.getContext('2d');
+
+        // fondo blanco puro
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0,0,cw,ch);
+
+        // línea con contraste alto
+        const L = Math.round(255*clamp(luma, PARK_LINE_LUMA_MIN, PARK_LINE_LUMA_MAX));
+        ctx.strokeStyle = `rgb(${L},${L},${L})`;
+        ctx.lineWidth = Math.max(1, Math.round(PARK_BASE_STROKE * cw * PARK_STROKE_GAIN));
+        ctx.lineCap   = 'butt';
+        ctx.lineJoin  = 'miter';
+
+        // dispatcher de 15 familias (mapeo determinista → parámetros)
+        const t = (family|0);
+        const f = ((x,lo,hi)=> lerp(lo,hi,(x%997)/997));
+
+        switch(t){
+          // Type 1,3,4,5: variantes genéricas A (parámetros distintos → aspecto diferente)
+          case 1:  drawGenericA(ctx,cw,ch,density,theta, 0.14, true);  break;
+          case 3:  drawGenericA(ctx,cw,ch,density,theta, 0.22, false); break;
+          case 4:  drawGenericA(ctx,cw,ch,density,theta, 0.30, true);  break;
+          case 5:  drawGenericA(ctx,cw,ch,density,theta, 0.08, false); break;
+
+          // Type 2: Cairo exacto
+          case 2:  drawType2_Cairo(ctx,cw,ch,density,theta); break;
+
+          // Type 6,7,8: genérica B (kite/arrow)
+          case 6:  drawGenericB(ctx,cw,ch,density,theta, 0.10, 0.20); break;
+          case 7:  drawGenericB(ctx,cw,ch,density,theta, 0.16, 0.26); break;
+          case 8:  drawGenericB(ctx,cw,ch,density,theta, 0.22, 0.30); break;
+
+          // Type 9,10,11: genérica C (diamond-pentagon)
+          case 9:  drawGenericC(ctx,cw,ch,density,theta, 0.32, 0.14); break;
+          case 10: drawGenericC(ctx,cw,ch,density,theta, 0.40, 0.20); break;
+          case 11: drawGenericC(ctx,cw,ch,density,theta, 0.25, 0.12); break;
+
+          // Type 12-15: genérica D (stretched-cairo) con estiramientos distintos
+          case 12: drawGenericD(ctx,cw,ch,density,theta, 1.10); break;
+          case 13: drawGenericD(ctx,cw,ch,density,theta, 1.25); break;
+          case 14: drawGenericD(ctx,cw,ch,density,theta, 1.40); break;
+          case 15: drawGenericD(ctx,cw,ch,density,theta, 1.60); break;
+
+          default: drawType2_Cairo(ctx,cw,ch,density,theta); break;
+        }
+
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.NearestFilter; // importantísimo para nitidez
+        return tex;
+      }
+
+      // ---------- Hash determinista existente ----------
+      function fnv1a32_step(h, x){ h ^= (x>>>0); h = Math.imul(h, 16777619)>>>0; return h>>>0; }
+      function raumParkettFamilyHash(){
+        let h = 2166136261>>>0;
+        try{
+          const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
+          h = fnv1a32_step(h, st.sumR|0);
+          h = fnv1a32_step(h, st.sumR2|0);
+          h = fnv1a32_step(h, st.mRank|0);
+        }catch(_){ }
+        h = fnv1a32_step(h, sceneSeed|0);
+        h = fnv1a32_step(h, S_global|0);
+        return h>>>0;
+      }
+
+      // ---------- Material público ----------
+      window.makeParkettMaterial = function(wallIndex /*0..4*/){
+        const H = raumParkettFamilyHash();
+        const family = 1 + (H % 15);
+        function rotl(x,b){ return ((x<<b)|(x>>> (32-b)))>>>0; }
+        const Fw  = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
+
+        const dens  = 0.85 + ((Fw>>>10)&1023)/1023 * 0.50;          // 0.85..1.35
+        const theta = ((rotl(Fw,13)&2047)/2048)*Math.PI*2.0;
+        const luma  = lerp(PARK_LINE_LUMA_MIN, PARK_LINE_LUMA_MAX, ((rotl(Fw,17)&255)/255));
+
+        const tex = makeParkettTexture({ W:1024, H:1024, family, density:dens, theta, luma });
+        // BasicMaterial para “tinta” exacta (sin luces)
+        return new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff, transparent:false });
+      };
+    })();
 
 
       function buildRAUM(){
@@ -5645,16 +5804,11 @@ void main(){
 // ===== Línea dinámica por pared (se actualiza cada frame) =====
     function makeEmptyLine(){
       const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
       const m = new THREE.LineBasicMaterial({
-        color: 0x2b2b2b,
-        transparent: true,
-        opacity: 0.0,
-        depthTest: false,
-        depthWrite: false
+        color: 0x222222, transparent:true, opacity: 1.0, linewidth: 1
       });
-      const L = new THREE.Line(g, m);
-      L.renderOrder = 100;
-      return L;
+      return new THREE.Line(g, m);
     }
 
     function setPolyline(lineObj, poly2D, wall){
