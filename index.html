@@ -5448,201 +5448,121 @@ void main(){
       return hits;
     }
 
+
       function buildRAUM(){
-  // —— limpia versión previa
-  clearGroup(raumGroup);
-  raumGroup = new THREE.Group();
+        // limpieza previa
+        clearGroup(raumGroup);
+        raumGroup = new THREE.Group();
 
-  updateBackground(false);
+        // fondo sincronizado (no FRBN)
+        updateBackground(false);
 
-  const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
-  const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
+        const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
+        const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
 
-  // ====== PAREDES: 4 laterales + FONDO, todas con raster blanco ======
-  // Definición geométrica: planos y sistemas locales (u,v) para proyección 2D
-  // Usamos Boxes delgadas para tener UV 0..1 mapeado completo.
-  const walls = {};
-
-  // LEFT
-  {
-    const prm = raumV2FamilyAndParamsForWall(0);
-    const geo = new THREE.PlaneGeometry(Di, Hi, 1,1);
-    geo.rotateY(Math.PI/2);
-    geo.translate(-W/2 + g/2, 0, 0);
-    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
-    raumGroup.add(mesh);
-    walls.left = {
-      mesh,
-      n:{x:1,y:0,z:0}, d: -W/2 + g/2,
-      uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
-      origin:{x:-W/2 + g/2, y:-Hi/2, z:-Di/2},
-      spanU:Di, spanV:Hi
-    };
-  }
-  // RIGHT
-  {
-    const prm = raumV2FamilyAndParamsForWall(1);
-    const geo = new THREE.PlaneGeometry(Di, Hi, 1,1);
-    geo.rotateY(-Math.PI/2);
-    geo.translate(W/2 - g/2, 0, 0);
-    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
-    raumGroup.add(mesh);
-    walls.right = {
-      mesh,
-      n:{x:-1,y:0,z:0}, d: -W/2 + g/2,
-      uAxis:{x:0,y:0,z:-1}, vAxis:{x:0,y:1,z:0},
-      origin:{x:W/2 - g/2, y:-Hi/2, z:Di/2},
-      spanU:Di, spanV:Hi
-    };
-  }
-  // FLOOR
-  {
-    const prm = raumV2FamilyAndParamsForWall(2);
-    const geo = new THREE.PlaneGeometry(Wi, Di, 1,1);
-    geo.rotateX(-Math.PI/2);
-    geo.translate(0, -H/2 + g/2, 0);
-    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
-    raumGroup.add(mesh);
-    walls.floor = {
-      mesh,
-      n:{x:0,y:1,z:0}, d: -H/2 + g/2,
-      uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
-      origin:{x:-Wi/2, y:-H/2 + g/2, z:-Di/2},
-      spanU:Wi, spanV:Di
-    };
-  }
-  // CEIL
-  {
-    const prm = raumV2FamilyAndParamsForWall(3);
-    const geo = new THREE.PlaneGeometry(Wi, Di, 1,1);
-    geo.rotateX(Math.PI/2);
-    geo.translate(0, H/2 - g/2, 0);
-    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
-    raumGroup.add(mesh);
-    walls.ceil = {
-      mesh,
-      n:{x:0,y:-1,z:0}, d: -H/2 + g/2,
-      uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:-1},
-      origin:{x:-Wi/2, y:H/2 - g/2, z:Di/2},
-      spanU:Wi, spanV:Di
-    };
-  }
-  // BACK (pared del fondo, importante para ver secciones)
-  {
-    const prm = raumV2FamilyAndParamsForWall(4);
-    const geo = new THREE.PlaneGeometry(Wi, Hi, 1,1);
-    geo.translate(0, 0, -D/2 + g/2);
-    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
-    raumGroup.add(mesh);
-    walls.back = {
-      mesh,
-      n:{x:0,y:0,z:1}, d: -D/2 + g/2,
-      uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:1,z:0},
-      origin:{x:-Wi/2, y:-Hi/2, z:-D/2 + g/2},
-      spanU:Wi, spanV:Hi
-    };
-  }
-
-  // Grupos para líneas por pared (encima del raster)
-  const lineMats = {};
-  const lineGroups = {};
-  function makeLineMatForWall(wm){
-    // mismo luma que el raster + leve +0.02 para distinguir
-    const l = clamp(wm.material.uniforms.uLumaLine.value + 0.02, 0.0, 1.0);
-    const col = new THREE.Color(l, l, l);
-    const m = new THREE.LineBasicMaterial({
-      color: col, transparent:true, opacity: 0.0, depthTest:true, depthWrite:false
-    });
-    return m;
-  }
-  Object.keys(walls).forEach(k=>{
-    const gLines = new THREE.Group();
-    gLines.renderOrder = 10;
-    raumGroup.add(gLines);
-    lineGroups[k] = gLines;
-    lineMats[k] = makeLineMatForWall(walls[k].mesh);
-  });
-
-  scene.add(raumGroup);
-
-  // ====== Inicializa sólidos + scheduler ======
-  __raumV2.walls = walls;
-  __raumV2.lines = lineGroups;
-  raumV2InitSolids();
-  raumV2InitScheduler();
-  __raumV2.lastT = performance.now();
-
-  // instala animador si no existe
-  if (!window.__raumV2TickInstalled){
-    window.__raumV2TickInstalled = true;
-    (function raumV2Tick(){
-      try{
-        if (!isRAUM || !raumGroup || !__raumV2.walls){ requestAnimationFrame(raumV2Tick); return; }
-        const now = performance.now();
-        const dt = Math.max(0, (now - __raumV2.lastT) / 1000); __raumV2.lastT = now;
-
-        // scheduler → cuáles 2 permutaciones están activas y sus alphas
-        const S = raumV2AdvanceScheduler(dt);
-
-        // limpia líneas previas
-        Object.values(__raumV2.lines).forEach(g=>{
-          for (let i=g.children.length-1;i>=0;i--){
-            const ch=g.children[i];
-            ch.geometry?.dispose?.(); ch.material?.dispose?.();
-            g.remove(ch);
-          }
-        });
-
-        // función para dibujar una permutación (con alpha)
-        function drawPerm(pa, alpha){
-          if (!pa || alpha<=0.001) return;
-          // estado del sólido a tiempo t
-          const sObj = __raumV2.solids.find(s=> s.pa.join(',')===pa.join(','));
-          if (!sObj) return;
-          const t = now*0.001; // tiempo absoluto para movimiento suave
-          // rebote en caja útil
-          const half = { x: W/2 - g, y: H/2 - g, z: D/2 - g };
-          const C = {
-            x: reflect1D(sObj.C0.x + sObj.vel.vx*t, -half.x, half.x),
-            y: reflect1D(sObj.C0.y + sObj.vel.vy*t, -half.y, half.y),
-            z: reflect1D(sObj.C0.z + sObj.vel.vz*t, -half.z, half.z)
-          };
-          const dims = sObj.dims; // {a,b,c}
-
-          Object.entries(__raumV2.walls).forEach(([name, wall])=>{
-            const poly = raumBoxPlaneSection(C, dims, wall);
-            if (poly.length<2) return;
-
-            // convierte (u,v) a coordenadas 3D sobre la pared (para LineSegments)
-            const POS = [];
-            for (let i=0;i<poly.length;i++){
-              const A = poly[i], B = poly[(i+1)%poly.length];
-              // mapeo a 3D: origin + u*uAxis + v*vAxis
-              const Au = wall.origin.x + (A.u + wall.spanU/2) * wall.uAxis.x + (A.v + wall.spanV/2) * wall.vAxis.x;
-              const Av = wall.origin.y + (A.u + wall.spanU/2) * wall.uAxis.y + (A.v + wall.spanV/2) * wall.vAxis.y;
-              const Aw = wall.origin.z + (A.u + wall.spanU/2) * wall.uAxis.z + (A.v + wall.spanV/2) * wall.vAxis.z;
-              const Bu = wall.origin.x + (B.u + wall.spanU/2) * wall.uAxis.x + (B.v + wall.spanV/2) * wall.vAxis.x;
-              const Bv = wall.origin.y + (B.u + wall.spanU/2) * wall.uAxis.y + (B.v + wall.spanV/2) * wall.vAxis.y;
-              const Bw = wall.origin.z + (B.u + wall.spanU/2) * wall.uAxis.z + (B.v + wall.spanV/2) * wall.vAxis.z;
-              POS.push(Au,Av,Aw,  Bu,Bv,Bw);
-            }
-            const g = new THREE.BufferGeometry();
-            g.setAttribute('position', new THREE.Float32BufferAttribute(POS,3));
-            const mat = lineMats[name].clone();
-            mat.opacity = 0.10 + 0.75*alpha; // suave
-            const lines = new THREE.LineSegments(g, mat);
-            __raumV2.lines[name].add(lines);
-          });
+        // ——— paredes blancas (Lambert) ———
+        function lambertWhite(){
+          const m = new THREE.MeshLambertMaterial({ color: 0xffffff, dithering: true });
+          m.emissive = new THREE.Color(0xffffff);
+          m.emissiveIntensity = 0.08;
+          return m;
         }
 
-        drawPerm(S.pa1, S.alpha1);
-        drawPerm(S.pa2, S.alpha2);
+        // caja sin frente (izq/der/techo/piso)
+        const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
+        left.position.set(-W/2 + g/2, 0, 0);
 
-      }catch(_){ }
-      requestAnimationFrame(raumV2Tick);
-    })();
-  }
-}
+        const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
+        right.position.set( W/2 - g/2, 0, 0);
+
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
+        floor.position.set(0, -H/2 + g/2, 0);
+
+        const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
+        ceil.position.set(0,  H/2 - g/2, 0);
+
+        // ⚠️ pared del fondo (ANTES faltaba): restaura cierre posterior
+        const back  = new THREE.Mesh(new THREE.BoxGeometry(W, H, g), lambertWhite());
+        back.position.set(0, 0, -D/2 + g/2);
+
+        raumGroup.add(left, right, floor, ceil, back);
+
+        // ——— RASTER PLANES (cinco) con tamaño INTERIOR correcto ———
+        // usa tu material de Parkett si ya lo tienes; este es un material temporal
+        function tempRasterMaterial(){
+          // líneas finas en espacio local (UV)
+          const mat = new THREE.ShaderMaterial({
+            uniforms:{
+              uColor: { value: new THREE.Color(0x111111) },
+              uBg:    { value: new THREE.Color(0xffffff) },
+              uScale: { value: 24.0 },   // densidad de líneas
+              uWidth: { value: 0.015 }   // grosor relativo
+            },
+            vertexShader: `
+        varying vec2 vUv;
+        void main(){
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+        }
+      `,
+            fragmentShader: `
+        precision highp float;
+        varying vec2 vUv;
+        uniform vec3 uColor, uBg;
+        uniform float uScale, uWidth;
+        float grid(float x){
+          float gx = fract(x*uScale);
+          float dx = fwidth(x*uScale);
+          float d  = min(gx, 1.0 - gx);
+          return smoothstep(uWidth+dx, uWidth, d);
+        }
+        void main(){
+          float g = max(grid(vUv.x), grid(vUv.y));
+          vec3 col = mix(uBg, uColor, g);
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+            depthTest: true, depthWrite: false, transparent: false
+          });
+          return mat;
+        }
+        const rasterMat = tempRasterMaterial();   // ← cambia por tu Parkett material
+
+        const EPS = 0.001; // separa el plano del muro hacia el interior
+
+        // izquierda (YZ): tamaño = H × D
+        const pLeft = new THREE.Mesh(new THREE.PlaneGeometry(D, H), rasterMat);
+        pLeft.position.set(-W/2 + g + EPS, 0, 0);
+        pLeft.rotation.y = Math.PI/2;
+
+        // derecha (YZ): tamaño = H × D
+        const pRight = new THREE.Mesh(new THREE.PlaneGeometry(D, H), rasterMat.clone());
+        pRight.position.set(W/2 - g - EPS, 0, 0);
+        pRight.rotation.y = -Math.PI/2;
+
+        // piso (XZ): tamaño = W_i × D
+        const pFloor = new THREE.Mesh(new THREE.PlaneGeometry(Wi, D), rasterMat.clone());
+        pFloor.position.set(0, -H/2 + g + EPS, 0);
+        pFloor.rotation.x = -Math.PI/2;
+
+        // techo (XZ): tamaño = W_i × D
+        const pCeil = new THREE.Mesh(new THREE.PlaneGeometry(Wi, D), rasterMat.clone());
+        pCeil.position.set(0, H/2 - g - EPS, 0);
+        pCeil.rotation.x = Math.PI/2;
+
+        // fondo (XY): tamaño = W_i × H_i
+        const pBack = new THREE.Mesh(new THREE.PlaneGeometry(Wi, Hi), rasterMat.clone());
+        pBack.position.set(0, 0, -D/2 + g + EPS);
+
+        // añade todos los planos al grupo
+        raumGroup.add(pLeft, pRight, pFloor, pCeil, pBack);
+
+        // ——— finaliza ———
+        scene.add(raumGroup);
+        raumGroup.traverse(o => { o.frustumCulled = false; });
+      }
+
+
 
 
     function toggleRAUM(){
