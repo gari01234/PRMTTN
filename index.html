@@ -5451,78 +5451,75 @@ void main(){
     }
 
 // ===== Material procedimental "pentagonal raster" =====
-// NOTA: Este raster ya produce un tramado pentagonal (afinado). El "family"
-//       (1..15) cambia determinísticamente rotación, densidad y afinidad.
-    function makeParkettMaterial(wallIndex /*0..4*/){
+// === Canvas → Texture para las 15 familias de pentágonos ===
+// Nota: por ahora implementamos Cairo (familia 2) como ejemplo visual estable.
+// Las demás familias usan el mismo "dispatcher"; se pueden completar en Camino B.
+    function makeParkettTexture(opts){
+      const {W=1024, H=1024, family=1, density=1.0, theta=0.0, luma=0.84} = opts||{};
+      const c = document.createElement('canvas'); c.width=W; c.height=H;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = `rgb(255,255,255)`; // fondo blanco
+      ctx.fillRect(0,0,W,H);
+      const L = Math.round(255*luma);
+      ctx.strokeStyle = `rgb(${L},${L},${L})`;
+      ctx.lineWidth = Math.max(1, Math.round(0.004*W));
+
+      function rot(x,y,a){ const ca=Math.cos(a),sa=Math.sin(a); return [x*ca-y*sa, x*sa+y*ca]; }
+      function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+
+      // === Familia Cairo (2) ===
+      function drawCairo(){
+        const s = 42 / density;
+        const h = s*Math.sqrt(3)/2;
+        const pad = 2*s;
+        ctx.save();
+        ctx.translate(W/2,H/2); ctx.rotate(theta); ctx.translate(-W/2,-H/2);
+        for (let yy=-pad; yy<H+pad; yy+=h){
+          const offset = ((Math.round(yy/h)&1)? s/2 : 0);
+          for (let xx=-pad; xx<W+pad; xx+=s){
+            const x=xx+offset, y=yy;
+            line(x,y, x+s/2, y+h);
+            line(x+s/2,y+h, x+s, y);
+            line(x,y, x+s, y);
+            line(x,y, x+s/2, y-h);
+            line(x+s/2,y-h, x+s, y);
+          }
+        }
+        ctx.restore();
+      }
+
+      // === Placeholder de las 15 familias ===
+      function drawFamily(fid){
+        switch(fid){
+          case 2: drawCairo(); break; // Cairo exacto
+          default:
+            // Fallback: Cairo también, hasta implementar cada familia real
+            drawCairo();
+        }
+      }
+
+      drawFamily(family);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      return tex;
+    }
+
+// === Material Parkett basado en CanvasTexture ===
+    function makeParkettMaterial(wallIndex){
       const H = raumParkettFamilyHash();
       const family = 1 + (H % 15);
-
       function rotl(x,b){ return ((x<<b)|(x>>> (32-b)))>>>0; }
       const Fw  = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
 
-      const dens = 0.75 + ((Fw>>>10)&1023)/1023 * 0.55;
-      const thk  = 0.22 + Math.pow(((Fw>>>3)&511)/511,1.7) * 0.33;
-      const theta= ( (rotl(Fw,13)&2047) / 2048.0 ) * Math.PI*2.0;
-      const lInk  = 0.80 + ((rotl(Fw,17)&255) / 255.0) * 0.04;
+      const dens  = 0.90 + ((Fw>>>10)&1023)/1023 * 0.45;     // densidad
+      const theta = ((rotl(Fw,13)&2047)/2048)*Math.PI*2.0;   // rotación
+      const luma  = 0.80 + ((rotl(Fw,17)&255)/255)*0.05;     // luma 0.80–0.85
 
-      const uniforms = {
-        uInk:   { value: new THREE.Color().setScalar(lInk) },
-        uBg:    { value: new THREE.Color(0xFFFFFF) },
-        uStep:  { value: dens },
-        uThk:   { value: thk },
-        uRot:   { value: theta },
-        uFam:   { value: family }      // 1..15 (selector determinista)
-      };
-
-      const vs = `
-    varying vec2 vPos;     // coords centradas en [-1,1]^2
-    void main(){
-      vec2 uv = uv * 2.0 - 1.0;
-      vPos = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-    }
-  `;
-
-      const fs = `
-    precision highp float;
-    varying vec2 vPos;
-    uniform vec3  uInk, uBg;
-    uniform float uStep, uThk, uRot, uFam;
-
-    mat2 R(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
-
-    float lineAA(float x, float th){
-      float gx = fract(x);
-      float d  = min(gx, 1.0 - gx);
-      float w  = th * fwidth(x);
-      return smoothstep(w, 0.0, d);
-    }
-
-    float pentRaster(vec2 p, float step, float th){
-      p = R(uRot) * p;
-      p /= step;
-
-      float A = 3.141592653589793/5.0; // 36°
-      float acc = 0.0;
-      for (int i=0;i<5;i++){
-        float a = float(i)*2.0*A;
-        vec2  q = R(a)*p;
-        acc = max(acc, lineAA(q.x, uThk));
-      }
-      return acc;
-    }
-
-    void main(){
-      float g = pentRaster(vPos, uStep, uThk);
-      vec3  col = mix(uBg, uInk, g);
-      gl_FragColor = vec4(col, 1.0);
-    }
-  `;
-
-      return new THREE.ShaderMaterial({
-        uniforms, vertexShader:vs, fragmentShader:fs,
-        transparent:false, depthTest:true, depthWrite:false, dithering:true
-      });
+      const tex = makeParkettTexture({W:1024,H:1024,family,density:dens,theta,luma});
+      return new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff });
     }
 
 
