@@ -5099,235 +5099,551 @@ void main(){
       scene.remove(g);
     }
 
-      function buildRAUM(){
-        // —— limpia versión previa
-        clearGroup(raumGroup);
-        raumGroup = new THREE.Group();
+// ──────────────────
+// RAUM v2 · helpers deterministas
+// ──────────────────
+    function rotl32(x, n){ return ((x<<n) | (x>>> (32-n))) >>> 0; }
+    function clamp(x,a,b){ return Math.min(b, Math.max(a,x)); }
 
-        // asegura fondo sincronizado con BUILD/OFFNNG
-        updateBackground(false);
-
-        const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
-        const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
-
-        // ====== COLORES deterministas ======
-        const colCeil  = raumColorFor(1);
-        const colFloor = raumColorFor(2);
-        const colLeft  = raumColorFor(3);
-        const colRight = raumColorFor(4);
-        const colBack  = raumColorFor(5);
-        const colA     = raumColorFor(6);
-        const colB     = raumColorFor(7);
-
-        function lambert(c, opacity){
-          const base = applyBuildVibranceToColor(c);
-          const matOpts = {
-            color: base,
-            side: THREE.DoubleSide,
-            dithering: false                // ← sin granulado en planos grandes
-          };
-          if (typeof opacity === 'number' && opacity < 1){
-            matOpts.transparent = true;
-            matOpts.opacity = opacity;
-          }
-          const m = new THREE.MeshLambertMaterial(matOpts);
-          m.emissive = base.clone();
-          m.emissiveIntensity = 0.06;
-          return m;
-        }
-
-        // ====== PAREDES EXTERIORES (caja sin frente) ======
-        const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colLeft));
-        left.position.set(-W/2 + g/2, 0, 0);
-        const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colRight));
-        right.position.set( W/2 - g/2, 0, 0);
-
-        const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colFloor));
-        floor.position.set(0, -H/2 + g/2, 0);
-        const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colCeil));
-        ceil.position.set(0,  H/2 - g/2, 0);
-
-        raumGroup.add(left, right, floor, ceil);
-
-        // ====== INVARIANTES / ESTADÍSTICAS DETERMINISTAS ======
-        const { sumR, sumR2, mRank } = raumStats();
-
-        // ====== MUROS INTERIORES (A y B) — primero sus PARÁMETROS ======
-        // — A (longitudinal, grosor g en X, largo LA en Z)
-        const LAmin = 8, LAmax = Di; // 8..28
-        const LA = LAmin + ((sumR + 5*mRank + sceneSeed) % (LAmax - LAmin + 1));
-        const xAmin = -Wi/2 + g/2, xAmax = Wi/2 - g/2;
-        const zAmin = -Di/2 + LA/2, zAmax = Di/2 - LA/2;
-        const uAx   = ((11*sumR2 + 7*mRank + sceneSeed) % 991) / 991;
-        const uAz   = ((S_global + 23*mRank + sumR2) % 983) / 983;
-        const xA    = xAmin + (xAmax - xAmin) * uAx;
-        const zA    = zAmin + (zAmax - zAmin) * uAz;
-
-        // — B (transversal, ancho LB en X, grosor g en Z)
-        const LBmin = 10, LBmax = Wi; // 10..58
-        const LB = LBmin + ((sumR2 + 9*mRank + 3*sceneSeed) % (LBmax - LBmin + 1));
-        const xBmin = -Wi/2 + LB/2, xBmax = Wi/2 - LB/2;
-        const zBmin = -Di/2 + g/2,  zBmax = Di/2 - g/2;
-        const uBx   = ((17*sumR2 + 31*mRank + sceneSeed) % 971) / 971;
-        const uBz   = ((19*sumR + 29*mRank + S_global) % 977) / 977;
-        const xB    = xBmin + (xBmax - xBmin) * uBx;
-        const zB    = zBmin + (zBmax - zBmin) * uBz;
-
-        // ====== APERTURA EN LA PARED DEL FONDO (con regla 33%) ======
-        const zBack = -D/2 + g/2;
-
-        // — dimensiones base (10..25), sin forzar área mínima
-        let breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16); // 10..25
-        let hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16); // 10..25
-        breite = Math.max(2, Math.min(breite, Wi));
-        hoehe  = Math.max(2, Math.min(hoehe,  Hi));
-
-        // — centro determinista propuesto
-        const xmin0 = -Wi/2 + breite/2, xmax0 = Wi/2 - breite/2;
-        const ymin0 = -Hi/2 + hoehe/2,  ymax0 = Hi/2 - hoehe/2;
-
-        const ux = ((37*sumR + 13*mRank + S_global) % 997) / 997;
-        const uy = ((53*sumR2 + 17*mRank + sceneSeed) % 991) / 991;
-        let xC   = xmin0 + (xmax0 - xmin0) * ux;
-        const yC = ymin0 + (ymax0 - ymin0) * uy;
-
-        // — utilidades de intervalos en X
-        function clipInterval(a,b,min,max){
-          const s = Math.max(a,min), e = Math.min(b,max);
-          return (e > s) ? [s,e] : null;
-        }
-        function mergeIntervals(list){
-          if (!list.length) return [];
-          const v = list.slice().sort((p,q)=>p[0]-q[0]);
-          const out = [ v[0].slice() ];
-          for (let i=1;i<v.length;i++){
-            const cur = v[i], last = out[out.length-1];
-            if (cur[0] <= last[1]) last[1] = Math.max(last[1], cur[1]);
-            else out.push(cur.slice());
-          }
-          return out;
-        }
-        function complement(minX, maxX, occ){
-          const gaps=[];
-          let cur = minX;
-          occ.forEach(([a,b])=>{
-            if (a > cur) gaps.push([cur,a]);
-            cur = Math.max(cur,b);
-          });
-          if (cur < maxX) gaps.push([cur,maxX]);
-          return gaps;
-        }
-        function visibleFraction(center, width, occ){
-          const L = center - width/2, R = center + width/2;
-          let occLen = 0;
-          occ.forEach(([a,b])=>{
-            const s = Math.max(L,a), e = Math.min(R,b);
-            if (e > s) occLen += (e - s);
-          });
-          const vis = Math.max(0, width - Math.min(width, occLen));
-          return vis / Math.max(1e-6, width);
-        }
-
-        // — proyección de A y B sobre el fondo (intervalos en X, altura total)
-        const occRaw = [];
-        const iA = clipInterval(xA - g/2,   xA + g/2,   -Wi/2, Wi/2);
-        const iB = clipInterval(xB - LB/2,  xB + LB/2,  -Wi/2, Wi/2);
-        if (iA) occRaw.push(iA);
-        if (iB) occRaw.push(iB);
-        const occ = mergeIntervals(occRaw);
-        const gaps = complement(-Wi/2, Wi/2, occ);
-
-        // — regla 33%: recolocación suave + fallback de reducción de ancho
-        const VISIBLE_MIN = 0.33;
-
-        function gapLen(g){ return g[1]-g[0]; }
-        const maxGap = gaps.length ? gaps.reduce((best,g)=> gapLen(g) > gapLen(best) ? g : best, gaps[0]) : [0,0];
-        const Lmax   = gapLen(maxGap);
-
-        let xmin = xmin0, xmax = xmax0;
-        let vis  = visibleFraction(xC, breite, occ);
-
-        if (vis < VISIBLE_MIN){
-          // 1) ¿Existe algún gap que pueda contener COMPLETA la ventana?
-          const bigGaps = gaps.filter(g => gapLen(g) >= breite);
-          if (bigGaps.length){
-            // coloca en el gap más cercano al xC original (mínimo desplazamiento)
-            let best = null;
-            bigGaps.forEach(g=>{
-              const cmin = g[0] + breite/2, cmax = g[1] - breite/2;
-              const newX = clamp(xC, Math.max(cmin, xmin), Math.min(cmax, xmax));
-              const d    = Math.abs(newX - xC);
-              if (!best || d < best.d) best = {x:newX, d};
-            });
-            if (best){
-              xC = best.x;
-              vis = 1;
-            }
-          } else {
-            // 2) No cabe completa: céntrala en el mayor gap
-            const mid = (maxGap[0] + maxGap[1]) / 2;
-            xC = clamp(mid, xmin, xmax);
-            vis = (Lmax / breite);
-
-            // 3) Fallback: reducir ancho hasta garantizar ≥ 33 %
-            if (vis < VISIBLE_MIN){
-              const newW = Math.max(2, Math.min(breite, 3 * Lmax)); // (Lmax / newW) ≥ 1/3
-              if (newW !== breite){
-                breite = newW;
-                xmin = -Wi/2 + breite/2;
-                xmax =  Wi/2 - breite/2;
-              }
-              const cmin2 = maxGap[0] + breite/2, cmax2 = maxGap[1] - breite/2;
-              if (cmax2 >= cmin2){
-                const mid2 = (maxGap[0] + maxGap[1]) / 2;
-                xC = clamp(mid2, Math.max(cmin2, xmin), Math.min(cmax2, xmax));
-                vis = 1;
-              } else {
-                // caso extremo: Lmax == 0 → no hay hueco; mantenemos determinismo
-                vis = (Lmax / Math.max(1e-6, breite)); // 0
-              }
-            }
-          }
-        }
-
-        // — bandas del “marco” (4 piezas)
-        const hTop = (Hi/2) - (yC + hoehe/2);
-        if (hTop > 0.0001){
-          const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
-          top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
-          raumGroup.add(top);
-        }
-        const hBot = (yC - hoehe/2) - (-Hi/2);
-        if (hBot > 0.0001){
-          const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
-          bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
-          raumGroup.add(bot);
-        }
-        const wLeft = (xC - breite/2) - (-Wi/2);
-        if (wLeft > 0.0001){
-          const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
-          l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
-          raumGroup.add(l);
-        }
-        const wRight = (Wi/2) - (xC + breite/2);
-        if (wRight > 0.0001){
-          const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
-          r.position.set(xC + breite/2 + wRight/2, yC, zBack);
-          raumGroup.add(r);
-        }
-
-        // ====== AHORA sí: instanciar muros interiores A y B (opacos) ======
-        const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)); // opaco
-        wallA.position.set(xA, 0, zA);
-        raumGroup.add(wallA);
-
-        const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB)); // opaco
-        wallB.position.set(xB, 0, zB);
-        raumGroup.add(wallB);
-
-        // —— añadir grupo a escena
-        scene.add(raumGroup);
+    // FNV-1a 32 bits (igual estilo que usas en KEPLR)
+    function fnv1a32(seed, ...nums){
+      let h = (seed>>>0) || 2166136261>>>0;
+      for (let i=0;i<nums.length;i++){
+        let v = (nums[i]>>>0);
+        h ^= v; h = Math.imul(h, 16777619)>>>0;
       }
+      // avalancha
+      h ^= h>>>13; h = Math.imul(h, 3266489917)>>>0; h ^= h>>>16;
+      return h>>>0;
+    }
+
+// ──────────────────
+// RAUM v2 · raster shader (blanco + líneas grises)
+// 15 familias = 15 tripletas de ángulos/densidades distintas
+// ──────────────────
+    const RAUM_RASTER_VS = `
+precision mediump float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 modelViewMatrix, projectionMatrix;
+varying vec2 vUv;
+void main(){
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}
+`
+
+// SDF de "hatch" con 3 haces de líneas; cada familia define ángulos/espaciados.
+    const RAUM_RASTER_FS = `
+precision mediump float;
+varying vec2 vUv;
+
+uniform vec3  uWallRGB;     // blanco pared
+uniform float uLumaLine;    // 0..1 (0=negro)
+uniform float uStroke;      // grosor relativo (0.2..0.55 aprox.)
+uniform float uScale;       // densidad (0.65..1.25)
+uniform float uAng1, uAng2, uAng3;  // 3 orientaciones (radianes)
+uniform float uStep1, uStep2, uStep3; // distancias entre líneas (en UV-scaled)
+uniform float uAlpha;       // desvanecimiento global
+
+// proyección a eje con ángulo ang
+float gridLine(vec2 p, float ang, float step, float stroke){
+  // rota
+  float c = cos(ang), s = sin(ang);
+  vec2 q = mat2(c,-s,s,c) * p;
+  float t = abs(fract(q.x/step)-0.5) * step; // distancia a la línea más cercana
+  float w = stroke * 0.5;
+  // anti-alias con fwidth
+  float aa = fwidth(t);
+  float a  = smoothstep(w+aa, w-aa, t);
+  return a;
+}
+
+void main(){
+  // Centro en (0,0) del plano de la pared y escala determinista
+  vec2 p = (vUv - 0.5) * uScale;
+
+  float l1 = gridLine(p, uAng1, uStep1, uStroke);
+  float l2 = gridLine(p, uAng2, uStep2, uStroke);
+  float l3 = gridLine(p, uAng3, uStep3, uStroke);
+
+  float hatch = max(l1, max(l2, l3));
+
+  // Color pared
+  vec3 wall = uWallRGB;
+
+  // "tinta" gris a partir de luma
+  float L = clamp(uLumaLine, 0.0, 1.0);
+  vec3 ink = vec3(L);
+
+  vec3 col = mix(wall, ink, hatch);
+  gl_FragColor = vec4(col, uAlpha);
+}
+`
+
+// Crea material raster para una pared con parámetros ya calculados
+    function makeRaumRasterMaterial({wallHex=0xF6F6F6, luma=0.86, stroke=0.34, scale=1.0,
+                                 ang1=0.0, ang2=1.0472, ang3=2.0944,
+                                 step1=0.33, step2=0.42, step3=0.51, alpha=1.0}){
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uWallRGB : { value: new THREE.Color(wallHex) },
+          uLumaLine: { value: luma },
+          uStroke  : { value: stroke },
+          uScale   : { value: scale },
+          uAng1    : { value: ang1 },
+          uAng2    : { value: ang2 },
+          uAng3    : { value: ang3 },
+          uStep1   : { value: step1 },
+          uStep2   : { value: step2 },
+          uStep3   : { value: step3 },
+          uAlpha   : { value: alpha }
+        },
+        vertexShader: RAUM_RASTER_VS,
+        fragmentShader: RAUM_RASTER_FS,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true,
+        dithering: true,
+        side: THREE.DoubleSide
+      });
+      return mat;
+    }
+
+// ──────────────────
+// RAUM v2 · 15 familias (tripletas de ángulos/steps)
+// No son "teselaciones exactas" sino rasters inspirados (3 haces por familia),
+// suficientes para variedad determinista con estética Agnes Martin.
+// ──────────────────
+    const RAUM15_FAMILIES = [
+      // ang1, ang2, ang3 (rad)  | step1, step2, step3 (UV unidades)
+      [0.0,          Math.PI/2,  Math.PI/4,      0.30, 0.45, 0.60],     // 1
+      [0.0,          Math.PI/3,  2*Math.PI/3,    0.34, 0.34, 0.34],     // 2
+      [Math.PI/6,    Math.PI/2,  5*Math.PI/6,    0.28, 0.44, 0.56],     // 3
+      [Math.PI/5,    2*Math.PI/5,3*Math.PI/5,    0.32, 0.40, 0.54],     // 4
+      [0.0,          2*Math.PI/5,4*Math.PI/5,    0.36, 0.48, 0.60],     // 5
+      [Math.PI/8,    3*Math.PI/8,5*Math.PI/8,    0.33, 0.42, 0.52],     // 6
+      [Math.PI/12,   Math.PI/2,  7*Math.PI/12,   0.30, 0.50, 0.70],     // 7
+      [0.0,          Math.PI/2,  2*Math.PI/3,    0.31, 0.41, 0.57],     // 8
+      [Math.PI/10,   3*Math.PI/10,7*Math.PI/10,  0.35, 0.35, 0.50],     // 9
+      [Math.PI/4,    Math.PI/2,  3*Math.PI/4,    0.28, 0.40, 0.56],     // 10
+      [0.0,          Math.PI/5,  3*Math.PI/5,    0.34, 0.44, 0.58],     // 11
+      [0.0,          Math.PI/2,  Math.PI/3,      0.32, 0.48, 0.64],     // 12
+      [Math.PI/6,    Math.PI/3,  Math.PI/2,      0.30, 0.46, 0.62],     // 13
+      [Math.PI/7,    3*Math.PI/7,5*Math.PI/7,    0.33, 0.45, 0.59],     // 14
+      [0.0,          2*Math.PI/3,Math.PI/3,      0.31, 0.43, 0.55]      // 15
+    ];
+
+// Selección determinista de familia (1..15) y parámetros por pared
+    function raumV2FamilyAndParamsForWall(wIndex){
+      // wIndex: 0=LEFT,1=RIGHT,2=FLOOR,3=CEIL,4=BACK
+      const stats = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
+      const F = fnv1a32(2166136261, stats.sumR|0, stats.sumR2|0, stats.mRank|0, sceneSeed|0, S_global|0);
+
+      const famIdx = (F % 15); // 0..14
+      const fam = RAUM15_FAMILIES[famIdx];
+
+      // derivaciones por pared (ligeras rotaciones/variaciones deterministas)
+      const iDens = (rotl32(F,7)  + wIndex) & 1023;
+      const iAng  = (rotl32(F,13) + 3*wIndex) & 2047;
+      const iThk  = (rotl32(F,5)  + 5*wIndex) &  511;
+      const iLum  = (rotl32(F,17) + 7*wIndex) &  255;
+
+      const scale  = 0.65 + (iDens/1023) * (1.25 - 0.65);
+      const theta  = (iAng/2048) * (Math.PI*2);
+      const stroke = 0.22 + Math.pow(iThk/511, 1.7) * (0.55 - 0.22);
+      const luma   = 0.82 + (iLum/255) * (0.90 - 0.82);
+
+      // aplica ligera rotación global a la familia para esta pared
+      const ang1 = fam[0] + theta;
+      const ang2 = fam[1] + theta;
+      const ang3 = fam[2] + theta;
+
+      return {
+        wallHex: 0xF6F6F6,
+        luma,
+        stroke,
+        scale,
+        ang1, ang2, ang3,
+        step1: fam[3],
+        step2: fam[4],
+        step3: fam[5],
+        alpha: 1.0,
+        familyNumber: famIdx+1
+      };
+    }
+
+// ──────────────────
+// RAUM v2 · sólidos deterministas en rebote + cortes en paredes
+// Se dibujan SOLO las curvas (líneas) sobre cada pared.
+// ──────────────────
+
+// catálogo mínimo (dos variantes: CAJA axis-aligned + "doble-cuadrado" 1:1:2)
+    const RAUM_SOLID_TYPES = ['BOX', 'DS112'];
+
+    function raumPickSolidFor(pa, uniq){
+      const r = lehmerRank(pa)>>>0;
+      const t = RAUM_SOLID_TYPES[(r + uniq) % RAUM_SOLID_TYPES.length];
+      // tamaño determinista
+      const base = Math.min(RAUM_W, RAUM_H, RAUM_D);
+      const k = 0.40 + ((rotl32(r,7) ^ sceneSeed ^ S_global) & 65535)/65535 * (0.66-0.40);
+      if (t === 'BOX'){
+        // caja casi cúbica con dispersión ligera por r
+        const ax = 0.85 + ((r>>3)&255)/255 * 0.20;
+        const ay = 0.85 + ((r>>5)&255)/255 * 0.20;
+        const az = 0.85 + ((r>>7)&255)/255 * 0.20;
+        return { kind:'BOX', a: k*base*ax*0.25, b: k*base*ay*0.25, c: k*base*az*0.25 };
+      }else{
+        // 1:1:2
+        return { kind:'BOX', a: k*base*0.25, b: k*base*0.25, c: k*base*0.50 };
+      }
+    }
+
+// rebote determinista (como GRVTY)
+    function reflect1D(x, a, b){
+      const L = b - a;
+      let y = (x - a) % (2*L); if (y<0) y += 2*L;
+      return (y <= L) ? (a + y) : (a + 2*L - y);
+    }
+
+// velocidad determinista
+    function raumSolidVelocity(pa){
+      const r = lehmerRank(pa)>>>0;
+      const s = (Math.imul(r^sceneSeed^S_global, 1664525) + 1013904223)>>>0;
+      const ang = ((s & 0xFFFF)/65535) * Math.PI*2;
+      const spd = 0.12 + (((s>>>16)&0xFFFF)/65535) * (0.28-0.12); // unidades/s
+      return { vx: Math.cos(ang)*spd*RAUM_W, vy: Math.sin(ang*0.7)*spd*RAUM_H, vz: Math.sin(ang)*spd*RAUM_D };
+    }
+
+// estado de sólidos activos
+    let __raumV2 = {
+      walls: null,        // {left,right,floor,ceil,back} → grupos contenedores
+      lines: null,        // grupos por pared para líneas
+      solids: [],         // [{pa, dims, C0, vel}]
+      seq: null,          // scheduler de apariciones
+      lastT: 0
+    };
+
+// Construye lista determinista de sólidos a partir de perms
+    function raumV2InitSolids(){
+      __raumV2.solids = [];
+      let perms = (typeof getSelectedPerms==='function'?getSelectedPerms():[]) || [];
+      if (!perms.length) perms = [[1,2,3,4,5]];
+      for (let i=0;i<perms.length;i++){
+        const pa = perms[i];
+        const dims = raumPickSolidFor(pa, i);
+        const vel = raumSolidVelocity(pa);
+        __raumV2.solids.push({
+          pa, dims,
+          vel,
+          // centro inicial determinista dentro de la caja útil
+          C0: {
+            x: (-RAUM_W/2+4) + ((lehmerRank(pa)+i*37)%997)/997 * (RAUM_W-8),
+            y: (-RAUM_H/2+4) + ((lehmerRank(pa)+i*53)%991)/991 * (RAUM_H-8),
+            z: (-RAUM_D/2+4) + ((lehmerRank(pa)+i*59)%983)/983 * (RAUM_D-8)
+          }
+        });
+      }
+    }
+
+// Scheduler (máx. 2 solapes)
+    function raumV2InitScheduler(){
+      let perms = __raumV2.solids.map(s=>s.pa);
+      perms.sort((a,b)=> (lehmerRank(a)-lehmerRank(b)));
+      __raumV2.seq = {
+        order: perms,
+        idx: 0,
+        state: 'opening',
+        t: 0,
+        hold: 7.5,
+        open: 2.8,
+        close: 2.8,
+        gap: 1.2,
+        secondLag: 0.35*(2.8+7.5),
+        secondOn: false,
+        tSecond: 0
+      };
+    }
+
+    function raumV2AdvanceScheduler(dt){
+      const S = __raumV2.seq;
+      if (!S) return {alpha1:0,alpha2:0, pa1:null, pa2:null};
+      S.t += dt;
+      let a1=0,a2=0, p1=null, p2=null;
+
+      // primario
+      p1 = S.order[S.idx % S.order.length] || null;
+      let tt = S.t;
+      if (S.state==='opening'){
+        a1 = clamp(tt / S.open, 0,1);
+        if (tt >= S.open){ S.state='hold'; S.t=0; tt=0; }
+      }else if (S.state==='hold'){
+        a1 = 1;
+        if (tt >= S.hold){ S.state='closing'; S.t=0; tt=0; }
+      }else if (S.state==='closing'){
+        a1 = clamp(1 - tt/S.close, 0,1);
+        if (tt >= S.close){ S.state='gap'; S.t=0; tt=0; }
+      }else{ // gap
+        a1 = 0;
+        if (tt >= S.gap){ S.state='opening'; S.t=0; S.idx=(S.idx+1)%S.order.length; tt=0; }
+      }
+
+      // secundario desfasado para continuidad
+      if (!S.secondOn && (S.state==='hold') && (S.t >= S.secondLag)){ S.secondOn=true; S.tSecond=0; }
+      if (S.secondOn){
+        p2 = S.order[(S.idx+1)%S.order.length] || null;
+        S.tSecond += dt;
+        const to = S.tSecond;
+        if (to <= S.open) a2 = clamp(to/S.open,0,1);
+        else if (to <= S.open + S.hold) a2 = 1;
+        else if (to <= S.open + S.hold + S.close) a2 = clamp(1 - (to-S.open-S.hold)/S.close,0,1);
+        else { a2=0; S.secondOn=false; }
+      }
+      return {alpha1:a1, alpha2:a2, pa1:p1, pa2:p2};
+    }
+
+// Intersección caja axis-aligned con plano de pared → polígono (array de puntos 2D en coords locales pared)
+    function raumBoxPlaneSection(C, dims, wall){
+      // dims: {a,b,c} semiejes en X,Y,Z (axis-aligned)
+      // wall: {name, n, d, uAxis, vAxis, origin}  (definidas en build)
+      const x0=C.x-dims.a, x1=C.x+dims.a;
+      const y0=C.y-dims.b, y1=C.y+dims.b;
+      const z0=C.z-dims.c, z1=C.z+dims.c;
+
+      // 12 aristas: generamos 8 vértices y probamos segmento entre pares conectados
+      const V = [
+        {x:x0,y:y0,z:z0},{x:x1,y:y0,z:z0},{x:x1,y:y1,z:z0},{x:x0,y:y1,z:z0},
+        {x:x0,y:y0,z:z1},{x:x1,y:y0,z:z1},{x:x1,y:y1,z:z1},{x:x0,y:y1,z:z1}
+      ];
+      const E = [
+        [0,1],[1,2],[2,3],[3,0], // abajo
+        [4,5],[5,6],[6,7],[7,4], // arriba
+        [0,4],[1,5],[2,6],[3,7]  // verticales
+      ];
+
+      const n = wall.n, d = wall.d;
+      const hits = [];
+      for (let i=0;i<E.length;i++){
+        const A = V[E[i][0]], B = V[E[i][1]];
+        const da = n.x*A.x + n.y*A.y + n.z*A.z - d;
+        const db = n.x*B.x + n.y*B.y + n.z*B.z - d;
+        const den = (db - da);
+        if (Math.abs(den) < 1e-9) continue;
+        const t = -da/den;
+        if (t>=0 && t<=1){
+          const P = { x: A.x + (B.x-A.x)*t, y: A.y + (B.y-A.y)*t, z: A.z + (B.z-A.z)*t };
+          // proyecta a 2D local pared: (u,v) = [(P-origin)·uAxis, (P-origin)·vAxis]
+          const Q = {
+            u: (P.x-wall.origin.x)*wall.uAxis.x + (P.y-wall.origin.y)*wall.uAxis.y + (P.z-wall.origin.z)*wall.uAxis.z,
+            v: (P.x-wall.origin.x)*wall.vAxis.x + (P.y-wall.origin.y)*wall.vAxis.y + (P.z-wall.origin.z)*wall.vAxis.z
+          };
+          hits.push(Q);
+        }
+      }
+      if (hits.length < 2) return [];
+      // ordena por ángulo alrededor del centro para trazar polígono
+      let cx=0, cy=0; hits.forEach(p=>{cx+=p.u; cy+=p.v;}); cx/=hits.length; cy/=hits.length;
+      hits.sort((p,q)=> Math.atan2(p.v-cy,p.u-cx) - Math.atan2(q.v-cy,q.u-cx));
+      // recorta al rectángulo visible de la pared (lo dejamos simple: si queda fuera, LineSegments seguirá siendo visible pero queda bien)
+      return hits;
+    }
+
+      function buildRAUM(){
+  // —— limpia versión previa
+  clearGroup(raumGroup);
+  raumGroup = new THREE.Group();
+
+  updateBackground(false);
+
+  const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
+  const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
+
+  // ====== PAREDES: 4 laterales + FONDO, todas con raster blanco ======
+  // Definición geométrica: planos y sistemas locales (u,v) para proyección 2D
+  // Usamos Boxes delgadas para tener UV 0..1 mapeado completo.
+  const walls = {};
+
+  // LEFT
+  {
+    const prm = raumV2FamilyAndParamsForWall(0);
+    const geo = new THREE.PlaneGeometry(Di, Hi, 1,1);
+    geo.rotateY(Math.PI/2);
+    geo.translate(-W/2 + g/2, 0, 0);
+    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
+    raumGroup.add(mesh);
+    walls.left = {
+      mesh,
+      n:{x:1,y:0,z:0}, d: -W/2 + g/2,
+      uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
+      origin:{x:-W/2 + g/2, y:-Hi/2, z:-Di/2},
+      spanU:Di, spanV:Hi
+    };
+  }
+  // RIGHT
+  {
+    const prm = raumV2FamilyAndParamsForWall(1);
+    const geo = new THREE.PlaneGeometry(Di, Hi, 1,1);
+    geo.rotateY(-Math.PI/2);
+    geo.translate(W/2 - g/2, 0, 0);
+    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
+    raumGroup.add(mesh);
+    walls.right = {
+      mesh,
+      n:{x:-1,y:0,z:0}, d: -W/2 + g/2,
+      uAxis:{x:0,y:0,z:-1}, vAxis:{x:0,y:1,z:0},
+      origin:{x:W/2 - g/2, y:-Hi/2, z:Di/2},
+      spanU:Di, spanV:Hi
+    };
+  }
+  // FLOOR
+  {
+    const prm = raumV2FamilyAndParamsForWall(2);
+    const geo = new THREE.PlaneGeometry(Wi, Di, 1,1);
+    geo.rotateX(-Math.PI/2);
+    geo.translate(0, -H/2 + g/2, 0);
+    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
+    raumGroup.add(mesh);
+    walls.floor = {
+      mesh,
+      n:{x:0,y:1,z:0}, d: -H/2 + g/2,
+      uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
+      origin:{x:-Wi/2, y:-H/2 + g/2, z:-Di/2},
+      spanU:Wi, spanV:Di
+    };
+  }
+  // CEIL
+  {
+    const prm = raumV2FamilyAndParamsForWall(3);
+    const geo = new THREE.PlaneGeometry(Wi, Di, 1,1);
+    geo.rotateX(Math.PI/2);
+    geo.translate(0, H/2 - g/2, 0);
+    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
+    raumGroup.add(mesh);
+    walls.ceil = {
+      mesh,
+      n:{x:0,y:-1,z:0}, d: -H/2 + g/2,
+      uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:-1},
+      origin:{x:-Wi/2, y:H/2 - g/2, z:Di/2},
+      spanU:Wi, spanV:Di
+    };
+  }
+  // BACK (pared del fondo, importante para ver secciones)
+  {
+    const prm = raumV2FamilyAndParamsForWall(4);
+    const geo = new THREE.PlaneGeometry(Wi, Hi, 1,1);
+    geo.translate(0, 0, -D/2 + g/2);
+    const mesh = new THREE.Mesh(geo, makeRaumRasterMaterial(prm));
+    raumGroup.add(mesh);
+    walls.back = {
+      mesh,
+      n:{x:0,y:0,z:1}, d: -D/2 + g/2,
+      uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:1,z:0},
+      origin:{x:-Wi/2, y:-Hi/2, z:-D/2 + g/2},
+      spanU:Wi, spanV:Hi
+    };
+  }
+
+  // Grupos para líneas por pared (encima del raster)
+  const lineMats = {};
+  const lineGroups = {};
+  function makeLineMatForWall(wm){
+    // mismo luma que el raster + leve +0.02 para distinguir
+    const l = clamp(wm.material.uniforms.uLumaLine.value + 0.02, 0.0, 1.0);
+    const col = new THREE.Color(l, l, l);
+    const m = new THREE.LineBasicMaterial({
+      color: col, transparent:true, opacity: 0.0, depthTest:true, depthWrite:false
+    });
+    return m;
+  }
+  Object.keys(walls).forEach(k=>{
+    const gLines = new THREE.Group();
+    gLines.renderOrder = 10;
+    raumGroup.add(gLines);
+    lineGroups[k] = gLines;
+    lineMats[k] = makeLineMatForWall(walls[k].mesh);
+  });
+
+  scene.add(raumGroup);
+
+  // ====== Inicializa sólidos + scheduler ======
+  __raumV2.walls = walls;
+  __raumV2.lines = lineGroups;
+  raumV2InitSolids();
+  raumV2InitScheduler();
+  __raumV2.lastT = performance.now();
+
+  // instala animador si no existe
+  if (!window.__raumV2TickInstalled){
+    window.__raumV2TickInstalled = true;
+    (function raumV2Tick(){
+      try{
+        if (!isRAUM || !raumGroup || !__raumV2.walls){ requestAnimationFrame(raumV2Tick); return; }
+        const now = performance.now();
+        const dt = Math.max(0, (now - __raumV2.lastT) / 1000); __raumV2.lastT = now;
+
+        // scheduler → cuáles 2 permutaciones están activas y sus alphas
+        const S = raumV2AdvanceScheduler(dt);
+
+        // limpia líneas previas
+        Object.values(__raumV2.lines).forEach(g=>{
+          for (let i=g.children.length-1;i>=0;i--){
+            const ch=g.children[i];
+            ch.geometry?.dispose?.(); ch.material?.dispose?.();
+            g.remove(ch);
+          }
+        });
+
+        // función para dibujar una permutación (con alpha)
+        function drawPerm(pa, alpha){
+          if (!pa || alpha<=0.001) return;
+          // estado del sólido a tiempo t
+          const sObj = __raumV2.solids.find(s=> s.pa.join(',')===pa.join(','));
+          if (!sObj) return;
+          const t = now*0.001; // tiempo absoluto para movimiento suave
+          // rebote en caja útil
+          const half = { x: W/2 - g, y: H/2 - g, z: D/2 - g };
+          const C = {
+            x: reflect1D(sObj.C0.x + sObj.vel.vx*t, -half.x, half.x),
+            y: reflect1D(sObj.C0.y + sObj.vel.vy*t, -half.y, half.y),
+            z: reflect1D(sObj.C0.z + sObj.vel.vz*t, -half.z, half.z)
+          };
+          const dims = sObj.dims; // {a,b,c}
+
+          Object.entries(__raumV2.walls).forEach(([name, wall])=>{
+            const poly = raumBoxPlaneSection(C, dims, wall);
+            if (poly.length<2) return;
+
+            // convierte (u,v) a coordenadas 3D sobre la pared (para LineSegments)
+            const POS = [];
+            for (let i=0;i<poly.length;i++){
+              const A = poly[i], B = poly[(i+1)%poly.length];
+              // mapeo a 3D: origin + u*uAxis + v*vAxis
+              const Au = wall.origin.x + (A.u + wall.spanU/2) * wall.uAxis.x + (A.v + wall.spanV/2) * wall.vAxis.x;
+              const Av = wall.origin.y + (A.u + wall.spanU/2) * wall.uAxis.y + (A.v + wall.spanV/2) * wall.vAxis.y;
+              const Aw = wall.origin.z + (A.u + wall.spanU/2) * wall.uAxis.z + (A.v + wall.spanV/2) * wall.vAxis.z;
+              const Bu = wall.origin.x + (B.u + wall.spanU/2) * wall.uAxis.x + (B.v + wall.spanV/2) * wall.vAxis.x;
+              const Bv = wall.origin.y + (B.u + wall.spanU/2) * wall.uAxis.y + (B.v + wall.spanV/2) * wall.vAxis.y;
+              const Bw = wall.origin.z + (B.u + wall.spanU/2) * wall.uAxis.z + (B.v + wall.spanV/2) * wall.vAxis.z;
+              POS.push(Au,Av,Aw,  Bu,Bv,Bw);
+            }
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.Float32BufferAttribute(POS,3));
+            const mat = lineMats[name].clone();
+            mat.opacity = 0.10 + 0.75*alpha; // suave
+            const lines = new THREE.LineSegments(g, mat);
+            __raumV2.lines[name].add(lines);
+          });
+        }
+
+        drawPerm(S.pa1, S.alpha1);
+        drawPerm(S.pa2, S.alpha2);
+
+      }catch(_){ }
+      requestAnimationFrame(raumV2Tick);
+    })();
+  }
+}
+
 
     function toggleRAUM(){
       isRAUM = !isRAUM;
