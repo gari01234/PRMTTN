@@ -5398,23 +5398,15 @@ void main(){
 
 // Intersección caja axis-aligned con plano de pared → polígono (array de puntos 2D en coords locales pared)
     function raumBoxPlaneSection(C, dims, wall){
-      // dims: {a,b,c} semiejes en X,Y,Z (axis-aligned)
-      // wall: {name, n, d, uAxis, vAxis, origin}  (definidas en build)
       const x0=C.x-dims.a, x1=C.x+dims.a;
       const y0=C.y-dims.b, y1=C.y+dims.b;
       const z0=C.z-dims.c, z1=C.z+dims.c;
 
-      // 12 aristas: generamos 8 vértices y probamos segmento entre pares conectados
       const V = [
         {x:x0,y:y0,z:z0},{x:x1,y:y0,z:z0},{x:x1,y:y1,z:z0},{x:x0,y:y1,z:z0},
         {x:x0,y:y0,z:z1},{x:x1,y:y0,z:z1},{x:x1,y:y1,z:z1},{x:x0,y:y1,z:z1}
       ];
-      const E = [
-        [0,1],[1,2],[2,3],[3,0], // abajo
-        [4,5],[5,6],[6,7],[7,4], // arriba
-        [0,4],[1,5],[2,6],[3,7]  // verticales
-      ];
-
+      const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
       const n = wall.n, d = wall.d;
       const hits = [];
       for (let i=0;i<E.length;i++){
@@ -5424,9 +5416,9 @@ void main(){
         const den = (db - da);
         if (Math.abs(den) < 1e-9) continue;
         const t = -da/den;
-        if (t>=0 && t<=1){
-          const P = { x: A.x + (B.x-A.x)*t, y: A.y + (B.y-A.y)*t, z: A.z + (B.z-A.z)*t };
-          // proyecta a 2D local pared: (u,v) = [(P-origin)·uAxis, (P-origin)·vAxis]
+        if (t > -1e-6 && t < 1+1e-6){
+          const cl = Math.min(1, Math.max(0, t));
+          const P = { x: A.x + (B.x-A.x)*cl, y: A.y + (B.y-A.y)*cl, z: A.z + (B.z-A.z)*cl };
           const Q = {
             u: (P.x-wall.origin.x)*wall.uAxis.x + (P.y-wall.origin.y)*wall.uAxis.y + (P.z-wall.origin.z)*wall.uAxis.z,
             v: (P.x-wall.origin.x)*wall.vAxis.x + (P.y-wall.origin.y)*wall.vAxis.y + (P.z-wall.origin.z)*wall.vAxis.z
@@ -5434,11 +5426,9 @@ void main(){
           hits.push(Q);
         }
       }
-      if (hits.length < 2) return [];
-      // ordena por ángulo alrededor del centro para trazar polígono
+      if (hits.length < 3) return [];
       let cx=0, cy=0; hits.forEach(p=>{cx+=p.u; cy+=p.v;}); cx/=hits.length; cy/=hits.length;
       hits.sort((p,q)=> Math.atan2(p.v-cy,p.u-cx) - Math.atan2(q.v-cy,q.u-cx));
-      // recorta al rectángulo visible de la pared (lo dejamos simple: si queda fuera, LineSegments seguirá siendo visible pero queda bien)
       return hits;
     }
 
@@ -5462,98 +5452,75 @@ void main(){
 // ===== Material procedimental "pentagonal raster" =====
 // NOTA: Este raster ya produce un tramado pentagonal (afinado). El "family"
 //       (1..15) cambia determinísticamente rotación, densidad y afinidad.
-    function makeParkettMaterial(wallIndex /*0..4: left,right,floor,ceil,back*/){
+    function makeParkettMaterial(wallIndex /*0..4*/){
       const H = raumParkettFamilyHash();
       const family = 1 + (H % 15);
 
-      // parámetros por pared (ligeras variaciones deterministas)
       function rotl(x,b){ return ((x<<b)|(x>>> (32-b)))>>>0; }
       const Fw  = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
 
-      // densidad / grosor / rotación / afinidad (según familia)
-      const dens = 0.75 + ((Fw>>>10)&1023)/1023 * 0.55;              // 0.75..1.30
-      const thk  = 0.22 + Math.pow(((Fw>>>3)&511)/511,1.7) * 0.33;   // 0.22..0.55
-      const theta= ( (rotl(Fw,13)&2047) / 2048.0 ) * Math.PI*2.0;    // 0..2π
-      const aff  = 0.82 + (family/15)*0.30;                          // “pentágonos” más esbeltos
+      const dens = 0.75 + ((Fw>>>10)&1023)/1023 * 0.55;
+      const thk  = 0.22 + Math.pow(((Fw>>>3)&511)/511,1.7) * 0.33;
+      const theta= ( (rotl(Fw,13)&2047) / 2048.0 ) * Math.PI*2.0;
+      const luma = 0.85 + ((rotl(Fw,17)&255) / 255.0) * 0.05;
 
       const uniforms = {
-        uColor: { value: new THREE.Color(0x1A1A1A) }, // tinta
-        uBg:    { value: new THREE.Color(0xFFFFFF) }, // pared
+        uInk:   { value: new THREE.Color().setScalar(luma) },
+        uBg:    { value: new THREE.Color(0xFFFFFF) },
         uStep:  { value: dens },
         uThk:   { value: thk },
         uRot:   { value: theta },
-        uAff:   { value: aff },
-        uId:    { value: family }                     // 1..15
+        uFam:   { value: family }      // 1..15 (selector determinista)
       };
 
       const vs = `
-    varying vec2 vUv;
+    varying vec2 vPos;     // coords centradas en [-1,1]^2
     void main(){
-      vUv = uv*2.0-1.0; // [-1,1]^2 centrado (evita desfases al escalar planos)
+      vec2 uv = uv * 2.0 - 1.0;
+      vPos = uv;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
     }
   `;
 
-      // Fragmento: tramado pentagonal afín simple.
-      // Construimos 5 haces de líneas (tipo "star") con rotaciones 72° y una afinidad uAff;
-      // La familia 1..15 remapea densidades relativas de los haces.
       const fs = `
     precision highp float;
-    varying vec2 vUv;
-    uniform vec3  uColor, uBg;
-    uniform float uStep, uThk, uRot, uAff;
-    uniform float uId;
+    varying vec2 vPos;
+    uniform vec3  uInk, uBg;
+    uniform float uStep, uThk, uRot, uFam;
 
-    float lineAA(vec2 p, float th){
-      float d = abs(p.y);
-      float w = th * fwidth(p.y);
+    mat2 R(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+
+    float lineAA(float x, float th){
+      float gx = fract(x);
+      float d  = min(gx, 1.0 - gx);
+      float w  = th * fwidth(x);
       return smoothstep(w, 0.0, d);
     }
 
-    // rota y escala afinando uno de los ejes (pentágonos "afines")
-    mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+    float pentRaster(vec2 p, float step, float th){
+      p = R(uRot) * p;
+      p /= step;
 
-    float starRaster(vec2 p, float step, float th, float aff){
-      // 5 haces separados 72°
       float A = 3.141592653589793/5.0; // 36°
       float acc = 0.0;
-      // familia: reparte energía de los haces
-      float k0 = fract(uId*0.1618);
-      float k1 = fract(uId*0.2718);
-      float k2 = fract(uId*0.3819);
-      float k3 = fract(uId*0.4919);
-      float k4 = fract(uId*0.6180);
-      float Ksum = k0+k1+k2+k3+k4 + 1e-6;
-      k0/=Ksum; k1/=Ksum; k2/=Ksum; k3/=Ksum; k4/=Ksum;
-
       for (int i=0;i<5;i++){
-        float ang = (float(i)*2.0*A);
-        vec2 q = rot(ang) * p;
-        // afinidad diferente por haz (desplaza el "pentágono")
-        float ai = mix(1.0, aff, (i==0? k0 : i==1? k1 : i==2? k2 : i==3? k3 : k4));
-        q.x *= ai;
-        // patrón de líneas periódicas
-        float u = q.x / step;
-        float g = lineAA(vec2(fract(u)-0.5, q.y), th);
-        acc = max(acc, g);
+        float a = float(i)*2.0*A;
+        vec2  q = R(a)*p;
+        acc = max(acc, lineAA(q.x, uThk));
       }
       return acc;
     }
 
     void main(){
-      // rotación global del raster en esta pared
-      mat2 R = rot(uRot);
-      vec2 p = R * vUv;
-
-      float g = starRaster(p, uStep, uThk, uAff);
-      vec3  col = mix(uBg, uColor, g);
+      float g = pentRaster(vPos, uStep, uThk);
+      vec3  col = mix(uBg, uInk, g);
       gl_FragColor = vec4(col, 1.0);
     }
   `;
 
       return new THREE.ShaderMaterial({
         uniforms, vertexShader:vs, fragmentShader:fs,
-        transparent:false, depthTest:true, depthWrite:false
+        transparent:false, depthTest:true, depthWrite:false, dithering:true
       });
     }
 
@@ -5631,6 +5598,7 @@ void main(){
 
         // añade todos los planos al grupo
         raumGroup.add(pLeft, pRight, pFloor, pCeil, pBack);
+        pLeft.renderOrder = pRight.renderOrder = pFloor.renderOrder = pCeil.renderOrder = pBack.renderOrder = 10;
 
         // ——— finaliza ———
         scene.add(raumGroup);
@@ -5672,13 +5640,20 @@ void main(){
 // ===== Línea dinámica por pared (se actualiza cada frame) =====
     function makeEmptyLine(){
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
-      const m = new THREE.LineBasicMaterial({ color:0x111111, transparent:true, opacity:0.95, depthWrite:false });
+      const m = new THREE.LineBasicMaterial({
+        color: 0x111111,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false
+      });
       return new THREE.Line(g, m);
     }
+
     function setPolyline(lineObj, poly2D, wall){
-      if (!poly2D || poly2D.length<2){
-        lineObj.geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
+      if (!poly2D || poly2D.length < 2){
+        lineObj.geometry.dispose();
+        lineObj.geometry = new THREE.BufferGeometry();
         lineObj.frustumCulled = false;
         return;
       }
@@ -5686,19 +5661,18 @@ void main(){
       const P = new Float32Array((n+1)*3);
       for (let i=0;i<n;i++){
         const u = poly2D[i].u, v = poly2D[i].v;
-        // (u,v) → xyz sobre el plano (origin + u*uAxis + v*vAxis)
         const x = wall.origin.x + wall.uAxis.x*u + wall.vAxis.x*v;
         const y = wall.origin.y + wall.uAxis.y*u + wall.vAxis.y*v;
         const z = wall.origin.z + wall.uAxis.z*u + wall.vAxis.z*v;
         P[i*3+0]=x; P[i*3+1]=y; P[i*3+2]=z;
       }
-      // cerrar polígono
       P[n*3+0]=P[0]; P[n*3+1]=P[1]; P[n*3+2]=P[2];
 
       lineObj.geometry.dispose();
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(P,3));
       lineObj.geometry = g;
+      lineObj.renderOrder = 100;
       lineObj.frustumCulled = false;
     }
 
@@ -5730,8 +5704,8 @@ void main(){
       const wnames = ['left','right','floor','ceil','back'];
       wnames.forEach(n=>{
         if (__raumV2.lines[n]) return;
-        const gA = makeEmptyLine(); gA.renderOrder = 20;
-        const gB = makeEmptyLine(); gB.renderOrder = 21; // segunda capa
+        const gA = makeEmptyLine();
+        const gB = makeEmptyLine();
         raumGroup.add(gA,gB);
         __raumV2.lines[n] = {A:gA,B:gB};
       });
