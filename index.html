@@ -5299,13 +5299,6 @@ void main(){
       }
     }
 
-// rebote determinista (como GRVTY)
-    function reflect1D(x, a, b){
-      const L = b - a;
-      let y = (x - a) % (2*L); if (y<0) y += 2*L;
-      return (y <= L) ? (a + y) : (a + 2*L - y);
-    }
-
 // velocidad determinista
     function raumSolidVelocity(pa){
       const r = lehmerRank(pa)>>>0;
@@ -5323,6 +5316,7 @@ void main(){
       seq: null,          // scheduler de apariciones
       lastT: 0
     };
+    window.__raumV2 = __raumV2;
 
 // Construye lista determinista de sólidos a partir de perms
     function raumV2InitSolids(){
@@ -5448,6 +5442,121 @@ void main(){
       return hits;
     }
 
+// ===== Determinismo base para Parkett (15 familias lógicas) =====
+    function fnv1a32_step(h, x){
+      h ^= (x>>>0); h = Math.imul(h, 16777619)>>>0; return h>>>0;
+    }
+    function raumParkettFamilyHash(){
+      let h = 2166136261>>>0;
+      try{
+        const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
+        h = fnv1a32_step(h, st.sumR|0);
+        h = fnv1a32_step(h, st.sumR2|0);
+        h = fnv1a32_step(h, st.mRank|0);
+      }catch(_){ }
+      h = fnv1a32_step(h, sceneSeed|0);
+      h = fnv1a32_step(h, S_global|0);
+      return h>>>0;
+    }
+
+// ===== Material procedimental "pentagonal raster" =====
+// NOTA: Este raster ya produce un tramado pentagonal (afinado). El "family"
+//       (1..15) cambia determinísticamente rotación, densidad y afinidad.
+    function makeParkettMaterial(wallIndex /*0..4: left,right,floor,ceil,back*/){
+      const H = raumParkettFamilyHash();
+      const family = 1 + (H % 15);
+
+      // parámetros por pared (ligeras variaciones deterministas)
+      function rotl(x,b){ return ((x<<b)|(x>>> (32-b)))>>>0; }
+      const Fw  = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
+
+      // densidad / grosor / rotación / afinidad (según familia)
+      const dens = 0.75 + ((Fw>>>10)&1023)/1023 * 0.55;              // 0.75..1.30
+      const thk  = 0.22 + Math.pow(((Fw>>>3)&511)/511,1.7) * 0.33;   // 0.22..0.55
+      const theta= ( (rotl(Fw,13)&2047) / 2048.0 ) * Math.PI*2.0;    // 0..2π
+      const aff  = 0.82 + (family/15)*0.30;                          // “pentágonos” más esbeltos
+
+      const uniforms = {
+        uColor: { value: new THREE.Color(0x1A1A1A) }, // tinta
+        uBg:    { value: new THREE.Color(0xFFFFFF) }, // pared
+        uStep:  { value: dens },
+        uThk:   { value: thk },
+        uRot:   { value: theta },
+        uAff:   { value: aff },
+        uId:    { value: family }                     // 1..15
+      };
+
+      const vs = `
+    varying vec2 vUv;
+    void main(){
+      vUv = uv*2.0-1.0; // [-1,1]^2 centrado (evita desfases al escalar planos)
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+    }
+  `;
+
+      // Fragmento: tramado pentagonal afín simple.
+      // Construimos 5 haces de líneas (tipo "star") con rotaciones 72° y una afinidad uAff;
+      // La familia 1..15 remapea densidades relativas de los haces.
+      const fs = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform vec3  uColor, uBg;
+    uniform float uStep, uThk, uRot, uAff;
+    uniform float uId;
+
+    float lineAA(vec2 p, float th){
+      float d = abs(p.y);
+      float w = th * fwidth(p.y);
+      return smoothstep(w, 0.0, d);
+    }
+
+    // rota y escala afinando uno de los ejes (pentágonos "afines")
+    mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+
+    float starRaster(vec2 p, float step, float th, float aff){
+      // 5 haces separados 72°
+      float A = 3.141592653589793/5.0; // 36°
+      float acc = 0.0;
+      // familia: reparte energía de los haces
+      float k0 = fract(uId*0.1618);
+      float k1 = fract(uId*0.2718);
+      float k2 = fract(uId*0.3819);
+      float k3 = fract(uId*0.4919);
+      float k4 = fract(uId*0.6180);
+      float Ksum = k0+k1+k2+k3+k4 + 1e-6;
+      k0/=Ksum; k1/=Ksum; k2/=Ksum; k3/=Ksum; k4/=Ksum;
+
+      for (int i=0;i<5;i++){
+        float ang = (float(i)*2.0*A);
+        vec2 q = rot(ang) * p;
+        // afinidad diferente por haz (desplaza el "pentágono")
+        float ai = mix(1.0, aff, (i==0? k0 : i==1? k1 : i==2? k2 : i==3? k3 : k4));
+        q.x *= ai;
+        // patrón de líneas periódicas
+        float u = q.x / step;
+        float g = lineAA(vec2(fract(u)-0.5, q.y), th);
+        acc = max(acc, g);
+      }
+      return acc;
+    }
+
+    void main(){
+      // rotación global del raster en esta pared
+      mat2 R = rot(uRot);
+      vec2 p = R * vUv;
+
+      float g = starRaster(p, uStep, uThk, uAff);
+      vec3  col = mix(uBg, uColor, g);
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+      return new THREE.ShaderMaterial({
+        uniforms, vertexShader:vs, fragmentShader:fs,
+        transparent:false, depthTest:true, depthWrite:false
+      });
+    }
+
 
       function buildRAUM(){
         // limpieza previa
@@ -5488,70 +5597,36 @@ void main(){
         raumGroup.add(left, right, floor, ceil, back);
 
         // ——— RASTER PLANES (cinco) con tamaño INTERIOR correcto ———
-        // usa tu material de Parkett si ya lo tienes; este es un material temporal
-        function tempRasterMaterial(){
-          // líneas finas en espacio local (UV)
-          const mat = new THREE.ShaderMaterial({
-            uniforms:{
-              uColor: { value: new THREE.Color(0x111111) },
-              uBg:    { value: new THREE.Color(0xffffff) },
-              uScale: { value: 24.0 },   // densidad de líneas
-              uWidth: { value: 0.015 }   // grosor relativo
-            },
-            vertexShader: `
-        varying vec2 vUv;
-        void main(){
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-        }
-      `,
-            fragmentShader: `
-        precision highp float;
-        varying vec2 vUv;
-        uniform vec3 uColor, uBg;
-        uniform float uScale, uWidth;
-        float grid(float x){
-          float gx = fract(x*uScale);
-          float dx = fwidth(x*uScale);
-          float d  = min(gx, 1.0 - gx);
-          return smoothstep(uWidth+dx, uWidth, d);
-        }
-        void main(){
-          float g = max(grid(vUv.x), grid(vUv.y));
-          vec3 col = mix(uBg, uColor, g);
-          gl_FragColor = vec4(col, 1.0);
-        }
-      `,
-            depthTest: true, depthWrite: false, transparent: false
-          });
-          return mat;
-        }
-        const rasterMat = tempRasterMaterial();   // ← cambia por tu Parkett material
+        const rasterMat = makeParkettMaterial(0);            // left
+        const rasterMatR = makeParkettMaterial(1);           // right
+        const rasterMatF = makeParkettMaterial(2);           // floor
+        const rasterMatC = makeParkettMaterial(3);           // ceil
+        const rasterMatB = makeParkettMaterial(4);           // back
 
         const EPS = 0.001; // separa el plano del muro hacia el interior
 
         // izquierda (YZ): tamaño = H × D
-        const pLeft = new THREE.Mesh(new THREE.PlaneGeometry(D, H), rasterMat);
+        const pLeft = new THREE.Mesh(new THREE.PlaneGeometry(D, H),  rasterMat);
         pLeft.position.set(-W/2 + g + EPS, 0, 0);
         pLeft.rotation.y = Math.PI/2;
 
         // derecha (YZ): tamaño = H × D
-        const pRight = new THREE.Mesh(new THREE.PlaneGeometry(D, H), rasterMat.clone());
+        const pRight = new THREE.Mesh(new THREE.PlaneGeometry(D, H),  rasterMatR.clone());
         pRight.position.set(W/2 - g - EPS, 0, 0);
         pRight.rotation.y = -Math.PI/2;
 
         // piso (XZ): tamaño = W_i × D
-        const pFloor = new THREE.Mesh(new THREE.PlaneGeometry(Wi, D), rasterMat.clone());
+        const pFloor = new THREE.Mesh(new THREE.PlaneGeometry(Wi, D), rasterMatF.clone());
         pFloor.position.set(0, -H/2 + g + EPS, 0);
         pFloor.rotation.x = -Math.PI/2;
 
         // techo (XZ): tamaño = W_i × D
-        const pCeil = new THREE.Mesh(new THREE.PlaneGeometry(Wi, D), rasterMat.clone());
+        const pCeil = new THREE.Mesh(new THREE.PlaneGeometry(Wi, D),  rasterMatC.clone());
         pCeil.position.set(0, H/2 - g - EPS, 0);
         pCeil.rotation.x = Math.PI/2;
 
         // fondo (XY): tamaño = W_i × H_i
-        const pBack = new THREE.Mesh(new THREE.PlaneGeometry(Wi, Hi), rasterMat.clone());
+        const pBack = new THREE.Mesh(new THREE.PlaneGeometry(Wi, Hi), rasterMatB.clone());
         pBack.position.set(0, 0, -D/2 + g + EPS);
 
         // añade todos los planos al grupo
@@ -5559,10 +5634,202 @@ void main(){
 
         // ——— finaliza ———
         scene.add(raumGroup);
+        // inicializa sólidos + paredes + líneas
+        try{ raumV2InitSolidsAndWalls(); }catch(_){ }
         raumGroup.traverse(o => { o.frustumCulled = false; });
       }
 
 
+// ===== Descriptores de paredes (planos + ejes locales) =====
+    function raumV2BuildWallDescriptors(){
+      const W=RAUM_W, H=RAUM_H, D=RAUM_D, g=RAUM_G;
+      const Wi=W-2*g, Hi=H-2*g, Di=D-2*g;
+      const EPS = 0.001;
+      return {
+        left : { name:'left',
+          n:{x: 1,y:0,z:0}, d:(-W/2+g+EPS),
+          uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
+          origin:{x:-W/2+g+EPS, y:-Hi/2, z:-Di/2}, size:{u:Di, v:Hi} },
+        right: { name:'right',
+          n:{x:-1,y:0,z:0}, d:(-W/2+g+EPS),
+          uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
+          origin:{x: W/2-g-EPS, y:-Hi/2, z:-Di/2}, size:{u:Di, v:Hi} },
+        floor: { name:'floor',
+          n:{x:0,y:1,z:0}, d:(-H/2+g+EPS),
+          uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
+          origin:{x:-Wi/2, y:-H/2+g+EPS, z:-Di/2}, size:{u:Wi, v:Di} },
+        ceil : { name:'ceil',
+          n:{x:0,y:-1,z:0}, d:(-H/2+g+EPS),
+          uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
+          origin:{x:-Wi/2, y: H/2-g-EPS, z:-Di/2}, size:{u:Wi, v:Di} },
+        back : { name:'back',
+          n:{x:0,y:0,z:1}, d:(-D/2+g+EPS),
+          uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:1,z:0},
+          origin:{x:-Wi/2, y:-Hi/2, z:-D/2+g+EPS}, size:{u:Wi, v:Hi} }
+      };
+    }
+
+// ===== Línea dinámica por pared (se actualiza cada frame) =====
+    function makeEmptyLine(){
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
+      const m = new THREE.LineBasicMaterial({ color:0x111111, transparent:true, opacity:0.95, depthWrite:false });
+      return new THREE.Line(g, m);
+    }
+    function setPolyline(lineObj, poly2D, wall){
+      if (!poly2D || poly2D.length<2){
+        lineObj.geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
+        lineObj.frustumCulled = false;
+        return;
+      }
+      const n = poly2D.length;
+      const P = new Float32Array((n+1)*3);
+      for (let i=0;i<n;i++){
+        const u = poly2D[i].u, v = poly2D[i].v;
+        // (u,v) → xyz sobre el plano (origin + u*uAxis + v*vAxis)
+        const x = wall.origin.x + wall.uAxis.x*u + wall.vAxis.x*v;
+        const y = wall.origin.y + wall.uAxis.y*u + wall.vAxis.y*v;
+        const z = wall.origin.z + wall.uAxis.z*u + wall.vAxis.z*v;
+        P[i*3+0]=x; P[i*3+1]=y; P[i*3+2]=z;
+      }
+      // cerrar polígono
+      P[n*3+0]=P[0]; P[n*3+1]=P[1]; P[n*3+2]=P[2];
+
+      lineObj.geometry.dispose();
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(P,3));
+      lineObj.geometry = g;
+      lineObj.frustumCulled = false;
+    }
+
+// ===== Estado + inicialización de sólidos (reusa tu código de arriba) =====
+    if (!window.__raumV2) window.__raumV2 = { solids:[], walls:null, lines:null, seq:null, lastT:0 };
+
+    function raumV2InitSolidsAndWalls(){
+      // sólidos
+      __raumV2.solids = [];
+      let perms = (typeof getSelectedPerms==='function'?getSelectedPerms():[])||[];
+      if (!perms.length) perms = [[1,2,3,4,5]];
+      for (let i=0;i<perms.length;i++){
+        const pa   = perms[i];
+        const dims = raumPickSolidFor(pa, i);
+        const vel  = raumSolidVelocity(pa);
+        __raumV2.solids.push({
+          pa, dims, vel,
+          C0:{
+            x:(-RAUM_W/2+4) + ((lehmerRank(pa)+i*37)%997)/997 * (RAUM_W-8),
+            y:(-RAUM_H/2+4) + ((lehmerRank(pa)+i*53)%991)/991 * (RAUM_H-8),
+            z:(-RAUM_D/2+4) + ((lehmerRank(pa)+i*59)%983)/983 * (RAUM_D-8)
+          }
+        });
+      }
+      // paredes
+      __raumV2.walls = raumV2BuildWallDescriptors();
+      // líneas (dos capas: A y B para overlap suave)
+      if (!__raumV2.lines) __raumV2.lines = {};
+      const wnames = ['left','right','floor','ceil','back'];
+      wnames.forEach(n=>{
+        if (__raumV2.lines[n]) return;
+        const gA = makeEmptyLine(); gA.renderOrder = 20;
+        const gB = makeEmptyLine(); gB.renderOrder = 21; // segunda capa
+        raumGroup.add(gA,gB);
+        __raumV2.lines[n] = {A:gA,B:gB};
+      });
+      // scheduler
+      raumV2InitScheduler();
+      __raumV2.lastT = performance.now();
+    }
+
+// ===== Avance del sólido (rebote) =====
+    function reflect1D(v,a,b){
+      const L = b-a; let y=(v-a)%(2*L); if (y<0) y+=2*L; return (y<=L)?(a+y):(a+2*L-y);
+    }
+    function solidCenterAt(s, t){
+      const Wi=RAUM_W-2*RAUM_G, Hi=RAUM_H-2*RAUM_G, Di=RAUM_D-2*RAUM_G;
+      const cx = reflect1D(s.C0.x + s.vel.vx*t, -Wi/2, Wi/2);
+      const cy = reflect1D(s.C0.y + s.vel.vy*t, -Hi/2, Hi/2);
+      const cz = reflect1D(s.C0.z + s.vel.vz*t, -Di/2, Di/2);
+      return {x:cx,y:cy,z:cz};
+    }
+
+// ===== Cortes (usa tu función raumBoxPlaneSection ya incluida) =====
+    function computeCutsFor(solid, C, walls){
+      const out = {};
+      for (const k in walls){
+        const w = walls[k];
+        out[k] = raumBoxPlaneSection(C, solid.dims, w);
+      }
+      return out;
+    }
+
+// ===== Animador RAUM v2 =====
+    (function installRAUMv2Animator(){
+      if (window.__raumv2AnimatorInstalled) return;
+      window.__raumv2AnimatorInstalled = true;
+
+      function tick(){
+        try{
+          if (!isRAUM || !raumGroup) { requestAnimationFrame(tick); return; }
+          if (!__raumV2.walls) raumV2InitSolidsAndWalls();
+
+          const now = performance.now();
+          const dt  = Math.max(0,(now-__raumV2.lastT)/1000); // s
+          __raumV2.lastT = now;
+
+          const st = raumV2AdvanceScheduler(dt);
+          // tiempo absoluto desde entrada a RAUM
+          const tScene = (window.__raumV2_t0 || (window.__raumV2_t0 = now))/1000.0;
+          const t = (now - window.__raumV2_t0)/1000.0;
+
+          // sólidos activos
+          const active = [];
+          if (st.pa1) active.push({pa:st.pa1, alpha:st.alpha1});
+          if (st.pa2) active.push({pa:st.pa2, alpha:st.alpha2});
+
+          // mapa pa->solid
+          const map = new Map(__raumV2.solids.map(s=>[s.pa.join(','), s]));
+
+          // por pared: escribimos líneas A (primario) y B (secundario)
+          const walls = __raumV2.walls;
+          const lines = __raumV2.lines;
+
+          // limpiar si no hay activos
+          if (!active.length){
+            for (const k in lines){ setPolyline(lines[k].A, [], walls[k]); setPolyline(lines[k].B, [], walls[k]); }
+            requestAnimationFrame(tick); return;
+          }
+
+          // computar cortes
+          let prim=null, sec=null;
+          active.forEach((a,i)=>{
+            const s = map.get(a.pa.join(',')); if (!s) return;
+            const C = solidCenterAt(s, t);
+            const polys = computeCutsFor(s, C, walls);
+            if (i===0){ prim={polys,alpha:a.alpha}; }
+            else if (i===1){ sec={polys,alpha:a.alpha}; }
+          });
+
+          // actualizar geometrías + alphas
+          for (const name in walls){
+            const W = walls[name];
+            if (prim){
+              setPolyline(lines[name].A, prim.polys[name], W);
+              lines[name].A.material.opacity = 0.10 + 0.90*prim.alpha; // “aparece”
+            } else {
+              setPolyline(lines[name].A, [], W);
+            }
+            if (sec){
+              setPolyline(lines[name].B, sec.polys[name], W);
+              lines[name].B.material.opacity = 0.10 + 0.90*sec.alpha;
+            } else {
+              setPolyline(lines[name].B, [], W);
+            }
+          }
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
 
 
     function toggleRAUM(){
