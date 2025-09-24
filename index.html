@@ -5407,18 +5407,19 @@ void main(){
         {x:x0,y:y0,z:z1},{x:x1,y:y0,z:z1},{x:x1,y:y1,z:z1},{x:x0,y:y1,z:z1}
       ];
       const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+
       const n = wall.n, d = wall.d;
       const hits = [];
       for (let i=0;i<E.length;i++){
         const A = V[E[i][0]], B = V[E[i][1]];
         const da = n.x*A.x + n.y*A.y + n.z*A.z - d;
         const db = n.x*B.x + n.y*B.y + n.z*B.z - d;
-        const den = (db - da);
+        const den = db - da;
         if (Math.abs(den) < 1e-9) continue;
         const t = -da/den;
         if (t > -1e-6 && t < 1+1e-6){
-          const cl = Math.min(1, Math.max(0, t));
-          const P = { x: A.x + (B.x-A.x)*cl, y: A.y + (B.y-A.y)*cl, z: A.z + (B.z-A.z)*cl };
+          const tt = Math.min(1, Math.max(0, t));
+          const P = { x: A.x + (B.x-A.x)*tt, y: A.y + (B.y-A.y)*tt, z: A.z + (B.z-A.z)*tt };
           const Q = {
             u: (P.x-wall.origin.x)*wall.uAxis.x + (P.y-wall.origin.y)*wall.uAxis.y + (P.z-wall.origin.z)*wall.uAxis.z,
             v: (P.x-wall.origin.x)*wall.vAxis.x + (P.y-wall.origin.y)*wall.vAxis.y + (P.z-wall.origin.z)*wall.vAxis.z
@@ -5427,7 +5428,7 @@ void main(){
         }
       }
       if (hits.length < 3) return [];
-      let cx=0, cy=0; hits.forEach(p=>{cx+=p.u; cy+=p.v;}); cx/=hits.length; cy/=hits.length;
+      let cx=0, cy=0; for (const p of hits){ cx+=p.u; cy+=p.v; } cx/=hits.length; cy/=hits.length;
       hits.sort((p,q)=> Math.atan2(p.v-cy,p.u-cx) - Math.atan2(q.v-cy,q.u-cx));
       return hits;
     }
@@ -5462,10 +5463,10 @@ void main(){
       const dens = 0.75 + ((Fw>>>10)&1023)/1023 * 0.55;
       const thk  = 0.22 + Math.pow(((Fw>>>3)&511)/511,1.7) * 0.33;
       const theta= ( (rotl(Fw,13)&2047) / 2048.0 ) * Math.PI*2.0;
-      const luma = 0.85 + ((rotl(Fw,17)&255) / 255.0) * 0.05;
+      const lInk  = 0.80 + ((rotl(Fw,17)&255) / 255.0) * 0.04;
 
       const uniforms = {
-        uInk:   { value: new THREE.Color().setScalar(luma) },
+        uInk:   { value: new THREE.Color().setScalar(lInk) },
         uBg:    { value: new THREE.Color(0xFFFFFF) },
         uStep:  { value: dens },
         uThk:   { value: thk },
@@ -5613,27 +5614,34 @@ void main(){
       const W=RAUM_W, H=RAUM_H, D=RAUM_D, g=RAUM_G;
       const Wi=W-2*g, Hi=H-2*g, Di=D-2*g;
       const EPS = 0.001;
+
+      // Convención: plano Π :  n·x = d   (no n·x - d = 0)
+      // LEFT   : x = -W/2 + g + EPS ,  n = +X
+      // RIGHT  : x = +W/2 - g - EPS ,  n = -X  → d = -x0
+      // FLOOR  : y = -H/2 + g + EPS ,  n = +Y
+      // CEIL   : y = +H/2 - g - EPS ,  n = -Y  → d = -y0
+      // BACK   : z = -D/2 + g + EPS ,  n = +Z
       return {
         left : { name:'left',
-          n:{x: 1,y:0,z:0}, d:(-W/2+g+EPS),
+          n:{x: 1,y:0,z:0}, d:(-W*0.5 + g + EPS),
           uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
-          origin:{x:-W/2+g+EPS, y:-Hi/2, z:-Di/2}, size:{u:Di, v:Hi} },
+          origin:{x:-W*0.5 + g + EPS, y:-Hi*0.5, z:-Di*0.5}, size:{u:Di, v:Hi} },
         right: { name:'right',
-          n:{x:-1,y:0,z:0}, d:(-W/2+g+EPS),
+          n:{x:-1,y:0,z:0}, d:-(+W*0.5 - g - EPS),
           uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
-          origin:{x: W/2-g-EPS, y:-Hi/2, z:-Di/2}, size:{u:Di, v:Hi} },
+          origin:{x:+W*0.5 - g - EPS, y:-Hi*0.5, z:-Di*0.5}, size:{u:Di, v:Hi} },
         floor: { name:'floor',
-          n:{x:0,y:1,z:0}, d:(-H/2+g+EPS),
+          n:{x:0,y: 1,z:0}, d:(-H*0.5 + g + EPS),
           uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
-          origin:{x:-Wi/2, y:-H/2+g+EPS, z:-Di/2}, size:{u:Wi, v:Di} },
+          origin:{x:-Wi*0.5, y:-H*0.5 + g + EPS, z:-Di*0.5}, size:{u:Wi, v:Di} },
         ceil : { name:'ceil',
-          n:{x:0,y:-1,z:0}, d:(-H/2+g+EPS),
+          n:{x:0,y:-1,z:0}, d:-(+H*0.5 - g - EPS),
           uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
-          origin:{x:-Wi/2, y: H/2-g-EPS, z:-Di/2}, size:{u:Wi, v:Di} },
+          origin:{x:-Wi*0.5, y:+H*0.5 - g - EPS, z:-Di*0.5}, size:{u:Wi, v:Di} },
         back : { name:'back',
-          n:{x:0,y:0,z:1}, d:(-D/2+g+EPS),
+          n:{x:0,y:0,z:1}, d:(-D*0.5 + g + EPS),
           uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:1,z:0},
-          origin:{x:-Wi/2, y:-Hi/2, z:-D/2+g+EPS}, size:{u:Wi, v:Hi} }
+          origin:{x:-Wi*0.5, y:-Hi*0.5, z:-D*0.5 + g + EPS}, size:{u:Wi, v:Hi} }
       };
     }
 
@@ -5641,13 +5649,15 @@ void main(){
     function makeEmptyLine(){
       const g = new THREE.BufferGeometry();
       const m = new THREE.LineBasicMaterial({
-        color: 0x111111,
+        color: 0x2b2b2b,
         transparent: true,
-        opacity: 0.95,
+        opacity: 0.0,
         depthTest: false,
         depthWrite: false
       });
-      return new THREE.Line(g, m);
+      const L = new THREE.Line(g, m);
+      L.renderOrder = 100;
+      return L;
     }
 
     function setPolyline(lineObj, poly2D, wall){
@@ -5664,15 +5674,14 @@ void main(){
         const x = wall.origin.x + wall.uAxis.x*u + wall.vAxis.x*v;
         const y = wall.origin.y + wall.uAxis.y*u + wall.vAxis.y*v;
         const z = wall.origin.z + wall.uAxis.z*u + wall.vAxis.z*v;
-        P[i*3+0]=x; P[i*3+1]=y; P[i*3+2]=z;
+        P[3*i+0]=x; P[3*i+1]=y; P[3*i+2]=z;
       }
-      P[n*3+0]=P[0]; P[n*3+1]=P[1]; P[n*3+2]=P[2];
+      P[3*n+0]=P[0]; P[3*n+1]=P[1]; P[3*n+2]=P[2];
 
-      lineObj.geometry.dispose();
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(P,3));
+      lineObj.geometry.dispose();
       lineObj.geometry = g;
-      lineObj.renderOrder = 100;
       lineObj.frustumCulled = false;
     }
 
@@ -5788,13 +5797,13 @@ void main(){
             const W = walls[name];
             if (prim){
               setPolyline(lines[name].A, prim.polys[name], W);
-              lines[name].A.material.opacity = 0.10 + 0.90*prim.alpha; // “aparece”
+              lines[name].A.material.opacity = 0.20 + 0.80*prim.alpha;
             } else {
               setPolyline(lines[name].A, [], W);
             }
             if (sec){
               setPolyline(lines[name].B, sec.polys[name], W);
-              lines[name].B.material.opacity = 0.10 + 0.90*sec.alpha;
+              lines[name].B.material.opacity = 0.15 + 0.70*sec.alpha;
             } else {
               setPolyline(lines[name].B, [], W);
             }
