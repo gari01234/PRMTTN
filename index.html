@@ -5099,35 +5099,52 @@ void main(){
       scene.remove(g);
     }
 
-    // ──────────────────────────────────────────────
-    // RAUM · Animación de deriva para “partes en el espacio”
-    //   • Determinista (mismas stats/semillas → mismo movimiento)
-    //   • Lissajous 3D por pieza + rotación lenta
-    //   • Muy ligero; corre sólo cuando RAUM está activo
+    // RAUM · Animación Lissajous determinista (lenta y acotada)
+    //   • Cada pieza oscila alrededor de su posición base (no deriva infinita)
+    //   • Amplitud y fases deterministas por pieza
+    //   • Velocidad baja pero perceptible en todos los dispositivos
     // ──────────────────────────────────────────────
     let __raumFloating = [];
     (function animateFloating(){
-      if (!isRAUM || !raumGroup) { requestAnimationFrame(animateFloating); return; }
+      requestAnimationFrame(animateFloating);
+      if (!isRAUM || !raumGroup || !__raumFloating.length) return;
 
-      const t = performance.now() * 0.001;
-      const speed = 0.03; // ← más lento
+      const t = performance.now() * 0.001; // segundos
 
       __raumFloating.forEach((mesh, i)=>{
-        const h = lehmer32(sceneSeed ^ (i*2654435761));
-        const ang = (h & 0xFFFF)/0xFFFF * Math.PI*2;
-        const vx = Math.cos(ang) * speed;
-        const vy = Math.sin(ang*0.7) * speed;
-        const vz = Math.sin(ang) * speed;
+        const base = mesh.userData && mesh.userData.basePos;
+        if (!base) return;
 
-        mesh.position.x += vx * 0.01;
-        mesh.position.y += vy * 0.01;
-        mesh.position.z += vz * 0.01;
+        // hash determinista por pieza
+        const h = (lehmer32(sceneSeed ^ (i*0x9E3779B9)) >>> 0);
 
-        mesh.rotation.x += 0.0015 * Math.sin(t*0.2 + i);
-        mesh.rotation.y += 0.0015 * Math.cos(t*0.25 + i*0.5);
+        // Amplitudes (unidades físicas) — suaves y visibles
+        const ampX = 0.8 + ((h & 0xFF)      /255) * 1.0;   // 0.8 .. 1.8
+        const ampY = 0.6 + (((h>>>8) & 0xFF)/255) * 0.9;   // 0.6 .. 1.5
+        const ampZ = 0.8 + (((h>>>16)& 0xFF)/255) * 1.0;   // 0.8 .. 1.8
+
+        // Frecuencias (rad/s) — más bajas que antes
+        const wX = 0.45 + (((h>>>5)  & 31)  /31)  * 0.25;  // 0.45 .. 0.70
+        const wY = 0.38 + (((h>>>11) & 31)  /31)  * 0.22;  // 0.38 .. 0.60
+        const wZ = 0.42 + (((h>>>17) & 31)  /31)  * 0.24;  // 0.42 .. 0.66
+
+        // Fases
+        const pX = ((h>>>3)  & 1023) /1023 * Math.PI*2;
+        const pY = ((h>>>13) & 1023) /1023 * Math.PI*2;
+        const pZ = ((h>>>23) & 1023) /1023 * Math.PI*2;
+
+        // Posición = base + oscilación acotada
+        mesh.position.set(
+          base.x + Math.sin(t*wX + pX) * ampX,
+          base.y + Math.sin(t*wY + pY) * ampY,
+          base.z + Math.sin(t*wZ + pZ) * ampZ
+        );
+
+        // Rotación lenta (también determinista)
+        mesh.rotation.x =  0.10 * Math.sin(t*0.20 + pX);
+        mesh.rotation.y =  0.10 * Math.cos(t*0.25 + pY*0.7);
+        mesh.rotation.z =  0.06 * Math.sin(t*0.18 + pZ*0.5);
       });
-
-      requestAnimationFrame(animateFloating);
     })();
 
       function buildRAUM(){
@@ -5230,8 +5247,13 @@ void main(){
         raumGroup.add(left, right, floor, ceil, top, bot, l, r, wallA, wallB);
         scene.add(raumGroup);
 
-        // Guardar para animación
+        // Guardar para animación (y su posición base determinista)
         __raumFloating = [left, right, floor, ceil, top, bot, l, r, wallA, wallB];
+        __raumFloating.forEach((m, i)=>{
+          m.userData = m.userData || {};
+          // Clonamos la posición actual como “ancla” para la oscilación
+          m.userData.basePos = m.position.clone();
+        });
       }
     function toggleRAUM(){
       isRAUM = !isRAUM;
