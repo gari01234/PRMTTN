@@ -5119,14 +5119,13 @@ void main(){
 
 // ─────────────────────────────────────────────────────────
 // RAUM v2 · Tiling Cairo (familia 2) vía Canvas2D → Texture
-//   • Escala física (tamaño de celda en unidades de escena)
-//   • Rotación global determinista (misma en todas las paredes)
-//   • Líneas nítidas y gruesas; esquinas cubiertas
-//   • Preparado para añadir otras familias luego (drawTypeX*)
+//   • Sin shaders ni extensiones: funciona igual en iOS/Android/Desktop
+//   • Escala física por pared (sizeU,sizeV) y rotación determinista
+//   • Líneas gruesas y nítidas, sin “parches” por dispositivo
 // ─────────────────────────────────────────────────────────
     (function(){
 
-      // Hash determinista para orientación/tamaño
+      // Hash determinista estable (igual semilla → misma orientación/tamaño)
       function fnv1a32_step(h, x){ h ^= (x>>>0); h = Math.imul(h, 16777619)>>>0; return h>>>0; }
       function raumCairoHash(){
         let h = 2166136261>>>0;
@@ -5141,11 +5140,11 @@ void main(){
         return h>>>0;
       }
 
-      // Cairo exacto (aristas) sobre un contexto 2D.
+      // Dibuja las aristas del teselado Cairo exacto sobre un 2D context.
       function drawCairoEdges(ctx, W, H, stepPx, thetaRad){
-        const s = stepPx;                      // paso horizontal (px)
-        const h = s * Math.sqrt(3)/2;         // paso vertical (px)
-        const pad = 3*s;                       // overscan para cubrir bordes
+        const s   = stepPx;                 // paso horizontal (px)
+        const h   = s * Math.sqrt(3)/2;     // paso vertical (px)
+        const pad = Math.ceil(3*s);         // overscan para cubrir esquinas
 
         ctx.save();
         ctx.translate(W/2, H/2);
@@ -5157,23 +5156,14 @@ void main(){
           for (let xx = -pad; xx <= W+pad; xx += s){
             const x = xx + offset, y = yy;
 
-            // Aristas "rombo + triángulos" que generan el pentágono Cairo:
-            // Superior
+            // triángulos superior e inferior + base → pentágono Cairo
             ctx.beginPath();
             ctx.moveTo(x, y);
             ctx.lineTo(x+s/2, y+h);
             ctx.lineTo(x+s, y);
-            ctx.stroke();
-
-            // Inferior
-            ctx.beginPath();
             ctx.moveTo(x, y);
             ctx.lineTo(x+s/2, y-h);
             ctx.lineTo(x+s, y);
-            ctx.stroke();
-
-            // Base horizontal
-            ctx.beginPath();
             ctx.moveTo(x, y);
             ctx.lineTo(x+s, y);
             ctx.stroke();
@@ -5182,161 +5172,63 @@ void main(){
         ctx.restore();
       }
 
-      // Crea un CanvasTexture con el Cairo ya dibujado a escala física
+      // Canvas2D → CanvasTexture. Escala a ~96 px por unidad física.
       function makeCairoTexture({sizeU, sizeV, cellWorld, theta, lineLuma}){
-        // resolvemos el lienzo a ~96 px por “unidad” de escena (claro y nítido)
         const pxPerUnit = 96 * (window.devicePixelRatio || 1);
         const Wpx = Math.max(512, Math.round(sizeU * pxPerUnit));
         const Hpx = Math.max(512, Math.round(sizeV * pxPerUnit));
 
         const c = document.createElement('canvas');
         c.width = Wpx; c.height = Hpx;
-        const ctx = c.getContext('2d');
+        const ctx = c.getContext('2d', {alpha:false, desynchronized:true});
 
-        // Fondo blanco
+        // fondo blanco
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0,0,Wpx,Hpx);
 
-        // Escala física: celda de ‘cellWorld’ unidades → píxeles:
-        const stepPx = Math.max(12, cellWorld * pxPerUnit);
-
-        // Grosor de línea “sólido” (8–12 % de la celda) y luma de tinta
-        const linePx = Math.max(1, Math.round(stepPx * 0.10));
-        const L = Math.round(255 * lineLuma);       // 0.0..1.0 (0=negro)
+        // parámetros de línea (robustos, sin AA dependiente de GPU)
+        const stepPx = Math.max(18, cellWorld * pxPerUnit);     // tamaño de celda
+        const linePx = Math.max(2, Math.round(stepPx * 0.10));  // ~10% de la celda
+        const L      = Math.round(255 * lineLuma);              // 0..1
         ctx.strokeStyle = `rgb(${L},${L},${L})`;
-        ctx.lineWidth = linePx;
-        ctx.lineCap   = 'butt';
-        ctx.lineJoin  = 'miter';
-        ctx.miterLimit= 6;
+        ctx.lineWidth   = linePx;
+        ctx.lineCap     = 'butt';
+        ctx.lineJoin    = 'miter';
+        ctx.miterLimit  = 6;
 
         drawCairoEdges(ctx, Wpx, Hpx, stepPx, theta);
 
         const tex = new THREE.CanvasTexture(c);
-        // muy importante para nitidez:
         tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.NearestFilter;
+        tex.magFilter = THREE.NearestFilter; // nítido en zoom
+        tex.anisotropy = (renderer && renderer.capabilities) ? renderer.capabilities.getMaxAnisotropy() : 1;
         return tex;
       }
 
+      // Material POR PARED: textura Cairo generada a su tamaño físico.
       function makeParkettMaterial(wallIndex, sizeU, sizeV){
-        // ——— hash determinista (igual que antes) ———
-        const H = (function raumParkettFamilyHash(){
-          let h = 2166136261>>>0;
-          try{
-            const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
-            h ^= (st.sumR|0);  h = Math.imul(h, 16777619)>>>0;
-            h ^= (st.sumR2|0); h = Math.imul(h, 16777619)>>>0;
-            h ^= (st.mRank|0); h = Math.imul(h, 16777619)>>>0;
-          }catch(_){ }
-          h ^= (sceneSeed|0);  h = Math.imul(h, 16777619)>>>0;
-          h ^= (S_global|0);   h = Math.imul(h, 16777619)>>>0;
-          return h>>>0;
-        })();
-
-        const family = 1 + (H % 15);
+        const H = raumCairoHash();
         const rotl = (x,b)=>((x<<b)|(x>>> (32-b)))>>>0;
         const Fw = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
 
-        // ⇣ CELDA más grande + LÍNEA más delgada → sin “mancha negra”
-        const cellBase = 5.5 + ((Fw>>>10)&1023)/1023 * (8.5-5.5);      // 5.5–8.5 u
-        const lineFrac = 0.018 + Math.pow(((Fw>>>3)&511)/511,1.2) * 0.014; // 1.8–3.2% celda
-        const theta    = ((rotl(Fw,13)&2047)/2048.0) * Math.PI*2.0;
-        const aff      = 0.92 + (family/15)*0.20;
+        // tamaño de celda en unidades físicas del “mundo”
+        const cellWorld = 5.5 + ((Fw>>>10)&1023)/1023 * (8.5-5.5);     // 5.5–8.5 u
+        const theta     = ((rotl(Fw,13)&2047)/2048) * Math.PI*2;       // 0..2π
+        const lineLuma  = 0.20 + (((Fw>>>3)&511)/511) * 0.18;          // 0.20–0.38 (gris)
 
-        // pesos (estética 5 haces)
-        const Wtable = [
-          [1,1,1,1,1],[2,1,1,1,1],[1,2,1,1,1],[1,1,2,1,1],[1,1,1,2,1],
-          [1,1,1,1,2],[2,2,1,1,1],[2,1,2,1,1],[2,1,1,2,1],[2,1,1,1,2],
-          [1,2,2,1,1],[1,2,1,2,1],[1,2,1,1,2],[1,1,2,2,1],[1,1,2,1,2],
-        ];
-        const Wraw = Wtable[family-1].slice(0,5);
-        const Wsum = Wraw.reduce((a,b)=>a+b,0);
-        const W = Wraw.map(x=>x/(Wsum>1e-6?Wsum:1));
-
-        const uniforms = {
-          uInk:   { value: new THREE.Color(0x2A2A2A) }, // gris oscuro legible
-          uBg:    { value: new THREE.Color(0xFFFFFF) },
-          uSize:  { value: new THREE.Vector2(sizeU, sizeV) }, // tamaño físico pared
-          uCell:  { value: cellBase },       // tamaño de celda (en “metros”)
-          uLineF: { value: lineFrac },       // grosor relativo a celda
-          uRot:   { value: theta },
-          uAff:   { value: aff },
-          uW:     { value: new THREE.Vector4(W[0],W[1],W[2],W[3]) },
-          uW4:    { value: W[4] },
-          uCap:   { value: 0.85 }            // CAP para no superar 85% de tinta
-        };
-
-        const vs = `
-          varying vec2 vUV;
-          void main(){
-            vUV = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-          }
-        `;
-
-        // ⚠️ iOS: habilitamos derivados para fwidth
-        const fs = `
-          #extension GL_OES_standard_derivatives : enable
-          precision highp float;            // ⇠ highp para móviles
-
-          varying vec2 vUV;
-          uniform vec3  uInk, uBg;
-          uniform vec2  uSize;
-          uniform float uCell, uLineF, uRot, uAff, uCap;
-          uniform vec4  uW;
-          uniform float uW4;
-
-          mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
-
-          // AA correcto: usamos smoothstep(0.0, r, d) y lo invertimos
-          float lineAA(float y, float frac){
-            // grosor “geométrico” en unidades de celda
-            float w  = max(0.0005, frac * 0.5);
-            float aa = max(1e-4, fwidth(y)) * 0.75; // anti-alias suave
-            float r  = w + aa;
-            float d  = abs(y);
-            return 1.0 - smoothstep(0.0, r, d);     // ⇠ aquí estaba el fallo
-          }
-
-          float starRaster(vec2 p){
-            float A = 3.141592653589793 / 5.0; // 36°
-            float acc = 0.0;
-            float W[5];
-            W[0]=uW.x; W[1]=uW.y; W[2]=uW.z; W[3]=uW.w; W[4]=uW4;
-
-            for (int i=0;i<5;i++){
-              float ang = float(i) * 2.0 * A;
-              vec2 q = rot(ang) * p;
-              q.x *= uAff;
-              float u = q.x - round(q.x);
-              float g = lineAA(u, uLineF) * W[i];
-              acc = max(acc, g);
-            }
-            return min(acc, uCap); // cap global de cobertura
-          }
-
-          void main(){
-            vec2 p = (vUV - 0.5) * uSize;   // metros
-            p = rot(uRot) * p;
-            p /= uCell;                      // a celdas
-            float g = starRaster(p);
-            vec3 col = mix(uBg, uInk, g);
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `;
-
-        return new THREE.ShaderMaterial({
-          uniforms, vertexShader:vs, fragmentShader:fs,
-          transparent:false, depthTest:true, depthWrite:false, dithering:false,
-          // ← imprescindible para iOS (fwidth)
-          extensions: { derivatives: true }
+        const tex = makeCairoTexture({ sizeU, sizeV, cellWorld, theta, lineLuma });
+        const mat = new THREE.MeshBasicMaterial({
+          map: tex,
+          color: 0xFFFFFF,
+          toneMapped: false,
+          dithering: true
         });
+        return mat;
       }
 
-      // Exponemos el factory en window
+      // expón el factory
       window.makeParkettMaterial = makeParkettMaterial;
-
     })();
 
 // RAUM v2 · sólidos deterministas en rebote + cortes en paredes
