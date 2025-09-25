@@ -5099,617 +5099,181 @@ void main(){
       scene.remove(g);
     }
 
-// ──────────────────
-// RAUM v2 · helpers deterministas
-// ──────────────────
-    function rotl32(x, n){ return ((x<<n) | (x>>> (32-n))) >>> 0; }
-    function clamp(x,a,b){ return Math.min(b, Math.max(a,x)); }
-
-    // FNV-1a 32 bits (igual estilo que usas en KEPLR)
-    function fnv1a32(seed, ...nums){
-      let h = (seed>>>0) || 2166136261>>>0;
-      for (let i=0;i<nums.length;i++){
-        let v = (nums[i]>>>0);
-        h ^= v; h = Math.imul(h, 16777619)>>>0;
-      }
-      // avalancha
-      h ^= h>>>13; h = Math.imul(h, 3266489917)>>>0; h ^= h>>>16;
-      return h>>>0;
-    }
-
 // ─────────────────────────────────────────────────────────
-// RAUM v2 · Tiling Cairo (familia 2) vía Canvas2D → Texture
-//   • Sin shaders ni extensiones: funciona igual en iOS/Android/Desktop
-//   • Escala física por pared (sizeU,sizeV) y rotación determinista
-//   • Líneas gruesas y nítidas, sin “parches” por dispositivo
+// RAUM v2 · Cairo por Canvas2D → Texture (sin shaders, sin rotación)
+//   • Mismo aspecto en iOS/Android/Desktop
+//   • Paso mínimo fijo para evitar “empaste”
+//   • Luma fija de línea (≈30% sobre blanco)
 // ─────────────────────────────────────────────────────────
     (function(){
 
-      // Hash determinista estable (igual semilla → misma orientación/tamaño)
-      function fnv1a32_step(h, x){ h ^= (x>>>0); h = Math.imul(h, 16777619)>>>0; return h>>>0; }
-      function raumCairoHash(){
-        let h = 2166136261>>>0;
-        try{
-          const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
-          h = fnv1a32_step(h, st.sumR|0);
-          h = fnv1a32_step(h, st.sumR2|0);
-          h = fnv1a32_step(h, st.mRank|0);
-        }catch(_){ }
-        h = fnv1a32_step(h, sceneSeed|0);
-        h = fnv1a32_step(h, S_global|0);
-        return h>>>0;
-      }
-
-      // Dibuja las aristas del teselado Cairo exacto sobre un 2D context.
-      function drawCairoEdges(ctx, W, H, stepPx, thetaRad){
+      // Cairo exacto (aristas) sobre 2D context. Sin rotación.
+      function drawCairoEdges(ctx, W, H, stepPx){
         const s   = stepPx;                 // paso horizontal (px)
         const h   = s * Math.sqrt(3)/2;     // paso vertical (px)
         const pad = Math.ceil(3*s);         // overscan para cubrir esquinas
 
-        ctx.save();
-        ctx.translate(W/2, H/2);
-        ctx.rotate(thetaRad);
-        ctx.translate(-W/2, -H/2);
-
+        // Sin rotación: sistema de la textura alineado con el canvas
         for (let yy = -pad; yy <= H+pad; yy += h){
           const offset = ((Math.round(yy/h) & 1) ? s/2 : 0);
           for (let xx = -pad; xx <= W+pad; xx += s){
             const x = xx + offset, y = yy;
 
-            // triángulos superior e inferior + base → pentágono Cairo
+            // pentágono Cairo (dos triángulos + base)
             ctx.beginPath();
-            ctx.moveTo(x, y);
+            ctx.moveTo(x, y);             // superior
             ctx.lineTo(x+s/2, y+h);
             ctx.lineTo(x+s, y);
-            ctx.moveTo(x, y);
+            ctx.moveTo(x, y);             // inferior
             ctx.lineTo(x+s/2, y-h);
             ctx.lineTo(x+s, y);
-            ctx.moveTo(x, y);
+            ctx.moveTo(x, y);             // base
             ctx.lineTo(x+s, y);
             ctx.stroke();
           }
         }
-        ctx.restore();
       }
 
-      // Canvas2D → CanvasTexture. Escala a ~96 px por unidad física.
-      function makeCairoTexture({sizeU, sizeV, cellWorld, theta, lineLuma}){
-        const pxPerUnit = 96 * (window.devicePixelRatio || 1);
+      // Canvas2D → CanvasTexture. Escala física a ~90 px por “unidad”.
+      function makeCairoTexture({sizeU, sizeV, cellWorld, lineLuma}){
+        const pxPerUnit = 90 * (window.devicePixelRatio || 1);
         const Wpx = Math.max(512, Math.round(sizeU * pxPerUnit));
         const Hpx = Math.max(512, Math.round(sizeV * pxPerUnit));
 
         const c = document.createElement('canvas');
         c.width = Wpx; c.height = Hpx;
-        const ctx = c.getContext('2d', {alpha:false, desynchronized:true});
+        const ctx = c.getContext('2d', { alpha:false, desynchronized:true });
 
-        // fondo blanco
+        // Fondo blanco puro
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0,0,Wpx,Hpx);
 
-        // parámetros de línea (robustos, sin AA dependiente de GPU)
-        const stepPx = Math.max(18, cellWorld * pxPerUnit);     // tamaño de celda
-        const linePx = Math.max(2, Math.round(stepPx * 0.10));  // ~10% de la celda
-        const L      = Math.round(255 * lineLuma);              // 0..1
+        // Paso y grosor robustos (fijos por física + mínimos en píxeles)
+        const MIN_STEP_PX = 18;                 // evita densidad excesiva
+        const stepPx      = Math.max(MIN_STEP_PX, cellWorld * pxPerUnit);
+        const linePx      = Math.max(2, Math.round(stepPx * 0.09)); // ≈9% de la celda
+
+        const L = Math.round(255 * lineLuma);   // 0..1 (0=negro)
         ctx.strokeStyle = `rgb(${L},${L},${L})`;
         ctx.lineWidth   = linePx;
         ctx.lineCap     = 'butt';
         ctx.lineJoin    = 'miter';
         ctx.miterLimit  = 6;
 
-        drawCairoEdges(ctx, Wpx, Hpx, stepPx, theta);
+        drawCairoEdges(ctx, Wpx, Hpx, stepPx);
 
         const tex = new THREE.CanvasTexture(c);
         tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.minFilter = THREE.LinearFilter;
         tex.magFilter = THREE.NearestFilter; // nítido en zoom
-        tex.anisotropy = (renderer && renderer.capabilities) ? renderer.capabilities.getMaxAnisotropy() : 1;
         return tex;
       }
 
-      // Material POR PARED: textura Cairo generada a su tamaño físico.
-      function makeParkettMaterial(wallIndex, sizeU, sizeV){
-        const H = raumCairoHash();
-        const rotl = (x,b)=>((x<<b)|(x>>> (32-b)))>>>0;
-        const Fw = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
+      // Material por pared (sin rotación, parámetros fijos)
+      function makeParkettMaterial(_wallIndex, sizeU, sizeV){
+        const cellWorld = 6.5;   // unidades físicas de celda (constante)
+        const lineLuma  = 0.30;  // ≈30% sobre blanco (gris claro)
 
-        // tamaño de celda en unidades físicas del “mundo”
-        const cellWorld = 5.5 + ((Fw>>>10)&1023)/1023 * (8.5-5.5);     // 5.5–8.5 u
-        const theta     = ((rotl(Fw,13)&2047)/2048) * Math.PI*2;       // 0..2π
-        const lineLuma  = 0.20 + (((Fw>>>3)&511)/511) * 0.18;          // 0.20–0.38 (gris)
-
-        const tex = makeCairoTexture({ sizeU, sizeV, cellWorld, theta, lineLuma });
-        const mat = new THREE.MeshBasicMaterial({
+        const tex = makeCairoTexture({ sizeU, sizeV, cellWorld, lineLuma });
+        return new THREE.MeshBasicMaterial({
           map: tex,
           color: 0xFFFFFF,
           toneMapped: false,
           dithering: true
         });
-        return mat;
       }
 
-      // expón el factory
+      // expone el factory
       window.makeParkettMaterial = makeParkettMaterial;
     })();
 
-// RAUM v2 · sólidos deterministas en rebote + cortes en paredes
-// Se dibujan SOLO las curvas (líneas) sobre cada pared.
-// ──────────────────
+    function buildRAUM(){
+      // limpieza previa
+      clearGroup(raumGroup);
+      raumGroup = new THREE.Group();
 
-// catálogo: caja casi cúbica, caja 1:1:2 y esfera
-    const RAUM_SOLID_TYPES = ['BOX', 'DS112', 'SPHERE'];
+      // fondo sincronizado (no FRBN)
+      updateBackground(false);
 
-    function raumPickSolidFor(pa, uniq){
-      const r = lehmerRank(pa)>>>0;
-      const t = RAUM_SOLID_TYPES[(r + uniq) % RAUM_SOLID_TYPES.length];
-      const base = Math.min(RAUM_W, RAUM_H, RAUM_D);
-      const k = 0.40 + ((rotl32(r,7) ^ sceneSeed ^ S_global) & 65535)/65535 * (0.66-0.40);
-      if (t === 'SPHERE'){
-        return { kind:'SPHERE', R: k*base*0.28 };
-      } else if (t === 'BOX'){
-        const ax = 0.85 + ((r>>3)&255)/255 * 0.20;
-        const ay = 0.85 + ((r>>5)&255)/255 * 0.20;
-        const az = 0.85 + ((r>>7)&255)/255 * 0.20;
-        return { kind:'BOX', a: k*base*ax*0.25, b: k*base*ay*0.25, c: k*base*az*0.25 };
-      } else {
-        // 1:1:2
-        return { kind:'BOX', a: k*base*0.25, b: k*base*0.25, c: k*base*0.50 };
-      }
-    }
+      const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
+      const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
 
-// velocidad determinista
-    function raumSolidVelocity(pa){
-      const r = lehmerRank(pa)>>>0;
-      const s = (Math.imul(r^sceneSeed^S_global, 1664525) + 1013904223)>>>0;
-      const ang = ((s & 0xFFFF)/65535) * Math.PI*2;
-      const spd = 0.12 + (((s>>>16)&0xFFFF)/65535) * (0.28-0.12); // unidades/s
-      return { vx: Math.cos(ang)*spd*RAUM_W, vy: Math.sin(ang*0.7)*spd*RAUM_H, vz: Math.sin(ang)*spd*RAUM_D };
-    }
-
-// estado de sólidos activos
-    let __raumV2 = {
-      walls: null,        // {left,right,floor,ceil,back} → grupos contenedores
-      lines: null,        // grupos por pared para líneas
-      solids: [],         // [{pa, dims, C0, vel}]
-      seq: null,          // scheduler de apariciones
-      lastT: 0
-    };
-    window.__raumV2 = __raumV2;
-
-// Construye lista determinista de sólidos a partir de perms
-    function raumV2InitSolids(){
-      __raumV2.solids = [];
-      let perms = (typeof getSelectedPerms==='function'?getSelectedPerms():[]) || [];
-      if (!perms.length) perms = [[1,2,3,4,5]];
-      for (let i=0;i<perms.length;i++){
-        const pa = perms[i];
-        const dims = raumPickSolidFor(pa, i);
-        const vel = raumSolidVelocity(pa);
-        __raumV2.solids.push({
-          pa, dims,
-          vel,
-          // centro inicial determinista dentro de la caja útil
-          C0: {
-            x: (-RAUM_W/2+4) + ((lehmerRank(pa)+i*37)%997)/997 * (RAUM_W-8),
-            y: (-RAUM_H/2+4) + ((lehmerRank(pa)+i*53)%991)/991 * (RAUM_H-8),
-            z: (-RAUM_D/2+4) + ((lehmerRank(pa)+i*59)%983)/983 * (RAUM_D-8)
-          }
-        });
-      }
-    }
-
-// Scheduler (máx. 2 solapes)
-    function raumV2InitScheduler(){
-      let perms = __raumV2.solids.map(s=>s.pa);
-      perms.sort((a,b)=> (lehmerRank(a)-lehmerRank(b)));
-      __raumV2.seq = {
-        order: perms,
-        idx: 0,
-        state: 'opening',
-        t: 0,
-        hold: 7.5,
-        open: 2.8,
-        close: 2.8,
-        gap: 1.2,
-        secondLag: 0.35*(2.8+7.5),
-        secondOn: false,
-        tSecond: 0
-      };
-    }
-
-    function raumV2AdvanceScheduler(dt){
-      const S = __raumV2.seq;
-      if (!S) return {alpha1:0,alpha2:0, pa1:null, pa2:null};
-      S.t += dt;
-      let a1=0,a2=0, p1=null, p2=null;
-
-      // primario
-      p1 = S.order[S.idx % S.order.length] || null;
-      let tt = S.t;
-      if (S.state==='opening'){
-        a1 = clamp(tt / S.open, 0,1);
-        if (tt >= S.open){ S.state='hold'; S.t=0; tt=0; }
-      }else if (S.state==='hold'){
-        a1 = 1;
-        if (tt >= S.hold){ S.state='closing'; S.t=0; tt=0; }
-      }else if (S.state==='closing'){
-        a1 = clamp(1 - tt/S.close, 0,1);
-        if (tt >= S.close){ S.state='gap'; S.t=0; tt=0; }
-      }else{ // gap
-        a1 = 0;
-        if (tt >= S.gap){ S.state='opening'; S.t=0; S.idx=(S.idx+1)%S.order.length; tt=0; }
+      // ——— Paredes blancas “sólidas” (Lambert) ———
+      function lambertWhite(){
+        const m = new THREE.MeshLambertMaterial({ color: 0xFFFFFF, dithering: true });
+        m.emissive = new THREE.Color(0xFFFFFF);
+        m.emissiveIntensity = 0.03;
+        return m;
       }
 
-      // secundario desfasado para continuidad
-      if (!S.secondOn && (S.state==='hold') && (S.t >= S.secondLag)){ S.secondOn=true; S.tSecond=0; }
-      if (S.secondOn){
-        p2 = S.order[(S.idx+1)%S.order.length] || null;
-        S.tSecond += dt;
-        const to = S.tSecond;
-        if (to <= S.open) a2 = clamp(to/S.open,0,1);
-        else if (to <= S.open + S.hold) a2 = 1;
-        else if (to <= S.open + S.hold + S.close) a2 = clamp(1 - (to-S.open-S.hold)/S.close,0,1);
-        else { a2=0; S.secondOn=false; }
-      }
-      return {alpha1:a1, alpha2:a2, pa1:p1, pa2:p2};
+      const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
+      left.position.set(-W/2 + g/2, 0, 0);
+      const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
+      right.position.set( W/2 - g/2, 0, 0);
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
+      floor.position.set(0, -H/2 + g/2, 0);
+      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
+      ceil.position.set(0,  H/2 - g/2, 0);
+      const back  = new THREE.Mesh(new THREE.BoxGeometry(W, H, g), lambertWhite());
+      back.position.set(0, 0, -D/2 + g/2);
+      raumGroup.add(left, right, floor, ceil, back);
+
+      // ——— Planos del tiling (cinco) ———
+      const EPS  = 0.001;
+      const OVER = 1.02; // holgura para cubrir juntas
+
+      // tamaños interiores visibles (u,v) por pared
+      const sizeLeftU  = Di,   sizeLeftV  = Hi;
+      const sizeRightU = Di,   sizeRightV = Hi;
+      const sizeFloorU = Wi,   sizeFloorV = Di;
+      const sizeCeilU  = Wi,   sizeCeilV  = Di;
+      const sizeBackU  = Wi,   sizeBackV  = Hi;
+
+      // materiales
+      const mLeft  = makeParkettMaterial(0, sizeLeftU,  sizeLeftV);
+      const mRight = makeParkettMaterial(1, sizeRightU, sizeRightV);
+      const mFloor = makeParkettMaterial(2, sizeFloorU, sizeFloorV);
+      const mCeil  = makeParkettMaterial(3, sizeCeilU,  sizeCeilV);
+      const mBack  = makeParkettMaterial(4, sizeBackU,  sizeBackV);
+
+      // geometrías (overfill)
+      const geoLeft  = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
+      const geoRight = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
+      const geoFloor = new THREE.PlaneGeometry(Wi*OVER, Di*OVER);
+      const geoCeil  = new THREE.PlaneGeometry(Wi*OVER, Di*OVER);
+      const geoBack  = new THREE.PlaneGeometry(Wi*OVER, Hi*OVER);
+
+      // izquierda (YZ)
+      const pLeft = new THREE.Mesh(geoLeft, mLeft);
+      pLeft.position.set(-W/2 + g + EPS, 0, 0);
+      pLeft.rotation.y = Math.PI/2;
+
+      // derecha (YZ)
+      const pRight = new THREE.Mesh(geoRight, mRight);
+      pRight.position.set( W/2 - g - EPS, 0, 0);
+      pRight.rotation.y = -Math.PI/2;
+
+      // piso (XZ)
+      const pFloor = new THREE.Mesh(geoFloor, mFloor);
+      pFloor.position.set(0, -H/2 + g + EPS, 0);
+      pFloor.rotation.x = -Math.PI/2;
+
+      // techo (XZ)
+      const pCeil = new THREE.Mesh(geoCeil, mCeil);
+      pCeil.position.set(0,  H/2 - g - EPS, 0);
+      pCeil.rotation.x =  Math.PI/2;
+
+      // fondo (XY)
+      const pBack = new THREE.Mesh(geoBack, mBack);
+      pBack.position.set(0, 0, -D/2 + g + EPS);
+
+      raumGroup.add(pLeft, pRight, pFloor, pCeil, pBack);
+      pLeft.renderOrder = pRight.renderOrder = pFloor.renderOrder = pCeil.renderOrder = pBack.renderOrder = 10;
+
+      // ——— finaliza ———
+      scene.add(raumGroup);
+      raumGroup.traverse(o => { o.frustumCulled = false; });
     }
-
-// Intersección caja axis-aligned con plano de pared → polígono (array de puntos 2D en coords locales pared)
-    function raumBoxPlaneSection(C, dims, wall){
-      const x0=C.x-dims.a, x1=C.x+dims.a;
-      const y0=C.y-dims.b, y1=C.y+dims.b;
-      const z0=C.z-dims.c, z1=C.z+dims.c;
-
-      const V = [
-        {x:x0,y:y0,z:z0},{x:x1,y:y0,z:z0},{x:x1,y:y1,z:z0},{x:x0,y:y1,z:z0},
-        {x:x0,y:y0,z:z1},{x:x1,y:y0,z:z1},{x:x1,y:y1,z:z1},{x:x0,y:y1,z:z1}
-      ];
-      const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-
-      const n = wall.n, d = wall.d;
-      const hits = [];
-      for (let i=0;i<E.length;i++){
-        const A = V[E[i][0]], B = V[E[i][1]];
-        const da = n.x*A.x + n.y*A.y + n.z*A.z - d;
-        const db = n.x*B.x + n.y*B.y + n.z*B.z - d;
-        const den = db - da;
-        if (Math.abs(den) < 1e-9) continue;
-        const t = -da/den;
-        if (t > -1e-6 && t < 1+1e-6){
-          const tt = Math.min(1, Math.max(0, t));
-          const P = { x: A.x + (B.x-A.x)*tt, y: A.y + (B.y-A.y)*tt, z: A.z + (B.z-A.z)*tt };
-          const Q = {
-            u: (P.x-wall.origin.x)*wall.uAxis.x + (P.y-wall.origin.y)*wall.uAxis.y + (P.z-wall.origin.z)*wall.uAxis.z,
-            v: (P.x-wall.origin.x)*wall.vAxis.x + (P.y-wall.origin.y)*wall.vAxis.y + (P.z-wall.origin.z)*wall.vAxis.z
-          };
-          hits.push(Q);
-        }
-      }
-      if (hits.length < 3) return [];
-      let cx=0, cy=0; for (const p of hits){ cx+=p.u; cy+=p.v; } cx/=hits.length; cy/=hits.length;
-      hits.sort((p,q)=> Math.atan2(p.v-cy,p.u-cx) - Math.atan2(q.v-cy,q.u-cx));
-      return hits;
-    }
-
-// Intersección ESFERA–PLANO → polilínea circular (64 muestras)
-    function raumSpherePlaneSection(C, dims, wall){
-      // dims: { R }
-      const n = wall.n, d = wall.d;                       // plano Π : n·x = d
-      const dist = (n.x*C.x + n.y*C.y + n.z*C.z) - d;     // firmada
-      const R = dims.R;
-      const ad = Math.abs(dist);
-      if (ad > R) return [];                               // no hay corte
-
-      const rSec = Math.sqrt(Math.max(0, R*R - ad*ad));    // radio del círculo de corte
-
-      // centro proyectado sobre el plano
-      const Pc = { x: C.x - n.x*dist, y: C.y - n.y*dist, z: C.z - n.z*dist };
-
-      // Centro en coords (u,v) de la pared
-      const uc = (Pc.x-wall.origin.x)*wall.uAxis.x + (Pc.y-wall.origin.y)*wall.uAxis.y + (Pc.z-wall.origin.z)*wall.uAxis.z;
-      const vc = (Pc.x-wall.origin.x)*wall.vAxis.x + (Pc.y-wall.origin.y)*wall.vAxis.y + (Pc.z-wall.origin.z)*wall.vAxis.z;
-
-      const N = 64, poly = new Array(N);
-      for (let i=0;i<N;i++){
-        const ang = (i/N)*Math.PI*2;
-        poly[i] = { u: uc + rSec*Math.cos(ang), v: vc + rSec*Math.sin(ang) };
-      }
-      return poly;
-    }
-
-      function buildRAUM(){
-        // limpieza previa
-        clearGroup(raumGroup);
-        raumGroup = new THREE.Group();
-
-        // fondo sincronizado (no FRBN)
-        updateBackground(false);
-
-        const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
-        const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
-
-        // ——— paredes blancas “sólidas” (Lambert) ———
-        function lambertWhite(){
-          const m = new THREE.MeshLambertMaterial({ color: 0xFFFFFF, dithering: true });
-          m.emissive = new THREE.Color(0xFFFFFF);
-          m.emissiveIntensity = 0.03;
-          return m;
-        }
-
-        const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
-        left.position.set(-W/2 + g/2, 0, 0);
-        const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
-        right.position.set( W/2 - g/2, 0, 0);
-        const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
-        floor.position.set(0, -H/2 + g/2, 0);
-        const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
-        ceil.position.set(0,  H/2 - g/2, 0);
-        const back  = new THREE.Mesh(new THREE.BoxGeometry(W, H, g), lambertWhite());
-        back.position.set(0, 0, -D/2 + g/2);
-        raumGroup.add(left, right, floor, ceil, back);
-
-        // ——— PLANOS del tiling (cinco) ———
-        const EPS  = 0.001;
-        const OVER = 1.02; // cubre juntas/esquinas con holgura sin duplicar
-
-        // tamaños FÍSICOS visibles del interior (u,v) por pared
-        const sizeLeftU  = Di,   sizeLeftV  = Hi;
-        const sizeRightU = Di,   sizeRightV = Hi;
-        const sizeFloorU = Wi,   sizeFloorV = Di;
-        const sizeCeilU  = Wi,   sizeCeilV  = Di;
-        const sizeBackU  = Wi,   sizeBackV  = Hi;
-
-        // Material Parkett (idéntico “mundo” → coherencia en esquinas)
-        const mLeft  = makeParkettMaterial(0, sizeLeftU,  sizeLeftV);
-        const mRight = makeParkettMaterial(1, sizeRightU, sizeRightV);
-        const mFloor = makeParkettMaterial(2, sizeFloorU, sizeFloorV);
-        const mCeil  = makeParkettMaterial(3, sizeCeilU,  sizeCeilV);
-        const mBack  = makeParkettMaterial(4, sizeBackU,  sizeBackV);
-
-        // Geometrías con overfill
-        const geoLeft  = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
-        const geoRight = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
-        const geoFloor = new THREE.PlaneGeometry(Wi*OVER, Di*OVER);
-        const geoCeil  = new THREE.PlaneGeometry(Wi*OVER, Di*OVER);
-        const geoBack  = new THREE.PlaneGeometry(Wi*OVER, Hi*OVER);
-
-        // izquierda (YZ)
-        const pLeft = new THREE.Mesh(geoLeft, mLeft);
-        pLeft.position.set(-W/2 + g + EPS, 0, 0);
-        pLeft.rotation.y = Math.PI/2;
-
-        // derecha (YZ)
-        const pRight = new THREE.Mesh(geoRight, mRight);
-        pRight.position.set( W/2 - g - EPS, 0, 0);
-        pRight.rotation.y = -Math.PI/2;
-
-        // piso (XZ)
-        const pFloor = new THREE.Mesh(geoFloor, mFloor);
-        pFloor.position.set(0, -H/2 + g + EPS, 0);
-        pFloor.rotation.x = -Math.PI/2;
-
-        // techo (XZ)
-        const pCeil = new THREE.Mesh(geoCeil, mCeil);
-        pCeil.position.set(0,  H/2 - g - EPS, 0);
-        pCeil.rotation.x =  Math.PI/2;
-
-        // fondo (XY)
-        const pBack = new THREE.Mesh(geoBack, mBack);
-        pBack.position.set(0, 0, -D/2 + g + EPS);
-
-        raumGroup.add(pLeft, pRight, pFloor, pCeil, pBack);
-        pLeft.renderOrder = pRight.renderOrder = pFloor.renderOrder = pCeil.renderOrder = pBack.renderOrder = 10;
-
-        // ——— finaliza ———
-        scene.add(raumGroup);
-        try{ raumV2InitSolidsAndWalls(); }catch(_){ }
-        raumGroup.traverse(o => { o.frustumCulled = false; });
-      }
-
-
-// ===== Descriptores de paredes (planos + ejes locales) =====
-    function raumV2BuildWallDescriptors(){
-      const W=RAUM_W, H=RAUM_H, D=RAUM_D, g=RAUM_G;
-      const Wi=W-2*g, Hi=H-2*g, Di=D-2*g;
-      const EPS = 0.001;
-
-      // Convención: plano Π :  n·x = d   (no n·x - d = 0)
-      // LEFT   : x = -W/2 + g + EPS ,  n = +X
-      // RIGHT  : x = +W/2 - g - EPS ,  n = -X  → d = -x0
-      // FLOOR  : y = -H/2 + g + EPS ,  n = +Y
-      // CEIL   : y = +H/2 - g - EPS ,  n = -Y  → d = -y0
-      // BACK   : z = -D/2 + g + EPS ,  n = +Z
-      return {
-        left : { name:'left',
-          n:{x: 1,y:0,z:0}, d:(-W*0.5 + g + EPS),
-          uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
-          origin:{x:-W*0.5 + g + EPS, y:-Hi*0.5, z:-Di*0.5}, size:{u:Di, v:Hi} },
-        right: { name:'right',
-          n:{x:-1,y:0,z:0}, d:-(+W*0.5 - g - EPS),
-          uAxis:{x:0,y:0,z:1}, vAxis:{x:0,y:1,z:0},
-          origin:{x:+W*0.5 - g - EPS, y:-Hi*0.5, z:-Di*0.5}, size:{u:Di, v:Hi} },
-        floor: { name:'floor',
-          n:{x:0,y: 1,z:0}, d:(-H*0.5 + g + EPS),
-          uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
-          origin:{x:-Wi*0.5, y:-H*0.5 + g + EPS, z:-Di*0.5}, size:{u:Wi, v:Di} },
-        ceil : { name:'ceil',
-          n:{x:0,y:-1,z:0}, d:-(+H*0.5 - g - EPS),
-          uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:0,z:1},
-          origin:{x:-Wi*0.5, y:+H*0.5 - g - EPS, z:-Di*0.5}, size:{u:Wi, v:Di} },
-        back : { name:'back',
-          n:{x:0,y:0,z:1}, d:(-D*0.5 + g + EPS),
-          uAxis:{x:1,y:0,z:0}, vAxis:{x:0,y:1,z:0},
-          origin:{x:-Wi*0.5, y:-Hi*0.5, z:-D*0.5 + g + EPS}, size:{u:Wi, v:Hi} }
-      };
-    }
-
-// ===== Línea dinámica por pared (se actualiza cada frame) =====
-    function makeEmptyLine(){
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
-      const m = new THREE.LineBasicMaterial({
-        color: 0x111111, transparent:true, opacity: 1.0, depthWrite:false
-      });
-      return new THREE.Line(g, m);
-    }
-
-    function setPolyline(lineObj, poly2D, wall){
-      if (!poly2D || poly2D.length < 2){
-        lineObj.geometry.dispose();
-        lineObj.geometry = new THREE.BufferGeometry();
-        lineObj.frustumCulled = false;
-        return;
-      }
-      const n = poly2D.length;
-      const P = new Float32Array((n+1)*3);
-      for (let i=0;i<n;i++){
-        const u = poly2D[i].u, v = poly2D[i].v;
-        const x = wall.origin.x + wall.uAxis.x*u + wall.vAxis.x*v;
-        const y = wall.origin.y + wall.uAxis.y*u + wall.vAxis.y*v;
-        const z = wall.origin.z + wall.uAxis.z*u + wall.vAxis.z*v;
-        P[3*i+0]=x; P[3*i+1]=y; P[3*i+2]=z;
-      }
-      P[3*n+0]=P[0]; P[3*n+1]=P[1]; P[3*n+2]=P[2];
-
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(P,3));
-      lineObj.geometry.dispose();
-      lineObj.geometry = g;
-      lineObj.frustumCulled = false;
-    }
-
-// ===== Estado + inicialización de sólidos (reusa tu código de arriba) =====
-    if (!window.__raumV2) window.__raumV2 = { solids:[], walls:null, lines:null, seq:null, lastT:0 };
-
-    function raumV2InitSolidsAndWalls(){
-      // sólidos
-      __raumV2.solids = [];
-      let perms = (typeof getSelectedPerms==='function'?getSelectedPerms():[])||[];
-      if (!perms.length) perms = [[1,2,3,4,5]];
-      for (let i=0;i<perms.length;i++){
-        const pa   = perms[i];
-        const dims = raumPickSolidFor(pa, i);
-        const vel  = raumSolidVelocity(pa);
-        __raumV2.solids.push({
-          pa, dims, vel,
-          C0:{
-            x:(-RAUM_W/2+4) + ((lehmerRank(pa)+i*37)%997)/997 * (RAUM_W-8),
-            y:(-RAUM_H/2+4) + ((lehmerRank(pa)+i*53)%991)/991 * (RAUM_H-8),
-            z:(-RAUM_D/2+4) + ((lehmerRank(pa)+i*59)%983)/983 * (RAUM_D-8)
-          }
-        });
-      }
-      // paredes
-      __raumV2.walls = raumV2BuildWallDescriptors();
-      // líneas (dos capas: A y B para overlap suave)
-      if (!__raumV2.lines) __raumV2.lines = {};
-      const wnames = ['left','right','floor','ceil','back'];
-      wnames.forEach(n=>{
-        if (__raumV2.lines[n]) return;
-        const gA = makeEmptyLine();
-        const gB = makeEmptyLine();
-        raumGroup.add(gA,gB);
-        __raumV2.lines[n] = {A:gA,B:gB};
-      });
-      // scheduler
-      raumV2InitScheduler();
-      __raumV2.lastT = performance.now();
-    }
-
-// ===== Avance del sólido (rebote) =====
-    function reflect1D(v,a,b){
-      const L = b-a; let y=(v-a)%(2*L); if (y<0) y+=2*L; return (y<=L)?(a+y):(a+2*L-y);
-    }
-    function solidCenterAt(s, t){
-      const Wi=RAUM_W-2*RAUM_G, Hi=RAUM_H-2*RAUM_G, Di=RAUM_D-2*RAUM_G;
-      const cx = reflect1D(s.C0.x + s.vel.vx*t, -Wi/2, Wi/2);
-      const cy = reflect1D(s.C0.y + s.vel.vy*t, -Hi/2, Hi/2);
-      const cz = reflect1D(s.C0.z + s.vel.vz*t, -Di/2, Di/2);
-      return {x:cx,y:cy,z:cz};
-    }
-
-// Cortes para cada pared (detecta tipo de sólido)
-    function computeCutsFor(solid, C, walls){
-      const out = {};
-      for (const k in walls){
-        const w = walls[k];
-        if (solid.dims.kind === 'SPHERE'){
-          out[k] = raumSpherePlaneSection(C, solid.dims, w);
-        } else {
-          out[k] = raumBoxPlaneSection(C, solid.dims, w);
-        }
-      }
-      return out;
-    }
-
-// ===== Animador RAUM v2 =====
-    (function installRAUMv2Animator(){
-      if (window.__raumv2AnimatorInstalled) return;
-      window.__raumv2AnimatorInstalled = true;
-
-      function tick(){
-        try{
-          if (!isRAUM || !raumGroup) { requestAnimationFrame(tick); return; }
-          if (!__raumV2.walls) raumV2InitSolidsAndWalls();
-
-          const now = performance.now();
-          const dt  = Math.max(0,(now-__raumV2.lastT)/1000); // s
-          __raumV2.lastT = now;
-
-          const st = raumV2AdvanceScheduler(dt);
-          // tiempo absoluto desde entrada a RAUM
-          const tScene = (window.__raumV2_t0 || (window.__raumV2_t0 = now))/1000.0;
-          const t = (now - window.__raumV2_t0)/1000.0;
-
-          // sólidos activos
-          const active = [];
-          if (st.pa1) active.push({pa:st.pa1, alpha:st.alpha1});
-          if (st.pa2) active.push({pa:st.pa2, alpha:st.alpha2});
-
-          // mapa pa->solid
-          const map = new Map(__raumV2.solids.map(s=>[s.pa.join(','), s]));
-
-          // por pared: escribimos líneas A (primario) y B (secundario)
-          const walls = __raumV2.walls;
-          const lines = __raumV2.lines;
-
-          // limpiar si no hay activos
-          if (!active.length){
-            for (const k in lines){ setPolyline(lines[k].A, [], walls[k]); setPolyline(lines[k].B, [], walls[k]); }
-            requestAnimationFrame(tick); return;
-          }
-
-          // computar cortes
-          let prim=null, sec=null;
-          active.forEach((a,i)=>{
-            const s = map.get(a.pa.join(',')); if (!s) return;
-            const C = solidCenterAt(s, t);
-            const polys = computeCutsFor(s, C, walls);
-            if (i===0){ prim={polys,alpha:a.alpha}; }
-            else if (i===1){ sec={polys,alpha:a.alpha}; }
-          });
-
-          // actualizar geometrías + alphas
-          for (const name in walls){
-            const W = walls[name];
-            if (prim){
-              setPolyline(lines[name].A, prim.polys[name], W);
-              lines[name].A.material.opacity = 0.70 + 0.30*prim.alpha;
-            } else {
-              setPolyline(lines[name].A, [], W);
-            }
-            if (sec){
-              setPolyline(lines[name].B, sec.polys[name], W);
-              lines[name].B.material.opacity = 0.55 + 0.30*sec.alpha;
-            } else {
-              setPolyline(lines[name].B, [], W);
-            }
-          }
-        }catch(_){ }
-        requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
-    })();
-
 
     function toggleRAUM(){
       isRAUM = !isRAUM;
