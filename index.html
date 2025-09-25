@@ -5278,7 +5278,7 @@ void main(){
         // ⚠️ iOS: habilitamos derivados para fwidth
         const fs = `
           #extension GL_OES_standard_derivatives : enable
-          precision mediump float;
+          precision highp float;            // ⇠ highp para móviles
 
           varying vec2 vUV;
           uniform vec3  uInk, uBg;
@@ -5289,20 +5289,17 @@ void main(){
 
           mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
 
-          // línea periódica (AA en píxel) — robusto en móviles
+          // AA correcto: usamos smoothstep(0.0, r, d) y lo invertimos
           float lineAA(float y, float frac){
-            // anchura “en celdas”
-            float w = max(0.0005, frac * 0.5);
-            // fwidth en celdas (derivados de hardware)
-            float aa = max(1e-4, fwidth(y));
-            // mezclamos grosor geométrico con AA para evitar “bleeding”
-            float r = w + aa * 0.75;
-            float d = abs(y);
-            return smoothstep(r, 0.0, d);
+            // grosor “geométrico” en unidades de celda
+            float w  = max(0.0005, frac * 0.5);
+            float aa = max(1e-4, fwidth(y)) * 0.75; // anti-alias suave
+            float r  = w + aa;
+            float d  = abs(y);
+            return 1.0 - smoothstep(0.0, r, d);     // ⇠ aquí estaba el fallo
           }
 
           float starRaster(vec2 p){
-            // p en unidades de CELDA (ya dividido fuera)
             float A = 3.141592653589793 / 5.0; // 36°
             float acc = 0.0;
             float W[5];
@@ -5312,11 +5309,11 @@ void main(){
               float ang = float(i) * 2.0 * A;
               vec2 q = rot(ang) * p;
               q.x *= uAff;
-              float u = q.x - round(q.x);      // distancia a la cresta (centro en múltiplos de 1)
+              float u = q.x - round(q.x);
               float g = lineAA(u, uLineF) * W[i];
-              acc = max(acc, g);               // composición “máx” (líneas nítidas)
+              acc = max(acc, g);
             }
-            return min(acc, uCap);             // CAP global (no más del 85%)
+            return min(acc, uCap); // cap global de cobertura
           }
 
           void main(){
