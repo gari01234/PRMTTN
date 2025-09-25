@@ -5374,27 +5374,44 @@ void main(){
           }
         }
 
-        // ====== Bandas del “marco” (4 piezas) → flotantes también ======
+        // ====== PARED DE FONDO CON APERTURA — 1 sola pieza flotante ======
+        const backGrp = new THREE.Group();
+        // registramos el grupo como UNA pieza que flota
+        addFloat(backGrp);
+
+        // el grupo está centrado en el plano del fondo:
+        backGrp.position.set(0, 0, zBack);
+
+        // Las bandas se añaden como hijos del grupo;
+        // sus posiciones son relativas al centro del fondo (z=0 local).
         const hTop = (Hi/2) - (yC + hoehe/2);
         if (hTop > 0.0001){
-          const top = addFloat(new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack)));
-          top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
+          const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
+          top.position.set(0, yC + hoehe/2 + hTop/2, 0);
+          backGrp.add(top);
         }
         const hBot = (yC - hoehe/2) - (-Hi/2);
         if (hBot > 0.0001){
-          const bot = addFloat(new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack)));
-          bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
+          const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
+          bot.position.set(0, yC - hoehe/2 - hBot/2, 0);
+          backGrp.add(bot);
         }
         const wLeft = (xC - breite/2) - (-Wi/2);
         if (wLeft > 0.0001){
-          const l = addFloat(new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack)));
-          l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
+          const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
+          l.position.set(xC - breite/2 - wLeft/2, yC, 0);
+          backGrp.add(l);
         }
         const wRight = (Wi/2) - (xC + breite/2);
         if (wRight > 0.0001){
-          const r = addFloat(new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack)));
-          r.position.set(xC + breite/2 + wRight/2, yC, zBack);
+          const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
+          r.position.set(xC + breite/2 + wRight/2, yC, 0);
+          backGrp.add(r);
         }
+
+        // ¡OJO! No llames a addFloat() para las bandas individuales;
+        // sólo el grupo (backGrp) se anima, así cuenta como 1 volumen.
+        raumGroup.add(backGrp);
 
         // ====== MUROS INTERIORES (A y B) — ahora “flotantes” ======
         const wallA = addFloat(new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)));
