@@ -5219,33 +5219,126 @@ void main(){
         return tex;
       }
 
-      // Material de pared usando la textura Cairo
-      // wallIndex solo se usa para derivar pequeñas variaciones si hiciera falta.
-      function makeCairoMaterial(wallIndex, sizeU, sizeV){
-        const H = raumCairoHash();
+      function makeParkettMaterial(wallIndex, sizeU, sizeV){
+        // ——— hash determinista (igual que antes) ———
+        const H = (function raumParkettFamilyHash(){
+          let h = 2166136261>>>0;
+          try{
+            const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
+            h ^= (st.sumR|0);  h = Math.imul(h, 16777619)>>>0;
+            h ^= (st.sumR2|0); h = Math.imul(h, 16777619)>>>0;
+            h ^= (st.mRank|0); h = Math.imul(h, 16777619)>>>0;
+          }catch(_){ }
+          h ^= (sceneSeed|0);  h = Math.imul(h, 16777619)>>>0;
+          h ^= (S_global|0);   h = Math.imul(h, 16777619)>>>0;
+          return h>>>0;
+        })();
+
+        const family = 1 + (H % 15);
         const rotl = (x,b)=>((x<<b)|(x>>> (32-b)))>>>0;
+        const Fw = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
 
-        // ► Una orientación y tamaño globales para TODAS las paredes (coherencia en esquinas):
-        const theta = ((rotl(H, 9) & 2047) / 2048) * Math.PI*2 * 0.0; // =0; (bloqueamos rotación)
-        const cellWorld = 3.8 + ((H>>>11)&1023)/1023 * (5.2 - 3.8);   // 3.8..5.2 unidades
-        const lineLuma = 0.18;                                        // ~negro (muy visible)
+        // ⇣ CELDA más grande + LÍNEA más delgada → sin “mancha negra”
+        const cellBase = 5.5 + ((Fw>>>10)&1023)/1023 * (8.5-5.5);      // 5.5–8.5 u
+        const lineFrac = 0.018 + Math.pow(((Fw>>>3)&511)/511,1.2) * 0.014; // 1.8–3.2% celda
+        const theta    = ((rotl(Fw,13)&2047)/2048.0) * Math.PI*2.0;
+        const aff      = 0.92 + (family/15)*0.20;
 
-        const tex = makeCairoTexture({
-          sizeU, sizeV,
-          cellWorld,
-          theta,
-          lineLuma
+        // pesos (estética 5 haces)
+        const Wtable = [
+          [1,1,1,1,1],[2,1,1,1,1],[1,2,1,1,1],[1,1,2,1,1],[1,1,1,2,1],
+          [1,1,1,1,2],[2,2,1,1,1],[2,1,2,1,1],[2,1,1,2,1],[2,1,1,1,2],
+          [1,2,2,1,1],[1,2,1,2,1],[1,2,1,1,2],[1,1,2,2,1],[1,1,2,1,2],
+        ];
+        const Wraw = Wtable[family-1].slice(0,5);
+        const Wsum = Wraw.reduce((a,b)=>a+b,0);
+        const W = Wraw.map(x=>x/(Wsum>1e-6?Wsum:1));
+
+        const uniforms = {
+          uInk:   { value: new THREE.Color(0x2A2A2A) }, // gris oscuro legible
+          uBg:    { value: new THREE.Color(0xFFFFFF) },
+          uSize:  { value: new THREE.Vector2(sizeU, sizeV) }, // tamaño físico pared
+          uCell:  { value: cellBase },       // tamaño de celda (en “metros”)
+          uLineF: { value: lineFrac },       // grosor relativo a celda
+          uRot:   { value: theta },
+          uAff:   { value: aff },
+          uW:     { value: new THREE.Vector4(W[0],W[1],W[2],W[3]) },
+          uW4:    { value: W[4] },
+          uCap:   { value: 0.85 }            // CAP para no superar 85% de tinta
+        };
+
+        const vs = `
+          varying vec2 vUV;
+          void main(){
+            vUV = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+          }
+        `;
+
+        // ⚠️ iOS: habilitamos derivados para fwidth
+        const fs = `
+          #extension GL_OES_standard_derivatives : enable
+          precision mediump float;
+
+          varying vec2 vUV;
+          uniform vec3  uInk, uBg;
+          uniform vec2  uSize;
+          uniform float uCell, uLineF, uRot, uAff, uCap;
+          uniform vec4  uW;
+          uniform float uW4;
+
+          mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+
+          // línea periódica (AA en píxel) — robusto en móviles
+          float lineAA(float y, float frac){
+            // anchura “en celdas”
+            float w = max(0.0005, frac * 0.5);
+            // fwidth en celdas (derivados de hardware)
+            float aa = max(1e-4, fwidth(y));
+            // mezclamos grosor geométrico con AA para evitar “bleeding”
+            float r = w + aa * 0.75;
+            float d = abs(y);
+            return smoothstep(r, 0.0, d);
+          }
+
+          float starRaster(vec2 p){
+            // p en unidades de CELDA (ya dividido fuera)
+            float A = 3.141592653589793 / 5.0; // 36°
+            float acc = 0.0;
+            float W[5];
+            W[0]=uW.x; W[1]=uW.y; W[2]=uW.z; W[3]=uW.w; W[4]=uW4;
+
+            for (int i=0;i<5;i++){
+              float ang = float(i) * 2.0 * A;
+              vec2 q = rot(ang) * p;
+              q.x *= uAff;
+              float u = q.x - round(q.x);      // distancia a la cresta (centro en múltiplos de 1)
+              float g = lineAA(u, uLineF) * W[i];
+              acc = max(acc, g);               // composición “máx” (líneas nítidas)
+            }
+            return min(acc, uCap);             // CAP global (no más del 85%)
+          }
+
+          void main(){
+            vec2 p = (vUV - 0.5) * uSize;   // metros
+            p = rot(uRot) * p;
+            p /= uCell;                      // a celdas
+            float g = starRaster(p);
+            vec3 col = mix(uBg, uInk, g);
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `;
+
+        return new THREE.ShaderMaterial({
+          uniforms, vertexShader:vs, fragmentShader:fs,
+          transparent:false, depthTest:true, depthWrite:false, dithering:false,
+          // ← imprescindible para iOS (fwidth)
+          extensions: { derivatives: true }
         });
-
-        const mat = new THREE.MeshBasicMaterial({
-          color: 0xFFFFFF,
-          map: tex,
-        });
-        return mat;
       }
 
       // Exponemos el factory en window
-      window.makeCairoMaterial = makeCairoMaterial;
+      window.makeParkettMaterial = makeParkettMaterial;
 
     })();
 
@@ -5467,7 +5560,7 @@ void main(){
 
         // ——— PLANOS del tiling (cinco) ———
         const EPS  = 0.001;
-        const OVER = 1.03; // sobre-escala para cubrir aristas
+        const OVER = 1.02; // cubre juntas/esquinas con holgura sin duplicar
 
         // tamaños FÍSICOS visibles del interior (u,v) por pared
         const sizeLeftU  = Di,   sizeLeftV  = Hi;
@@ -5476,12 +5569,12 @@ void main(){
         const sizeCeilU  = Wi,   sizeCeilV  = Di;
         const sizeBackU  = Wi,   sizeBackV  = Hi;
 
-        // Material Cairo (idéntico “mundo” → coherencia en esquinas)
-        const mLeft  = makeCairoMaterial(0, sizeLeftU,  sizeLeftV);
-        const mRight = makeCairoMaterial(1, sizeRightU, sizeRightV);
-        const mFloor = makeCairoMaterial(2, sizeFloorU, sizeFloorV);
-        const mCeil  = makeCairoMaterial(3, sizeCeilU,  sizeCeilV);
-        const mBack  = makeCairoMaterial(4, sizeBackU,  sizeBackV);
+        // Material Parkett (idéntico “mundo” → coherencia en esquinas)
+        const mLeft  = makeParkettMaterial(0, sizeLeftU,  sizeLeftV);
+        const mRight = makeParkettMaterial(1, sizeRightU, sizeRightV);
+        const mFloor = makeParkettMaterial(2, sizeFloorU, sizeFloorV);
+        const mCeil  = makeParkettMaterial(3, sizeCeilU,  sizeCeilV);
+        const mBack  = makeParkettMaterial(4, sizeBackU,  sizeBackV);
 
         // Geometrías con overfill
         const geoLeft  = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
