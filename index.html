@@ -5099,181 +5099,235 @@ void main(){
       scene.remove(g);
     }
 
-// ─────────────────────────────────────────────────────────
-// RAUM v2 · Cairo por Canvas2D → Texture (sin shaders, sin rotación)
-//   • Mismo aspecto en iOS/Android/Desktop
-//   • Paso mínimo fijo para evitar “empaste”
-//   • Luma fija de línea (≈30% sobre blanco)
-// ─────────────────────────────────────────────────────────
-    (function(){
+      function buildRAUM(){
+        // —— limpia versión previa
+        clearGroup(raumGroup);
+        raumGroup = new THREE.Group();
 
-      // Cairo exacto (aristas) sobre 2D context. Sin rotación.
-      function drawCairoEdges(ctx, W, H, stepPx){
-        const s   = stepPx;                 // paso horizontal (px)
-        const h   = s * Math.sqrt(3)/2;     // paso vertical (px)
-        const pad = Math.ceil(3*s);         // overscan para cubrir esquinas
+        // asegura fondo sincronizado con BUILD/OFFNNG
+        updateBackground(false);
 
-        // Sin rotación: sistema de la textura alineado con el canvas
-        for (let yy = -pad; yy <= H+pad; yy += h){
-          const offset = ((Math.round(yy/h) & 1) ? s/2 : 0);
-          for (let xx = -pad; xx <= W+pad; xx += s){
-            const x = xx + offset, y = yy;
+        const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
+        const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
 
-            // pentágono Cairo (dos triángulos + base)
-            ctx.beginPath();
-            ctx.moveTo(x, y);             // superior
-            ctx.lineTo(x+s/2, y+h);
-            ctx.lineTo(x+s, y);
-            ctx.moveTo(x, y);             // inferior
-            ctx.lineTo(x+s/2, y-h);
-            ctx.lineTo(x+s, y);
-            ctx.moveTo(x, y);             // base
-            ctx.lineTo(x+s, y);
-            ctx.stroke();
+        // ====== COLORES deterministas ======
+        const colCeil  = raumColorFor(1);
+        const colFloor = raumColorFor(2);
+        const colLeft  = raumColorFor(3);
+        const colRight = raumColorFor(4);
+        const colBack  = raumColorFor(5);
+        const colA     = raumColorFor(6);
+        const colB     = raumColorFor(7);
+
+        function lambert(c, opacity){
+          const base = applyBuildVibranceToColor(c);
+          const matOpts = {
+            color: base,
+            side: THREE.DoubleSide,
+            dithering: false                // ← sin granulado en planos grandes
+          };
+          if (typeof opacity === 'number' && opacity < 1){
+            matOpts.transparent = true;
+            matOpts.opacity = opacity;
+          }
+          const m = new THREE.MeshLambertMaterial(matOpts);
+          m.emissive = base.clone();
+          m.emissiveIntensity = 0.06;
+          return m;
+        }
+
+        // ====== PAREDES EXTERIORES (caja sin frente) ======
+        const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colLeft));
+        left.position.set(-W/2 + g/2, 0, 0);
+        const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colRight));
+        right.position.set( W/2 - g/2, 0, 0);
+
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colFloor));
+        floor.position.set(0, -H/2 + g/2, 0);
+        const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colCeil));
+        ceil.position.set(0,  H/2 - g/2, 0);
+
+        raumGroup.add(left, right, floor, ceil);
+
+        // ====== INVARIANTES / ESTADÍSTICAS DETERMINISTAS ======
+        const { sumR, sumR2, mRank } = raumStats();
+
+        // ====== MUROS INTERIORES (A y B) — primero sus PARÁMETROS ======
+        // — A (longitudinal, grosor g en X, largo LA en Z)
+        const LAmin = 8, LAmax = Di; // 8..28
+        const LA = LAmin + ((sumR + 5*mRank + sceneSeed) % (LAmax - LAmin + 1));
+        const xAmin = -Wi/2 + g/2, xAmax = Wi/2 - g/2;
+        const zAmin = -Di/2 + LA/2, zAmax = Di/2 - LA/2;
+        const uAx   = ((11*sumR2 + 7*mRank + sceneSeed) % 991) / 991;
+        const uAz   = ((S_global + 23*mRank + sumR2) % 983) / 983;
+        const xA    = xAmin + (xAmax - xAmin) * uAx;
+        const zA    = zAmin + (zAmax - zAmin) * uAz;
+
+        // — B (transversal, ancho LB en X, grosor g en Z)
+        const LBmin = 10, LBmax = Wi; // 10..58
+        const LB = LBmin + ((sumR2 + 9*mRank + 3*sceneSeed) % (LBmax - LBmin + 1));
+        const xBmin = -Wi/2 + LB/2, xBmax = Wi/2 - LB/2;
+        const zBmin = -Di/2 + g/2,  zBmax = Di/2 - g/2;
+        const uBx   = ((17*sumR2 + 31*mRank + sceneSeed) % 971) / 971;
+        const uBz   = ((19*sumR + 29*mRank + S_global) % 977) / 977;
+        const xB    = xBmin + (xBmax - xBmin) * uBx;
+        const zB    = zBmin + (zBmax - zBmin) * uBz;
+
+        // ====== APERTURA EN LA PARED DEL FONDO (con regla 33%) ======
+        const zBack = -D/2 + g/2;
+
+        // — dimensiones base (10..25), sin forzar área mínima
+        let breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16); // 10..25
+        let hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16); // 10..25
+        breite = Math.max(2, Math.min(breite, Wi));
+        hoehe  = Math.max(2, Math.min(hoehe,  Hi));
+
+        // — centro determinista propuesto
+        const xmin0 = -Wi/2 + breite/2, xmax0 = Wi/2 - breite/2;
+        const ymin0 = -Hi/2 + hoehe/2,  ymax0 = Hi/2 - hoehe/2;
+
+        const ux = ((37*sumR + 13*mRank + S_global) % 997) / 997;
+        const uy = ((53*sumR2 + 17*mRank + sceneSeed) % 991) / 991;
+        let xC   = xmin0 + (xmax0 - xmin0) * ux;
+        const yC = ymin0 + (ymax0 - ymin0) * uy;
+
+        // — utilidades de intervalos en X
+        function clipInterval(a,b,min,max){
+          const s = Math.max(a,min), e = Math.min(b,max);
+          return (e > s) ? [s,e] : null;
+        }
+        function mergeIntervals(list){
+          if (!list.length) return [];
+          const v = list.slice().sort((p,q)=>p[0]-q[0]);
+          const out = [ v[0].slice() ];
+          for (let i=1;i<v.length;i++){
+            const cur = v[i], last = out[out.length-1];
+            if (cur[0] <= last[1]) last[1] = Math.max(last[1], cur[1]);
+            else out.push(cur.slice());
+          }
+          return out;
+        }
+        function complement(minX, maxX, occ){
+          const gaps=[];
+          let cur = minX;
+          occ.forEach(([a,b])=>{
+            if (a > cur) gaps.push([cur,a]);
+            cur = Math.max(cur,b);
+          });
+          if (cur < maxX) gaps.push([cur,maxX]);
+          return gaps;
+        }
+        function visibleFraction(center, width, occ){
+          const L = center - width/2, R = center + width/2;
+          let occLen = 0;
+          occ.forEach(([a,b])=>{
+            const s = Math.max(L,a), e = Math.min(R,b);
+            if (e > s) occLen += (e - s);
+          });
+          const vis = Math.max(0, width - Math.min(width, occLen));
+          return vis / Math.max(1e-6, width);
+        }
+
+        // — proyección de A y B sobre el fondo (intervalos en X, altura total)
+        const occRaw = [];
+        const iA = clipInterval(xA - g/2,   xA + g/2,   -Wi/2, Wi/2);
+        const iB = clipInterval(xB - LB/2,  xB + LB/2,  -Wi/2, Wi/2);
+        if (iA) occRaw.push(iA);
+        if (iB) occRaw.push(iB);
+        const occ = mergeIntervals(occRaw);
+        const gaps = complement(-Wi/2, Wi/2, occ);
+
+        // — regla 33%: recolocación suave + fallback de reducción de ancho
+        const VISIBLE_MIN = 0.33;
+
+        function gapLen(g){ return g[1]-g[0]; }
+        const maxGap = gaps.length ? gaps.reduce((best,g)=> gapLen(g) > gapLen(best) ? g : best, gaps[0]) : [0,0];
+        const Lmax   = gapLen(maxGap);
+
+        let xmin = xmin0, xmax = xmax0;
+        let vis  = visibleFraction(xC, breite, occ);
+
+        if (vis < VISIBLE_MIN){
+          // 1) ¿Existe algún gap que pueda contener COMPLETA la ventana?
+          const bigGaps = gaps.filter(g => gapLen(g) >= breite);
+          if (bigGaps.length){
+            // coloca en el gap más cercano al xC original (mínimo desplazamiento)
+            let best = null;
+            bigGaps.forEach(g=>{
+              const cmin = g[0] + breite/2, cmax = g[1] - breite/2;
+              const newX = clamp(xC, Math.max(cmin, xmin), Math.min(cmax, xmax));
+              const d    = Math.abs(newX - xC);
+              if (!best || d < best.d) best = {x:newX, d};
+            });
+            if (best){
+              xC = best.x;
+              vis = 1;
+            }
+          } else {
+            // 2) No cabe completa: céntrala en el mayor gap
+            const mid = (maxGap[0] + maxGap[1]) / 2;
+            xC = clamp(mid, xmin, xmax);
+            vis = (Lmax / breite);
+
+            // 3) Fallback: reducir ancho hasta garantizar ≥ 33 %
+            if (vis < VISIBLE_MIN){
+              const newW = Math.max(2, Math.min(breite, 3 * Lmax)); // (Lmax / newW) ≥ 1/3
+              if (newW !== breite){
+                breite = newW;
+                xmin = -Wi/2 + breite/2;
+                xmax =  Wi/2 - breite/2;
+              }
+              const cmin2 = maxGap[0] + breite/2, cmax2 = maxGap[1] - breite/2;
+              if (cmax2 >= cmin2){
+                const mid2 = (maxGap[0] + maxGap[1]) / 2;
+                xC = clamp(mid2, Math.max(cmin2, xmin), Math.min(cmax2, xmax));
+                vis = 1;
+              } else {
+                // caso extremo: Lmax == 0 → no hay hueco; mantenemos determinismo
+                vis = (Lmax / Math.max(1e-6, breite)); // 0
+              }
+            }
           }
         }
+
+        // — bandas del “marco” (4 piezas)
+        const hTop = (Hi/2) - (yC + hoehe/2);
+        if (hTop > 0.0001){
+          const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
+          top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
+          raumGroup.add(top);
+        }
+        const hBot = (yC - hoehe/2) - (-Hi/2);
+        if (hBot > 0.0001){
+          const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
+          bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
+          raumGroup.add(bot);
+        }
+        const wLeft = (xC - breite/2) - (-Wi/2);
+        if (wLeft > 0.0001){
+          const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
+          l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
+          raumGroup.add(l);
+        }
+        const wRight = (Wi/2) - (xC + breite/2);
+        if (wRight > 0.0001){
+          const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
+          r.position.set(xC + breite/2 + wRight/2, yC, zBack);
+          raumGroup.add(r);
+        }
+
+        // ====== AHORA sí: instanciar muros interiores A y B (opacos) ======
+        const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)); // opaco
+        wallA.position.set(xA, 0, zA);
+        raumGroup.add(wallA);
+
+        const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB)); // opaco
+        wallB.position.set(xB, 0, zB);
+        raumGroup.add(wallB);
+
+        // —— añadir grupo a escena
+        scene.add(raumGroup);
       }
-
-      // Canvas2D → CanvasTexture. Escala física a ~90 px por “unidad”.
-      function makeCairoTexture({sizeU, sizeV, cellWorld, lineLuma}){
-        const pxPerUnit = 90 * (window.devicePixelRatio || 1);
-        const Wpx = Math.max(512, Math.round(sizeU * pxPerUnit));
-        const Hpx = Math.max(512, Math.round(sizeV * pxPerUnit));
-
-        const c = document.createElement('canvas');
-        c.width = Wpx; c.height = Hpx;
-        const ctx = c.getContext('2d', { alpha:false, desynchronized:true });
-
-        // Fondo blanco puro
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0,0,Wpx,Hpx);
-
-        // Paso y grosor robustos (fijos por física + mínimos en píxeles)
-        const MIN_STEP_PX = 18;                 // evita densidad excesiva
-        const stepPx      = Math.max(MIN_STEP_PX, cellWorld * pxPerUnit);
-        const linePx      = Math.max(2, Math.round(stepPx * 0.09)); // ≈9% de la celda
-
-        const L = Math.round(255 * lineLuma);   // 0..1 (0=negro)
-        ctx.strokeStyle = `rgb(${L},${L},${L})`;
-        ctx.lineWidth   = linePx;
-        ctx.lineCap     = 'butt';
-        ctx.lineJoin    = 'miter';
-        ctx.miterLimit  = 6;
-
-        drawCairoEdges(ctx, Wpx, Hpx, stepPx);
-
-        const tex = new THREE.CanvasTexture(c);
-        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.NearestFilter; // nítido en zoom
-        return tex;
-      }
-
-      // Material por pared (sin rotación, parámetros fijos)
-      function makeParkettMaterial(_wallIndex, sizeU, sizeV){
-        const cellWorld = 6.5;   // unidades físicas de celda (constante)
-        const lineLuma  = 0.30;  // ≈30% sobre blanco (gris claro)
-
-        const tex = makeCairoTexture({ sizeU, sizeV, cellWorld, lineLuma });
-        return new THREE.MeshBasicMaterial({
-          map: tex,
-          color: 0xFFFFFF,
-          toneMapped: false,
-          dithering: true
-        });
-      }
-
-      // expone el factory
-      window.makeParkettMaterial = makeParkettMaterial;
-    })();
-
-    function buildRAUM(){
-      // limpieza previa
-      clearGroup(raumGroup);
-      raumGroup = new THREE.Group();
-
-      // fondo sincronizado (no FRBN)
-      updateBackground(false);
-
-      const W = RAUM_W, H = RAUM_H, D = RAUM_D, g = RAUM_G;
-      const Wi = W - 2*g, Hi = H - 2*g, Di = D - 2*g;
-
-      // ——— Paredes blancas “sólidas” (Lambert) ———
-      function lambertWhite(){
-        const m = new THREE.MeshLambertMaterial({ color: 0xFFFFFF, dithering: true });
-        m.emissive = new THREE.Color(0xFFFFFF);
-        m.emissiveIntensity = 0.03;
-        return m;
-      }
-
-      const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
-      left.position.set(-W/2 + g/2, 0, 0);
-      const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambertWhite());
-      right.position.set( W/2 - g/2, 0, 0);
-      const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
-      floor.position.set(0, -H/2 + g/2, 0);
-      const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambertWhite());
-      ceil.position.set(0,  H/2 - g/2, 0);
-      const back  = new THREE.Mesh(new THREE.BoxGeometry(W, H, g), lambertWhite());
-      back.position.set(0, 0, -D/2 + g/2);
-      raumGroup.add(left, right, floor, ceil, back);
-
-      // ——— Planos del tiling (cinco) ———
-      const EPS  = 0.001;
-      const OVER = 1.02; // holgura para cubrir juntas
-
-      // tamaños interiores visibles (u,v) por pared
-      const sizeLeftU  = Di,   sizeLeftV  = Hi;
-      const sizeRightU = Di,   sizeRightV = Hi;
-      const sizeFloorU = Wi,   sizeFloorV = Di;
-      const sizeCeilU  = Wi,   sizeCeilV  = Di;
-      const sizeBackU  = Wi,   sizeBackV  = Hi;
-
-      // materiales
-      const mLeft  = makeParkettMaterial(0, sizeLeftU,  sizeLeftV);
-      const mRight = makeParkettMaterial(1, sizeRightU, sizeRightV);
-      const mFloor = makeParkettMaterial(2, sizeFloorU, sizeFloorV);
-      const mCeil  = makeParkettMaterial(3, sizeCeilU,  sizeCeilV);
-      const mBack  = makeParkettMaterial(4, sizeBackU,  sizeBackV);
-
-      // geometrías (overfill)
-      const geoLeft  = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
-      const geoRight = new THREE.PlaneGeometry(Di*OVER, Hi*OVER);
-      const geoFloor = new THREE.PlaneGeometry(Wi*OVER, Di*OVER);
-      const geoCeil  = new THREE.PlaneGeometry(Wi*OVER, Di*OVER);
-      const geoBack  = new THREE.PlaneGeometry(Wi*OVER, Hi*OVER);
-
-      // izquierda (YZ)
-      const pLeft = new THREE.Mesh(geoLeft, mLeft);
-      pLeft.position.set(-W/2 + g + EPS, 0, 0);
-      pLeft.rotation.y = Math.PI/2;
-
-      // derecha (YZ)
-      const pRight = new THREE.Mesh(geoRight, mRight);
-      pRight.position.set( W/2 - g - EPS, 0, 0);
-      pRight.rotation.y = -Math.PI/2;
-
-      // piso (XZ)
-      const pFloor = new THREE.Mesh(geoFloor, mFloor);
-      pFloor.position.set(0, -H/2 + g + EPS, 0);
-      pFloor.rotation.x = -Math.PI/2;
-
-      // techo (XZ)
-      const pCeil = new THREE.Mesh(geoCeil, mCeil);
-      pCeil.position.set(0,  H/2 - g - EPS, 0);
-      pCeil.rotation.x =  Math.PI/2;
-
-      // fondo (XY)
-      const pBack = new THREE.Mesh(geoBack, mBack);
-      pBack.position.set(0, 0, -D/2 + g + EPS);
-
-      raumGroup.add(pLeft, pRight, pFloor, pCeil, pBack);
-      pLeft.renderOrder = pRight.renderOrder = pFloor.renderOrder = pCeil.renderOrder = pBack.renderOrder = 10;
-
-      // ——— finaliza ———
-      scene.add(raumGroup);
-      raumGroup.traverse(o => { o.frustumCulled = false; });
-    }
 
     function toggleRAUM(){
       isRAUM = !isRAUM;
