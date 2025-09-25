@@ -5278,23 +5278,22 @@ void main(){
 // Se dibujan SOLO las curvas (líneas) sobre cada pared.
 // ──────────────────
 
-// catálogo mínimo (dos variantes: CAJA axis-aligned + "doble-cuadrado" 1:1:2)
-    const RAUM_SOLID_TYPES = ['BOX', 'DS112'];
+// catálogo: caja casi cúbica, caja 1:1:2, y esfera
+    const RAUM_SOLID_TYPES = ['BOX', 'DS112', 'SPHERE'];
 
     function raumPickSolidFor(pa, uniq){
       const r = lehmerRank(pa)>>>0;
       const t = RAUM_SOLID_TYPES[(r + uniq) % RAUM_SOLID_TYPES.length];
-      // tamaño determinista
       const base = Math.min(RAUM_W, RAUM_H, RAUM_D);
       const k = 0.40 + ((rotl32(r,7) ^ sceneSeed ^ S_global) & 65535)/65535 * (0.66-0.40);
-      if (t === 'BOX'){
-        // caja casi cúbica con dispersión ligera por r
+      if (t === 'SPHERE'){
+        return { kind:'SPHERE', R: k*base*0.28 };
+      } else if (t === 'BOX'){
         const ax = 0.85 + ((r>>3)&255)/255 * 0.20;
         const ay = 0.85 + ((r>>5)&255)/255 * 0.20;
         const az = 0.85 + ((r>>7)&255)/255 * 0.20;
         return { kind:'BOX', a: k*base*ax*0.25, b: k*base*ay*0.25, c: k*base*az*0.25 };
-      }else{
-        // 1:1:2
+      } else {
         return { kind:'BOX', a: k*base*0.25, b: k*base*0.25, c: k*base*0.50 };
       }
     }
@@ -5431,6 +5430,36 @@ void main(){
       let cx=0, cy=0; for (const p of hits){ cx+=p.u; cy+=p.v; } cx/=hits.length; cy/=hits.length;
       hits.sort((p,q)=> Math.atan2(p.v-cy,p.u-cx) - Math.atan2(q.v-cy,q.u-cx));
       return hits;
+    }
+
+    function raumSpherePlaneSection(C, dims, wall){
+      // dims: {R}
+      const n = wall.n, d = wall.d;
+      // distancia firmada centro→plano Π : n·x = d
+      const dist = (n.x*C.x + n.y*C.y + n.z*C.z) - d;
+      const R = dims.R;
+      const absd = Math.abs(dist);
+      if (absd > R) return [];
+      const rSec = Math.sqrt(Math.max(0, R*R - absd*absd));
+
+      // centro proyectado sobre el plano
+      const Pc = {
+        x: C.x - n.x*dist,
+        y: C.y - n.y*dist,
+        z: C.z - n.z*dist
+      };
+      // centro en coords 2D de la pared
+      const uc = (Pc.x-wall.origin.x)*wall.uAxis.x + (Pc.y-wall.origin.y)*wall.uAxis.y + (Pc.z-wall.origin.z)*wall.uAxis.z;
+      const vc = (Pc.x-wall.origin.x)*wall.vAxis.x + (Pc.y-wall.origin.y)*wall.vAxis.y + (Pc.z-wall.origin.z)*wall.vAxis.z;
+
+      // discretiza el círculo en N puntos (suficiente para lineas suaves)
+      const N = 64;
+      const poly = new Array(N);
+      for (let i=0;i<N;i++){
+        const ang = (i/N)*Math.PI*2;
+        poly[i] = { u: uc + rSec*Math.cos(ang), v: vc + rSec*Math.sin(ang) };
+      }
+      return poly;
     }
 
 // ===== Material procedimental "pentagonal raster" =====
@@ -5652,152 +5681,104 @@ void main(){
       // === 15 familias (aprox) con haces de líneas ponderados ====================
       // Cada familia es un vector de 5 pesos que modula los 5 haces (rotados 72°).
       // Los pesos están normalizados internamente.
-      const PARKETT15_WEIGHTS = [
-        [1,1,1,1,1],            // 1  : regular (estrella uniforme)
-        [2,1,1,1,1],            // 2  : énfasis 1 haz
-        [1,2,1,1,1],            // 3
-        [1,1,2,1,1],            // 4
-        [1,1,1,2,1],            // 5
-        [1,1,1,1,2],            // 6
-        [2,2,1,1,1],            // 7  : 2 haces dominantes
-        [2,1,2,1,1],            // 8
-        [2,1,1,2,1],            // 9
-        [2,1,1,1,2],            // 10
-        [1,2,2,1,1],            // 11 : pareja contigua
-        [1,2,1,2,1],            // 12 : alternado
-        [1,2,1,1,2],            // 13
-        [1,1,2,2,1],            // 14
-        [1,1,2,1,2],            // 15
-      ];
+  function raumParkettFamilyHash(){
+    let h = 2166136261>>>0;
+    try{
+      const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
+      h ^= (st.sumR|0);  h = Math.imul(h, 16777619)>>>0;
+      h ^= (st.sumR2|0); h = Math.imul(h, 16777619)>>>0;
+      h ^= (st.mRank|0); h = Math.imul(h, 16777619)>>>0;
+    }catch(_){ }
+    h ^= (sceneSeed|0);  h = Math.imul(h, 16777619)>>>0;
+    h ^= (S_global|0);   h = Math.imul(h, 16777619)>>>0;
+    return h>>>0;
+  }
+  const PARKETT15_WEIGHTS = [
+    [1,1,1,1,1],[2,1,1,1,1],[1,2,1,1,1],[1,1,2,1,1],[1,1,1,2,1],
+    [1,1,1,1,2],[2,2,1,1,1],[2,1,2,1,1],[2,1,1,2,1],[2,1,1,1,2],
+    [1,2,2,1,1],[1,2,1,2,1],[1,2,1,1,2],[1,1,2,2,1],[1,1,2,1,2],
+  ];
+  function makeParkettMaterial(wallIndex, sizeU, sizeV){
+    const H = raumParkettFamilyHash();
+    const family = 1 + (H % 15);
+    const rotl = (x,b)=>((x<<b)|(x>>> (32-b)))>>>0;
+    const Fw = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
 
-      // Hash determinista (igual que ya venimos usando)
-      function fnv1a32_step(h, x){ h ^= (x>>>0); h = Math.imul(h, 16777619)>>>0; return h>>>0; }
-      function raumParkettFamilyHash(){
-        let h = 2166136261>>>0;
-        try{
-          const st = raumStats ? raumStats() : {sumR:0,sumR2:0,mRank:0};
-          h = fnv1a32_step(h, st.sumR|0);
-          h = fnv1a32_step(h, st.sumR2|0);
-          h = fnv1a32_step(h, st.mRank|0);
-        }catch(_){ }
-        h = fnv1a32_step(h, sceneSeed|0);
-        h = fnv1a32_step(h, S_global|0);
-        return h>>>0;
+    // — parámetros “más fuertes” —
+    const cellBase = 3.8 + ((Fw>>>10)&1023)/1023 * (5.0-3.8); // ↑ tamaño de celda
+    const lineFrac = 0.080 + Math.pow(((Fw>>>3)&511)/511,1.4) * 0.040; // 8–12% de la celda
+    const theta    = ((rotl(Fw,13)&2047)/2048.0) * Math.PI*2.0;
+    const aff      = 0.92 + (family/15)*0.20;
+
+    const Wraw = PARKETT15_WEIGHTS[family-1].slice(0,5);
+    const Wsum = Wraw.reduce((a,b)=>a+b,0);
+    const W = Wraw.map(x=>x/(Wsum>1e-6?Wsum:1));
+
+    const uniforms = {
+      uInk:   { value: new THREE.Color(0x111111) }, // tinta más oscura
+      uBg:    { value: new THREE.Color(0xFFFFFF) },
+      uCell:  { value: cellBase },
+      uLineF: { value: lineFrac },
+      uRot:   { value: theta },
+      uAff:   { value: aff },
+      uSize:  { value: new THREE.Vector2(sizeU, sizeV) },
+      uW:     { value: new THREE.Vector4(W[0],W[1],W[2],W[3]) },
+      uW4:    { value: W[4] }
+    };
+
+    const vs = `
+      varying vec2 vUV;
+      void main(){
+        vUV = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
       }
+    `;
 
-      // wallIndex: 0..4 → left,right,floor,ceil,back
-      // sizeU,sizeV: tamaño FÍSICO de la pared (en unidades de escena) para escalar celdas correctamente
-      function makeParkettMaterial(wallIndex, sizeU, sizeV){
-        const H = raumParkettFamilyHash();
-        const family = 1 + (H % 15); // 1..15
-
-        // variaciones suaves por pared (deterministas)
-        const rotl = (x,b)=>((x<<b)|(x>>> (32-b)))>>>0;
-        const Fw = (rotl(H, 5*wallIndex) ^ (0x9E3779B9*wallIndex))>>>0;
-
-        // Tamaño de celda EN UNIDADES FÍSICAS (grande, estilo referencia)
-        // 2.8–3.6 u; más grande ⇒ menos líneas ⇒ celdas “gruesas”
-        const cellBase = 2.8 + ((Fw>>>10)&1023)/1023 * (3.6-2.8);
-        // Grosor relativo a la celda (más marcado que antes)
-        const lineFrac = 0.060 + Math.pow(((Fw>>>3)&511)/511,1.4) * 0.025; // 6% … 8.5%
-        // Rotación global del raster
-        const theta = ((rotl(Fw,13)&2047)/2048.0) * Math.PI*2.0;
-        // Afinidad (deformación leve del pentágono)
-        const aff = 0.92 + (family/15)*0.20;
-
-        // pesos de familia (normalizados)
-        const Wraw = PARKETT15_WEIGHTS[family-1].slice(0,5);
-        const Wsum = Wraw.reduce((a,b)=>a+b,0);
-        const W = Wraw.map(x=>x / (Wsum>1e-6?Wsum:1));
-
-        const uniforms = {
-          uInk:   { value: new THREE.Color(0x0F0F0F) },   // negro suave (más visible)
-          uBg:    { value: new THREE.Color(0xFFFFFF) },   // pared blanca
-          uCell:  { value: cellBase },                    // tamaño de celda (u,v en “metros”)
-          uLineF: { value: lineFrac },                    // grosor relativo a la celda
-          uRot:   { value: theta },
-          uAff:   { value: aff },
-          uSize:  { value: new THREE.Vector2(sizeU, sizeV) }, // tamaño físico de la pared
-          uW:     { value: new THREE.Vector4(W[0],W[1],W[2],W[3]) }, // 4 primeros
-          uW4:    { value: W[4] } // último
-        };
-
-        const vs = `
-          varying vec2 vUV;
-          void main(){
-            // uv 0..1 de la geometría (plane) — lo convertimos en coordenadas físicas en el FS
-            vUV = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-          }
-        `;
-
-        // Raster físico: 5 haces de líneas periódicas con antialias en espacio de célula.
-        const fs = `
-          precision highp float;
-          varying vec2 vUV;
-          uniform vec3  uInk, uBg;
-          uniform vec2  uSize;    // (ancho, alto) pared en unidades de escena
-          uniform float uCell;    // tamaño de celda en unidades físicas
-          uniform float uLineF;   // grosor relativo (0..1) respecto a la celda
-          uniform float uRot;     // rotación global
-          uniform float uAff;     // afinidad (estira eje x del haz)
-          uniform vec4  uW;       // pesos 0..3
-          uniform float uW4;      // peso 4
-
-          mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
-
-          // distancia “firmada” a línea horizontal periódica (en coords de célula)
-          float lineAA(float y, float frac){
-            // grosor en píxeles = frac * fwidth(y) * escala (ajuste generoso)
-            float w = max(1.0/255.0, frac * fwidth(y) * 1.5);
-            float d = abs(y);
-            return smoothstep(w, 0.0, d);
-          }
-
-          float starRaster(vec2 p){
-            // p en unidades de CELDA (ya dividido por uCell fuera)
-            // 5 haces rotados 72°; cada haz con x estirado por uAff.
-            float A = 3.141592653589793 / 5.0; // 36°
-            float acc = 0.0;
-            float W[5];
-            W[0]=uW.x; W[1]=uW.y; W[2]=uW.z; W[3]=uW.w; W[4]=uW4;
-
-            for (int i=0;i<5;i++){
-              float ang = float(i) * 2.0 * A;
-              vec2 q = rot(ang) * p;
-              q.x *= uAff; // afinidad desplaza el cierre de pentágonos
-              // coordenada periódica en X: una “línea” cada 1.0 de celda
-              // centramos el trazo en múltiplos de 1.0
-              float u = q.x - round(q.x);
-              float g = lineAA(u, uLineF) * W[i];
-              acc = max(acc, g);
-            }
-            return acc;
-          }
-
-          void main(){
-            // pasa a coordenadas físicas (centro = 0)
-            vec2 p = (vUV - 0.5) * uSize;   // “metros”
-            // aplica rotación global
-            p = rot(uRot) * p;
-            // normaliza a CELDAS
-            p /= uCell;
-
-            float g = starRaster(p);
-
-            vec3 col = mix(uBg, uInk, g);
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `;
-
-        return new THREE.ShaderMaterial({
-          uniforms, vertexShader:vs, fragmentShader:fs,
-          transparent:false, depthTest:true, depthWrite:false, dithering:false
-        });
+    const fs = `
+      precision highp float;
+      varying vec2 vUV;
+      uniform vec3  uInk, uBg;
+      uniform vec2  uSize;
+      uniform float uCell, uLineF, uRot, uAff;
+      uniform vec4  uW;
+      uniform float uW4;
+      mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+      float lineAA(float y, float frac){
+        float w = max(1.0/255.0, frac * fwidth(y) * 1.8); // AA generoso
+        float d = abs(y);
+        return smoothstep(w, 0.0, d);
       }
-
-      window.makeParkettMaterial = makeParkettMaterial;
-    })();
+      float starRaster(vec2 p){
+        float A = 3.141592653589793/5.0;
+        float acc = 0.0;
+        float W[5];
+        W[0]=uW.x; W[1]=uW.y; W[2]=uW.z; W[3]=uW.w; W[4]=uW4;
+        for (int i=0;i<5;i++){
+          float ang = float(i)*2.0*A;
+          vec2 q = rot(ang)*p;
+          q.x *= uAff;
+          float u = q.x - round(q.x);
+          float g = lineAA(u, uLineF) * W[i];
+          acc = max(acc, g);
+        }
+        return acc;
+      }
+      void main(){
+        vec2 p = (vUV - 0.5) * uSize;
+        p = rot(uRot)*p;
+        p /= uCell;
+        float g = starRaster(p);
+        vec3 col = mix(uBg, uInk, g);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+    return new THREE.ShaderMaterial({
+      uniforms, vertexShader:vs, fragmentShader:fs,
+      transparent:false, depthTest:true, depthWrite:false, dithering:false
+    });
+  }
+  window.makeParkettMaterial = makeParkettMaterial;
+})();
 
 
       function buildRAUM(){
@@ -5839,8 +5820,8 @@ void main(){
         raumGroup.add(left, right, floor, ceil, back);
 
         // ——— RASTER PLANES (cinco) usando tamaño físico ———
-        const EPS = 0.001;           // separación del muro real
-        const OVER = 1.004;          // sobre-escala suave para cubrir esquinas
+        const EPS  = 0.001;
+        const OVER = 1.02; // antes 1.004
 
         // tamaños interiores
         const sizeLeftU = D - 2*0;   // u=Z   (profundidad)
@@ -5941,7 +5922,7 @@ void main(){
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0),3));
       const m = new THREE.LineBasicMaterial({
-        color: 0x222222, transparent:true, opacity: 1.0, linewidth: 1
+        color: 0x111111, transparent:true, opacity: 1.0, depthWrite:false
       });
       return new THREE.Line(g, m);
     }
@@ -6026,7 +6007,11 @@ void main(){
       const out = {};
       for (const k in walls){
         const w = walls[k];
-        out[k] = raumBoxPlaneSection(C, solid.dims, w);
+        if (solid.dims.kind === 'SPHERE'){
+          out[k] = raumSpherePlaneSection(C, solid.dims, w);
+        } else {
+          out[k] = raumBoxPlaneSection(C, solid.dims, w);
+        }
       }
       return out;
     }
@@ -6083,13 +6068,13 @@ void main(){
             const W = walls[name];
             if (prim){
               setPolyline(lines[name].A, prim.polys[name], W);
-              lines[name].A.material.opacity = 0.20 + 0.80*prim.alpha;
+              lines[name].A.material.opacity = 0.60 + 0.40*prim.alpha;
             } else {
               setPolyline(lines[name].A, [], W);
             }
             if (sec){
               setPolyline(lines[name].B, sec.polys[name], W);
-              lines[name].B.material.opacity = 0.15 + 0.70*sec.alpha;
+              lines[name].B.material.opacity = 0.45 + 0.40*sec.alpha;
             } else {
               setPolyline(lines[name].B, [], W);
             }
