@@ -5099,6 +5099,96 @@ void main(){
       scene.remove(g);
     }
 
+    // ──────────────────────────────────────────────
+    // RAUM · Animación de deriva para “partes en el espacio”
+    //   • Determinista (mismas stats/semillas → mismo movimiento)
+    //   • Lissajous 3D por pieza + rotación lenta
+    //   • Muy ligero; corre sólo cuando RAUM está activo
+    // ──────────────────────────────────────────────
+    let __raumFloat = { parts: [], t0: 0, installed: false };
+
+    // PRNG determinista (xorshift32 simple)
+    function __raumRand(seed0){
+      let s = (seed0 >>> 0) || 0x9E3779B9;
+      return function(){
+        s ^= (s << 13); s ^= (s >>> 17); s ^= (s << 5);
+        return ((s >>> 0) / 4294967296); // [0,1)
+      };
+    }
+
+    function __raumRegisterFloatingPiece(mesh, idx, dims){
+      // Guarda base
+      const base = mesh.position.clone();
+      const baseQ = mesh.quaternion.clone();
+
+      // Vector desde el centro (dirección de “desunión”)
+      const n = new THREE.Vector3(base.x, base.y, base.z);
+      if (n.lengthSq() < 1e-9) n.set( (idx&1)?1:-1, 0.3, 0.2 ).normalize(); else n.normalize();
+
+      // Semilla determinista
+      const st = raumStats();
+      const seed = ((st.sumR|0)*73856093) ^ ((st.sumR2|0)*19349663) ^ ((st.mRank|0)*83492791) ^ (sceneSeed|0) ^ (S_global|0) ^ (idx*0x9E3779B9);
+      const rnd = __raumRand(seed);
+
+      // Amplitud dominante hacia "fuera" + pequeñas componentes laterales (en proporción a W/H/D)
+      const W = RAUM_W, H = RAUM_H, D = RAUM_D;
+      const ax = (0.05 + 0.05*rnd()) * W;
+      const ay = (0.05 + 0.05*rnd()) * H;
+      const az = (0.05 + 0.05*rnd()) * D;
+      const dom = (0.12 + 0.12*rnd()); // 12–24% del tamaño según eje dominante
+
+      const amp = new THREE.Vector3(
+        ax + dom * Math.abs(n.x) * W,
+        ay + dom * Math.abs(n.y) * H,
+        az + dom * Math.abs(n.z) * D
+      );
+
+      // Frecuencias (Hz) y fases
+      const freq = new THREE.Vector3(
+        0.030 + 0.040*rnd(),
+        0.030 + 0.040*rnd(),
+        0.030 + 0.040*rnd()
+      );
+      const phase = new THREE.Vector3(rnd()*Math.PI*2, rnd()*Math.PI*2, rnd()*Math.PI*2);
+
+      // Rotación lenta
+      const rotAxis = new THREE.Vector3(rnd()-0.5, rnd()-0.5, rnd()-0.5).normalize();
+      const rotSpeed = 0.08 + 0.18*rnd(); // rad/s
+
+      __raumFloat.parts.push({
+        mesh, base, baseQ, amp, freq, phase, rotAxis, rotSpeed,
+        qTmp: new THREE.Quaternion()
+      });
+    }
+
+    (function __installRaumFloatAnimator(){
+      if (__raumFloat.installed) return;
+      __raumFloat.installed = true;
+
+      function tick(){
+        try{
+          if (isRAUM && raumGroup && __raumFloat.parts.length){
+            const now = performance.now();
+            if (!__raumFloat.t0) __raumFloat.t0 = now;
+            const t = (now - __raumFloat.t0) / 1000.0;
+
+            for (let i=0;i<__raumFloat.parts.length;i++){
+              const p = __raumFloat.parts[i];
+              const x = p.base.x + p.amp.x * Math.sin(2*Math.PI*p.freq.x*t + p.phase.x);
+              const y = p.base.y + p.amp.y * Math.sin(2*Math.PI*p.freq.y*t + p.phase.y);
+              const z = p.base.z + p.amp.z * Math.sin(2*Math.PI*p.freq.z*t + p.phase.z);
+              p.mesh.position.set(x,y,z);
+
+              p.qTmp.setFromAxisAngle(p.rotAxis, p.rotSpeed * t);
+              p.mesh.quaternion.copy(p.baseQ).multiply(p.qTmp);
+            }
+          }
+        }catch(_){ }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+
       function buildRAUM(){
         // —— limpia versión previa
         clearGroup(raumGroup);
@@ -5124,7 +5214,7 @@ void main(){
           const matOpts = {
             color: base,
             side: THREE.DoubleSide,
-            dithering: false                // ← sin granulado en planos grandes
+            dithering: false
           };
           if (typeof opacity === 'number' && opacity < 1){
             matOpts.transparent = true;
@@ -5136,23 +5226,33 @@ void main(){
           return m;
         }
 
+        // ========= Piezas flotantes (registro determinista) =========
+        __raumFloat.parts = [];
+        __raumFloat.t0 = 0; // se fija en el animador al primer tick
+        let pieceIdx = 0;
+        function addFloat(mesh){
+          raumGroup.add(mesh);
+          __raumRegisterFloatingPiece(mesh, pieceIdx++, null);
+          return mesh;
+        }
+
         // ====== PAREDES EXTERIORES (caja sin frente) ======
-        const left  = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colLeft));
+        const left  = addFloat(new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colLeft)));
         left.position.set(-W/2 + g/2, 0, 0);
-        const right = new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colRight));
+
+        const right = addFloat(new THREE.Mesh(new THREE.BoxGeometry(g, H, D), lambert(colRight)));
         right.position.set( W/2 - g/2, 0, 0);
 
-        const floor = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colFloor));
+        const floor = addFloat(new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colFloor)));
         floor.position.set(0, -H/2 + g/2, 0);
-        const ceil  = new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colCeil));
-        ceil.position.set(0,  H/2 - g/2, 0);
 
-        raumGroup.add(left, right, floor, ceil);
+        const ceil  = addFloat(new THREE.Mesh(new THREE.BoxGeometry(W, g, D), lambert(colCeil)));
+        ceil.position.set(0,  H/2 - g/2, 0);
 
         // ====== INVARIANTES / ESTADÍSTICAS DETERMINISTAS ======
         const { sumR, sumR2, mRank } = raumStats();
 
-        // ====== MUROS INTERIORES (A y B) — primero sus PARÁMETROS ======
+        // ====== MUROS INTERIORES (A y B) — parámetros ======
         // — A (longitudinal, grosor g en X, largo LA en Z)
         const LAmin = 8, LAmax = Di; // 8..28
         const LA = LAmin + ((sumR + 5*mRank + sceneSeed) % (LAmax - LAmin + 1));
@@ -5176,7 +5276,7 @@ void main(){
         // ====== APERTURA EN LA PARED DEL FONDO (con regla 33%) ======
         const zBack = -D/2 + g/2;
 
-        // — dimensiones base (10..25), sin forzar área mínima
+        // — dimensiones base (10..25)
         let breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16); // 10..25
         let hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16); // 10..25
         breite = Math.max(2, Math.min(breite, Wi));
@@ -5208,12 +5308,8 @@ void main(){
           return out;
         }
         function complement(minX, maxX, occ){
-          const gaps=[];
-          let cur = minX;
-          occ.forEach(([a,b])=>{
-            if (a > cur) gaps.push([cur,a]);
-            cur = Math.max(cur,b);
-          });
+          const gaps=[]; let cur = minX;
+          occ.forEach(([a,b])=>{ if (a > cur) gaps.push([cur,a]); cur = Math.max(cur,b); });
           if (cur < maxX) gaps.push([cur,maxX]);
           return gaps;
         }
@@ -5239,7 +5335,6 @@ void main(){
 
         // — regla 33%: recolocación suave + fallback de reducción de ancho
         const VISIBLE_MIN = 0.33;
-
         function gapLen(g){ return g[1]-g[0]; }
         const maxGap = gaps.length ? gaps.reduce((best,g)=> gapLen(g) > gapLen(best) ? g : best, gaps[0]) : [0,0];
         const Lmax   = gapLen(maxGap);
@@ -5248,10 +5343,8 @@ void main(){
         let vis  = visibleFraction(xC, breite, occ);
 
         if (vis < VISIBLE_MIN){
-          // 1) ¿Existe algún gap que pueda contener COMPLETA la ventana?
           const bigGaps = gaps.filter(g => gapLen(g) >= breite);
           if (bigGaps.length){
-            // coloca en el gap más cercano al xC original (mínimo desplazamiento)
             let best = null;
             bigGaps.forEach(g=>{
               const cmin = g[0] + breite/2, cmax = g[1] - breite/2;
@@ -5259,23 +5352,15 @@ void main(){
               const d    = Math.abs(newX - xC);
               if (!best || d < best.d) best = {x:newX, d};
             });
-            if (best){
-              xC = best.x;
-              vis = 1;
-            }
+            if (best){ xC = best.x; vis = 1; }
           } else {
-            // 2) No cabe completa: céntrala en el mayor gap
             const mid = (maxGap[0] + maxGap[1]) / 2;
             xC = clamp(mid, xmin, xmax);
             vis = (Lmax / breite);
-
-            // 3) Fallback: reducir ancho hasta garantizar ≥ 33 %
             if (vis < VISIBLE_MIN){
-              const newW = Math.max(2, Math.min(breite, 3 * Lmax)); // (Lmax / newW) ≥ 1/3
+              const newW = Math.max(2, Math.min(breite, 3 * Lmax));
               if (newW !== breite){
-                breite = newW;
-                xmin = -Wi/2 + breite/2;
-                xmax =  Wi/2 - breite/2;
+                breite = newW; xmin = -Wi/2 + breite/2; xmax =  Wi/2 - breite/2;
               }
               const cmin2 = maxGap[0] + breite/2, cmax2 = maxGap[1] - breite/2;
               if (cmax2 >= cmin2){
@@ -5283,52 +5368,45 @@ void main(){
                 xC = clamp(mid2, Math.max(cmin2, xmin), Math.min(cmax2, xmax));
                 vis = 1;
               } else {
-                // caso extremo: Lmax == 0 → no hay hueco; mantenemos determinismo
-                vis = (Lmax / Math.max(1e-6, breite)); // 0
+                vis = (Lmax / Math.max(1e-6, breite));
               }
             }
           }
         }
 
-        // — bandas del “marco” (4 piezas)
+        // ====== Bandas del “marco” (4 piezas) → flotantes también ======
         const hTop = (Hi/2) - (yC + hoehe/2);
         if (hTop > 0.0001){
-          const top = new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack));
+          const top = addFloat(new THREE.Mesh(new THREE.BoxGeometry(Wi, hTop, g), lambert(colBack)));
           top.position.set(0, yC + hoehe/2 + hTop/2, zBack);
-          raumGroup.add(top);
         }
         const hBot = (yC - hoehe/2) - (-Hi/2);
         if (hBot > 0.0001){
-          const bot = new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack));
+          const bot = addFloat(new THREE.Mesh(new THREE.BoxGeometry(Wi, hBot, g), lambert(colBack)));
           bot.position.set(0, yC - hoehe/2 - hBot/2, zBack);
-          raumGroup.add(bot);
         }
         const wLeft = (xC - breite/2) - (-Wi/2);
         if (wLeft > 0.0001){
-          const l = new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack));
+          const l = addFloat(new THREE.Mesh(new THREE.BoxGeometry(wLeft, hoehe, g), lambert(colBack)));
           l.position.set(xC - breite/2 - wLeft/2, yC, zBack);
-          raumGroup.add(l);
         }
         const wRight = (Wi/2) - (xC + breite/2);
         if (wRight > 0.0001){
-          const r = new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack));
+          const r = addFloat(new THREE.Mesh(new THREE.BoxGeometry(wRight, hoehe, g), lambert(colBack)));
           r.position.set(xC + breite/2 + wRight/2, yC, zBack);
-          raumGroup.add(r);
         }
 
-        // ====== AHORA sí: instanciar muros interiores A y B (opacos) ======
-        const wallA = new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)); // opaco
+        // ====== MUROS INTERIORES (A y B) — ahora “flotantes” ======
+        const wallA = addFloat(new THREE.Mesh(new THREE.BoxGeometry(g, H, LA), lambert(colA)));
         wallA.position.set(xA, 0, zA);
-        raumGroup.add(wallA);
 
-        const wallB = new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB)); // opaco
+        const wallB = addFloat(new THREE.Mesh(new THREE.BoxGeometry(LB, H, g), lambert(colB)));
         wallB.position.set(xB, 0, zB);
-        raumGroup.add(wallB);
 
-        // —— añadir grupo a escena
+        // —— añadir grupo a escena y evitar culling cuando se separan
         scene.add(raumGroup);
+        raumGroup.traverse(o => { o.frustumCulled = false; });
       }
-
     function toggleRAUM(){
       isRAUM = !isRAUM;
 
