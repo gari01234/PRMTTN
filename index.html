@@ -5273,25 +5273,30 @@ void main(){
         const xB    = xBmin + (xBmax - xBmin) * uBx;
         const zB    = zBmin + (zBmax - zBmin) * uBz;
 
-        // ====== APERTURA EN LA PARED DEL FONDO (con regla 33%) ======
+        // ====== APERTURA EN LA PARED DEL FONDO (con regla 33% + margen g) ======
         const zBack = -D/2 + g/2;
 
-        // — dimensiones base (10..25)
+        // — margen mínimo a los bordes (usamos el grosor del muro)
+        const M = g;
+
+        // — dimensiones base (10..25), recortadas para respetar el margen
         let breite = 10 + ((sumR  + 7*mRank + sceneSeed)  % 16); // 10..25
         let hoehe  = 10 + ((sumR2 + 11*mRank + 3*sceneSeed) % 16); // 10..25
-        breite = Math.max(2, Math.min(breite, Wi));
-        hoehe  = Math.max(2, Math.min(hoehe,  Hi));
 
-        // — centro determinista propuesto
-        const xmin0 = -Wi/2 + breite/2, xmax0 = Wi/2 - breite/2;
-        const ymin0 = -Hi/2 + hoehe/2,  ymax0 = Hi/2 - hoehe/2;
+        // límite físico: la ventana no puede ocupar la zona de margen
+        breite = Math.max(2, Math.min(breite, Wi - 2*M));
+        hoehe  = Math.max(2, Math.min(hoehe,  Hi - 2*M));
+
+        // — centro determinista propuesto, restringido por el margen
+        const xmin0 = -Wi/2 + M + breite/2, xmax0 = Wi/2 - M - breite/2;
+        const ymin0 = -Hi/2 + M + hoehe/2,  ymax0 = Hi/2 - M - hoehe/2;
 
         const ux = ((37*sumR + 13*mRank + S_global) % 997) / 997;
         const uy = ((53*sumR2 + 17*mRank + sceneSeed) % 991) / 991;
         let xC   = xmin0 + (xmax0 - xmin0) * ux;
         const yC = ymin0 + (ymax0 - ymin0) * uy;
 
-        // — utilidades de intervalos en X
+        // — utilidades de intervalos en X, *respetando el margen*
         function clipInterval(a,b,min,max){
           const s = Math.max(a,min), e = Math.min(b,max);
           return (e > s) ? [s,e] : null;
@@ -5324,43 +5329,56 @@ void main(){
           return vis / Math.max(1e-6, width);
         }
 
-        // — proyección de A y B sobre el fondo (intervalos en X, altura total)
+        // — proyección de A y B sobre el fondo (intervalos en X) con márgenes
+        const minXBound = -Wi/2 + M;
+        const maxXBound =  Wi/2 - M;
+
         const occRaw = [];
-        const iA = clipInterval(xA - g/2,   xA + g/2,   -Wi/2, Wi/2);
-        const iB = clipInterval(xB - LB/2,  xB + LB/2,  -Wi/2, Wi/2);
+        const iA = clipInterval(xA - g/2,   xA + g/2,   minXBound, maxXBound);
+        const iB = clipInterval(xB - LB/2,  xB + LB/2,  minXBound, maxXBound);
         if (iA) occRaw.push(iA);
         if (iB) occRaw.push(iB);
-        const occ = mergeIntervals(occRaw);
-        const gaps = complement(-Wi/2, Wi/2, occ);
+        const occ  = mergeIntervals(occRaw);
+        const gaps = complement(minXBound, maxXBound, occ);
 
         // — regla 33%: recolocación suave + fallback de reducción de ancho
         const VISIBLE_MIN = 0.33;
-        function gapLen(g){ return g[1]-g[0]; }
-        const maxGap = gaps.length ? gaps.reduce((best,g)=> gapLen(g) > gapLen(best) ? g : best, gaps[0]) : [0,0];
+        function gapLen(gp){ return gp[1]-gp[0]; }
+        const maxGap = gaps.length ? gaps.reduce((best,gp)=> gapLen(gp) > gapLen(best) ? gp : best, gaps[0]) : [minXBound,minXBound];
         const Lmax   = gapLen(maxGap);
 
+        // rango actual permitido para el centro, con margen
         let xmin = xmin0, xmax = xmax0;
-        let vis  = visibleFraction(xC, breite, occ);
 
+        // si la visibilidad es baja, negociamos posición y, si hace falta, tamaño
+        let vis  = visibleFraction(xC, breite, occ);
         if (vis < VISIBLE_MIN){
-          const bigGaps = gaps.filter(g => gapLen(g) >= breite);
+          // 1) ¿Hay algún hueco que acepte *completa* la ventana?
+          const bigGaps = gaps.filter(gp => gapLen(gp) >= breite);
           if (bigGaps.length){
             let best = null;
-            bigGaps.forEach(g=>{
-              const cmin = g[0] + breite/2, cmax = g[1] - breite/2;
+            bigGaps.forEach(gp=>{
+              const cmin = gp[0] + breite/2, cmax = gp[1] - breite/2;
               const newX = clamp(xC, Math.max(cmin, xmin), Math.min(cmax, xmax));
               const d    = Math.abs(newX - xC);
               if (!best || d < best.d) best = {x:newX, d};
             });
             if (best){ xC = best.x; vis = 1; }
           } else {
+            // 2) No cabe completa: centramos en el mayor gap
             const mid = (maxGap[0] + maxGap[1]) / 2;
             xC = clamp(mid, xmin, xmax);
-            vis = (Lmax / breite);
+            vis = (Lmax / Math.max(1e-6, breite));
+
+            // 3) Fallback: reducir ancho hasta garantizar ≥ 33 % (respetando márgenes)
             if (vis < VISIBLE_MIN){
-              const newW = Math.max(2, Math.min(breite, 3 * Lmax));
+              const maxWidthByGaps = Math.max(2, Math.min(breite, 3 * Lmax));
+              const maxWidthByMargin = (Wi - 2*M);
+              const newW = Math.max(2, Math.min(maxWidthByGaps, maxWidthByMargin));
               if (newW !== breite){
-                breite = newW; xmin = -Wi/2 + breite/2; xmax =  Wi/2 - breite/2;
+                breite = newW;
+                xmin = -Wi/2 + M + breite/2;
+                xmax =  Wi/2 - M - breite/2;
               }
               const cmin2 = maxGap[0] + breite/2, cmax2 = maxGap[1] - breite/2;
               if (cmax2 >= cmin2){
