@@ -1074,222 +1074,280 @@ function initSkySphere() {
     window.addEventListener('load', () => { if(!skySphere) initSkySphere(); });
 
     /* ─────────────────────────────
-/* ─────────────────────────────
- *   LCHT · deterministic Cornsweet Room
- *   (espacio mental: vano + “luz” en las cuatro aristas)
- * ───────────────────────────── */
-let lichtGroup = null;
-let isLCHT     = false;
-let lchtPrevBg = null;          // guarda/restaura el fondo al salir
+     *   LCHT · deterministic Light Tubes
+     * ───────────────────────────── */
+    let lichtGroup = null;
+    let isLCHT     = false;
+    let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
-/* color determinista = mismo que la permutación (respeta 11 patrones) */
-function colorForPerm(pa){
-  const idx = pa[ attributeMapping[1] ];                // 1–5
-  const val = getColor(idx);
-  return Array.isArray(val)
-    ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
-    : new THREE.Color(val);
-}
-
-/* ── shader Cornsweet (sin texturas; resolución infinita) ─────────── */
-function makeCornsweetMaterial(colA, colB, hard, over, vertical){
-  const mat = new THREE.ShaderMaterial({
-    transparent: false,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uColorA: { value: new THREE.Color(colA.r, colA.g, colA.b) }, // lado “oscuro”
-      uColorB: { value: new THREE.Color(colB.r, colB.g, colB.b) }, // lado “claro”
-      uHard  : { value: hard },    // 0..1 (ancho relativo de transición)
-      uOver  : { value: over },    // 0..1 (sobreimpulso tipo Cornsweet)
-      uVert  : { value: vertical ? 1 : 0 } // 1 = franja vertical; 0 = horizontal
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main(){
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-      }
-    `,
-    fragmentShader: `
-      varying vec2 vUv;
-      uniform vec3 uColorA, uColorB;
-      uniform float uHard;  // 0..1
-      uniform float uOver;  // 0..1
-      uniform int   uVert;
-
-      // Perfil Cornsweet: rampa + “bump” fino en el borde central
-      float corn(float x, float hard, float over){
-        // x en [0,1], centro = 0.5
-        float d = x - 0.5;
-        // ancho de transición (menor = borde más duro)
-        float w = mix(0.45, 0.12, clamp(hard,0.0,1.0));
-        // rampa base
-        float ramp = smoothstep(-w, w, d);
-        // sobreimpulso local (dos gausianas)
-        float s1 = exp(-pow(d/(w*0.38 + 1e-4), 2.0));
-        float s2 = exp(-pow(d/(w*0.95 + 1e-4), 2.0));
-        float bump = over * (s1 - 0.62*s2);
-        float t = clamp(ramp + bump*0.33, 0.0, 1.0);
-        return t;
-      }
-
-      void main(){
-        float x = (uVert==1) ? vUv.x : vUv.y;
-        float t = corn(x, uHard, uOver);
-        vec3  col = mix(uColorA, uColorB, t);
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `
-  });
-  return mat;
-}
-
-/* ═════════ buildLCHT: cuarto Cornsweet determinista ════════════════ */
-function buildLCHT(){
-  try {
-    // limpiar escena previa
-    if (lichtGroup) {
-      lichtGroup.traverse(o => {
-        if (o.isMesh || o.isGroup) {
-          if (o.material && o.material.dispose) o.material.dispose();
-          if (o.geometry && o.geometry.dispose) o.geometry.dispose();
-        }
-      });
-      scene.remove(lichtGroup);
+    /* color determinista = mismo que la permutación                    */
+    function colorForPerm(pa){
+      const idx = pa[ attributeMapping[1] ];                // 1–5
+      const val = getColor(idx);
+      return Array.isArray(val)
+        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
+        : new THREE.Color(val);
     }
-    lichtGroup = new THREE.Group();
-    scene.add(lichtGroup);
 
-    // ——— ESCALA CORRECTA (mismo sistema físico que el vano) ———
-    const UNIT = cubeSize / 5;
-    const SIZE = cubeSize * UNIT;
-    const INNER = SIZE * 0.88;
-    const STRIP = INNER * 0.22;
-    const RIM   = INNER * 0.012;
-    const DEPTH = 0.0;
+    /* ═════════ LCHT “cubos-de-tubos” (Sol LeWitt) ═════════════════ */
 
-    // —— permutaciones activas (determinismo cromático) ——
-    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                       .map(o => o.value.split(',').map(Number));
-    if (!perms.length) {
-      // registra un root vacío para que WW Tuning no se queje
-      if (typeof registerEngineRoot === 'function') registerEngineRoot('LCHT', lichtGroup);
+function tubeKey(x1, y1, z1, x2, y2, z2) {
+  const a = `${x1},${y1},${z1}`;
+  const b = `${x2},${y2},${z2}`;
+  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function buildLCHT() {
+  /* ── limpiar escena previa ─────────────────────────────── */
+  if (lichtGroup) {
+    lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    scene.remove(lichtGroup);
+  }
+  lichtGroup = new THREE.Group();
+  scene.add(lichtGroup);
+
+  const step       = cubeSize / 5;
+  const litInfo    = new Map();      // key → { color, lcht, perm }
+  const collisions = new Set();      // aristas compartidas entre perms
+
+  /* ── helpers ───────────────────────────────────────────── */
+
+  /* inserta una arista evitando duplicados intra-perm */
+  function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
+    const key = tubeKey(x1, y1, z1, x2, y2, z2);
+    if (seen.has(key)) return;                 // ya la añadió este perm
+    seen.add(key);
+
+    if (litInfo.has(key)) {                    // ¿otra permutación?
+      if (litInfo.get(key).perm !== perm) collisions.add(key);
       return;
     }
+    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
+  }
 
-    const baseCol = colorForPerm(perms[0]).clone();
-    const [h0, s0, v0] = rgbToHsv(baseCol.r*255, baseCol.g*255, baseCol.b*255);
-    const sc  = (sceneSeed + S_global + lehmerRank(perms[0])) % 360;
-    const h1  = ((h0*360 + 24 + (sc % 67)) % 360) / 360;
-    const s1  = Math.min(1, s0 * 1.06);
-    const v1  = Math.min(1, v0 * 1.08);
-    let rgb2  = hsvToRgb(h1, s1, v1);
-    rgb2      = ensureContrastRGB(rgb2);
-    const colB = new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
+  /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
+  function addCube(cx, cy, cz, color, lcht, perm, seen) {
+    const v = [
+      [cx,     cy,     cz],
+      [cx + 1, cy,     cz],
+      [cx + 1, cy + 1, cz],
+      [cx,     cy + 1, cz],
+      [cx,     cy,     cz + 1],
+      [cx + 1, cy,     cz + 1],
+      [cx + 1, cy + 1, cz + 1],
+      [cx,     cy + 1, cz + 1]
+    ];
+    const E = [
+      [0, 1], [1, 2], [2, 3], [3, 0],   // base
+      [4, 5], [5, 6], [6, 7], [7, 4],   // tapa
+      [0, 4], [1, 5], [2, 6], [3, 7]    // pilares
+    ];
+    E.forEach(([a, b]) =>
+      addEdge(...v[a], ...v[b], color, lcht, perm, seen)
+    );
+  }
 
-    const HARD = 0.72, OVER = 0.80;
-    const matVert = makeCornsweetMaterial(baseCol, colB, HARD, OVER, true);
-    const matHorz = makeCornsweetMaterial(baseCol, colB, HARD, OVER, false);
+  /* ── recopilar aristas de todas las permutaciones ───────── */
 
-    // — Fondo (hueco)
-    const bgGeom = new THREE.PlaneGeometry(INNER, INNER);
-    const bgMat  = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
-    const bg     = new THREE.Mesh(bgGeom, bgMat);
-    bg.position.set(0,0,DEPTH - 0.1);
-    lichtGroup.add(bg);
+    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                       .map(o => o.value.split(',').map(Number));
 
-    // — Rim negro (4 tiras, sin texturas)
-    const rimH = new THREE.PlaneGeometry(INNER, RIM);
-    const rimV = new THREE.PlaneGeometry(RIM, INNER);
-    const rimM = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
-    const rTop = new THREE.Mesh(rimH, rimM); rTop.position.set(0,  INNER/2 - RIM/2, DEPTH - 0.05);
-    const rBot = new THREE.Mesh(rimH, rimM); rBot.position.set(0, -INNER/2 + RIM/2, DEPTH - 0.05);
-    const rLft = new THREE.Mesh(rimV, rimM); rLft.position.set(-INNER/2 + RIM/2, 0, DEPTH - 0.05);
-    const rRgt = new THREE.Mesh(rimV, rimM); rRgt.position.set( INNER/2 - RIM/2, 0, DEPTH - 0.05);
-    lichtGroup.add(rTop, rBot, rLft, rRgt);
-
-    // — Cuatro franjas Cornsweet
-    const gLeft   = new THREE.PlaneGeometry(STRIP, INNER);
-    const gRight  = new THREE.PlaneGeometry(STRIP, INNER);
-    const gTop    = new THREE.PlaneGeometry(INNER, STRIP);
-    const gBottom = new THREE.PlaneGeometry(INNER, STRIP);
-    const left  = new THREE.Mesh(gLeft,  matVert);
-    const right = new THREE.Mesh(gRight, matVert);
-    const top   = new THREE.Mesh(gTop,   matHorz);
-    const bot   = new THREE.Mesh(gBottom,matHorz);
-    left.position.set(-INNER/2 + STRIP/2, 0, DEPTH);
-    right.position.set( INNER/2 - STRIP/2, 0, DEPTH);
-    top.position.set(0,  INNER/2 - STRIP/2, DEPTH);
-    bot.position.set(0, -INNER/2 + STRIP/2, DEPTH);
-    lichtGroup.add(left, right, top, bot);
-
-    // — Asimetría determinista (cielo/suelo)
-    const rgs   = perms.map(p => computeRange(computeSignature(p)));
-    const avgR  = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
-    const tintK = ((Math.round(avgR*7 + sceneSeed) % 360) / 360);
-    function tintMat(m, delta){
-      const ca = m.uniforms.uColorA.value, cb = m.uniforms.uColorB.value;
-      let ha = rgbToHsv(ca.r*255, ca.g*255, ca.b*255);
-      let hb = rgbToHsv(cb.r*255, cb.g*255, cb.b*255);
-      ha[0] = (ha[0] + delta) % 1;  hb[0] = (hb[0] + delta) % 1;
-      const ra = hsvToRgb(ha[0], ha[1], ha[2]);
-      const rb = hsvToRgb(hb[0], hb[1], hb[2]);
-      m.uniforms.uColorA.value.setRGB(ra[0]/255, ra[1]/255, ra[2]/255);
-      m.uniforms.uColorB.value.setRGB(rb[0]/255, rb[1]/255, rb[2]/255);
+    /* — rango promedio de la escena — */
+    {
+      const rgs = perms.map(p => computeRange(computeSignature(p)));
+      avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
     }
-    tintMat(top.material,  +tintK*0.06);
-    tintMat(bot.material,  -tintK*0.05);
 
-    // — Respiración sutil (determinista)
-    const phase = ((sceneSeed*13 + S_global*31) % 360) * (Math.PI/180);
-    lichtGroup.userData.animate = function(time){
-      const k = 0.004;
-      const s = 1.0 + k*Math.sin(time*0.35 + phase);
-      left.scale.y = right.scale.y = top.scale.x = bot.scale.x = s;
+    perms.forEach((pa, permIdx) => {
+      const L       = pa[attributeMapping[0]];               // altura torre
+      const col     = colorForPerm(pa);
+      const sig     = computeSignature(pa);
+      const rng     = computeRange(sig);
+      const r       = lehmerRank(pa);
+    const I       = (r + sceneSeed + S_global) % 125;
+    const x0      = Math.floor(I / 25);
+    const y0      = Math.floor((I % 25) / 5);
+    const z0      = I % 5;
+
+    const lcht = {
+      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
+      amp: 0.05 + 0.10 * rng,
+      f  : 0.10 + 0.175 * rng,
+      phi: 2 * Math.PI * ((r % 360) / 360)
     };
 
-    // evita culling
-    lichtGroup.traverse(o => { o.frustumCulled = false; });
+    const seen = new Set();           // evita negros por duplicado interno
 
-    // **Registro para WW Tuning / Minimal UI**
-    if (typeof registerEngineRoot === 'function') {
-      registerEngineRoot('LCHT', lichtGroup);
+    /* ① Torre central + cruz lateral (un cubo por nivel) */
+    for (let s = 0; s < L; s++) {
+      const y = y0 + s;
+
+      // cubo central
+      addCube(x0, y, z0, col, lcht, permIdx, seen);
+
+      // 4 cubos laterales
+      addCube(x0 + 1, y, z0,     col, lcht, permIdx, seen);
+      addCube(x0 - 1, y, z0,     col, lcht, permIdx, seen);
+      addCube(x0,     y, z0 + 1, col, lcht, permIdx, seen);
+      addCube(x0,     y, z0 - 1, col, lcht, permIdx, seen);
     }
 
-  } catch(e){
-    console.error('[LCHT] build error:', e);
-    // no romper el boot ni el Minimal UI
-    try { if (lichtGroup) scene.remove(lichtGroup); } catch(_){ }
-  }
+    /* ② Brazos horizontales en ±X, ±Z (planos y = y₀ y y = y₀+L) */
+    const dirs = [
+      [ 1, 0,  0], [-1, 0,  0],
+      [ 0, 0,  1], [ 0, 0, -1]
+    ];
+    [y0, y0 + L].forEach(yy => {
+      dirs.forEach(([dx, _, dz]) => {
+        for (let s = 0; s < L; s++) {
+          addCube(x0 + dx * s, yy, z0 + dz * s, col, lcht, permIdx, seen);
+        }
+      });
+    });
+  });
+
+  /* ── colisiones → negro + sin luz ───────────────────────── */
+  // collisions.forEach(k => {
+  //   const d = litInfo.get(k);
+  //   if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
+  // });
+
+  /* ── geometría final  ·  cada arista → varios segmentos coloreados ── */
+  litInfo.forEach((info, key) => {
+    const [a, b]        = key.split('|');
+    const [x1, y1, z1]  = a.split(',').map(Number);
+    const [x2, y2, z2]  = b.split(',').map(Number);
+
+    const p1   = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
+    const p2   = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
+    const dir  = new THREE.Vector3().subVectors(p2, p1);
+    const len  = dir.length();
+    const dN   = dir.clone().normalize();
+
+    /* nº de segmentos = 1 por celda de 6 u, mínimo 1 */
+    const SEG  = Math.max(1, Math.ceil(len / step));
+    const hSeg = len / SEG;            // altura de cada sub-cilindro
+
+    const [h, s, v] = rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
+
+    for(let i = 0; i < SEG; i++){
+      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
+
+      // === BUILD-like color pipeline para LCHT ===
+      const zNorm = (mid.z + halfCube) / cubeSize;            // frontalidad 0..1
+      const vib   = 0.22 + 0.10 * zNorm;                      // vibrance
+      const s1    = Math.min(1, s + vib * (1 - s));           // sube S con más fuerza en S bajas
+      const v1    = Math.min(0.93, v * (1.02 + 0.06 * zNorm));// brillo controlado (evita “quemados”)
+      let   rgb   = hsvToRgb(h, s1, v1);                      // HSV → RGB
+      rgb = ensureContrastRGB(rgb);                           // ΔEbg ≥ 22
+
+      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+
+      // — Perfil cuadrado (lado = 0.8 del cilindro r=0.4) + pequeño solape
+      const SIDE = 0.2;
+      const JOIN = 0.02;
+
+      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
+      const mat = new THREE.MeshLambertMaterial({
+        color: col,
+        dithering: true,
+        flatShading: true
+      });
+
+      // luminancia muy sutil de base (animación ajusta intensidad cada frame)
+      mat.emissive = col.clone();
+      mat.emissiveIntensity = 0.06 + 0.10 * zNorm;
+
+      const tube = new THREE.Mesh(geo, mat);
+      tube.position.copy(mid);
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
+
+      // guardamos el HSV de base ya “boosteado” (la animación solo mueve el H)
+      tube.userData.baseHsv = { h, s: s1, v: v1 };
+      tube.userData.lcht    = info.lcht;
+      lichtGroup.add(tube);
+    }
+  });
 }
+/* ════════════════════════════════════════════════════════════ */
 
-// Encadra el vano Cornsweet en pantalla sin “z” gigantes ni conflictos
-function setCamera_LCHT(){
-  // tamaño objetivo = 88% del vano del cubo convertido a unidades físicas
-  const UNIT  = cubeSize / 5;
-  const SIZE  = cubeSize * UNIT;
-  const INNER = SIZE * 0.88;
 
-  // fov estable y distancia calculada para que quepa el cuadro INNER con margen
-  const fovDeg = 28;
-  camera.fov = fovDeg;
-  const fovRad = THREE.MathUtils.degToRad(fovDeg);
-  const height = INNER * 1.08;                   // +8% de margen
-  const dist   = (height/2) / Math.tan(fovRad/2);
+    function toggleLCHT(){
+      if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
+      if (!isLCHT && isTMSL)  toggleTMSL();
+      if (!isLCHT && isKEPLR) toggleKEPLR();
+      isLCHT = !isLCHT;
 
-  camera.position.set(0, 0, dist);
-  camera.lookAt(0,0,0);
-  camera.near = Math.max(0.1, dist * 0.02);
-  camera.far  = dist * 50;
-  camera.updateProjectionMatrix();
+      if (isLCHT){
+        leaveBuildRenderBoost();          // ← desactiva boost de BUILD
+        /* — cambia material del cubo a lambert para que capte luz — */
+        if(!cubeUniverse.userData.prevMat){
+          cubeUniverse.userData.prevMat = cubeUniverse.material;
+          cubeUniverse.material = new THREE.MeshLambertMaterial({
+            color: cubeUniverse.userData.prevMat.color,
+            transparent: true,
+            opacity: cubeUniverse.userData.prevMat.opacity,
+            side: cubeUniverse.userData.prevMat.side
+          });
+        }
+        if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
+        scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
+        if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
+        buildLCHT();
+        lichtGroup.visible        = true;
+        cubeUniverse.visible      = false;
+        permutationGroup.visible  = false;
 
-  // controles bloqueados en LCHT (pero no toques flags globales)
-  if (controls) {
-    controls.enabled = false;
-    controls.update && controls.update();
-  }
-}
+        setCamera_LCHT();
+
+      } else {
+        /* — restaura material original — */
+        if(cubeUniverse.userData.prevMat){
+          cubeUniverse.material.dispose();
+          cubeUniverse.material = cubeUniverse.userData.prevMat;
+          delete cubeUniverse.userData.prevMat;
+        }
+        if (lichtGroup) lichtGroup.visible = false;
+        if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
+        lchtPrevBg = null;
+        cubeUniverse.visible      = true;
+        permutationGroup.visible  = true;
+        restoreBuildView();
+      }
+      const b = document.getElementById('lchtButton');
+      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
+    }
+
+    /* reconstruye LCHT si hay cambios de escena */
+    function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
+
+    /* Cambia al motor BUILD sin generar una nueva configuración */
+    function switchToBuild(){
+      if (isOFFNNG) toggleOFFNNG();   // exclusividad
+      if (isFRBN)  toggleFRBN();
+      if (isLCHT)  toggleLCHT();
+      if (isTMSL)  toggleTMSL();
+      if (isRAUM)  toggleRAUM();
+      if (is13245) toggle13245();     // ← NUEVO
+      if (isR5NOVA) toggleR5NOVA();     // ← NUEVO
+      if (isKEPLR) toggleKEPLR();     // ← NUEVO
+      enterBuildRenderBoost();        // PR/exposure para BUILD
+
+      // Controles: ORBIT LIBRE en BUILD
+      controls.enabled            = true;
+      controls.enableRotate       = true;
+      controls.enablePan          = true;
+      controls.enableZoom         = true;
+      controls.minPolarAngle      = 0;
+      controls.maxPolarAngle      = Math.PI;
+      controls.screenSpacePanning = false;
+      controls.update();
+    }
+
+    // ——— Canon para motores tipo BUILD (frontal libre)
+    const BUILD_FOV = 34;
+    const BUILD_Z   = 84;
+
     /* ============================================================
        CAMERAS · definición independiente por motor (fuente única)
        ============================================================ */
@@ -1312,25 +1370,20 @@ function setCamera_LCHT(){
     }
 
     function setCamera_LCHT(){
-      const UNIT  = cubeSize / 5;
-      const SIZE  = cubeSize * UNIT;
-      const INNER = SIZE * 0.88;
-
-      const fovDeg = 28;
-      camera.fov = fovDeg;
-      const fovRad = THREE.MathUtils.degToRad(fovDeg);
-      const height = INNER * 1.08;
-      const dist   = (height/2) / Math.tan(fovRad/2);
-
-      camera.position.set(0, 0, dist);
-      camera.lookAt(0,0,0);
-      camera.near = Math.max(0.1, dist * 0.02);
-      camera.far  = dist * 50;
-      camera.updateProjectionMatrix();
-
-      if (controls) {
-        controls.enabled = false;
-        controls.update && controls.update();
+      camera.up.set(0,1,0);
+      camera.near = 0.1; camera.far = 4000;
+      camera.fov = 75; camera.updateProjectionMatrix();
+      if (controls && controls.target) controls.target.set(0, 0, 0);
+      camera.position.set(0, 0, 130);
+      if (controls){
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.enablePan    = true;
+        controls.enableZoom   = true;
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+        controls.screenSpacePanning = false;
+        controls.update();
       }
     }
 
