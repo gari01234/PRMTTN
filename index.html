@@ -1090,18 +1090,16 @@ function initSkySphere() {
         : new THREE.Color(val);
     }
 
-    /* util: RGB<->HSV ya existen en el proyecto:
-       rgbToHsv(r,g,b) y hsvToRgb(h,s,v) devuelven arrays [h,s,v] / [r,g,b] */
-
     /* ── shader Cornsweet (sin texturas; resolución infinita) ─────────── */
     function makeCornsweetMaterial(colA, colB, hard, over, vertical){
       const mat = new THREE.ShaderMaterial({
         transparent: false,
         depthWrite: true,
+        side: THREE.DoubleSide,
         uniforms: {
           uColorA: { value: new THREE.Color(colA.r, colA.g, colA.b) }, // lado “oscuro”
           uColorB: { value: new THREE.Color(colB.r, colB.g, colB.b) }, // lado “claro”
-          uHard  : { value: hard },    // 0..1 (ancho de transición)
+          uHard  : { value: hard },    // 0..1 (ancho relativo de transición)
           uOver  : { value: over },    // 0..1 (sobreimpulso tipo Cornsweet)
           uVert  : { value: vertical ? 1 : 0 } // 1 = franja vertical; 0 = horizontal
         },
@@ -1119,15 +1117,15 @@ function initSkySphere() {
           uniform float uOver;  // 0..1
           uniform int   uVert;
 
-          // Perfil Cornsweet: rampa + “bump” fino en el borde
+          // Perfil Cornsweet: rampa + “bump” fino en el borde central
           float corn(float x, float hard, float over){
             // x en [0,1], centro = 0.5
             float d = x - 0.5;
             // ancho de transición (menor = borde más duro)
             float w = mix(0.45, 0.12, clamp(hard,0.0,1.0));
-            // rampa base (derivada suave → sin banding)
+            // rampa base
             float ramp = smoothstep(-w, w, d);
-            // sobreimpulso local (dos gausianas de distinta sigma)
+            // sobreimpulso local (dos gausianas)
             float s1 = exp(-pow(d/(w*0.38 + 1e-4), 2.0));
             float s2 = exp(-pow(d/(w*0.95 + 1e-4), 2.0));
             float bump = over * (s1 - 0.62*s2);
@@ -1161,55 +1159,64 @@ function initSkySphere() {
       lichtGroup = new THREE.Group();
       scene.add(lichtGroup);
 
-      // ——— parámetros de vano/“back wall” dentro del cubo 30×30×30 ———
-      // ocupamos claramente más área que antes (≈ 90% del vano)
-      const INNER = cubeSize * 0.90;          // lado del “hueco” útil
-      const FRAME = cubeSize * 0.015;         // margen negro interior (refuerza profundidad)
-      const STRIP = INNER * 0.18;             // grosor de cada franja Cornsweet
-      const DEPTH = 0.0;                      // todo en el mismo plano
+      /* ——— ESCALA CORRECTA (mismo sistema físico que el vano) ———
+         En la escena, 1 “celda” = cubeSize/5 unidades físicas.
+         El vano que ves al frente ocupa el cuadrado interno de ese cubo.
+         Por eso construimos el cuarto en unidades físicas (× UNIT). */
+      const UNIT = cubeSize / 5;         // p.ej. 6 si cubeSize=30
+      const SIZE = cubeSize * UNIT;      // tamaño físico total del cubo (p.ej. 180)
+      const INNER = SIZE * 0.88;         // lado útil del hueco (≈ 88% del vano)
+      const STRIP = INNER * 0.22;        // grosor de cada franja Cornsweet
+      const RIM   = INNER * 0.012;       // rim negro muy fino
+      const DEPTH = 0.0;                 // en el plano del hueco
 
       // —— conjunto de permutaciones activas (determinismo cromático) ——
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                          .map(o => o.value.split(',').map(Number));
-
-      // Si no hay perms, nada que dibujar
       if (!perms.length) return;
 
-      // Color base: del 1er perm (respeta patrón cromático del sistema)
+      // Color base (patrón cromático del sistema)
       const baseCol = colorForPerm(perms[0]).clone();
 
-      // Segundo color: giro determinista del H a partir de sceneSeed/sumatoria
+      // Segundo color: giro determinista del H a partir de sceneSeed/S_global/lehmerRank
       const [h0, s0, v0] = rgbToHsv(baseCol.r*255, baseCol.g*255, baseCol.b*255);
-      const sc = (sceneSeed + S_global + lehmerRank(perms[0])) % 360;   // fijo
-      const h1 = ((h0*360 + 20 + (sc % 70)) % 360) / 360;               // despl. 20..89°
-      const s1 = Math.min(1, s0 * 1.06);
-      const v1 = Math.min(1, v0 * 1.08);
-      let rgb2 = hsvToRgb(h1, s1, v1);
-      rgb2 = ensureContrastRGB(rgb2); // mantiene ΔE con el fondo de PRMTTN
+      const sc  = (sceneSeed + S_global + lehmerRank(perms[0])) % 360; // fijo
+      const h1  = ((h0*360 + 24 + (sc % 67)) % 360) / 360;             // despl. 24..90°
+      const s1  = Math.min(1, s0 * 1.06);
+      const v1  = Math.min(1, v0 * 1.08);
+      let rgb2  = hsvToRgb(h1, s1, v1);
+      rgb2      = ensureContrastRGB(rgb2); // mantiene ΔE con el fondo del proyecto
       const colB = new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
 
-      // Materiales Cornsweet (vertical/horizontal) — duros pero creíbles
-      const HARD = 0.72;   // 0..1 (más alto = borde más duro)
-      const OVER = 0.80;   // 0..1 (amplitud del efecto óptico)
+      // Materiales Cornsweet (vertical/horizontal)
+      const HARD = 0.72;     // borde bastante duro
+      const OVER = 0.80;     // amplitud del efecto
       const matVert = makeCornsweetMaterial(baseCol, colB, HARD, OVER, true);
       const matHorz = makeCornsweetMaterial(baseCol, colB, HARD, OVER, false);
 
-      // —— plano de fondo (centro oscuro) para reforzar “espacio detrás” ——
+      // — Fondo “hueco” (oscuro) para reforzar profundidad —
       const bgGeom = new THREE.PlaneGeometry(INNER, INNER);
-      const bgMat  = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      const bgMat  = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
       const bg     = new THREE.Mesh(bgGeom, bgMat);
-      bg.position.set(0,0,DEPTH - 0.001);
+      bg.position.set(0,0,DEPTH - 0.1);
       lichtGroup.add(bg);
 
-      // —— “marco” negro interior muy delgado (como Turrell First Light) ——
-      const rimGeom = new THREE.RingGeometry((INNER/2)-FRAME, INNER/2, 64);
-      const rimMat  = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
-      const rim     = new THREE.Mesh(rimGeom, rimMat);
-      rim.rotation.x = Math.PI;   // en el plano de la “pared”
-      rim.position.set(0,0,DEPTH - 0.0005);
-      lichtGroup.add(rim);
+      // — Rim negro cuadrado muy fino (sin texturas, 4 tiras) —
+      const rimH = new THREE.PlaneGeometry(INNER, RIM);
+      const rimV = new THREE.PlaneGeometry(RIM, INNER);
+      const rimM = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
 
-      // —— cuatro franjas Cornsweet (paredes/techo/suelo) ——
+      const rTop = new THREE.Mesh(rimH, rimM);
+      rTop.position.set(0,  INNER/2 - RIM/2, DEPTH - 0.05);
+      const rBot = new THREE.Mesh(rimH, rimM);
+      rBot.position.set(0, -INNER/2 + RIM/2, DEPTH - 0.05);
+      const rLft = new THREE.Mesh(rimV, rimM);
+      rLft.position.set(-INNER/2 + RIM/2, 0, DEPTH - 0.05);
+      const rRgt = new THREE.Mesh(rimV, rimM);
+      rRgt.position.set( INNER/2 - RIM/2, 0, DEPTH - 0.05);
+      lichtGroup.add(rTop, rBot, rLft, rRgt);
+
+      // — Cuatro franjas Cornsweet (paredes/techo/suelo) —
       const gLeft   = new THREE.PlaneGeometry(STRIP, INNER);
       const gRight  = new THREE.PlaneGeometry(STRIP, INNER);
       const gTop    = new THREE.PlaneGeometry(INNER, STRIP);
@@ -1227,14 +1234,12 @@ function initSkySphere() {
 
       lichtGroup.add(left, right, top, bot);
 
-      // —— orientación existencial mínima (esquina preferente) ——
-      // usamos el rango promedio de la escena para rotar sutilmente el “tono”
-      const rgs = perms.map(p => computeRange(computeSignature(p)));
-      const avgR = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
-      const hueShift = (Math.round(avgR*7 + sceneSeed) % 360) / 360;
+      // — Orientación existencial mínima (ligera asimetría determinista) —
+      const rgs   = perms.map(p => computeRange(computeSignature(p)));
+      const avgR  = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
+      const tintK = ((Math.round(avgR*7 + sceneSeed) % 360) / 360);
 
-      // leve sesgo de H en top/bot para evocar “cielo/suelo”
-      function tintMaterial(m, delta){
+      function tintMat(m, delta){
         const ca = m.uniforms.uColorA.value, cb = m.uniforms.uColorB.value;
         let ha = rgbToHsv(ca.r*255, ca.g*255, ca.b*255);
         let hb = rgbToHsv(cb.r*255, cb.g*255, cb.b*255);
@@ -1244,144 +1249,30 @@ function initSkySphere() {
         m.uniforms.uColorA.value.setRGB(ra[0]/255, ra[1]/255, ra[2]/255);
         m.uniforms.uColorB.value.setRGB(rb[0]/255, rb[1]/255, rb[2]/255);
       }
-      tintMaterial(top.material,  hueShift*0.06);
-      tintMaterial(bot.material, -hueShift*0.05);
+      tintMat(top.material,  +tintK*0.06);   // leve “cielo”
+      tintMat(bot.material,  -tintK*0.05);   // leve “suelo”
 
-      // —— “respiración” muy leve (opcional, pero determinista) ——
-      // usa S_global/sceneSeed, no PRNG, para mantener determinismo
+      // — Respiración sutil (determinista; sin PRNG) —
       const phase = ((sceneSeed*13 + S_global*31) % 360) * (Math.PI/180);
       lichtGroup.userData.animate = function(time){
-        const k = 0.004; // amplitud mínima
+        const k = 0.004;
         const s = 1.0 + k*Math.sin(time*0.35 + phase);
         left.scale.y = right.scale.y = top.scale.x = bot.scale.x = s;
       };
 
-      // asegurar que nada se culee al asomar
+      // Nada fuera de frustum (rinde perfecto al hacer zoom)
       lichtGroup.traverse(o => { o.frustumCulled = false; });
     }
 
-    /* ——— hook de animación (si ya tienes un loop, añade esto donde corresponda) ———
-       Dentro de tu rAF principal, después de actualizar grupos:
-       if (lichtGroup && lichtGroup.userData.animate) {
-         const t = performance.now()/1000;
-         lichtGroup.userData.animate(t);
-       }
-    */
-
-
-    function toggleLCHT(){
-      if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
-      if (!isLCHT && isTMSL)  toggleTMSL();
-      if (!isLCHT && isKEPLR) toggleKEPLR();
-      isLCHT = !isLCHT;
-
-      if (isLCHT){
-        leaveBuildRenderBoost();          // ← desactiva boost de BUILD
-        /* — cambia material del cubo a lambert para que capte luz — */
-        if(!cubeUniverse.userData.prevMat){
-          cubeUniverse.userData.prevMat = cubeUniverse.material;
-          cubeUniverse.material = new THREE.MeshLambertMaterial({
-            color: cubeUniverse.userData.prevMat.color,
-            transparent: true,
-            opacity: cubeUniverse.userData.prevMat.opacity,
-            side: cubeUniverse.userData.prevMat.side
-          });
-        }
-        if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-        if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
-        buildLCHT();
-        lichtGroup.visible        = true;
-        cubeUniverse.visible      = false;
-        permutationGroup.visible  = false;
-
-        setCamera_LCHT();
-
-      } else {
-        /* — restaura material original — */
-        if(cubeUniverse.userData.prevMat){
-          cubeUniverse.material.dispose();
-          cubeUniverse.material = cubeUniverse.userData.prevMat;
-          delete cubeUniverse.userData.prevMat;
-        }
-        if (lichtGroup) lichtGroup.visible = false;
-        if (lchtPrevBg) scene.background = lchtPrevBg;      // restaura fondo
-        lchtPrevBg = null;
-        cubeUniverse.visible      = true;
-        permutationGroup.visible  = true;
-        restoreBuildView();
-      }
-      const b = document.getElementById('lchtButton');
-      if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
-    }
-
-    /* reconstruye LCHT si hay cambios de escena */
-    function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
-
-    /* Cambia al motor BUILD sin generar una nueva configuración */
-    function switchToBuild(){
-      if (isOFFNNG) toggleOFFNNG();   // exclusividad
-      if (isFRBN)  toggleFRBN();
-      if (isLCHT)  toggleLCHT();
-      if (isTMSL)  toggleTMSL();
-      if (isRAUM)  toggleRAUM();
-      if (is13245) toggle13245();     // ← NUEVO
-      if (isR5NOVA) toggleR5NOVA();     // ← NUEVO
-      if (isKEPLR) toggleKEPLR();     // ← NUEVO
-      enterBuildRenderBoost();        // PR/exposure para BUILD
-
-      // Controles: ORBIT LIBRE en BUILD
-      controls.enabled            = true;
-      controls.enableRotate       = true;
-      controls.enablePan          = true;
-      controls.enableZoom         = true;
-      controls.minPolarAngle      = 0;
-      controls.maxPolarAngle      = Math.PI;
-      controls.screenSpacePanning = false;
-      controls.update();
-    }
-
-    // ——— Canon para motores tipo BUILD (frontal libre)
-    const BUILD_FOV = 34;
-    const BUILD_Z   = 84;
-
-    /* ============================================================
-       CAMERAS · definición independiente por motor (fuente única)
-       ============================================================ */
-    function setCamera_FRBN(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 55);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
+    /* Cámara frontal para LCHT (encuadre estable y cercano) */
     function setCamera_LCHT(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 130);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
+      controls.enabled = false;
+      camera.position.set(0, 0, 2.2 * (cubeSize * (cubeSize/5))); // ≈ 2.2 * SIZE
+      camera.lookAt(0,0,0);
+      camera.fov = 28;                         // más cerrado para llenar pantalla
+      camera.near = 0.1;
+      camera.far  = 10000;
+      camera.updateProjectionMatrix();
     }
 
     function setCamera_OFFNNG(){
