@@ -1074,13 +1074,14 @@ function initSkySphere() {
     window.addEventListener('load', () => { if(!skySphere) initSkySphere(); });
 
     /* ─────────────────────────────
-     *   LCHT · deterministic Light Tubes
+     *   LCHT · deterministic Cornsweet Room
+     *   (espacio mental: vano + “luz” en las cuatro aristas)
      * ───────────────────────────── */
     let lichtGroup = null;
     let isLCHT     = false;
     let lchtPrevBg = null;          // guarda/restaura el fondo al salir
 
-    /* color determinista = mismo que la permutación                    */
+    /* color determinista = mismo que la permutación (respeta 11 patrones) */
     function colorForPerm(pa){
       const idx = pa[ attributeMapping[1] ];                // 1–5
       const val = getColor(idx);
@@ -1089,119 +1090,183 @@ function initSkySphere() {
         : new THREE.Color(val);
     }
 
-    /* ───────── Helpers LCHT · Cornsweet ───────── */
+    /* util: RGB<->HSV ya existen en el proyecto:
+       rgbToHsv(r,g,b) y hsvToRgb(h,s,v) devuelven arrays [h,s,v] / [r,g,b] */
 
-    /* HSV helpers usando las mismas utilidades globales rgbToHsv/hsvToRgb */
-    function __hsvFromTHREE(c){
-      const [h,s,v] = rgbToHsv(c.r*255, c.g*255, c.b*255);
-      return { h, s, v };
-    }
-    function __rgbFromHSV(h,s,v){
-      const [r,g,b] = hsvToRgb(h,s,v);
-      return new THREE.Color(r/255, g/255, b/255);
-    }
-    /* media de H (circular) + S,V (aritmética) */
-    function __avgHSV(colors){
-      if (!colors.length) return { h:0, s:0, v:0.5 };
-      let sx=0, sy=0, ss=0, sv=0;
-      for (let i=0;i<colors.length;i++){
-        const [h,s,v] = rgbToHsv(colors[i].r*255, colors[i].g*255, colors[i].b*255);
-        const a = h/360 * Math.PI*2;
-        sx += Math.cos(a); sy += Math.sin(a);
-        ss += s; sv += v;
-      }
-      let ang = Math.atan2(sy, sx) / (Math.PI*2) * 360;
-      if (ang < 0) ang += 360;
-      return { h: ang, s: ss/colors.length, v: sv/colors.length };
-    }
+    /* ── shader Cornsweet (sin texturas; resolución infinita) ─────────── */
+    function makeCornsweetMaterial(colA, colB, hard, over, vertical){
+      const mat = new THREE.ShaderMaterial({
+        transparent: false,
+        depthWrite: true,
+        uniforms: {
+          uColorA: { value: new THREE.Color(colA.r, colA.g, colA.b) }, // lado “oscuro”
+          uColorB: { value: new THREE.Color(colB.r, colB.g, colB.b) }, // lado “claro”
+          uHard  : { value: hard },    // 0..1 (ancho de transición)
+          uOver  : { value: over },    // 0..1 (sobreimpulso tipo Cornsweet)
+          uVert  : { value: vertical ? 1 : 0 } // 1 = franja vertical; 0 = horizontal
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main(){
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec2 vUv;
+          uniform vec3 uColorA, uColorB;
+          uniform float uHard;  // 0..1
+          uniform float uOver;  // 0..1
+          uniform int   uVert;
 
-    /* Genera un texture “Cornsweet” determinista en Canvas (lineal, no radial)
-       - orientation: 'vertical' (borde en X) o 'horizontal' (borde en Y)
-       - amp: amplitud en ΔV (0..1)
-       - decayPx: decaimiento exponencial (px)
-       - offsetNorm: desplazamiento del borde (−0.5..+0.5 → usamos ±0.25 interno)
-       - invert: invierte claro/oscuro a ambos lados
-    */
-    function __makeCornsweetTexture(size, baseHSV, orientation, amp, decayPx, offsetNorm, invert){
-      const cvs = document.createElement('canvas');
-      cvs.width = size; cvs.height = size;
-      const ctx = cvs.getContext('2d', { willReadFrequently: true });
-      const img = ctx.createImageData(size, size);
+          // Perfil Cornsweet: rampa + “bump” fino en el borde
+          float corn(float x, float hard, float over){
+            // x en [0,1], centro = 0.5
+            float d = x - 0.5;
+            // ancho de transición (menor = borde más duro)
+            float w = mix(0.45, 0.12, clamp(hard,0.0,1.0));
+            // rampa base (derivada suave → sin banding)
+            float ramp = smoothstep(-w, w, d);
+            // sobreimpulso local (dos gausianas de distinta sigma)
+            float s1 = exp(-pow(d/(w*0.38 + 1e-4), 2.0));
+            float s2 = exp(-pow(d/(w*0.95 + 1e-4), 2.0));
+            float bump = over * (s1 - 0.62*s2);
+            float t = clamp(ramp + bump*0.33, 0.0, 1.0);
+            return t;
+          }
 
-      const cx = size*0.5 + offsetNorm * size * 0.25;
-      const cy = size*0.5 + offsetNorm * size * 0.25;
-      const sign = invert ? -1 : 1;
-
-      for (let y=0; y<size; y++){
-        for (let x=0; x<size; x++){
-          const d = (orientation === 'vertical') ? (x - cx) : (y - cy); // distancia al borde
-          const side = (d <= 0 ? 1 : -1) * sign;                        // lado claro/oscuro
-          const delta = amp * Math.exp(-Math.abs(d) / Math.max(1, decayPx)) * side; // ΔV
-          const v = Math.min(1, Math.max(0, baseHSV.v + delta));
-          const rgb = hsvToRgb(baseHSV.h, baseHSV.s, v);
-          const k = (y*size + x) * 4;
-          img.data[k  ] = rgb[0];
-          img.data[k+1] = rgb[1];
-          img.data[k+2] = rgb[2];
-          img.data[k+3] = 255;
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-      const tex = new THREE.CanvasTexture(cvs);
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.needsUpdate = true;
-      return tex;
+          void main(){
+            float x = (uVert==1) ? vUv.x : vUv.y;
+            float t = corn(x, uHard, uOver);
+            vec3  col = mix(uColorA, uColorB, t);
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      });
+      return mat;
     }
 
-    function buildLCHT() {
-      // — limpiar escena previa
+    /* ═════════ buildLCHT: cuarto Cornsweet determinista ════════════════ */
+    function buildLCHT(){
+      // limpiar escena previa
       if (lichtGroup) {
-        lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+        lichtGroup.traverse(o => {
+          if (o.isMesh || o.isGroup) {
+            if (o.material && o.material.dispose) o.material.dispose();
+            if (o.geometry && o.geometry.dispose) o.geometry.dispose();
+          }
+        });
         scene.remove(lichtGroup);
       }
       lichtGroup = new THREE.Group();
       scene.add(lichtGroup);
 
-      // — recogemos las permutaciones activas (respeta 11 patrones vía getColor)
+      // ——— parámetros de vano/“back wall” dentro del cubo 30×30×30 ———
+      // ocupamos claramente más área que antes (≈ 90% del vano)
+      const INNER = cubeSize * 0.90;          // lado del “hueco” útil
+      const FRAME = cubeSize * 0.015;         // margen negro interior (refuerza profundidad)
+      const STRIP = INNER * 0.18;             // grosor de cada franja Cornsweet
+      const DEPTH = 0.0;                      // todo en el mismo plano
+
+      // —— conjunto de permutaciones activas (determinismo cromático) ——
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                          .map(o => o.value.split(',').map(Number));
 
-      // — determinismo de escena (ancla cromática y parámetros)
-      const withRanks = perms.map(p => ({ p, r: lehmerRank(p) }));
-      withRanks.sort((a,b) => a.r - b.r);
-      const anchor = (withRanks.length ? withRanks[0].p : [1,2,3,4,5]);
+      // Si no hay perms, nada que dibujar
+      if (!perms.length) return;
 
-      // rango (0..1 aprox) para escalar amplitud (usa misma lógica del sistema)
-      const rng = computeRange(computeSignature(anchor));
+      // Color base: del 1er perm (respeta patrón cromático del sistema)
+      const baseCol = colorForPerm(perms[0]).clone();
 
-      // color base = media HSV de los colores deterministas de las perms
-      const cols = perms.length ? perms.map(colorForPerm)
-                                : [ new THREE.Color(getColor(3)) ]; // fallback determinista
-      const baseHSV = __avgHSV(cols);
+      // Segundo color: giro determinista del H a partir de sceneSeed/sumatoria
+      const [h0, s0, v0] = rgbToHsv(baseCol.r*255, baseCol.g*255, baseCol.b*255);
+      const sc = (sceneSeed + S_global + lehmerRank(perms[0])) % 360;   // fijo
+      const h1 = ((h0*360 + 20 + (sc % 70)) % 360) / 360;               // despl. 20..89°
+      const s1 = Math.min(1, s0 * 1.06);
+      const v1 = Math.min(1, v0 * 1.08);
+      let rgb2 = hsvToRgb(h1, s1, v1);
+      rgb2 = ensureContrastRGB(rgb2); // mantiene ΔE con el fondo de PRMTTN
+      const colB = new THREE.Color(rgb2[0]/255, rgb2[1]/255, rgb2[2]/255);
 
-      // parámetros deterministas (solo de estructura; nada aleatorio)
-      const sumR = withRanks.reduce((a,x)=>a+x.r,0);
-      const dir      = ((sumR + sceneSeed + S_global) % 2) ? 'vertical'   : 'horizontal';
-      const invert   = ((sumR ^ sceneSeed) & 1) === 1;
-      const amp      = 0.08 + 0.10 * rng;          // ΔV de la ilusión (claro/oscuro)
-      const decayPx  = 48 + Math.floor(80 * rng);  // extensión del halo
-      const offsetNm = (((sceneSeed * 13 + sumR) % 101) / 100) - 0.5; // −0.5..+0.5
+      // Materiales Cornsweet (vertical/horizontal) — duros pero creíbles
+      const HARD = 0.72;   // 0..1 (más alto = borde más duro)
+      const OVER = 0.80;   // 0..1 (amplitud del efecto óptico)
+      const matVert = makeCornsweetMaterial(baseCol, colB, HARD, OVER, true);
+      const matHorz = makeCornsweetMaterial(baseCol, colB, HARD, OVER, false);
 
-      // textura Cornsweet (lineal, no radial) → “horizonte existencial”
-      const TEX_SIZE = 768;
-      const tex = __makeCornsweetTexture(TEX_SIZE, baseHSV, dir, amp, decayPx, offsetNm, invert);
+      // —— plano de fondo (centro oscuro) para reforzar “espacio detrás” ——
+      const bgGeom = new THREE.PlaneGeometry(INNER, INNER);
+      const bgMat  = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      const bg     = new THREE.Mesh(bgGeom, bgMat);
+      bg.position.set(0,0,DEPTH - 0.001);
+      lichtGroup.add(bg);
 
-      // plano único en el fondo de la “apertura” (mínimo gesto arquitectónico)
-      const planeSize = cubeSize * 0.86;                 // deja reborde para el marco
-      const geo  = new THREE.PlaneGeometry(planeSize, planeSize);
-      const mat  = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
-      const pane = new THREE.Mesh(geo, mat);
+      // —— “marco” negro interior muy delgado (como Turrell First Light) ——
+      const rimGeom = new THREE.RingGeometry((INNER/2)-FRAME, INNER/2, 64);
+      const rimMat  = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+      const rim     = new THREE.Mesh(rimGeom, rimMat);
+      rim.rotation.x = Math.PI;   // en el plano de la “pared”
+      rim.position.set(0,0,DEPTH - 0.0005);
+      lichtGroup.add(rim);
 
-      // sitúa el plano en el fondo de la caja (detrás del vano)
-      pane.position.set(0, 0, -halfCube + 0.001);
-      lichtGroup.add(pane);
+      // —— cuatro franjas Cornsweet (paredes/techo/suelo) ——
+      const gLeft   = new THREE.PlaneGeometry(STRIP, INNER);
+      const gRight  = new THREE.PlaneGeometry(STRIP, INNER);
+      const gTop    = new THREE.PlaneGeometry(INNER, STRIP);
+      const gBottom = new THREE.PlaneGeometry(INNER, STRIP);
+
+      const left  = new THREE.Mesh(gLeft,  matVert);
+      const right = new THREE.Mesh(gRight, matVert);
+      const top   = new THREE.Mesh(gTop,   matHorz);
+      const bot   = new THREE.Mesh(gBottom,matHorz);
+
+      left.position.set(-INNER/2 + STRIP/2, 0, DEPTH);
+      right.position.set( INNER/2 - STRIP/2, 0, DEPTH);
+      top.position.set(0,  INNER/2 - STRIP/2, DEPTH);
+      bot.position.set(0, -INNER/2 + STRIP/2, DEPTH);
+
+      lichtGroup.add(left, right, top, bot);
+
+      // —— orientación existencial mínima (esquina preferente) ——
+      // usamos el rango promedio de la escena para rotar sutilmente el “tono”
+      const rgs = perms.map(p => computeRange(computeSignature(p)));
+      const avgR = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
+      const hueShift = (Math.round(avgR*7 + sceneSeed) % 360) / 360;
+
+      // leve sesgo de H en top/bot para evocar “cielo/suelo”
+      function tintMaterial(m, delta){
+        const ca = m.uniforms.uColorA.value, cb = m.uniforms.uColorB.value;
+        let ha = rgbToHsv(ca.r*255, ca.g*255, ca.b*255);
+        let hb = rgbToHsv(cb.r*255, cb.g*255, cb.b*255);
+        ha[0] = (ha[0] + delta) % 1;  hb[0] = (hb[0] + delta) % 1;
+        const ra = hsvToRgb(ha[0], ha[1], ha[2]);
+        const rb = hsvToRgb(hb[0], hb[1], hb[2]);
+        m.uniforms.uColorA.value.setRGB(ra[0]/255, ra[1]/255, ra[2]/255);
+        m.uniforms.uColorB.value.setRGB(rb[0]/255, rb[1]/255, rb[2]/255);
+      }
+      tintMaterial(top.material,  hueShift*0.06);
+      tintMaterial(bot.material, -hueShift*0.05);
+
+      // —— “respiración” muy leve (opcional, pero determinista) ——
+      // usa S_global/sceneSeed, no PRNG, para mantener determinismo
+      const phase = ((sceneSeed*13 + S_global*31) % 360) * (Math.PI/180);
+      lichtGroup.userData.animate = function(time){
+        const k = 0.004; // amplitud mínima
+        const s = 1.0 + k*Math.sin(time*0.35 + phase);
+        left.scale.y = right.scale.y = top.scale.x = bot.scale.x = s;
+      };
+
+      // asegurar que nada se culee al asomar
+      lichtGroup.traverse(o => { o.frustumCulled = false; });
     }
+
+    /* ——— hook de animación (si ya tienes un loop, añade esto donde corresponda) ———
+       Dentro de tu rAF principal, después de actualizar grupos:
+       if (lichtGroup && lichtGroup.userData.animate) {
+         const t = performance.now()/1000;
+         lichtGroup.userData.animate(t);
+       }
+    */
 
 
     function toggleLCHT(){
