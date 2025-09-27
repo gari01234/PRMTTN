@@ -1106,168 +1106,152 @@ function buildLCHT() {
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
 
-  const step       = cubeSize / 5;
-  const litInfo    = new Map();      // key → { color, lcht, perm }
-  const collisions = new Set();      // aristas compartidas entre perms
+  // Mantén el fondo sincronizado con el sistema (marco + apertura)
+  updateBackground(false);
 
-  /* ── helpers ───────────────────────────────────────────── */
+  // === Recoger permutaciones activas (determinismo de escena) ===
+  const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                     .map(o => o.value.split(',').map(Number));
 
-  /* inserta una arista evitando duplicados intra-perm */
-  function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
-    const key = tubeKey(x1, y1, z1, x2, y2, z2);
-    if (seen.has(key)) return;                 // ya la añadió este perm
-    seen.add(key);
+  // Suficiente para que el motor funcione con 0..n perms
+  const ranks = perms.map(p => lehmerRank(p));
+  const sumR  = ranks.reduce((a,b)=>a+b, 0);
+  const sumR2 = ranks.reduce((a,b)=>a+b*b, 0);
+  const minP  = perms.length ? perms.slice().sort((A,B)=> {
+                  for (let i=0;i<5;i++){ if (A[i]!==B[i]) return A[i]-B[i]; }
+                  return 0;
+                })[0] : [1,2,3,4,5];
+  const mRank = lehmerRank(minP);
 
-    if (litInfo.has(key)) {                    // ¿otra permutación?
-      if (litInfo.get(key).perm !== perm) collisions.add(key);
-      return;
-    }
-    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
-  }
+  // Paleta base determinista (3 matices relacionados)
+  // 144 pasos de H (como BUILD). mapeo fijo → 0..1 en shader.
+  const H0i = ( (37*sumR + 13*mRank + sceneSeed) % 144 );
+  const H1i = ( (H0i + 41) % 144 );  // desplazamientos fijos y coprimos
+  const H2i = ( (H0i + 89) % 144 );
 
-  /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
-  function addCube(cx, cy, cz, color, lcht, perm, seen) {
-    const v = [
-      [cx,     cy,     cz],
-      [cx + 1, cy,     cz],
-      [cx + 1, cy + 1, cz],
-      [cx,     cy + 1, cz],
-      [cx,     cy,     cz + 1],
-      [cx + 1, cy,     cz + 1],
-      [cx + 1, cy + 1, cz + 1],
-      [cx,     cy + 1, cz + 1]
-    ];
-    const E = [
-      [0, 1], [1, 2], [2, 3], [3, 0],   // base
-      [4, 5], [5, 6], [6, 7], [7, 4],   // tapa
-      [0, 4], [1, 5], [2, 6], [3, 7]    // pilares
-    ];
-    E.forEach(([a, b]) =>
-      addEdge(...v[a], ...v[b], color, lcht, perm, seen)
-    );
-  }
+  const H0  = H0i / 144.0;
+  const H1  = H1i / 144.0;
+  const H2  = H2i / 144.0;
 
-  /* ── recopilar aristas de todas las permutaciones ───────── */
+  // Saturación/valor base (grid discreto como BUILD)
+  const slot = ( (sumR + sumR2 + mRank + sceneSeed) % 12 );
+  const Sidx = (slot * 5) % 12;
+  const Vidx = (slot * 7) % 12;
+  const S0   = 0.25 + 0.72 * (Sidx / 11.0);
+  const V0   = 0.20 + 0.75 * (Vidx / 11.0);
 
-    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                       .map(o => o.value.split(',').map(Number));
+  // Dirección del gradiente interno (diagonal) y torsión suave
+  const theta = ((53*sumR2 + 17*mRank + S_global) % 360) * (Math.PI/180);
+  const dir   = new THREE.Vector2(Math.cos(theta), Math.sin(theta));
 
-    /* — rango promedio de la escena — */
-    {
-      const rgs = perms.map(p => computeRange(computeSignature(p)));
-      avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
-    }
+  // Intensidades Cornsweet/vineta deterministas a partir del rango medio
+  const rgs = perms.map(p => computeRange(computeSignature(p)));
+  const avgRange = rgs.length ? (rgs.reduce((a,b)=>a+b,0)/rgs.length) : 0.5;
 
-    perms.forEach((pa, permIdx) => {
-      const L       = pa[attributeMapping[0]];               // altura torre
-      const col     = colorForPerm(pa);
-      const sig     = computeSignature(pa);
-      const rng     = computeRange(sig);
-      const r       = lehmerRank(pa);
-    const I       = (r + sceneSeed + S_global) % 125;
-    const x0      = Math.floor(I / 25);
-    const y0      = Math.floor((I % 25) / 5);
-    const z0      = I % 5;
+  const edgeLift    = 0.10 + 0.25 * avgRange;    // cuánto “sube” justo dentro del borde
+  const edgeFall    = 0.12 + 0.28 * avgRange;    // cuánto “cae” en el borde extremo
+  const edgeWidth   = 0.045 + 0.035 * ((sceneSeed + sumR) % 7) / 6.0; // 0.045..0.08
+  const vignStrength= 0.25 + 0.35 * ((S_global + mRank) % 9) / 8.0;   // 0.25..0.60
+  const vignSoft    = 0.7;                         // suavidad fija (buena perceptualmente)
 
-    const lcht = {
-      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
-      amp: 0.05 + 0.10 * rng,
-      f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((r % 360) / 360)
-    };
+  // === Geometría: un plano dentro del vano (apertura) ===
+  const inner = cubeSize * 0.86;                   // encaja con el marco existente
+  const planeGeo = new THREE.PlaneGeometry(inner, inner, 1, 1);
 
-    const seen = new Set();           // evita negros por duplicado interno
+  // === Shader Cornsweet + campo cromático ===
+  const planeMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uH0: { value: H0 }, uH1: { value: H1 }, uH2: { value: H2 },
+      uS:  { value: S0 }, uV:  { value: V0 },
+      uDir:{ value: new THREE.Vector2(dir.x, dir.y) },
+      uEdgeWidth:    { value: edgeWidth },
+      uEdgeLift:     { value: edgeLift },
+      uEdgeFall:     { value: edgeFall },
+      uVignette:     { value: vignStrength },
+      uVignSoft:     { value: vignSoft }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      varying vec2 vUv;
 
-    /* ① Torre central + cruz lateral (un cubo por nivel) */
-    for (let s = 0; s < L; s++) {
-      const y = y0 + s;
+      uniform float uH0, uH1, uH2;
+      uniform float uS, uV;
+      uniform vec2  uDir;
+      uniform float uEdgeWidth, uEdgeLift, uEdgeFall;
+      uniform float uVignette, uVignSoft;
 
-      // cubo central
-      addCube(x0, y, z0, col, lcht, permIdx, seen);
+      // HSV → RGB
+      vec3 hsv2rgb(vec3 c){
+        vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+        vec3 p = abs(fract(vec3(c.x) + K.xyz) * 6.0 - 3.0);
+        vec3 rgb = c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+        return rgb;
+      }
 
-      // 4 cubos laterales
-      addCube(x0 + 1, y, z0,     col, lcht, permIdx, seen);
-      addCube(x0 - 1, y, z0,     col, lcht, permIdx, seen);
-      addCube(x0,     y, z0 + 1, col, lcht, permIdx, seen);
-      addCube(x0,     y, z0 - 1, col, lcht, permIdx, seen);
-    }
+      void main(){
+        // Coordenadas centradas
+        vec2 uv = vUv;
+        vec2 c  = uv - 0.5;
 
-    /* ② Brazos horizontales en ±X, ±Z (planos y = y₀ y y = y₀+L) */
-    const dirs = [
-      [ 1, 0,  0], [-1, 0,  0],
-      [ 0, 0,  1], [ 0, 0, -1]
-    ];
-    [y0, y0 + L].forEach(yy => {
-      dirs.forEach(([dx, _, dz]) => {
-        for (let s = 0; s < L; s++) {
-          addCube(x0 + dx * s, yy, z0 + dz * s, col, lcht, permIdx, seen);
-        }
-      });
-    });
+        // === Gradiente interno (no geométrico) entre 3 matices ===
+        float g1 = 0.5 + 0.5 * dot(normalize(uDir), normalize(c));
+        float g2 = 0.5 + 0.5 * dot(normalize(vec2(-uDir.y, uDir.x)), normalize(c));
+        g1 = clamp(g1, 0.0, 1.0);
+        g2 = clamp(g2, 0.0, 1.0);
+
+        // Tri-blend: H0 ↔ H1 ↔ H2
+        float w0 = (1.0 - g1) * (1.0 - 0.35*g2);
+        float w1 = g1 * (1.0 - 0.35*(1.0-g2));
+        float w2 = 0.35 * g2;
+        float W  = max(1e-5, (w0 + w1 + w2));
+        w0 /= W; w1 /= W; w2 /= W;
+
+        float H = fract(uH0*w0 + uH1*w1 + uH2*w2);
+        float S = uS;
+        float V = uV;
+
+        vec3 base = hsv2rgb(vec3(H, S, V));
+
+        // === Vineta sutil para convertir plano en “atmósfera” ===
+        float dEdge = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y)); // dist a bordes
+        float vig   = smoothstep(0.0, uVignSoft, dEdge);              // 0 en borde → 1 interior
+        base *= mix(1.0 - uVignette, 1.0, vig);
+
+        // === Banda Cornsweet: oscuro en el extremo + claro inmediatamente dentro ===
+        float w = uEdgeWidth;
+        // “franjas” usando dos smoothstep encadenados
+        float ringDark  = 1.0 - smoothstep(w, w*2.0, dEdge);                 // cae en el borde
+        float ringLift  = smoothstep(w*1.2, w*2.4, dEdge) *
+                          (1.0 - smoothstep(w*2.4, w*3.6, dEdge));           // sube justo dentro
+
+        vec3 col = base;
+        col *= (1.0 - uEdgeFall * ringDark);
+        col *= (1.0 + uEdgeLift * ringLift);
+
+        // clamp leve para evitar “quemados”
+        col = clamp(col, 0.0, 1.0);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+    depthWrite: false,
+    depthTest: false,
+    transparent: false,
+    side: THREE.DoubleSide
   });
 
-  /* ── colisiones → negro + sin luz ───────────────────────── */
-  // collisions.forEach(k => {
-  //   const d = litInfo.get(k);
-  //   if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
-  // });
+  const plane = new THREE.Mesh(planeGeo, planeMat);
+  plane.position.set(0, 0, -cubeSize * 0.001); // un pelo hacia atrás para que no z-flickee con el plano de fondo
+  lichtGroup.add(plane);
 
-  /* ── geometría final  ·  cada arista → varios segmentos coloreados ── */
-  litInfo.forEach((info, key) => {
-    const [a, b]        = key.split('|');
-    const [x1, y1, z1]  = a.split(',').map(Number);
-    const [x2, y2, z2]  = b.split(',').map(Number);
-
-    const p1   = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
-    const p2   = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
-    const dir  = new THREE.Vector3().subVectors(p2, p1);
-    const len  = dir.length();
-    const dN   = dir.clone().normalize();
-
-    /* nº de segmentos = 1 por celda de 6 u, mínimo 1 */
-    const SEG  = Math.max(1, Math.ceil(len / step));
-    const hSeg = len / SEG;            // altura de cada sub-cilindro
-
-    const [h, s, v] = rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
-
-    for(let i = 0; i < SEG; i++){
-      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
-
-      // === BUILD-like color pipeline para LCHT ===
-      const zNorm = (mid.z + halfCube) / cubeSize;            // frontalidad 0..1
-      const vib   = 0.22 + 0.10 * zNorm;                      // vibrance
-      const s1    = Math.min(1, s + vib * (1 - s));           // sube S con más fuerza en S bajas
-      const v1    = Math.min(0.93, v * (1.02 + 0.06 * zNorm));// brillo controlado (evita “quemados”)
-      let   rgb   = hsvToRgb(h, s1, v1);                      // HSV → RGB
-      rgb = ensureContrastRGB(rgb);                           // ΔEbg ≥ 22
-
-      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-
-      // — Perfil cuadrado (lado = 0.8 del cilindro r=0.4) + pequeño solape
-      const SIDE = 0.2;
-      const JOIN = 0.02;
-
-      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
-      const mat = new THREE.MeshLambertMaterial({
-        color: col,
-        dithering: true,
-        flatShading: true
-      });
-
-      // luminancia muy sutil de base (animación ajusta intensidad cada frame)
-      mat.emissive = col.clone();
-      mat.emissiveIntensity = 0.06 + 0.10 * zNorm;
-
-      const tube = new THREE.Mesh(geo, mat);
-      tube.position.copy(mid);
-      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
-
-      // guardamos el HSV de base ya “boosteado” (la animación solo mueve el H)
-      tube.userData.baseHsv = { h, s: s1, v: v1 };
-      tube.userData.lcht    = info.lcht;
-      lichtGroup.add(tube);
-    }
-  });
+  // Evitar culling si luego movemos cámara o marco
+  lichtGroup.traverse(o => { o.frustumCulled = false; });
 }
 /* ════════════════════════════════════════════════════════════ */
 
