@@ -1148,11 +1148,12 @@ function buildLCHT() {
     const rows = baseRows;                         // nº de franjas horizontales
     const cols = Math.max(2, Math.round(rows * ratio)); // mantiene celda ~ratio
 
-    // tamaño del panel = casi toda la celda (visible y sin solapes duros)
-    const PANEL_W = step * 0.92;
-    const PANEL_H = PANEL_W / ratio;              // para que las celdas salgan con w:h ≈ ratio
-    const H = Math.min(PANEL_H, step * 0.92);     // si H excede la celda, lo recortamos
-    const W = (H * ratio);                        // recalculamos W coherente
+    // tamaño del panel = 10× más grande que antes
+    const SCALE_FACTOR = 10.0;
+    const PANEL_W = step * 0.92 * SCALE_FACTOR;
+    const PANEL_H = PANEL_W / ratio;
+    const H = PANEL_H;               // ya no recortamos al step: dejamos crecer
+    const W = H * ratio;
 
     // orientación: XY mirando al +Z o al −Z de forma determinista (variedad)
     const faceForward = ((r + sceneSeed + S_global) & 1) === 0;
