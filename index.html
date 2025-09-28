@@ -1213,6 +1213,8 @@ function buildLCHT() {
 
 
 /* ───────────────────────── helper: crea una rejilla de cajas ────────── */
+/* Cobertura garantizada del vano: se añaden columnas/filas manteniendo
+   el tamaño de celda y el grosor de línea. */
 function addRaster({ center, width, height, cols, rows, line, join, color, nz, lcht }) {
   // material lambert con leve emisivo (pipeline tipo BUILD/andamios)
   const mat = new THREE.MeshLambertMaterial({
@@ -1223,18 +1225,37 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
   mat.emissive = color.clone();
   mat.emissiveIntensity = 0.08;
 
-  // guardamos HSV base para el wobble de tono
+  // guardamos HSV base para el wobble de tono (animación determinista)
   const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-  const halfW = width * 0.5, halfH = height * 0.5;
-  const dx = width / cols;
+  // tamaño de celda original (se mantiene)
+  const dx = width  / cols;
   const dy = height / rows;
 
+  // objetivo de cobertura: aproximamos el vano interior del muro
+  // (usa el mismo orden de magnitud que hemos empleado antes en el proyecto)
+  const TARGET_W = cubeSize * 0.90;
+  const TARGET_H = cubeSize * 0.90;
+
+  // nº extra de columnas/filas necesarias para cubrir el vano
+  const extraCols = Math.max(0, Math.ceil((TARGET_W - width)  / dx));
+  const extraRows = Math.max(0, Math.ceil((TARGET_H - height) / dy));
+
+  const cols2 = cols + extraCols;
+  const rows2 = rows + extraRows;
+
+  // dimensiones finales (mismo dx/dy, más líneas)
+  const width2  = cols2 * dx;
+  const height2 = rows2 * dy;
+
+  const halfW = width2 * 0.5;
+  const halfH = height2 * 0.5;
+
   // — verticales
-  for (let i = 0; i <= cols; i++) {
+  for (let i = 0; i <= cols2; i++) {
     const x = -halfW + i * dx;
-    const geo = new THREE.BoxGeometry(line, height + join, line);
+    const geo = new THREE.BoxGeometry(line, height2 + join, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x + x, center.y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
@@ -1244,9 +1265,9 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
   }
 
   // — horizontales
-  for (let j = 0; j <= rows; j++) {
+  for (let j = 0; j <= rows2; j++) {
     const y = -halfH + j * dy;
-    const geo = new THREE.BoxGeometry(width + join, line, line);
+    const geo = new THREE.BoxGeometry(width2 + join, line, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
