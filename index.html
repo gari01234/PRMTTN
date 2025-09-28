@@ -1213,10 +1213,9 @@ function buildLCHT() {
 
 
 /* ───────────────────────── helper: crea una rejilla de cajas ────────── */
-/* Cobertura garantizada del vano: se añaden columnas/filas manteniendo
-   el tamaño de celda y el grosor de línea. */
+/* Panel 10× más grande sin modificar dx/dy ni el grosor de línea.       */
 function addRaster({ center, width, height, cols, rows, line, join, color, nz, lcht }) {
-  // material lambert con leve emisivo (pipeline tipo BUILD/andamios)
+  // material lambert con leve emisivo (igual que antes)
   const mat = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -1225,27 +1224,20 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
   mat.emissive = color.clone();
   mat.emissiveIntensity = 0.08;
 
-  // guardamos HSV base para el wobble de tono (animación determinista)
-  const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
+  // HSV base para la animación determinista
+  const [h0, s0, v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-  // tamaño de celda original (se mantiene)
+  // Tamaño de celda ORIGINAL (se conserva)
   const dx = width  / cols;
   const dy = height / rows;
 
-  // objetivo de cobertura: aproximamos el vano interior del muro
-  // (usa el mismo orden de magnitud que hemos empleado antes en el proyecto)
-  const TARGET_W = cubeSize * 0.90;
-  const TARGET_H = cubeSize * 0.90;
+  // Escala lineal del panel (10× en ancho y alto) manteniendo dx/dy
+  const SCALE_PANEL = 10.0;
+  const cols2 = Math.max(1, Math.round(cols * SCALE_PANEL));
+  const rows2 = Math.max(1, Math.round(rows * SCALE_PANEL));
 
-  // nº extra de columnas/filas necesarias para cubrir el vano
-  const extraCols = Math.max(0, Math.ceil((TARGET_W - width)  / dx));
-  const extraRows = Math.max(0, Math.ceil((TARGET_H - height) / dy));
-
-  const cols2 = cols + extraCols;
-  const rows2 = rows + extraRows;
-
-  // dimensiones finales (mismo dx/dy, más líneas)
+  // Dimensiones finales del panel (mismo dx/dy → más líneas)
   const width2  = cols2 * dx;
   const height2 = rows2 * dy;
 
