@@ -1097,177 +1097,121 @@ function tubeKey(x1, y1, z1, x2, y2, z2) {
   return (a < b) ? `${a}|${b}` : `${b}|${a}`;
 }
 
+
 function buildLCHT() {
   /* ── limpiar escena previa ─────────────────────────────── */
   if (lichtGroup) {
-    lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    lichtGroup.traverse(o => {
+      if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
+    });
     scene.remove(lichtGroup);
   }
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
 
-  const step       = cubeSize / 5;
-  const litInfo    = new Map();      // key → { color, lcht, perm }
-  const collisions = new Set();      // aristas compartidas entre perms
+  const step = cubeSize / 5;           // tamaño de una celda del 5×5×5
+  const SIDE = 0.2;                    // grosor de línea = arista “andamio”
+  const JOIN = 0.02;                   // pequeño solape (evita gaps por FP)
 
-  /* ── helpers ───────────────────────────────────────────── */
+  // ratios raíz para los 5 rasters (mantenemos 1..5 como en attributeMapping[1])
+  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
 
-  /* inserta una arista evitando duplicados intra-perm */
-  function addEdge(x1, y1, z1, x2, y2, z2, color, lcht, perm, seen) {
-    const key = tubeKey(x1, y1, z1, x2, y2, z2);
-    if (seen.has(key)) return;                 // ya la añadió este perm
-    seen.add(key);
+  // ——— Permutaciones activas (colores deterministas ya existentes) ———
+  const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+                     .map(o => o.value.split(',').map(Number));
 
-    if (litInfo.has(key)) {                    // ¿otra permutación?
-      if (litInfo.get(key).perm !== perm) collisions.add(key);
-      return;
-    }
-    litInfo.set(key, { color: color.clone(), lcht: { ...lcht }, perm });
-  }
+  if (!perms.length) return;
 
-  /* añade los 12 tubos de un cubo (celda 1×1×1) en (cx,cy,cz) */
-  function addCube(cx, cy, cz, color, lcht, perm, seen) {
-    const v = [
-      [cx,     cy,     cz],
-      [cx + 1, cy,     cz],
-      [cx + 1, cy + 1, cz],
-      [cx,     cy + 1, cz],
-      [cx,     cy,     cz + 1],
-      [cx + 1, cy,     cz + 1],
-      [cx + 1, cy + 1, cz + 1],
-      [cx,     cy + 1, cz + 1]
-    ];
-    const E = [
-      [0, 1], [1, 2], [2, 3], [3, 0],   // base
-      [4, 5], [5, 6], [6, 7], [7, 4],   // tapa
-      [0, 4], [1, 5], [2, 6], [3, 7]    // pilares
-    ];
-    E.forEach(([a, b]) =>
-      addEdge(...v[a], ...v[b], color, lcht, perm, seen)
-    );
-  }
+  // ——— cada permutación → una rejilla en su celda determinista ———
+  perms.forEach((pa, permIdx) => {
+    const L   = pa[ attributeMapping[0] ]; // altura torre (la usamos como “densidad”)
+    const col = colorForPerm(pa);
 
-  /* ── recopilar aristas de todas las permutaciones ───────── */
+    // índice determinista de celda dentro del 5×5×5 (idéntico a tus andamios)
+    const r   = lehmerRank(pa);
+    const I   = (r + sceneSeed + S_global) % 125;
+    const x0  = Math.floor(I / 25);
+    const y0  = Math.floor((I % 25) / 5);
+    const z0  = I % 5;
 
-    const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                       .map(o => o.value.split(',').map(Number));
+    // centro en mundo de esa celda
+    const cx = (x0 - 2) * step;
+    const cy = (y0 - 2) * step;
+    const cz = (z0 - 2) * step;
 
-    /* — rango promedio de la escena — */
-    {
-      const rgs = perms.map(p => computeRange(computeSignature(p)));
-      avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
-    }
+    // tipo de raster 1..5 → 1:1, √2:1, √3:1, 2:1, √5:1
+    const typeIdx = pa[ attributeMapping[1] ];        // 1–5 (coincide con color)
+    const ratio   = ROOT_RATIOS[typeIdx];
 
-    perms.forEach((pa, permIdx) => {
-      const L       = pa[attributeMapping[0]];               // altura torre
-      const col     = colorForPerm(pa);
-      const sig     = computeSignature(pa);
-      const rng     = computeRange(sig);
-      const r       = lehmerRank(pa);
-    const I       = (r + sceneSeed + S_global) % 125;
-    const x0      = Math.floor(I / 25);
-    const y0      = Math.floor((I % 25) / 5);
-    const z0      = I % 5;
+    // densidad de líneas en función de L (3..10 aprox, determinista)
+    const baseRows = 3 + Math.max(0, Math.min(7, L + ((r % 3) - 1))); // 3..10
+    const rows = baseRows;                         // nº de franjas horizontales
+    const cols = Math.max(2, Math.round(rows * ratio)); // mantiene celda ~ratio
 
-    const lcht = {
-      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
-      amp: 0.05 + 0.10 * rng,
-      f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((r % 360) / 360)
-    };
+    // tamaño del panel = casi toda la celda (visible y sin solapes duros)
+    const PANEL_W = step * 0.92;
+    const PANEL_H = PANEL_W / ratio;              // para que las celdas salgan con w:h ≈ ratio
+    const H = Math.min(PANEL_H, step * 0.92);     // si H excede la celda, lo recortamos
+    const W = (H * ratio);                        // recalculamos W coherente
 
-    const seen = new Set();           // evita negros por duplicado interno
+    // orientación: XY mirando al +Z o al −Z de forma determinista (variedad)
+    const faceForward = ((r + sceneSeed + S_global) & 1) === 0;
+    const normal = faceForward ? 1 : -1;
 
-    /* ① Torre central + cruz lateral (un cubo por nivel) */
-    for (let s = 0; s < L; s++) {
-      const y = y0 + s;
-
-      // cubo central
-      addCube(x0, y, z0, col, lcht, permIdx, seen);
-
-      // 4 cubos laterales
-      addCube(x0 + 1, y, z0,     col, lcht, permIdx, seen);
-      addCube(x0 - 1, y, z0,     col, lcht, permIdx, seen);
-      addCube(x0,     y, z0 + 1, col, lcht, permIdx, seen);
-      addCube(x0,     y, z0 - 1, col, lcht, permIdx, seen);
-    }
-
-    /* ② Brazos horizontales en ±X, ±Z (planos y = y₀ y y = y₀+L) */
-    const dirs = [
-      [ 1, 0,  0], [-1, 0,  0],
-      [ 0, 0,  1], [ 0, 0, -1]
-    ];
-    [y0, y0 + L].forEach(yy => {
-      dirs.forEach(([dx, _, dz]) => {
-        for (let s = 0; s < L; s++) {
-          addCube(x0 + dx * s, yy, z0 + dz * s, col, lcht, permIdx, seen);
-        }
-      });
+    addRaster({
+      center: new THREE.Vector3(cx, cy, cz),
+      width:  W,
+      height: H,
+      cols,
+      rows,
+      line:  SIDE,
+      join:  JOIN,
+      color: col,
+      nz:    normal
     });
   });
 
-  /* ── colisiones → negro + sin luz ───────────────────────── */
-  // collisions.forEach(k => {
-  //   const d = litInfo.get(k);
-  //   if (d) { d.color.set(0x000000); d.lcht.I0 = 0; }
-  // });
+  // evitar culling para que ninguna rejilla “parpadee”
+  lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+}
 
-  /* ── geometría final  ·  cada arista → varios segmentos coloreados ── */
-  litInfo.forEach((info, key) => {
-    const [a, b]        = key.split('|');
-    const [x1, y1, z1]  = a.split(',').map(Number);
-    const [x2, y2, z2]  = b.split(',').map(Number);
 
-    const p1   = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
-    const p2   = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
-    const dir  = new THREE.Vector3().subVectors(p2, p1);
-    const len  = dir.length();
-    const dN   = dir.clone().normalize();
-
-    /* nº de segmentos = 1 por celda de 6 u, mínimo 1 */
-    const SEG  = Math.max(1, Math.ceil(len / step));
-    const hSeg = len / SEG;            // altura de cada sub-cilindro
-
-    const [h, s, v] = rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
-
-    for(let i = 0; i < SEG; i++){
-      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
-
-      // === BUILD-like color pipeline para LCHT ===
-      const zNorm = (mid.z + halfCube) / cubeSize;            // frontalidad 0..1
-      const vib   = 0.22 + 0.10 * zNorm;                      // vibrance
-      const s1    = Math.min(1, s + vib * (1 - s));           // sube S con más fuerza en S bajas
-      const v1    = Math.min(0.93, v * (1.02 + 0.06 * zNorm));// brillo controlado (evita “quemados”)
-      let   rgb   = hsvToRgb(h, s1, v1);                      // HSV → RGB
-      rgb = ensureContrastRGB(rgb);                           // ΔEbg ≥ 22
-
-      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-
-      // — Perfil cuadrado (lado = 0.8 del cilindro r=0.4) + pequeño solape
-      const SIDE = 0.2;
-      const JOIN = 0.02;
-
-      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
-      const mat = new THREE.MeshLambertMaterial({
-        color: col,
-        dithering: true,
-        flatShading: true
-      });
-
-      // luminancia muy sutil de base (animación ajusta intensidad cada frame)
-      mat.emissive = col.clone();
-      mat.emissiveIntensity = 0.06 + 0.10 * zNorm;
-
-      const tube = new THREE.Mesh(geo, mat);
-      tube.position.copy(mid);
-      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dN);
-
-      // guardamos el HSV de base ya “boosteado” (la animación solo mueve el H)
-      tube.userData.baseHsv = { h, s: s1, v: v1 };
-      tube.userData.lcht    = info.lcht;
-      lichtGroup.add(tube);
-    }
+/* ───────────────────────── helper: crea una rejilla de cajas ────────── */
+function addRaster({ center, width, height, cols, rows, line, join, color, nz }) {
+  // material lambert con leve emisivo (igual pipeline que tubos)
+  const mat = new THREE.MeshLambertMaterial({
+    color,
+    dithering: true,
+    flatShading: true
   });
+  mat.emissive = color.clone();
+  mat.emissiveIntensity = 0.08;
+
+  // líneas verticales (cols+1) y horizontales (rows+1) — al estilo Agnes Martin
+  const halfW = width * 0.5, halfH = height * 0.5;
+  const dx = width / cols;
+  const dy = height / rows;
+
+  // — verticales
+  for (let i = 0; i <= cols; i++) {
+    const x = -halfW + i * dx;
+    const geo = new THREE.BoxGeometry(line, height + join, line);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(center.x + x, center.y, center.z);
+    // orientado en XY; pequeño espesor en Z (usamos “line”)
+    if (nz < 0) mesh.rotateY(Math.PI); // cara opuesta de forma determinista
+    lichtGroup.add(mesh);
+  }
+
+  // — horizontales
+  for (let j = 0; j <= rows; j++) {
+    const y = -halfH + j * dy;
+    const geo = new THREE.BoxGeometry(width + join, line, line);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(center.x, center.y + y, center.z);
+    if (nz < 0) mesh.rotateY(Math.PI);
+    lichtGroup.add(mesh);
+  }
 }
 /* ════════════════════════════════════════════════════════════ */
 
