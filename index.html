@@ -1099,68 +1099,66 @@ function tubeKey(x1, y1, z1, x2, y2, z2) {
 
 
 function buildLCHT() {
-  /* ── limpiar escena previa ─────────────────────────────── */
+  // — limpiar anterior —
   if (lichtGroup) {
-    lichtGroup.traverse(o => {
-      if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
-    });
+    lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
     scene.remove(lichtGroup);
   }
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
 
-  const step = cubeSize / 5;           // tamaño de una celda del 5×5×5
-  const SIDE = 0.2;                    // grosor de línea = arista “andamio”
-  const JOIN = 0.02;                   // pequeño solape (evita gaps FP)
+  const step = cubeSize / 5;     // grilla 5×5×5 como en andamios
+  const SIDE = 0.2;              // grosor de línea (se mantiene)
+  const JOIN = 0.02;             // pequeño solape
 
-  // ratios raíz:  width : height = ratio : 1
-  // ——— Permutaciones activas ———
+  // 5 ratios raíz: width:height = ratio:1
+  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
+
+  // Permutaciones activas
   const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
   if (!perms.length) return;
 
-  // ——— cada permutación → una rejilla en su celda determinista ———
-  perms.forEach((pa, permIdx) => {
+  // Anchura objetivo del panel para cubrir la apertura con margen (determinista, suave)
+  const PANEL_W_TARGET = cubeSize * 2.6; // ~cubre el vano interior con holgura
+
+  perms.forEach((pa) => {
     const col = colorForPerm(pa);
 
-    // índice determinista de celda 5×5×5 (igual que en andamios)
+    // celda 5×5×5 determinista
     const r   = lehmerRank(pa);
     const I   = (r + sceneSeed + S_global) % 125;
     const x0  = Math.floor(I / 25);
     const y0  = Math.floor((I % 25) / 5);
     const z0  = I % 5;
 
-    // centro en mundo de esa celda
+    // centro en mundo de esa celda (detrás del muro)
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
     const cz = (z0 - 2) * step;
 
-    // ====== SOLO 5 RASTERS POSIBLES (ratio = width:height) ======
-    const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
-    const typeIdx = pa[ attributeMapping[1] ];   // 1..5
+    // tipo de Raster (1..5) → rectángulo raíz exacto
+    const typeIdx = pa[ attributeMapping[1] ];     // 1..5 (coincide con color)
     const ratio   = ROOT_RATIOS[typeIdx];
 
-    // ====== CELDA FIJA y PANEL 10× MÁS GRANDE (sin tocar línea) ======
-    // ancho de celda constante para todos los rasters
-    const CELL_W = step * 0.92;     // “breite” base (igual que tenías en 1:1)
+    // ——— TESELA raíz: ancho fijo, alto = ancho/ratio (geométricamente perfecto) ———
+    const CELL_W = step * 0.92;     // “breite” constante para TODOS los rasters
     const CELL_H = CELL_W / ratio;  // solo cambia la altura según la raíz
 
-    // repetimos la malla 10× manteniendo el tamaño de celda
-    const REPEAT = 10;
-    const BASE_COLS = 4;                 // estructura base (determinista y simple)
-    const cols = BASE_COLS * REPEAT;     // ancho del panel en nº de celdas
-    // escogemos filas para que el panel sea aprox. cuadrado: rows ≈ cols * ratio
-    const rows = Math.max(2, Math.round(cols * ratio));
+    // ——— nº de teselas: repetimos hasta cubrir el objetivo, sin re-escalar celdas ———
+    // (panel queda aproximadamente cuadrado y siempre cubre el vano)
+    const cols = Math.max(2, Math.ceil(PANEL_W_TARGET / CELL_W));       // columnas de tesela
+    const rows = Math.max(2, Math.ceil(cols * ratio));                  // filas de tesela
 
-    // dimensiones del panel derivadas de celdas (NO cambian grosores ni celdas)
+    // dimensiones del panel derivadas EXCLUSIVAMENTE de las teselas
     const PANEL_W = cols * CELL_W;
     const PANEL_H = rows * CELL_H;
 
-    // orientación estable (variedad determinista cara adelante/atrás)
+    // orientación estable (variedad determinista)
     const faceForward = ((r + sceneSeed + S_global) & 1) === 0;
     const normal = faceForward ? 1 : -1;
 
-    // parámetros de “respiración” (los mismos que usabas en andamios)
+    // parámetros de “respiración” (idénticos a tu lógica previa)
     const sig = computeSignature(pa);
     const rng = computeRange(sig);
     const L   = pa[ attributeMapping[0] ];
@@ -1185,12 +1183,12 @@ function buildLCHT() {
     });
   });
 
-  // evitar culling para que ninguna rejilla “parpadee”
+  // no culling para que no parpadeen al borde
   lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
 
-  // ——— bucle de animación propio de LCHT (determinista) ———
+  // — animación determinista (como antes) —
   if (window.__lchtRAF) { cancelAnimationFrame(window.__lchtRAF); window.__lchtRAF = null; }
-  const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252; // fase fija (deg→rad)
+  const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252;
   function __lchtLoop(ts){
     if (!isLCHT || !lichtGroup) { window.__lchtRAF = null; return; }
     const t = ts*0.001;
@@ -1213,10 +1211,8 @@ function buildLCHT() {
 }
 
 
-/* ───────────────────────── helper: crea una rejilla de cajas ────────── */
-/* Panel 10× más grande sin modificar dx/dy ni el grosor de línea.       */
+/* —— crea la malla SOLO con bordes de las teselas raíz (sin subdividir nada) — */
 function addRaster({ center, width, height, cols, rows, line, join, color, nz, lcht }) {
-  // material lambert con leve emisivo (igual que antes)
   const mat = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -1225,30 +1221,21 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
   mat.emissive = color.clone();
   mat.emissiveIntensity = 0.08;
 
-  // HSV base para la animación determinista
+  // HSV base para la animación
   const [h0, s0, v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-  // Tamaño de celda ORIGINAL (se conserva)
-  const dx = width  / cols;
-  const dy = height / rows;
+  // tamaño exacto de TESELA (derivado de width/height y cols/rows)
+  const dx = width  / cols;   // = CELL_W
+  const dy = height / rows;   // = CELL_H
 
-  // Escala lineal del panel (10× en ancho y alto) manteniendo dx/dy
-  const SCALE_PANEL = 10.0;
-  const cols2 = Math.max(1, Math.round(cols * SCALE_PANEL));
-  const rows2 = Math.max(1, Math.round(rows * SCALE_PANEL));
+  const halfW = width  * 0.5;
+  const halfH = height * 0.5;
 
-  // Dimensiones finales del panel (mismo dx/dy → más líneas)
-  const width2  = cols2 * dx;
-  const height2 = rows2 * dy;
-
-  const halfW = width2 * 0.5;
-  const halfH = height2 * 0.5;
-
-  // — verticales
-  for (let i = 0; i <= cols2; i++) {
+  // — bordes verticales (0..cols) —
+  for (let i = 0; i <= cols; i++) {
     const x = -halfW + i * dx;
-    const geo = new THREE.BoxGeometry(line, height2 + join, line);
+    const geo = new THREE.BoxGeometry(line, height + join, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x + x, center.y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
@@ -1257,10 +1244,10 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
     lichtGroup.add(mesh);
   }
 
-  // — horizontales
-  for (let j = 0; j <= rows2; j++) {
+  // — bordes horizontales (0..rows) —
+  for (let j = 0; j <= rows; j++) {
     const y = -halfH + j * dy;
-    const geo = new THREE.BoxGeometry(width2 + join, line, line);
+    const geo = new THREE.BoxGeometry(width + join, line, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
@@ -1269,6 +1256,7 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
     lichtGroup.add(mesh);
   }
 }
+
 /* ════════════════════════════════════════════════════════════ */
 
 
