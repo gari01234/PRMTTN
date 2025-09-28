@@ -1113,7 +1113,7 @@ function buildLCHT() {
   const SIDE = 0.2;                    // grosor de línea = arista “andamio”
   const JOIN = 0.02;                   // pequeño solape (evita gaps FP)
 
-  // ratios raíz para los 5 rasters: 1, √2, √3, 2, √5  (width : height = ratio : 1)
+  // ratios raíz:  width : height = ratio : 1
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
 
   // ——— Permutaciones activas ———
@@ -1122,7 +1122,7 @@ function buildLCHT() {
   if (!perms.length) return;
 
   // ——— cada permutación → una rejilla en su celda determinista ———
-  perms.forEach((pa, permIdx) => {
+  perms.forEach((pa) => {
     const L   = pa[ attributeMapping[0] ]; // “altura” → densidad
     const col = colorForPerm(pa);
 
@@ -1142,22 +1142,24 @@ function buildLCHT() {
     const typeIdx = pa[ attributeMapping[1] ];        // 1–5 (coincide con color)
     const ratio   = ROOT_RATIOS[typeIdx];
 
-    // densidad de líneas en función de L (3..10 aprox, determinista)
-    const baseRows = 3 + Math.max(0, Math.min(7, L + ((r % 3) - 1))); // 3..10
-    const rows = baseRows;                         // horizontales
-    const cols = Math.max(2, Math.round(rows * ratio)); // verticales ajustadas al ratio
-
-    // *** ESCALA: 3× MÁS GRANDE RESPECTO A TU ESTADO ACTUAL (que ya era ×10) ***
+    // *** ESCALA: 3× MÁS GRANDE (respecto al estado previo de rasters) ***
     const SCALE_FACTOR = 30.0;
 
-    // Definimos ALTURA constante y el ANCHO por el ratio → rectángulos reales
-    const PANEL_H = step * 0.92 * SCALE_FACTOR;     // altura base
-    const PANEL_W = PANEL_H * ratio;                // ancho = ratio * altura
+    // ── ANCHO FIJO, ALTURA = ANCHO / ratio  → rectángulos de raíz
+    const PANEL_W = step * 0.92 * SCALE_FACTOR;   // ancho constante (Breite)
+    const PANEL_H = PANEL_W / ratio;              // solo cambia la altura
 
+    // ── densidad: base = columnas; filas se ajustan por el ratio
+    const clamp7 = (x)=>Math.max(0, Math.min(7, x));
+    const baseCols = 3 + clamp7(L + ((r % 3) - 1));     // 3..10 aprox.
+    const cols = baseCols;
+    const rows = Math.max(2, Math.round(cols / ratio)); // mantiene celdas ~cuadradas
+
+    // orientación (variedad determinista)
     const faceForward = ((r + sceneSeed + S_global) & 1) === 0;
     const normal = faceForward ? 1 : -1;
 
-    // parámetros de “respiración”/parpadeo deterministas (mismos que andamios)
+    // parámetros de “respiración”/parpadeo deterministas (igual que andamios)
     const sig = computeSignature(pa);
     const rng = computeRange(sig);
     const lcht = {
@@ -1190,12 +1192,10 @@ function buildLCHT() {
   function __lchtLoop(ts){
     if (!isLCHT || !lichtGroup) { window.__lchtRAF = null; return; }
     const t = ts*0.001;
-    const oscT = t + t0;
     lichtGroup.traverse(m=>{
       if (!m.isMesh || !m.material || !m.userData || !m.userData.lcht) return;
       const P = m.userData.lcht;
       const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * t + P.phi);
-      // leve modulación de intensidad y tono (como en los andamios)
       m.material.emissiveIntensity = Math.max(0, k);
       if (m.userData.baseHsv){
         const bh = m.userData.baseHsv;
