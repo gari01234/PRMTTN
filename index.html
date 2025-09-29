@@ -1089,6 +1089,32 @@ function initSkySphere() {
         : new THREE.Color(val);
     }
 
+    /* ——— color único por escena (evita duplicados de tono) ——— */
+    function hsvOfTHREE(c){
+      const [h,s,v] = rgbToHsv(c.r*255, c.g*255, c.b*255);
+      return { h, s: Math.min(1,s), v: Math.min(1,v) };
+    }
+    function colorFromHSV(h,s,v){
+      const [r,g,b] = hsvToRgb(h,s,v);
+      return new THREE.Color(r/255,g/255,b/255);
+    }
+    /* Devuelve un THREE.Color ajustando el H por “ángulo dorado” si ya existe
+       un tono cercano en la escena; umbral ~16.2° (0.045 en [0,1]) */
+    function pickSceneUniqueColor(baseColor, usedH){
+      const golden = 0.38196601125; // φ-1 ≈ 137.5° en círculo unitario
+      const thr    = 0.045;         // distancia mínima de tono
+      let {h,s,v}  = hsvOfTHREE(baseColor);
+      let tries = 0;
+      while (usedH.some(u => Math.abs(((h - u + 0.5) % 1) - 0.5) < thr) && tries < 8){
+        h = (h + golden) % 1;
+        tries++;
+      }
+      usedH.push(h);
+      s = Math.min(1, s*1.02);
+      v = Math.min(1, v*1.02);
+      return colorFromHSV(h,s,v);
+    }
+
     /* ═════════ LCHT “cubos-de-tubos” (Sol LeWitt) ═════════════════ */
 
 function tubeKey(x1, y1, z1, x2, y2, z2) {
@@ -1123,8 +1149,13 @@ function buildLCHT() {
   // -> con esto, el ancho = ratio * ALTURA, y el área crece con la raíz.
   const TILE_H = step * 1.90;
 
+  // Mantener colores distintos por escena
+  const usedSceneHues = [];
+
   perms.forEach((pa) => {
-    const col = colorForPerm(pa);
+    // color base determinista → ajustado a único en la escena
+    const baseCol = colorForPerm(pa);
+    const col     = pickSceneUniqueColor(baseCol, usedSceneHues);
 
     // celda determinista 5×5×5 (igual que antes)
     const r   = lehmerRank(pa);
