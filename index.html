@@ -1099,7 +1099,7 @@ function tubeKey(x1, y1, z1, x2, y2, z2) {
 
 
 function buildLCHT() {
-  // — limpiar anterior —
+  // limpiar escena previa
   if (lichtGroup) {
     lichtGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
     scene.remove(lichtGroup);
@@ -1107,58 +1107,59 @@ function buildLCHT() {
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
 
-  const step = cubeSize / 5;     // grilla 5×5×5 como en andamios
-  const SIDE = 0.2;              // grosor de línea (se mantiene)
-  const JOIN = 0.02;             // pequeño solape
-
-  // 5 ratios raíz: width:height = ratio:1
-  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
+  const step = cubeSize / 5;  // tamaño de celda 5×5×5 (referencia)
+  const SIDE = 0.2;           // grosor de línea (no se toca)
+  const JOIN = 0.02;          // pequeño solape
 
   // Permutaciones activas
   const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
   if (!perms.length) return;
 
-  // Anchura objetivo del panel para cubrir la apertura con margen (determinista, suave)
-  const PANEL_W_TARGET = cubeSize * 2.6; // ~cubre el vano interior con holgura
+  // Razones raíz (width : height = ratio : 1)
+  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
+
+  // Altura FIJA de cada rectángulo-ladrillo (misma para todos los tipos)
+  // -> con esto, el ancho = ratio * ALTURA, y el área crece con la raíz.
+  const TILE_H = step * 0.90;
 
   perms.forEach((pa) => {
     const col = colorForPerm(pa);
 
-    // celda 5×5×5 determinista
+    // celda determinista 5×5×5 (igual que antes)
     const r   = lehmerRank(pa);
     const I   = (r + sceneSeed + S_global) % 125;
     const x0  = Math.floor(I / 25);
     const y0  = Math.floor((I % 25) / 5);
     const z0  = I % 5;
 
-    // centro en mundo de esa celda (detrás del muro)
+    // centro en mundo de esa celda
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
     const cz = (z0 - 2) * step;
 
-    // tipo de Raster (1..5) → rectángulo raíz exacto
-    const typeIdx = pa[ attributeMapping[1] ];     // 1..5 (coincide con color)
+    // Tipo 1..5 → define ANCHO de ladrillo a partir de ALTURA fija
+    const typeIdx = pa[ attributeMapping[1] ];
     const ratio   = ROOT_RATIOS[typeIdx];
+    const TILE_W  = TILE_H * ratio;
 
-    // ——— TESELA raíz: ancho fijo, alto = ancho/ratio (geométricamente perfecto) ———
-    const CELL_W = step * 0.92;     // “breite” constante para TODOS los rasters
-    const CELL_H = CELL_W / ratio;  // solo cambia la altura según la raíz
+    // Panel objetivo MUY grande (≈10× el vano), SIN tocar el tamaño de celda
+    const TARGET_W = cubeSize * 6.0;
+    const TARGET_H = cubeSize * 6.0;
 
-    // ——— nº de teselas: repetimos hasta cubrir el objetivo, sin re-escalar celdas ———
-    // (panel queda aproximadamente cuadrado y siempre cubre el vano)
-    const cols = Math.max(2, Math.ceil(PANEL_W_TARGET / CELL_W));       // columnas de tesela
-    const rows = Math.max(2, Math.ceil(cols * ratio));                  // filas de tesela
+    // Nº de ladrillos necesarios para cubrir el target (enteros, con margen)
+    const cols = Math.ceil(TARGET_W / TILE_W) + 2;
+    const rows = Math.ceil(TARGET_H / TILE_H) + 2;
 
-    // dimensiones del panel derivadas EXCLUSIVAMENTE de las teselas
-    const PANEL_W = cols * CELL_W;
-    const PANEL_H = rows * CELL_H;
+    // Dimensiones reales del panel (derivadas de las celdas fijas)
+    const PANEL_W = cols * TILE_W;
+    const PANEL_H = rows * TILE_H;
 
-    // orientación estable (variedad determinista)
+    // Cara hacia delante/atrás determinista (variedad sutil)
     const faceForward = ((r + sceneSeed + S_global) & 1) === 0;
     const normal = faceForward ? 1 : -1;
 
-    // parámetros de “respiración” (idénticos a tu lógica previa)
+    // “respiración” determinista (igual que en andamios)
     const sig = computeSignature(pa);
     const rng = computeRange(sig);
     const L   = pa[ attributeMapping[0] ];
@@ -1171,10 +1172,12 @@ function buildLCHT() {
 
     addRaster({
       center: new THREE.Vector3(cx, cy, cz),
-      width:  PANEL_W,
-      height: PANEL_H,
+      panelW: PANEL_W,
+      panelH: PANEL_H,
       cols,
       rows,
+      tileW: TILE_W,
+      tileH: TILE_H,
       line:  SIDE,
       join:  JOIN,
       color: col,
@@ -1183,10 +1186,10 @@ function buildLCHT() {
     });
   });
 
-  // no culling para que no parpadeen al borde
+  // sin culling para que no parpadee
   lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
 
-  // — animación determinista (como antes) —
+  // rAF de animación (respiración + leve wobble de tono)
   if (window.__lchtRAF) { cancelAnimationFrame(window.__lchtRAF); window.__lchtRAF = null; }
   const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252;
   function __lchtLoop(ts){
@@ -1211,8 +1214,10 @@ function buildLCHT() {
 }
 
 
-/* —— crea la malla SOLO con bordes de las teselas raíz (sin subdividir nada) — */
-function addRaster({ center, width, height, cols, rows, line, join, color, nz, lcht }) {
+// Crea un panel de raster con ladrillos fijos (tileW × tileH)
+// El panel se extiende para cubrir panelW × panelH, SIN cambiar el tamaño de celda.
+function addRaster({ center, panelW, panelH, cols, rows, tileW, tileH, line, join, color, nz, lcht }) {
+  // material lambert + emisivo leve
   const mat = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -1221,21 +1226,17 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
   mat.emissive = color.clone();
   mat.emissiveIntensity = 0.08;
 
-  // HSV base para la animación
+  // HSV base para el wobble determinista
   const [h0, s0, v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-  // tamaño exacto de TESELA (derivado de width/height y cols/rows)
-  const dx = width  / cols;   // = CELL_W
-  const dy = height / rows;   // = CELL_H
+  const halfW = panelW * 0.5;
+  const halfH = panelH * 0.5;
 
-  const halfW = width  * 0.5;
-  const halfH = height * 0.5;
-
-  // — bordes verticales (0..cols) —
+  // VERTICALES: cada múltiplo de tileW
   for (let i = 0; i <= cols; i++) {
-    const x = -halfW + i * dx;
-    const geo = new THREE.BoxGeometry(line, height + join, line);
+    const x = -halfW + i * tileW;
+    const geo = new THREE.BoxGeometry(line, panelH + join, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x + x, center.y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
@@ -1244,10 +1245,10 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
     lichtGroup.add(mesh);
   }
 
-  // — bordes horizontales (0..rows) —
+  // HORIZONTALES: cada múltiplo de tileH
   for (let j = 0; j <= rows; j++) {
-    const y = -halfH + j * dy;
-    const geo = new THREE.BoxGeometry(width + join, line, line);
+    const y = -halfH + j * tileH;
+    const geo = new THREE.BoxGeometry(panelW + join, line, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
