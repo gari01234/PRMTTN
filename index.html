@@ -1101,14 +1101,13 @@ function colorForPerm(pa){
 
 /* — HSV helpers ya existen en el proyecto: rgbToHsv / hsvToRgb — */
 
-/* hue shift determinista, diferente por raster en la escena */
-function hueRotateByIndex(col, idx, sceneKey){
+/* hue shift determinista por SLOT Z (0..4) → color único por raster en escena */
+function hueRotateByZ(col, zSlot){
   const [h,s,v] = rgbToHsv(col.r*255, col.g*255, col.b*255);
-  // desplazamiento pequeño pero perceptible, 5 valores distintos, estable
-  const base = ((sceneKey * 17 + idx * 73) % 360) / 360; // 0..1
-  const dh   = (base * 0.18); // máx. ~65°
-  const h2   = (h + dh) % 1;
-  const rgb  = hsvToRgb(h2, s, Math.min(1, v*1.02));
+  // 5 offsets equidistantes (0, 0.04, 0.08, 0.12, 0.16 vueltas ≈ 0..57.6°)
+  const dh = 0.04 * (zSlot % 5);
+  const h2 = (h + dh) % 1;
+  const rgb = hsvToRgb(h2, s, Math.min(1, v * 1.02));
   return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
 }
 
@@ -1188,11 +1187,17 @@ function buildLCHT(){
   if (!perms.length) return;
 
   // ——— Asignación Z única por raster (sin colisiones) ———
-  // Usamos lineal probing con stride determinista por permutación.
-  const zTaken = new Map();   // zIndex (0..4) → permIdx
-  const placements = [];      // [{permIdx, x0,y0,z0Fix}]
+  // Elegimos como máximo 5 rasters (uno por cada Z=0..4). Si hay más perms,
+  // las extra se omiten determinísticamente.
+  const zOwner = new Array(5).fill(-1); // zSlot -> permIdx
+  const placements = [];                 // [{permIdx, x0,y0,z0Fix}]
 
-  perms.forEach((pa, permIdx)=>{
+  // Para estabilidad total, iteramos en orden determinista por lehmerRank asc.
+  const order = perms.map((pa, i)=>({i, r: lehmerRank(pa)}))
+                     .sort((a,b)=> a.r - b.r);
+
+  order.forEach(({i:permIdx})=>{
+    const pa = perms[permIdx];
     const r  = lehmerRank(pa);
     const I  = (r + sceneSeed + S_global) % 125;
     const x0 = Math.floor(I / 25);
@@ -1203,13 +1208,19 @@ function buildLCHT(){
     let stride = ((sceneSeed*7 + S_global*11 + r*13) % 4) + 1;
     if (stride === 5) stride = 4;
 
-    // lineal probing determinista
-    let zTry = z0;
+    // probing determinista: busca un z libre; si no hay, se descarta
+    let picked = -1;
     for (let k=0; k<5; k++){
-      if (!zTaken.has(zTry)){ zTaken.set(zTry, permIdx); break; }
-      zTry = (zTry + stride) % 5;
+      const zTry = (z0 + k*stride) % 5;
+      if (zOwner[zTry] === -1){
+        zOwner[zTry] = permIdx;
+        picked = zTry;
+        break;
+      }
     }
-    placements.push({ permIdx, x0, y0, z0Fix: zTry });
+    if (picked !== -1){
+      placements.push({ permIdx, x0, y0, z0Fix: picked });
+    }
   });
 
   // ——— Construcción de rasters ———
@@ -1242,7 +1253,7 @@ function buildLCHT(){
     const tilesY     = Math.max(2, Math.round(tilesX / ratio));
 
     // Color único por raster en la escena (rotación de H determinista y estable)
-    const color = hueRotateByIndex(baseCol, idxScene, sceneKey);
+    const color = hueRotateByZ(baseCol, z0Fix);
 
     // parámetros de “respiración” iguales a andamios
     const sig  = computeSignature(pa);
