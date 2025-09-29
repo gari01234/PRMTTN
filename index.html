@@ -1124,6 +1124,14 @@ function tubeKey(x1, y1, z1, x2, y2, z2) {
 }
 
 
+// —— Escalas globales LCHT (ajustables) ——
+// TILE_SCALE: escala del ancho del rectángulo raíz (fijo para los 5 tipos)
+// PANEL_REPEAT: nº de repeticiones del tile en X e Y (panel "×10")
+const LCHT_SCALE = Object.freeze({
+  TILE_SCALE: 1.0,
+  PANEL_REPEAT: 10
+});
+
 function buildLCHT() {
   // limpiar escena previa
   if (lichtGroup) {
@@ -1133,82 +1141,68 @@ function buildLCHT() {
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
 
-  const step = cubeSize / 5;  // tamaño de celda 5×5×5 (referencia)
-  const SIDE = 0.2;           // grosor de línea (no se toca)
-  const JOIN = 0.02;          // pequeño solape
+  const step = cubeSize / 5;     // tamaño de la celda del 5×5×5
+  const SIDE = 0.2;              // grosor de línea (igual que “andamios”)
+  const JOIN = 0.02;             // pequeño solape
 
-  // Permutaciones activas
+  // ratios raíz (width : height = ratio : 1) — SOLO 5 RASTERS POSIBLES
+  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
+
+  // ——— Permutaciones activas ———
   const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
   if (!perms.length) return;
 
-  // ——— resolver colisiones en Z: exactamente 1 raster por cada z ∈ {0..4} ———
-  const zBuckets = new Map(); // z -> { pa, permIdx, r, sumP, z0 }
-  perms.forEach((pa, permIdx) => {
-    const r  = lehmerRank(pa);
-    const I  = (r + sceneSeed + S_global) % 125;
+  // ——— 1 Raster por Z: elegimos 1 perm representativa por z0 (0..4), determinista ———
+  const byZ = Array.from({length:5}, ()=>[]);
+  perms.forEach((pa, idx) => {
+    const r = lehmerRank(pa);
+    const I = (r + sceneSeed + S_global) % 125;
     const z0 = I % 5;
-    const sumP = pa[0] + pa[1] + pa[2] + pa[3] + pa[4];
-
-    const cur = zBuckets.get(z0);
-    // Ganador determinista: menor Lehmer-rank; si empata, menor suma de P
-    if (!cur || r < cur.r || (r === cur.r && sumP < cur.sumP)) {
-      zBuckets.set(z0, { pa, permIdx, r, sumP, z0 });
-    }
+    byZ[z0].push({ pa, idx, r, I });
   });
 
-  // Lista final de ganadores (máx. 5), orden opcional por z para consistencia
-  const winners = Array.from(zBuckets.values()).sort((a,b)=> a.z0 - b.z0);
-
-  // Razones raíz (width : height = ratio : 1)
-  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
-
-  if (typeof pickSceneUniqueColor === 'function') {
-    window.__usedSceneHues = [];
+  // Política determinista: si hay varias en el mismo Z, gana la de menor r
+  const winners = [];
+  for (let z=0; z<5; z++){
+    if (byZ[z].length){
+      byZ[z].sort((a,b)=> a.r - b.r);
+      winners.push(byZ[z][0]); // elige 1 por z
+    }
   }
 
-  // ——— cada ganador → una rejilla en su celda determinista ———
-  winners.forEach(({ pa, permIdx, r, z0 }) => {
-    const col = (function(){
-      // color único por escena (si ya usas pickSceneUniqueColor/usedSceneHues, manténlo)
-      if (typeof pickSceneUniqueColor === 'function') {
-        window.__usedSceneHues = window.__usedSceneHues || [];
-        return pickSceneUniqueColor(colorForPerm(pa), window.__usedSceneHues);
-      }
-      return colorForPerm(pa);
-    })();
+  // ——— Renderiza solo ganadores (≤5 rasters), uno por Z ———
+  winners.forEach(({ pa, r, I }) => {
+    const col = colorForPerm(pa);
 
-    // índice determinista de celda 5×5×5 (igual que en andamios)
-    const I   = (r + sceneSeed + S_global) % 125;
-    const x0  = Math.floor(I / 25);
-    const y0  = Math.floor((I % 25) / 5);
-    // z0 viene del ganador (I % 5 original)
+    const x0 = Math.floor(I / 25);
+    const y0 = Math.floor((I % 25) / 5);
+    const z0 = I % 5;
 
-    // centro en mundo de esa celda
+    // centro mundo de esa celda
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
     const cz = (z0 - 2) * step;
 
-    // ====== SOLO 5 RASTERS POSIBLES (ratio = width:height) ======
-    const typeIdx = pa[ attributeMapping[1] ];   // 1..5
+    // Tipo de Raster 1..5 → 1:1, √2:1, √3:1, 2:1, √5:1
+    const typeIdx = pa[ attributeMapping[1] ];    // 1..5
     const ratio   = ROOT_RATIOS[typeIdx];
 
-    // ====== CELDA FIJA y PANEL 10× MÁS GRANDE (sin tocar línea) ======
-    const CELL_W = step * 0.92;       // “breite” base
-    const CELL_H = CELL_W / ratio;    // altura según raíz
+    // —— TAMAÑO TILE: ANCHO FIJO para todos (según TILE_SCALE); ALTO = ancho / ratio ——
+    const TILE_W = step * 0.92 * LCHT_SCALE.TILE_SCALE; // “breite” fijo
+    const TILE_H = TILE_W / ratio;                      // solo cambia altura
 
-    const REPEAT = 10;
-    const BASE_COLS = 4;
-    const cols = BASE_COLS * REPEAT;
-    const rows = Math.max(2, Math.round(cols * ratio));
+    // Panel = repetición del tile SIN subdividirlo (×10 por defecto)
+    const cols = LCHT_SCALE.PANEL_REPEAT;
+    const rows = LCHT_SCALE.PANEL_REPEAT;
+    const PANEL_W = cols * TILE_W;
+    const PANEL_H = rows * TILE_H;
 
-    const PANEL_W = cols * CELL_W;
-    const PANEL_H = rows * CELL_H;
-
+    // orientación estable (variedad determinista cara adelante/atrás)
     const faceForward = ((r + sceneSeed + S_global) & 1) === 0;
     const normal = faceForward ? 1 : -1;
 
-    // parámetros de “respiración” (idénticos a andamios)
+    // parámetros “respiración” deterministas (idénticos a los andamios)
     const sig = computeSignature(pa);
     const rng = computeRange(sig);
     const L   = pa[ attributeMapping[0] ];
@@ -1221,8 +1215,8 @@ function buildLCHT() {
 
     addRaster({
       center: new THREE.Vector3(cx, cy, cz),
-      width:  PANEL_W,
-      height: PANEL_H,
+      tileW:  TILE_W,
+      tileH:  TILE_H,
       cols,
       rows,
       line:  SIDE,
@@ -1233,12 +1227,12 @@ function buildLCHT() {
     });
   });
 
-  // sin culling para que no parpadee
+  // evitar culling para que ninguna rejilla “parpadee”
   lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
 
-  // rAF de animación (respiración + leve wobble de tono)
+  // ——— bucle de animación propio de LCHT (determinista) ———
   if (window.__lchtRAF) { cancelAnimationFrame(window.__lchtRAF); window.__lchtRAF = null; }
-  const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252;
+  const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252; // fase fija (deg→rad)
   function __lchtLoop(ts){
     if (!isLCHT || !lichtGroup) { window.__lchtRAF = null; return; }
     const t = ts*0.001;
@@ -1261,10 +1255,9 @@ function buildLCHT() {
 }
 
 
-// Crea un panel de raster con celdas fijas (width/cols × height/rows)
-// El panel se extiende para cubrir width × height, SIN cambiar el tamaño de celda.
-function addRaster({ center, width, height, cols, rows, line, join, color, nz, lcht }) {
-  // material lambert + emisivo leve
+// Crea una rejilla repitiendo SIEMPRE el mismo rectángulo raíz (tileW × tileH).
+function addRaster({ center, tileW, tileH, cols, rows, line, join, color, nz, lcht }) {
+  // material lambert con leve emisivo (como antes)
   const mat = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -1273,19 +1266,20 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
   mat.emissive = color.clone();
   mat.emissiveIntensity = 0.08;
 
-  // HSV base para el wobble determinista
+  // HSV base para el wobble de tono
   const [h0, s0, v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-  const halfW = width * 0.5;
-  const halfH = height * 0.5;
-  const cellW = width / cols;
-  const cellH = height / rows;
+  // dimensiones del panel (derivadas SOLO de los tiles repetidos)
+  const width2  = cols * tileW;
+  const height2 = rows * tileH;
+  const halfW   = width2 * 0.5;
+  const halfH   = height2 * 0.5;
 
-  // VERTICALES: cada múltiplo de cellW
+  // — verticales (bordes de cada columna de tile)
   for (let i = 0; i <= cols; i++) {
-    const x = -halfW + i * cellW;
-    const geo = new THREE.BoxGeometry(line, height + join, line);
+    const x = -halfW + i * tileW;
+    const geo = new THREE.BoxGeometry(line, height2 + join, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x + x, center.y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
@@ -1294,10 +1288,10 @@ function addRaster({ center, width, height, cols, rows, line, join, color, nz, l
     lichtGroup.add(mesh);
   }
 
-  // HORIZONTALES: cada múltiplo de cellH
+  // — horizontales (bordes de cada fila de tile)
   for (let j = 0; j <= rows; j++) {
-    const y = -halfH + j * cellH;
-    const geo = new THREE.BoxGeometry(width + join, line, line);
+    const y = -halfH + j * tileH;
+    const geo = new THREE.BoxGeometry(width2 + join, line, line);
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(center.x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
