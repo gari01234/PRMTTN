@@ -1076,54 +1076,75 @@ function initSkySphere() {
     /* ─────────────────────────────
      *   LCHT · deterministic Light Tubes
      * ───────────────────────────── */
-/* ════════════════════════════════════════════════════════════
-   LCHT · Rasters de “root rectangles” (sin subdividir tiles)
-   - 5 tipos: 1:1, √2:1, √3:1, 2:1, √5:1
-   - Altura de tile fija; ancho = ratio × altura
-   - Panel = repetición de tiles (sin subdividirlos).
-   - Z único por raster (colisiones resueltas determinísticamente).
-   - Color distinto por raster dentro de la escena (hue shift estable).
-   - Respiración/luz determinista (igual que “andamios”).
-   ════════════════════════════════════════════════════════════ */
-
-let lichtGroup = null;
-let isLCHT     = false;
-let lchtPrevBg = null;
-
-/* color determinista base (igual que antes) */
-function colorForPerm(pa){
-  const idx = pa[ attributeMapping[1] ]; // 1..5
-  const val = getColor(idx);
-  return Array.isArray(val)
+    /* ════════════════════════════════════════════════════════════
+       LCHT · Rasters de “root rectangles” (sin subdividir tiles)
+       - 5 tipos: 1:1, √2:1, √3:1, 2:1, √5:1
+       - Altura de tile fija; ancho = ratio × altura
+       - Panel = repetición de tiles (sin subdividirlos).
+       - Z único por raster (si hay <5 perms, se rellenan hasta 5).
+       - Fondo siempre coloreado (no blanco) con deriva suave.
+       - Protagonismo rotativo por Z para profundidad perceptual.
+       - Respiración/luz determinista (como “andamios”).
+       ════════════════════════════════════════════════════════════ */
+    
+    let lichtGroup = null;
+    let isLCHT     = false;
+    let lchtPrevBg = null;
+    
+    // ——— Fondo coloreado (plane) ———
+    let lchtBackPlane = null;
+    const LCHT_BG_OPACITY   = 0.94;
+    const LCHT_BG_HUE_DRIFT = 0.018;         // amplitud (en 0..1)
+    const LCHT_BG_SPEED     = 0.06;          // Hz, deriva muy lenta
+    
+    // ——— Protagonismo rotativo ———
+    const LCHT_FOCUS_PERIOD = 10.0;          // segundos por capa en foco
+    const LCHT_FOCUS_GAIN   = 1.00;          // intensidad máx. extra en foco
+    const LCHT_BASE_DIM     = 0.42;          // dim para capas fuera de foco
+    
+    /* color determinista base (igual que antes) */
+    function colorForPerm(pa){
+      const idx = pa[ attributeMapping[1] ]; // 1..5
+      const val = getColor(idx);
+      return Array.isArray(val)
     ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
     : new THREE.Color(val);
-}
-
-/* — HSV helpers ya existen en el proyecto: rgbToHsv / hsvToRgb — */
-
-/* Construye panel de líneas que SOLO delinean cada tile raíz (sin subdividir).
-   - Cada tile raíz tiene: widthTile, heightTile
-   - El panel se arma repitiendo esos tiles → líneas en las fronteras de los tiles. */
-function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht }){
-  const matBase = new THREE.MeshLambertMaterial({
+    }
+    
+    /* helpers HSV ya existen: rgbToHsv / hsvToRgb */
+    
+    // color de fondo determinista, nunca blanco
+    function lchtBackgroundColor(sceneKey){
+      // semilla → hue en [0..1], s en [0.25..0.35], v en [0.86..0.93]
+      const h = ((sceneKey*37 + 113) % 360) / 360;
+      const s = 0.25 + ((sceneKey*19 + 71) % 100) / 100 * 0.10;
+      const v = 0.86 + ((sceneKey*53 + 29) % 100) / 100 * 0.07;
+      const rgb = hsvToRgb(h, s, v);
+      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    }
+    
+    /* Construye panel de líneas que SOLO delinean cada tile raíz (sin subdividir). */
+    function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot }){
+      const matBase = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
-    flatShading: true
-  });
-  matBase.emissive = color.clone();
-  matBase.emissiveIntensity = 0.08;
-
-  // guardamos HSV base para la animación determinista
-  const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
-  const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
-
-  const panelW = tilesX * widthTile;
-  const panelH = tilesY * heightTile;
-  const halfW  = panelW * 0.5;
-  const halfH  = panelH * 0.5;
-
-  // — Verticales: solo fronteras de tiles (tilesX+1 líneas)
-  for (let i=0; i<=tilesX; i++){
+    flatShading: true,
+    transparent: false
+      });
+      matBase.emissive = color.clone();
+      matBase.emissiveIntensity = 0.08;
+    
+      // guardamos HSV base para la animación determinista
+      const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
+      const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
+    
+      const panelW = tilesX * widthTile;
+      const panelH = tilesY * heightTile;
+      const halfW  = panelW * 0.5;
+      const halfH  = panelH * 0.5;
+    
+      // — Verticales
+      for (let i=0; i<=tilesX; i++){
     const x = -halfW + i*widthTile;
     const geo  = new THREE.BoxGeometry(line, panelH + join, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
@@ -1131,11 +1152,12 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
     if (nz < 0) mesh.rotateY(Math.PI);
     mesh.userData.lcht     = lcht;
     mesh.userData.baseHsv  = baseHsv;
+    mesh.userData.zSlot    = zSlot;  // ← para foco por Z
     lichtGroup.add(mesh);
-  }
-
-  // — Horizontales: solo fronteras de tiles (tilesY+1 líneas)
-  for (let j=0; j<=tilesY; j++){
+      }
+    
+      // — Horizontales
+      for (let j=0; j<=tilesY; j++){
     const y = -halfH + j*heightTile;
     const geo  = new THREE.BoxGeometry(panelW + join, line, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
@@ -1143,123 +1165,107 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
     if (nz < 0) mesh.rotateY(Math.PI);
     mesh.userData.lcht     = lcht;
     mesh.userData.baseHsv  = baseHsv;
+    mesh.userData.zSlot    = zSlot;
     lichtGroup.add(mesh);
-  }
-}
-
-/* Raster NEGATIVO: rellena cada tile y deja un margen = "línea" negativa */
-function addNegativeRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht }){
-  const matBase = new THREE.MeshLambertMaterial({
-    color: color.clone(),
-    dithering: true,
-    flatShading: true,
-    transparent: true,
-    opacity: 0.9
-  });
-  matBase.emissive = color.clone();
-  matBase.emissiveIntensity = 0.08;
-
-  // tamaño del "hueco" que queda entre tiles → grosor aparente de línea
-  const gapX = Math.max(line, 0.001);
-  const gapY = Math.max(line, 0.001);
-
-  const wInner = Math.max(0.001, widthTile  - gapX);
-  const hInner = Math.max(0.001, heightTile - gapY);
-
-  const halfW  = (tilesX * widthTile)  * 0.5;
-  const halfH  = (tilesY * heightTile) * 0.5;
-
-  // guardamos HSV base para el loop de respiración
-  const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
-  const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
-
-  for (let j=0; j<tilesY; j++){
-    const y = -halfH + (j+0.5)*heightTile;
-    for (let i=0; i<tilesX; i++){
-      const x = -halfW + (i+0.5)*widthTile;
-      const geo  = new THREE.PlaneGeometry(wInner, hInner);
-      const mesh = new THREE.Mesh(geo, matBase.clone());
-      mesh.position.set(center.x + x, center.y + y, center.z);
-      if (nz < 0) mesh.rotateY(Math.PI);
-      mesh.userData.lcht    = lcht;
-      mesh.userData.baseHsv = baseHsv;
-      // pequeño espesor para que reciba luz sin z-fight
-      mesh.geometry.computeVertexNormals();
-      lichtGroup.add(mesh);
+      }
     }
-  }
-}
-
-/* ———————————————————————————————————————————————————————————— */
-function buildLCHT(){
-  // limpiar escena previa
-  if (lichtGroup) {
+    
+    /* plano de fondo coloreado detrás del vano (siempre con color, nunca blanco) */
+    function addBackPlane({ z, width, height, sceneKey }){
+      if (lchtBackPlane){
+    lchtBackPlane.geometry.dispose();
+    lchtBackPlane.material.dispose();
+    if (lchtBackPlane.parent) lchtBackPlane.parent.remove(lchtBackPlane);
+    lchtBackPlane = null;
+      }
+      const geo = new THREE.PlaneGeometry(width, height, 1, 1);
+      const col = lchtBackgroundColor(sceneKey);
+      const mat = new THREE.MeshBasicMaterial({
+    color: col,
+    transparent: true,
+    opacity: LCHT_BG_OPACITY,
+    depthWrite: false
+      });
+      lchtBackPlane = new THREE.Mesh(geo, mat);
+      lchtBackPlane.position.set(0, 0, z);
+      lchtBackPlane.renderOrder = -10;      // dibujar antes
+      lchtBackPlane.frustumCulled = false;
+      lichtGroup.add(lchtBackPlane);
+    }
+    
+    /* ———————————————————————————————————————————————————————————— */
+    function buildLCHT(){
+      // limpiar escena previa
+      if (lichtGroup) {
     lichtGroup.traverse(o=>{
       if (o.isMesh){
-        if (o.material && o.material.dispose) o.material.dispose();
-        if (o.geometry && o.geometry.dispose) o.geometry.dispose();
+        o.material?.dispose?.();
+        o.geometry?.dispose?.();
       }
     });
     scene.remove(lichtGroup);
-  }
-  lichtGroup = new THREE.Group();
-  scene.add(lichtGroup);
-
-  const step = cubeSize / 5;
-  const SIDE = 0.2;     // grosor de línea visible (positivo) y hueco (negativo)
-  const JOIN = 0.02;
-
-  // Altura fija de tile (ancho = ratio × altura)
-  const TILE_H = step * 0.92 * 3.0;
-  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
-
-  // Permutaciones activas
-  const perms = Array.from(document.getElementById('permutationList').selectedOptions)
+      }
+      lichtGroup = new THREE.Group();
+      scene.add(lichtGroup);
+    
+      const step = cubeSize / 5; 
+      const SIDE = 0.24;         // ← líneas un poco más gruesas (antes 0.2)
+      const JOIN = 0.02;
+    
+      // Altura de tile fija para TODOS los rasters
+      const TILE_H = step * 0.92 * 3.0;     // tu escala global ×3
+      // Ratios raíz (ratio = width:height)
+      const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
+    
+      // Permutaciones activas
+      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
-  if (!perms.length) return;
-
-  // ——— SELECCIÓN determinista: a lo sumo 1 perm por tipo (1..5) ———
-  // Queda una progresión clara en Z: z=0→tipo1 (1:1), z=1→tipo2 (√2:1), ... z=4→tipo5 (√5:1)
-  const chosen = new Array(6).fill(-1); // índice por tipo (1..5) → permIdx
-  // orden determinista por lehmerRank ascendente
-  const order = perms.map((pa, i)=>({i, r: lehmerRank(pa)}))
+      if (!perms.length) return;
+    
+      // Orden determinista por lehmerRank
+      const order = perms.map((pa, i)=>({i, r: lehmerRank(pa)}))
                      .sort((a,b)=> a.r - b.r);
-  order.forEach(({i})=>{
-    const typeIdx = perms[i][ attributeMapping[1] ]; // 1..5
-    if (typeIdx>=1 && typeIdx<=5 && chosen[typeIdx] === -1){
-      chosen[typeIdx] = i;
-    }
-  });
-
-  // ——— Construcción (progresión en Z + alternancia positivo/negativo) ———
-  const REPEAT     = 10;             // panel grande sin cambiar el tamaño del tile
-  const baseTilesX = 4;
-  for (let zSlot = 0; zSlot < 5; zSlot++){
-    const typeIdx = zSlot + 1;       // 1..5 → 1:1 … √5:1
-    const permIdx = chosen[typeIdx];
-    if (permIdx === -1) continue;    // si no hay perm de ese tipo, capa vacía
-
+    
+      // ——— SIEMPRE 5 capas: si hay <5 perms, se repiten cíclicamente (determinista) ———
+      const layers = [];
+      for (let z=0; z<5; z++){
+    const pick = order[(z + sceneSeed + S_global) % order.length].i; // ciclo estable
+    layers.push({ zSlot:z, permIdx: pick });
+      }
+    
+      // Construcción de rasters
+      const REPEAT = 10;
+      const sceneKey = (37*sceneSeed + 101*S_global) % 360;
+    
+      let minZ = +Infinity;
+    
+      layers.forEach(({zSlot, permIdx})=>{
     const pa      = perms[permIdx];
-    const color   = colorForPerm(pa).clone();
+    const baseCol = colorForPerm(pa);
+    // tipo segun perm elegida (si quisieras la progresión estricta 1..5, cambia aquí)
+    const typeIdx = pa[ attributeMapping[1] ]; // 1..5
     const ratio   = ROOT_RATIOS[typeIdx];
-
+    
+    // Tamaños de tile raíz (fijos por tipo)
     const widthTile  = ratio * TILE_H;
     const heightTile = TILE_H;
-
-    // Centro en su celda de 5×5×5 pero con Z FORZADO = zSlot (progresión)
+    
+    // Centro determinista de la celda 5×5×5, pero con Z forzado a zSlot
     const r  = lehmerRank(pa);
     const I  = (r + sceneSeed + S_global) % 125;
     const x0 = Math.floor(I / 25);
     const y0 = Math.floor((I % 25) / 5);
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
-    const cz = (zSlot - 2) * step;   // ← progresión limpia hacia el fondo
-
-    // nº de tiles (ancho y alto) — solo repetición de la forma elemental
-    const tilesX = baseTilesX * REPEAT;            // 40
-    const tilesY = Math.max(2, Math.round(tilesX / ratio));
-
-    // parámetros de respiración deterministas (como antes)
+    const cz = (zSlot - 2) * step;               // ← Z único por capa 0..4
+    
+    minZ = Math.min(minZ, cz);
+    
+    // panel ancho a base de tiles (sin subdividir)
+    const baseTilesX = 4;
+    const tilesX     = baseTilesX * REPEAT;
+    const tilesY     = Math.max(2, Math.round(tilesX / ratio));
+    
     const sig  = computeSignature(pa);
     const rng  = computeRange(sig);
     const L    = pa[ attributeMapping[0] ];
@@ -1267,68 +1273,120 @@ function buildLCHT(){
       I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
       amp: 0.05 + 0.10 * rng,
       f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((r % 360) / 360)
+      phi: 2 * Math.PI * ((lehmerRank(pa) % 360) / 360)
     };
-
-    const faceForward = (((r + sceneSeed + S_global) & 1) === 0);
+    
+    const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
     const normal = faceForward ? 1 : -1;
-
-    // Alternancia determinista: capas pares = POSITIVO (líneas), impares = NEGATIVO (relleno)
-    const isNegative = (zSlot % 2) === 1;
-
-    if (!isNegative){
-      addRootRaster({
-        center: new THREE.Vector3(cx, cy, cz),
-        widthTile, heightTile, tilesX, tilesY,
-        line: SIDE, join: JOIN, color, nz: normal, lcht
+    
+    addRootRaster({
+      center: new THREE.Vector3(cx, cy, cz),
+      widthTile,
+      heightTile,
+      tilesX,
+      tilesY,
+      line: SIDE,
+      join: JOIN,
+      color: baseCol.clone(),
+      nz: normal,
+      lcht,
+      zSlot
+    });
       });
-    } else {
-      addNegativeRaster({
-        center: new THREE.Vector3(cx, cy, cz),
-        widthTile, heightTile, tilesX, tilesY,
-        line: SIDE, join: JOIN, color, nz: normal, lcht
+    
+      // Plano de fondo SIEMPRE coloreado (nunca blanco), un poco detrás de la capa más lejana
+      if (!isFinite(minZ)) minZ = -step*3;
+      addBackPlane({
+    z: minZ - step*0.25,
+    width:  cubeSize * 0.92,
+    height: cubeSize * 0.92,
+    sceneKey
       });
-    }
-  }
-
-  // Sin culling (que no parpadeen)
-  lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
-
-  // bucle de respiración determinista
-  if (window.__lchtRAF){ cancelAnimationFrame(window.__lchtRAF); window.__lchtRAF = null; }
-  const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252;
-  function __lchtLoop(ts){
+    
+      // No hacer culling
+      lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+    
+      // bucle determinista (respiración + foco rotativo + deriva del fondo)
+      if (window.__lchtRAF){ cancelAnimationFrame(window.__lchtRAF); window.__lchtRAF = null; }
+      const t0 = (sceneSeed*13 + S_global*31) * 0.01745329252;
+      // base H del back plane
+      const baseBgHSV = rgbToHsv(
+    lchtBackPlane.material.color.r*255,
+    lchtBackPlane.material.color.g*255,
+    lchtBackPlane.material.color.b*255
+      );
+    
+      function smoothPulse(x){ // x en [0..1] devuelve una campana suave
+    const d = 1.0 - Math.abs(2.0*x - 1.0); // triángulo
+    return d*d*(3 - 2*d);                  // suavizado (smoothstep-ish)
+      }
+    
+      function __lchtLoop(ts){
     if (!isLCHT || !lichtGroup) { window.__lchtRAF = null; return; }
     const t = ts * 0.001;
+    
+    // índice de capa en foco: rota 0→1→2→3→4
+    const cycle = (t / LCHT_FOCUS_PERIOD) % 5;
+    const focusIndex = Math.floor(cycle);
+    const frac = cycle - focusIndex; // 0..1 dentro de la capa actual
+    
     lichtGroup.traverse(m=>{
-      if (!m.isMesh || !m.material || !m.userData || !m.userData.lcht) return;
+      if (!m.isMesh || !m.material) return;
+    
+      // — fondo: deriva cromática suave, nunca a blanco
+      if (m === lchtBackPlane){
+        const h = (baseBgHSV[0] + LCHT_BG_HUE_DRIFT * Math.sin(2*Math.PI*LCHT_BG_SPEED * t)) % 1;
+        const s = Math.max(0.25, baseBgHSV[1]);   // evita desaturar a blanco
+        const v = Math.min(0.93, Math.max(0.86, baseBgHSV[2]));
+        const rgb = hsvToRgb(h, s, v);
+        m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+        return;
+      }
+    
+      if (!m.userData || !m.userData.lcht) return;
       const P = m.userData.lcht;
-      const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * t + P.phi);
+      const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
       m.material.emissiveIntensity = Math.max(0, k);
+    
       if (m.userData.baseHsv){
         const bh  = m.userData.baseHsv;
-        const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * t + P.phi)) % 1;
+        const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
         const rgb = hsvToRgb(h, bh.s, bh.v);
         m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
         m.material.emissive.copy(m.material.color);
       }
+    
+      // — Protagonismo rotativo por Z (intensidad/“presencia”)
+      const z = (m.userData.zSlot ?? 0) % 5;
+      // capa en foco: z === focusIndex
+      let w = (z === focusIndex) ? smoothPulse(frac) : 0.0;
+      // vecinos reciben un poco al entrar/salir (contigüidad en anillo)
+      const prev = (focusIndex + 4) % 5, next = (focusIndex + 1) % 5;
+      if (z === prev) w = smoothPulse(1.0 - frac) * 0.35;
+      if (z === next) w = Math.max(w, smoothPulse(frac) * 0.35);
+    
+      const dim = LCHT_BASE_DIM;
+      const gain = dim + (LCHT_FOCUS_GAIN - dim) * w;
+      // aplicamos como escala de “brillo” (color + emisivo)
+      m.material.emissiveIntensity *= 0.6 + 0.4*gain;
+      m.material.color.multiplyScalar(gain);
+      m.material.emissive.multiplyScalar(gain);
     });
+    
     window.__lchtRAF = requestAnimationFrame(__lchtLoop);
   }
   window.__lchtRAF = requestAnimationFrame(__lchtLoop);
 }
-/* ════════════════════════════════════════════════════════════ */
-
-
+    /* ════════════════════════════════════════════════════════════ */
+    
     function toggleLCHT(){
-      if (!isLCHT && isOFFNNG) toggleOFFNNG();  // ← NUEVO
+      if (!isLCHT && isOFFNNG) toggleOFFNNG();
       if (!isLCHT && isTMSL)  toggleTMSL();
       if (!isLCHT && isKEPLR) toggleKEPLR();
       isLCHT = !isLCHT;
-
+    
       if (isLCHT){
-        leaveBuildRenderBoost();          // ← desactiva boost de BUILD
-        /* — cambia material del cubo a lambert para que capte luz — */
+        leaveBuildRenderBoost();
         if(!cubeUniverse.userData.prevMat){
           cubeUniverse.userData.prevMat = cubeUniverse.material;
           cubeUniverse.material = new THREE.MeshLambertMaterial({
@@ -1339,17 +1397,14 @@ function buildLCHT(){
           });
         }
         if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
-        scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-        if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
+        scene.background = new THREE.Color(0xf4f4f4);
+        if (isFRBN) toggleFRBN();
         buildLCHT();
         lichtGroup.visible        = true;
         cubeUniverse.visible      = false;
         permutationGroup.visible  = false;
-
         setCamera_LCHT();
-
       } else {
-        /* — restaura material original — */
         if(cubeUniverse.userData.prevMat){
           cubeUniverse.material.dispose();
           cubeUniverse.material = cubeUniverse.userData.prevMat;
@@ -1361,15 +1416,12 @@ function buildLCHT(){
         cubeUniverse.visible      = true;
         permutationGroup.visible  = true;
         restoreBuildView();
-
-        // ← cancelar rAF propio de LCHT para no dejar animaciones colgadas
         if (window.__lchtRAF){ cancelAnimationFrame(window.__lchtRAF); window.__lchtRAF = null; }
       }
       const b = document.getElementById('lchtButton');
       if (b) b.textContent = isLCHT ? 'LCHT ON' : 'LCHT';
     }
 
-    /* reconstruye LCHT si hay cambios de escena */
     function rebuildLCHTIfActive(){ if(isLCHT) buildLCHT(); }
 
     /* Cambia al motor BUILD sin generar una nueva configuración */
