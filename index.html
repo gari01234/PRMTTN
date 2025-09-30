@@ -1091,19 +1091,21 @@ function initSkySphere() {
 
     /* ——— Fondo animado (deriva de hue, sin llegar a blanco) ——— */
     let __lchtBgBaseHSV = null;
-    const LCHT_BG_DRIFT_AMP   = 0.07;   // amplitud de hue (0..1)
-    const LCHT_BG_DRIFT_SPEED = 0.04;   // Hz (lento)
-    const LCHT_BG_S_MIN       = 0.16;   // evita desaturar (no blanco)
-    const LCHT_BG_S_MAX       = 0.28;
-    const LCHT_BG_V_MIN       = 0.88;   // evita blanco brillante
-    const LCHT_BG_V_MAX       = 0.94;
+    // más visible y aún suave
+    const LCHT_BG_DRIFT_AMP   = 0.12;   // amplitud de hue (0..1)
+    const LCHT_BG_DRIFT_SPEED = 0.06;   // Hz (deriva lenta pero perceptible)
+    const LCHT_BG_S_MIN       = 0.18;   // evita desaturar (no blanco)
+    const LCHT_BG_S_MAX       = 0.30;
+    const LCHT_BG_V_MIN       = 0.86;   // evita blanco brillante
+    const LCHT_BG_V_MAX       = 0.93;
 
-    /* ——— Protagonismo rotativo (una capa a la vez) ——— */
-    const LCHT_FOCUS_PERIOD   = 8.0;    // segundos por capa
-    const LCHT_FOCUS_OPACITY  = 0.95;   // opacidad de la capa en foco
-    const LCHT_OFF_OPACITY    = 0.08;   // opacidad del resto
-    const LCHT_FOCUS_GAIN     = 1.75;   // multiplicador de “presencia” en foco
-    const LCHT_OFF_GAIN       = 0.18;   // presencia del resto
+    /* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
+    const LCHT_FOCUS_PERIOD   = 18.0;   // segundos por vuelta completa (5 capas)
+    const LCHT_FOCUS_OPACITY  = 0.85;   // capa en foco (menos brusco)
+    const LCHT_OFF_OPACITY    = 0.12;   // resto
+    const LCHT_FOCUS_GAIN     = 1.45;   // “presencia” de la capa en foco
+    const LCHT_OFF_GAIN       = 0.40;   // presencia de las demás
+    const LCHT_FOCUS_SIGMA    = 0.55;   // anchura Gauss (en capas); suavidad del cruce
 
     /* color determinista base */
     function colorForPerm(pa){
@@ -1284,24 +1286,24 @@ function initSkySphere() {
 
         // — Fondo animado (deriva de hue, manteniendo s/v lejos del blanco)
         {
-          const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP * Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t)) % 1;
+          // hue oscila; s y v quedan acotados para no llegar a blanco
+          const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP *
+                    Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * (t))) % 1;
           const s = THREE.MathUtils.clamp(__lchtBgBaseHSV[1], LCHT_BG_S_MIN, LCHT_BG_S_MAX);
           const v = THREE.MathUtils.clamp(__lchtBgBaseHSV[2], LCHT_BG_V_MIN, LCHT_BG_V_MAX);
           const rgb = hsvToRgb(h, s, v);
           scene.background.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
         }
 
-        // — Foco rotativo: solo UNA capa protagonista
-        const cycle = (t / LCHT_FOCUS_PERIOD) % 5;
-        const focusIndex = Math.floor(cycle);    // capa activa
-        const frac = cycle - focusIndex;         // 0..1 dentro del ciclo
-
-        const prevIndex = (focusIndex + 4) % 5;  // la que sale
+        // — Foco rotativo suave: peso Gaussiano en el espacio cíclico de 5 capas
+        // centro del foco (flota entre 0..5), una vuelta cada LCHT_FOCUS_PERIOD
+        const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
+        const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
         lichtGroup.traverse(m=>{
           if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-          // respiración color/emisivo
+          // respiración color/emisivo (igual que antes)
           if (m.userData.lcht){
             const P = m.userData.lcht;
             const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
@@ -1315,23 +1317,18 @@ function initSkySphere() {
             }
           }
 
-          // foco/atenuación
-          const z = m.userData.zSlot;
-          let alpha = LCHT_OFF_OPACITY;
-          let gain  = LCHT_OFF_GAIN;
+          // distancia cíclica capa↔centro (en [0,2.5])
+          let d = Math.abs(m.userData.zSlot - center);
+          d = Math.min(d, 5.0 - d);
 
-          if (z === focusIndex){
-            const s = smooth(frac);
-            alpha = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * s;
-            gain  = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * s;
-          } else if (z === prevIndex){
-            const s = smooth(1.0 - frac);
-            // la que sale se desvanece rápidamente
-            alpha = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * (s*0.15);
-            gain  = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * (s*0.15);
-          }
-          m.material.opacity = alpha;
-          // presencia global
+          // peso Gaussiano 0..1
+          const w = Math.exp(-(d*d)/sigma2);
+
+          // mezcla suave entre “off” y “focus”
+          const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
+          const gain    = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * w;
+
+          m.material.opacity = opacity;
           m.material.emissiveIntensity *= 0.55 + 0.45*gain;
           m.material.color.multiplyScalar(gain);
           m.material.emissive.multiplyScalar(gain);
