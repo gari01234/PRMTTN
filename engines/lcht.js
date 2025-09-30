@@ -6,18 +6,28 @@ let prevBg = null;
 let rafId = null;
 let __lchtBgBaseHSV = null;
 
-const LCHT_BG_DRIFT_AMP   = 0.07;
-const LCHT_BG_DRIFT_SPEED = 0.04;
-const LCHT_BG_S_MIN       = 0.16;
-const LCHT_BG_S_MAX       = 0.28;
-const LCHT_BG_V_MIN       = 0.88;
-const LCHT_BG_V_MAX       = 0.94;
+const { hsvToRgb } = window;
 
-const LCHT_FOCUS_PERIOD   = 8.0;
-const LCHT_FOCUS_OPACITY  = 0.95;
-const LCHT_OFF_OPACITY    = 0.08;
-const LCHT_FOCUS_GAIN     = 1.75;
-const LCHT_OFF_GAIN       = 0.18;
+/* ——— Fondo animado (deriva de hue, sin llegar a blanco) ——— */
+const LCHT_BG_DRIFT_AMP   = 0.18;  // amplitud de hue (0..1) — visible
+const LCHT_BG_DRIFT_SPEED = 0.08;  // Hz — deriva suave
+const LCHT_BG_S_MIN       = 0.18;  // evita desaturar (no blanco)
+const LCHT_BG_S_MAX       = 0.32;
+const LCHT_BG_V_MIN       = 0.86;  // evita blanco brillante
+const LCHT_BG_V_MAX       = 0.93;
+const LCHT_BG_S_DRIFT     = 0.06;  // pequeña oscilación de S
+const LCHT_BG_V_DRIFT     = 0.03;  // pequeña oscilación de V
+
+/* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
+const LCHT_FOCUS_PERIOD   = 18.0;  // s por vuelta completa (5 capas)
+const LCHT_FOCUS_OPACITY  = 0.90;  // capa en foco
+const LCHT_OFF_OPACITY    = 0.22;  // opacidad mínima del resto (↑)
+const LCHT_FOCUS_GAIN     = 1.50;  // “presencia” en foco
+const LCHT_OFF_GAIN       = 0.45;  // presencia del resto
+const LCHT_FOCUS_SIGMA    = 0.55;  // anchura Gauss (suavidad)
+
+/* ——— Refuerzos de legibilidad de líneas ——— */
+const LCHT_MIN_LINE_LUMA  = 0.42;  // luminancia mínima 0..1
 
 function getTHREE(){ return window.THREE; }
 function getScene(){ return window.scene; }
@@ -48,10 +58,11 @@ function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, l
     dithering: true,
     flatShading: true,
     transparent: true,
-    opacity: LCHT_OFF_OPACITY
+    opacity: LCHT_OFF_OPACITY         // opacidad base más alta
   });
-  matBase.emissive = color.clone();
-  matBase.emissiveIntensity = 0.08;
+  matBase.color.multiplyScalar(1.14);  // leve “tinta” extra
+  matBase.emissive = matBase.color.clone();
+  matBase.emissiveIntensity = 0.18;    // auto-brillo base ↑
 
   const [h0,s0,v0] = window.rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
@@ -85,8 +96,6 @@ function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, l
   }
 }
 
-function smooth(x){ return x*x*(3-2*x); }
-
 function build(){
   const THREE = getTHREE();
   const scene = getScene();
@@ -105,7 +114,7 @@ function build(){
   scene.add(lichtGroup);
 
   const step = cubeSize / 5;
-  const SIDE = 0.24;
+  const SIDE = 0.28;          // trazo un poco más grueso
   const JOIN = 0.02;
   const TILE_H = step * 0.92 * 3.0;
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
@@ -193,51 +202,71 @@ function build(){
     const t = ts * 0.001;
 
     if (__lchtBgBaseHSV){
-      const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP * Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t)) % 1;
-      const s = THREE.MathUtils.clamp(__lchtBgBaseHSV[1], LCHT_BG_S_MIN, LCHT_BG_S_MAX);
-      const v = THREE.MathUtils.clamp(__lchtBgBaseHSV[2], LCHT_BG_V_MIN, LCHT_BG_V_MAX);
-      const rgb = window.hsvToRgb(h, s, v);
-      sceneRef.background.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+      // — Fondo animado (hue + s/v con pequeña oscilación; nunca blanco)
+      {
+        const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP *
+                  Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t)) % 1;
+
+        const sBase = THREE.MathUtils.clamp(__lchtBgBaseHSV[1], LCHT_BG_S_MIN, LCHT_BG_S_MAX);
+        const vBase = THREE.MathUtils.clamp(__lchtBgBaseHSV[2], LCHT_BG_V_MIN, LCHT_BG_V_MAX);
+
+        const s = THREE.MathUtils.clamp(
+          sBase + LCHT_BG_S_DRIFT * Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t + Math.PI/3),
+          LCHT_BG_S_MIN, LCHT_BG_S_MAX
+        );
+        const v = THREE.MathUtils.clamp(
+          vBase + LCHT_BG_V_DRIFT * Math.cos(2*Math.PI*LCHT_BG_DRIFT_SPEED * t + Math.PI/5),
+          LCHT_BG_V_MIN, LCHT_BG_V_MAX
+        );
+
+        const rgb = hsvToRgb(h, s, v);
+        sceneRef.background.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+      }
     }
 
-    const cycle = (t / LCHT_FOCUS_PERIOD) % 5;
-    const focusIndex = Math.floor(cycle);
-    const frac = cycle - focusIndex;
-    const prevIndex = (focusIndex + 4) % 5;
+    // — Foco rotativo suave con ventana Gauss y refuerzo de legibilidad
+    const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
+    const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
-    lichtGroup.traverse(mesh => {
-      if (!mesh.isMesh || !mesh.material || !mesh.userData || mesh.userData.zSlot === undefined) return;
+    lichtGroup.traverse(m=>{
+      if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-      if (mesh.userData.lcht){
-        const P = mesh.userData.lcht;
+      // respiración (igual que antes)
+      if (m.userData.lcht){
+        const P = m.userData.lcht;
         const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
-        mesh.material.emissiveIntensity = Math.max(0, k);
-        if (mesh.userData.baseHsv){
-          const bh  = mesh.userData.baseHsv;
+        m.material.emissiveIntensity = Math.max(0, k);
+        if (m.userData.baseHsv){
+          const bh  = m.userData.baseHsv;
           const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
-          const rgb = window.hsvToRgb(h, bh.s, bh.v);
-          mesh.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-          mesh.material.emissive.copy(mesh.material.color);
+          const rgb = hsvToRgb(h, bh.s, bh.v);
+          m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+          m.material.emissive.copy(m.material.color);
         }
       }
 
-      const z = mesh.userData.zSlot;
-      let alpha = LCHT_OFF_OPACITY;
-      let gain  = LCHT_OFF_GAIN;
+      // peso Gaussiano 0..1 en el espacio cíclico de 5 capas
+      let d = Math.abs(m.userData.zSlot - center);
+      d = Math.min(d, 5.0 - d);
+      const w = Math.exp(-(d*d)/sigma2);
 
-      if (z === focusIndex){
-        const s = smooth(frac);
-        alpha = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * s;
-        gain  = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * s;
-      } else if (z === prevIndex){
-        const s = smooth(1.0 - frac);
-        alpha = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * (s*0.15);
-        gain  = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * (s*0.15);
+      // mezcla de opacidad y ganancia
+      const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
+      const gain    = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * w;
+
+      m.material.opacity = opacity;
+      m.material.emissiveIntensity *= 0.55 + 0.45*gain;
+      m.material.color.multiplyScalar(gain);
+      m.material.emissive.multiplyScalar(gain);
+
+      // — refuerzo: aseguramos luminancia mínima para que las líneas nunca se pierdan
+      const r = m.material.color.r, g = m.material.color.g, b = m.material.color.b;
+      const luma = 0.2126*r + 0.7152*g + 0.0722*b;
+      if (luma < LCHT_MIN_LINE_LUMA){
+        const s = LCHT_MIN_LINE_LUMA / Math.max(luma, 0.0001);
+        m.material.color.multiplyScalar(s);
+        m.material.emissive.multiplyScalar(0.5*s);
       }
-      mesh.material.opacity = alpha;
-      mesh.material.emissiveIntensity *= 0.55 + 0.45*gain;
-      mesh.material.color.multiplyScalar(gain);
-      mesh.material.emissive.multiplyScalar(gain);
     });
 
     rafId = requestAnimationFrame(loop);
