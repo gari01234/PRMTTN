@@ -1102,13 +1102,13 @@ function initSkySphere() {
     const LCHT_BG_L_WOBBLE_AMP   = 0.03;  // respiración de L (suave para no deslumbrar)
     const LCHT_BG_L_WOBBLE_SPEED = 0.013;
 
-    /* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
-    const LCHT_FOCUS_PERIOD   = 18.0;   // segundos por vuelta completa (5 capas)
-    const LCHT_FOCUS_OPACITY  = 0.85;   // capa en foco (menos brusco)
-    const LCHT_OFF_OPACITY    = 0.12;   // resto
-    const LCHT_FOCUS_GAIN     = 1.45;   // “presencia” de la capa en foco
-    const LCHT_OFF_GAIN       = 0.40;   // presencia de las demás
-    const LCHT_FOCUS_SIGMA    = 0.55;   // anchura Gauss (en capas); suavidad del cruce
+    /* ——— Protagonismo rotativo (una capa a la vez, suave pero claro) ——— */
+    const LCHT_FOCUS_PERIOD = 18.0;  // s por vuelta (5 capas)
+    const LCHT_FOCUS_OPACITY = 1.0;  // la protagonista SIEMPRE opaca
+    const LCHT_OFF_OPACITY   = 0.35; // el resto, visibles (sin desaparecer)
+    const LCHT_FOCUS_GAIN    = 1.35; // boost de color de la protagonista
+    const LCHT_OFF_GAIN      = 0.85; // piso de ganancia del resto
+    const LCHT_FOCUS_SIGMA   = 0.55; // suavidad gaussiana del cruce
 
     /* color determinista base */
     function colorForPerm(pa){
@@ -1127,13 +1127,14 @@ function initSkySphere() {
         color: color.clone(),
         dithering: true,
         flatShading: true,
-        transparent: true,           // ← para opacidad del foco
-        opacity: LCHT_OFF_OPACITY
+        transparent: true,            // las “off” serán translúcidas
+        opacity: LCHT_OFF_OPACITY,
+        depthWrite: false,            // así no lavan a la protagonista
+        blending: THREE.NormalBlending
       });
       matBase.emissive = color.clone();
-      matBase.emissiveIntensity = 0.08;
+      matBase.emissiveIntensity = 0.28; // punch base
 
-      // HSV base para respiración
       const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
       const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
@@ -1151,9 +1152,12 @@ function initSkySphere() {
         if (nz < 0) mesh.rotateY(Math.PI);
         mesh.userData.lcht     = lcht;
         mesh.userData.baseHsv  = baseHsv;
-        mesh.userData.zSlot    = zSlot;  // ← foco por Z
+        mesh.userData.baseRGB  = [color.r, color.g, color.b]; // bases absolutas
+        mesh.userData.baseEI   = mesh.material.emissiveIntensity;
+        mesh.userData.zSlot    = zSlot;
         lichtGroup.add(mesh);
       }
+
       // — Horizontales
       for (let j=0; j<=tilesY; j++){
         const y = -halfH + j*heightTile;
@@ -1163,6 +1167,8 @@ function initSkySphere() {
         if (nz < 0) mesh.rotateY(Math.PI);
         mesh.userData.lcht     = lcht;
         mesh.userData.baseHsv  = baseHsv;
+        mesh.userData.baseRGB  = [color.r, color.g, color.b];
+        mesh.userData.baseEI   = mesh.material.emissiveIntensity;
         mesh.userData.zSlot    = zSlot;
         lichtGroup.add(mesh);
       }
@@ -1312,35 +1318,51 @@ function initSkySphere() {
         lichtGroup.traverse(m=>{
           if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-          // respiración color/emisivo (igual que antes)
-          if (m.userData.lcht){
-            const P = m.userData.lcht;
-            const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
-            m.material.emissiveIntensity = Math.max(0, k);
-            if (m.userData.baseHsv){
-              const bh  = m.userData.baseHsv;
-              const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
-              const rgb = hsvToRgb(h, bh.s, bh.v);
-              m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-              m.material.emissive.copy(m.material.color);
-            }
-          }
-
-          // distancia cíclica capa↔centro (en [0,2.5])
+          // --- foco gaussiano en el anillo de 5 capas
           let d = Math.abs(m.userData.zSlot - center);
           d = Math.min(d, 5.0 - d);
-
-          // peso Gaussiano 0..1
           const w = Math.exp(-(d*d)/sigma2);
 
-          // mezcla suave entre “off” y “focus”
-          const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
-          const gain    = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * w;
+          // --- ¿cuál es la protagonista exacta?
+          const leadIndex = Math.round(center) % 5;
+          const isLead = (m.userData.zSlot === leadIndex);
 
-          m.material.opacity = opacity;
-          m.material.emissiveIntensity *= 0.55 + 0.45*gain;
-          m.material.color.multiplyScalar(gain);
-          m.material.emissive.multiplyScalar(gain);
+          // --- respira SIEMPRE desde el color base (no acumulamos nunca)
+          let r = m.userData.baseRGB ? m.userData.baseRGB[0] : m.material.color.r;
+          let g = m.userData.baseRGB ? m.userData.baseRGB[1] : m.material.color.g;
+          let b = m.userData.baseRGB ? m.userData.baseRGB[2] : m.material.color.b;
+
+          if (m.userData.lcht && m.userData.baseHsv){
+            const P  = m.userData.lcht;
+            const bh = m.userData.baseHsv;
+            const h  = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
+            const rr = hsvToRgb(h, bh.s, bh.v);
+            r = rr[0]/255; g = rr[1]/255; b = rr[2]/255;
+          }
+
+          // --- ganancia ABSOLUTA para este frame
+          const gain = isLead
+            ? LCHT_FOCUS_GAIN
+            : LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * w;
+
+          m.material.color.setRGB(Math.min(1, r*gain), Math.min(1, g*gain), Math.min(1, b*gain));
+          m.material.emissive.setRGB(Math.min(1, r*gain), Math.min(1, g*gain), Math.min(1, b*gain));
+
+          // --- emisivo absoluto (nada de *=)
+          const P  = m.userData.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
+          const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi));
+          const baseEI = (m.userData.baseEI != null) ? m.userData.baseEI : 0.28;
+          const focusBoost = isLead ? 1.10 : (0.85 + 0.25 * w);
+          m.material.emissiveIntensity = baseEI * breath * focusBoost;
+
+          // --- protagonista sin transparencia; el resto translúcido
+          if (isLead){
+            if (m.material.transparent){ m.material.transparent = false; m.material.depthWrite = true; m.material.needsUpdate = true; }
+            m.material.opacity = LCHT_FOCUS_OPACITY; // 1.0
+          } else {
+            if (!m.material.transparent){ m.material.transparent = true; m.material.depthWrite = false; m.material.needsUpdate = true; }
+            m.material.opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
+          }
         });
 
         window.__lchtRAF = requestAnimationFrame(__lchtLoop);
