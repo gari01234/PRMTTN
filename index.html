@@ -1086,17 +1086,6 @@ function initSkySphere() {
    - Respiración/luz determinista (igual que “andamios”).
    ════════════════════════════════════════════════════════════ */
 
-/* ─── LCHT: atmósfera + respiración por Z + sombra interior ─── */
-const LCHT_HAZE_MIN      = 0.06;          // mezcla al fondo en Z cercano (más baja)
-const LCHT_HAZE_MAX      = 0.20;          // mezcla al fondo en Z lejano (mucho más baja)
-const LCHT_PHASE_STEP    = Math.PI / 5;
-const LCHT_SHADOW_EDGE   = { start: 0.55, end: 1.00, gain: 0.28 };
-const LCHT_FOG_DENS      = 0.00;          // ← fog global APAGADO (0 = sin fog)
-const LCHT_ROT_Y_MAX_DEG = 3.0;
-const LCHT_Z_SPREAD      = 2.6;           // ← separación entre capas Z (× step)
-const __lchtTmpColor     = new THREE.Color();
-const __lchtTmpVec3      = new THREE.Vector3();
-
 let lichtGroup = null;
 let isLCHT     = false;
 let lchtPrevBg = null;
@@ -1115,7 +1104,7 @@ function colorForPerm(pa){
 /* Construye panel de líneas que SOLO delinean cada tile raíz (sin subdividir).
    - Cada tile raíz tiene: widthTile, heightTile
    - El panel se arma repitiendo esos tiles → líneas en las fronteras de los tiles. */
-function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zDepthNorm, rotY }){
+function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht }){
   const matBase = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -1133,23 +1122,16 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
-  // —— contenedor para aplicar rotación/transformaciones por capa Z ——
-  const g = new THREE.Group();
-  g.position.copy(center);
-  g.rotation.y = rotY || 0;
-  lichtGroup.add(g);
-
   // — Verticales: solo fronteras de tiles (tilesX+1 líneas)
   for (let i=0; i<=tilesX; i++){
     const x = -halfW + i*widthTile;
     const geo  = new THREE.BoxGeometry(line, panelH + join, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
-    mesh.position.set(x, 0, 0);              // ← relativo al grupo
+    mesh.position.set(center.x + x, center.y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
-    mesh.userData.lcht       = lcht;
-    mesh.userData.baseHsv    = baseHsv;
-    mesh.userData.zDepthNorm = zDepthNorm;
-    g.add(mesh);
+    mesh.userData.lcht     = lcht;
+    mesh.userData.baseHsv  = baseHsv;
+    lichtGroup.add(mesh);
   }
 
   // — Horizontales: solo fronteras de tiles (tilesY+1 líneas)
@@ -1157,55 +1139,12 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
     const y = -halfH + j*heightTile;
     const geo  = new THREE.BoxGeometry(panelW + join, line, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
-    mesh.position.set(0, y, 0);              // ← relativo al grupo
+    mesh.position.set(center.x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
-    mesh.userData.lcht       = lcht;
-    mesh.userData.baseHsv    = baseHsv;
-    mesh.userData.zDepthNorm = zDepthNorm;
-    g.add(mesh);
+    mesh.userData.lcht     = lcht;
+    mesh.userData.baseHsv  = baseHsv;
+    lichtGroup.add(mesh);
   }
-}
-
-let lchtShadowPlane = null;
-function addInnerShadowPlane({ z, width, height }) {
-  if (lchtShadowPlane) {
-    if (lchtShadowPlane.parent) lchtShadowPlane.parent.remove(lchtShadowPlane);
-    lchtShadowPlane.geometry.dispose();
-    lchtShadowPlane.material.dispose();
-    lchtShadowPlane = null;
-  }
-  // malla subdividida con colores por vértice para sombreado hacia el borde
-  const seg = 32;
-  const geo = new THREE.PlaneGeometry(width, height, seg, seg);
-  const nVerts = geo.attributes.position.count;
-  const cols = new Float32Array(nVerts * 3);
-
-  const w2 = width * 0.5, h2 = height * 0.5;
-  for (let i = 0; i < nVerts; i++) {
-    const x = geo.attributes.position.getX(i) / w2;
-    const y = geo.attributes.position.getY(i) / h2;
-    const m = Math.max(Math.abs(x), Math.abs(y));             // 0 centro → 1 borde
-    const t = THREE.MathUtils.clamp(
-      (m - LCHT_SHADOW_EDGE.start) / (LCHT_SHADOW_EDGE.end - LCHT_SHADOW_EDGE.start),
-      0, 1
-    );
-    const shade = 1.0 - LCHT_SHADOW_EDGE.gain * t;            // oscurece hasta 15%
-    cols[i * 3 + 0] = shade;
-    cols[i * 3 + 1] = shade;
-    cols[i * 3 + 2] = shade;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  const mat = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 1.0,
-    depthWrite: false
-  });
-  lchtShadowPlane = new THREE.Mesh(geo, mat);
-  lchtShadowPlane.position.set(0, 0, z);
-  lchtShadowPlane.frustumCulled = false;
-  lichtGroup.add(lchtShadowPlane);
-  lchtShadowPlane.renderOrder = -1; // se dibuja antes; no interfiere
 }
 
 /* ———————————————————————————————————————————————————————————— */
@@ -1294,7 +1233,7 @@ function buildLCHT(){
     // Centro de la celda en mundo (alineado a 5×5×5)
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
-    const cz = (z0Fix - 2) * step * LCHT_Z_SPREAD;
+    const cz = (z0Fix - 2) * step;
 
     // Hacemos el panel 10× más grande sin tocar los tiles → +tiles
     // Empezamos con una base razonable y multiplicamos
@@ -1302,6 +1241,9 @@ function buildLCHT(){
     const tilesX     = baseTilesX * REPEAT;             // 40 tiles a lo ancho
     // Para que el panel no “aplane”: tilesY ≈ tilesX * (height/width) = tilesX / ratio
     const tilesY     = Math.max(2, Math.round(tilesX / ratio));
+
+    // Color determinista propio de la permutación
+    const color = baseCol.clone();  // color determinista propio de la permutación
 
     // parámetros de “respiración” iguales a andamios
     const sig  = computeSignature(pa);
@@ -1311,17 +1253,11 @@ function buildLCHT(){
       I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
       amp: 0.05 + 0.10 * rng,
       f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((lehmerRank(pa) % 360) / 360) + z0Fix * LCHT_PHASE_STEP
+      phi: 2 * Math.PI * ((lehmerRank(pa) % 360) / 360)
     };
 
     const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
     const normal = faceForward ? 1 : -1;
-
-    // ——— peso de atmósfera para este Z (0 cerca → 1 lejos) ———
-    const zDepthNorm = z0Fix / 4;  // 0..1 usando los 5 niveles (0..4)
-
-    // — inclinación suave por Z (±3°) para acentuar la profundidad —
-    const rotY = ( (zDepthNorm - 0.5) * 2.0 ) * (LCHT_ROT_Y_MAX_DEG * Math.PI / 180);
 
     addRootRaster({
       center: new THREE.Vector3(cx, cy, cz),
@@ -1331,28 +1267,10 @@ function buildLCHT(){
       tilesY,
       line: SIDE,
       join: JOIN,
-      color: baseCol,   // color base tal cual
+      color,
       nz: normal,
-      lcht,
-      zDepthNorm,
-      rotY                  // ← NUEVO
+      lcht
     });
-  });
-
-  // —— sombra interior suave en el “fondo” del vano ——
-  // Calcula el Z más lejano de las capas para colocar el plano detrás
-  let minZ = +Infinity;
-  lichtGroup.traverse(o=>{
-    if (o.isMesh){
-      o.getWorldPosition(__lchtTmpVec3);
-      minZ = Math.min(minZ, __lchtTmpVec3.z);
-    }
-  });
-  if (!isFinite(minZ)) minZ = -step*3;               // fallback estable
-  addInnerShadowPlane({
-    z: minZ - (step * LCHT_Z_SPREAD) * 0.35,   // un poco más atrás con spread
-    width:  cubeSize * 0.92,
-    height: cubeSize * 0.92
   });
 
   // Sin culling (que no parpadeen)
@@ -1366,32 +1284,16 @@ function buildLCHT(){
     const t = ts * 0.001;
     lichtGroup.traverse(m=>{
       if (!m.isMesh || !m.material || !m.userData || !m.userData.lcht) return;
-      // respiración (emissive)
       const P = m.userData.lcht;
       const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * t + P.phi);
       m.material.emissiveIntensity = Math.max(0, k);
-
-      // color base con wobble de tono
-      const zN = m.userData.zDepthNorm || 0; // 0..1
       if (m.userData.baseHsv){
         const bh  = m.userData.baseHsv;
         const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * t + P.phi)) % 1;
-        // — desaturación/oscurecimiento por Z (profundidad) —
-        const sZ  = bh.s * (1.0 - 0.35 * zN);
-        const vZ  = Math.min(1, bh.v * (1.0 - 0.05 * zN));
-        const rgb = hsvToRgb(h, sZ, vZ);
+        const rgb = hsvToRgb(h, bh.s, bh.v);
         m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
         m.material.emissive.copy(m.material.color);
       }
-
-      // atmósfera: mezcla con el fondo según Z (más sutil)
-      const haze = LCHT_HAZE_MIN + (LCHT_HAZE_MAX - LCHT_HAZE_MIN) * zN;
-      const bg = (scene.background instanceof THREE.Color)
-        ? scene.background
-        : __lchtTmpColor.set(0xf4f4f4);
-      __lchtTmpColor.copy(m.material.color).lerp(bg, haze);
-      m.material.color.copy(__lchtTmpColor);
-      m.material.emissive.lerp(bg, haze * 0.6);
     });
     window.__lchtRAF = requestAnimationFrame(__lchtLoop);
   }
@@ -1420,8 +1322,6 @@ function buildLCHT(){
         }
         if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
         scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-        // Fog solo si se pide (densidad > 0)
-        scene.fog = (LCHT_FOG_DENS > 0) ? new THREE.FogExp2(0xf4f4f4, LCHT_FOG_DENS) : null;
         if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
         buildLCHT();
         lichtGroup.visible        = true;
@@ -1438,7 +1338,6 @@ function buildLCHT(){
           delete cubeUniverse.userData.prevMat;
         }
         if (lichtGroup) lichtGroup.visible = false;
-        scene.fog = null;
         if (lchtPrevBg) scene.background = lchtPrevBg;
         lchtPrevBg = null;
         cubeUniverse.visible      = true;
