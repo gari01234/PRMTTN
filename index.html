@@ -1109,6 +1109,7 @@ function initSkySphere() {
     const LCHT_FOCUS_GAIN    = 1.35; // boost de color de la protagonista
     const LCHT_OFF_GAIN      = 0.85; // piso de ganancia del resto
     const LCHT_FOCUS_SIGMA   = 0.55; // suavidad gaussiana del cruce
+    const LCHT_FOCUS_SHAPE   = 0.60; // 0..1 — menor = pico más pronunciado (más “prota”)
 
     /* color determinista base */
     function colorForPerm(pa){
@@ -1310,24 +1311,27 @@ function initSkySphere() {
           scene.background.setHSL(h, s, l);
         }
 
-        // — Foco rotativo suave: peso Gaussiano en el espacio cíclico de 5 capas
-        // centro del foco (flota entre 0..5), una vuelta cada LCHT_FOCUS_PERIOD
+        // — Foco rotativo suave con GAUSSIAN SOFTMAX (sin flips)
         const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
         const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
+        // 1) pesos por capa 0..4 normalizados (softmax gaussiano en anillo 5)
+        const weights = new Array(5);
+        let sumW = 0;
+        for (let z=0; z<5; z++){
+          let d = Math.abs(z - center);
+          d = Math.min(d, 5.0 - d);            // distancia en anillo
+          const w = Math.exp(-(d*d)/sigma2);   // gauss
+          weights[z] = w;
+          sumW += w;
+        }
+        for (let z=0; z<5; z++) weights[z] /= sumW;  // normaliza (suma=1)
+
+        // 2) aplica peso normalizado por mesh (sin acumulaciones)
         lichtGroup.traverse(m=>{
           if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-          // --- foco gaussiano en el anillo de 5 capas
-          let d = Math.abs(m.userData.zSlot - center);
-          d = Math.min(d, 5.0 - d);
-          const w = Math.exp(-(d*d)/sigma2);
-
-          // --- ¿cuál es la protagonista exacta?
-          const leadIndex = Math.round(center) % 5;
-          const isLead = (m.userData.zSlot === leadIndex);
-
-          // --- respira SIEMPRE desde el color base (no acumulamos nunca)
+          // — respiración: SIEMPRE desde la base (sin *=)
           let r = m.userData.baseRGB ? m.userData.baseRGB[0] : m.material.color.r;
           let g = m.userData.baseRGB ? m.userData.baseRGB[1] : m.material.color.g;
           let b = m.userData.baseRGB ? m.userData.baseRGB[2] : m.material.color.b;
@@ -1340,29 +1344,25 @@ function initSkySphere() {
             r = rr[0]/255; g = rr[1]/255; b = rr[2]/255;
           }
 
-          // --- ganancia ABSOLUTA para este frame
-          const gain = isLead
-            ? LCHT_FOCUS_GAIN
-            : LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * w;
+          // — peso “suavizado” de esta capa (sube la prota sin saltos)
+          const wn = Math.pow(weights[m.userData.zSlot], LCHT_FOCUS_SHAPE); // curva más picuda
+
+          // — ganancia/opacity absolutas (no multiplicativas acumulativas)
+          const gain = LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * wn;
+          const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn;
 
           m.material.color.setRGB(Math.min(1, r*gain), Math.min(1, g*gain), Math.min(1, b*gain));
           m.material.emissive.setRGB(Math.min(1, r*gain), Math.min(1, g*gain), Math.min(1, b*gain));
 
-          // --- emisivo absoluto (nada de *=)
           const P  = m.userData.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
           const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi));
           const baseEI = (m.userData.baseEI != null) ? m.userData.baseEI : 0.28;
-          const focusBoost = isLead ? 1.10 : (0.85 + 0.25 * w);
-          m.material.emissiveIntensity = baseEI * breath * focusBoost;
+          m.material.emissiveIntensity = baseEI * breath * (0.85 + 0.25*wn);
 
-          // --- protagonista sin transparencia; el resto translúcido
-          if (isLead){
-            if (m.material.transparent){ m.material.transparent = false; m.material.depthWrite = true; m.material.needsUpdate = true; }
-            m.material.opacity = LCHT_FOCUS_OPACITY; // 1.0
-          } else {
-            if (!m.material.transparent){ m.material.transparent = true; m.material.depthWrite = false; m.material.needsUpdate = true; }
-            m.material.opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
-          }
+          // — siempre transparente (interpola opacidad), sin depthWrite para evitar “lavar”
+          if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
+          m.material.depthWrite = false;
+          m.material.opacity = opacity;
         });
 
         window.__lchtRAF = requestAnimationFrame(__lchtLoop);
