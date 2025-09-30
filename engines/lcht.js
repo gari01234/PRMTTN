@@ -20,13 +20,16 @@ const LCHT_BG_S_WOBBLE_SPEED = 0.023;  // Hz
 const LCHT_BG_V_WOBBLE_AMP   = 0.025;
 const LCHT_BG_V_WOBBLE_SPEED = 0.017;  // Hz
 
-/* ——— Protagonismo rotativo (una capa a la vez, suave pero claro) ——— */
-const LCHT_FOCUS_PERIOD = 18.0;  // s por vuelta (5 capas)
-const LCHT_FOCUS_OPACITY = 1.0;  // la protagonista SIEMPRE opaca
-const LCHT_OFF_OPACITY   = 0.35; // el resto, visibles (sin desaparecer)
-const LCHT_FOCUS_GAIN    = 1.35; // ganancia de color de la protagonista
-const LCHT_OFF_GAIN      = 0.85; // ganancia mínima del resto
-const LCHT_FOCUS_SIGMA   = 0.55; // suavidad del cruce gaussiano
+/* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
+const LCHT_FOCUS_PERIOD = 18.0;   // s por vuelta (5 capas)
+const LCHT_FOCUS_OPACITY = 1.00;  // prota sin transparencia
+const LCHT_OFF_OPACITY   = 0.28;  // el resto nunca baja de esto
+const LCHT_FOCUS_GAIN    = 1.35;  // boost del color/emisivo en foco
+const LCHT_OFF_GAIN      = 0.85;  // el resto sigue visible
+const LCHT_FOCUS_SIGMA   = 0.55;  // anchura Gauss (suavidad)
+const LCHT_FOCUS_SHAPE   = 0.60;  // 0..1 (0.6 = pico amable)
+const LCHT_OPACITY_FLOOR = 0.22;  // piso duro de opacidad
+const LCHT_GAIN_FLOOR    = 0.80;  // piso duro de ganancia
 
 /* ——— Refuerzos de legibilidad de líneas ——— */
 const LCHT_MIN_LINE_LUMA  = 0.42;  // luminancia mínima 0..1
@@ -59,13 +62,14 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
     color: color.clone(),
     dithering: true,
     flatShading: true,
-    transparent: true,            // las “off” son translúcidas…
+    transparent: true,
     opacity: LCHT_OFF_OPACITY,
-    depthWrite: false,            // …y no lavan el fondo
-    blending: THREE.NormalBlending
+    depthWrite: true,                          // ← evita lavados por blending
+    blending: THREE.NormalBlending,
+    toneMapped: true
   });
   matBase.emissive = color.clone();
-  matBase.emissiveIntensity = 0.28; // + punch base
+  matBase.emissiveIntensity = 0.28;            // base más visible
 
   const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
@@ -75,34 +79,38 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
-  // — Verticales
-  for (let i=0; i<=tilesX; i++){
-    const x = -halfW + i*widthTile;
-    const geo  = new THREE.BoxGeometry(line, panelH + join, line);
+  function mkVert(x, y, isVertical){
+    const geo  = isVertical
+      ? new THREE.BoxGeometry(line, panelH + join, line)
+      : new THREE.BoxGeometry(panelW + join, line, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
-    mesh.position.set(center.x + x, center.y, center.z);
+    mesh.position.set(center.x + x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
+
+    // —— bases absolutas para animación (nada se “acumula” con el tiempo)
     mesh.userData.lcht     = lcht;
     mesh.userData.baseHsv  = baseHsv;
-    mesh.userData.baseRGB  = [color.r, color.g, color.b]; // ← base absoluta
-    mesh.userData.baseEI   = mesh.material.emissiveIntensity;
     mesh.userData.zSlot    = zSlot;
+    mesh.userData.baseRGB  = [
+      mesh.material.color.r,
+      mesh.material.color.g,
+      mesh.material.color.b
+    ];
+    mesh.userData.baseEI   = mesh.material.emissiveIntensity;
+
+    // —— orden de pintado estable por Z (evita popping con transparencias)
+    mesh.renderOrder = 10 + zSlot;
+
     lichtGroup.add(mesh);
   }
 
-  // — Horizontales
+  for (let i=0; i<=tilesX; i++){
+    const x = -halfW + i*widthTile;
+    mkVert(x, 0, true);
+  }
   for (let j=0; j<=tilesY; j++){
     const y = -halfH + j*heightTile;
-    const geo  = new THREE.BoxGeometry(panelW + join, line, line);
-    const mesh = new THREE.Mesh(geo, matBase.clone());
-    mesh.position.set(center.x, center.y + y, center.z);
-    if (nz < 0) mesh.rotateY(Math.PI);
-    mesh.userData.lcht     = lcht;
-    mesh.userData.baseHsv  = baseHsv;
-    mesh.userData.baseRGB  = [color.r, color.g, color.b];
-    mesh.userData.baseEI   = mesh.material.emissiveIntensity;
-    mesh.userData.zSlot    = zSlot;
-    lichtGroup.add(mesh);
+    mkVert(0, y, false);
   }
 }
 
@@ -237,69 +245,59 @@ function build(){
       }
     }
 
-    const center = (t / LCHT_FOCUS_PERIOD) * 5.0;
+    // — Foco rotativo suave con GAUSSIAN SOFTMAX (continuo, sin flips)
+    const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
     const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
+    // 1) pesos 0..1 normalizados por capa en anillo de 5
+    const weights = new Array(5);
+    let sumW = 0;
+    for (let z=0; z<5; z++){
+      let d = Math.abs(z - center);
+      d = Math.min(d, 5.0 - d);
+      const w = Math.exp(-(d*d)/sigma2);
+      weights[z] = w; sumW += w;
+    }
+    for (let z=0; z<5; z++) weights[z] /= sumW;
+
+    // 2) aplica pesos ABSOLUTOS por malla (no *=)
     lichtGroup.traverse(m=>{
       if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-      // — centro del foco (calculado fuera) y gaussian:
-      let d = Math.abs(m.userData.zSlot - center);
-      d = Math.min(d, 5.0 - d);
-      const w = Math.exp(-(d*d)/sigma2);        // 0..1
-
-      // — ¿es la protagonista? (la capa más cercana al centro)
-      const leadIndex = Math.round(center) % 5;
-      const isLead = (m.userData.zSlot === leadIndex);
-
-      // — RESPIRACIÓN: partimos SIEMPRE del color base HSV (no acumula)
+      // — color “respirando” desde HSV base (absoluto cada frame)
       let r = m.userData.baseRGB ? m.userData.baseRGB[0] : m.material.color.r;
       let g = m.userData.baseRGB ? m.userData.baseRGB[1] : m.material.color.g;
       let b = m.userData.baseRGB ? m.userData.baseRGB[2] : m.material.color.b;
+
       if (m.userData.lcht && m.userData.baseHsv){
         const P  = m.userData.lcht;
         const bh = m.userData.baseHsv;
         const h  = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
-        const rr = hsvToRgb(h, bh.s, bh.v);
-        r = rr[0]/255; g = rr[1]/255; b = rr[2]/255;
+        const rgb = hsvToRgb(h, bh.s, bh.v);
+        r = rgb[0]/255; g = rgb[1]/255; b = rgb[2]/255;
       }
 
-      // — GANANCIA ABSOLUTA (no multiplicativa respecto al frame previo)
-      const gain = isLead
-        ? LCHT_FOCUS_GAIN
-        : LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * w;
+      // — peso de protagonismo suavizado y con “pico” configurable
+      const wn = Math.pow(weights[m.userData.zSlot], LCHT_FOCUS_SHAPE);
 
-      // fijamos color FINAL directamente (sin multiply acumulativo)
-      const outR = Math.min(1, r * gain);
-      const outG = Math.min(1, g * gain);
-      const outB = Math.min(1, b * gain);
-      m.material.color.setRGB(outR, outG, outB);
-      m.material.emissive.setRGB(outR, outG, outB);
+      // — ganancia/opacity con pisos (nunca desaparecen)
+      const gainAbs = Math.max(LCHT_GAIN_FLOOR,
+                       LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * wn);
+      const opacityAbs = Math.max(LCHT_OPACITY_FLOOR,
+                          LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn);
 
-      // — EMISIVO: desde base, modulando por respiración y foco (no acumula)
+      // — aplica en valor absoluto (sin acumulaciones)
+      m.material.color.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
+      m.material.emissive.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
+
       const P  = m.userData.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
       const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi));
       const baseEI = (m.userData.baseEI != null) ? m.userData.baseEI : 0.28;
-      const focusBoost = isLead ? 1.10 : (0.85 + 0.25 * w);
-      m.material.emissiveIntensity = baseEI * breath * focusBoost;
+      m.material.emissiveIntensity = baseEI * breath * (0.85 + 0.25*wn);
 
-      // — OPACIDAD y TRANSPARENCIA (la protagonista es realmente opaca)
-      if (isLead){
-        if (m.material.transparent){
-          m.material.transparent = false;
-          m.material.depthWrite  = true;
-          m.material.needsUpdate = true;
-        }
-        m.material.opacity = LCHT_FOCUS_OPACITY; // =1.0
-      } else {
-        if (!m.material.transparent){
-          m.material.transparent = true;
-          m.material.depthWrite  = false;
-          m.material.needsUpdate = true;
-        }
-        const op = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
-        m.material.opacity = op;
-      }
+      if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
+      m.material.depthWrite = true;             // ← clave para no “lavar” las líneas
+      m.material.opacity = opacityAbs;
     });
 
     rafId = requestAnimationFrame(loop);
