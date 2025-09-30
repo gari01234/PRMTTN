@@ -20,13 +20,13 @@ const LCHT_BG_S_WOBBLE_SPEED = 0.023;  // Hz
 const LCHT_BG_V_WOBBLE_AMP   = 0.025;
 const LCHT_BG_V_WOBBLE_SPEED = 0.017;  // Hz
 
-/* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
+/* ——— Protagonismo rotativo (una capa a la vez, suave y visible) ——— */
 const LCHT_FOCUS_PERIOD   = 18.0;  // s por vuelta completa (5 capas)
-const LCHT_FOCUS_OPACITY  = 0.90;  // capa en foco
-const LCHT_OFF_OPACITY    = 0.22;  // opacidad mínima del resto (↑)
-const LCHT_FOCUS_GAIN     = 1.50;  // “presencia” en foco
-const LCHT_OFF_GAIN       = 0.45;  // presencia del resto
-const LCHT_FOCUS_SIGMA    = 0.55;  // anchura Gauss (suavidad)
+const LCHT_FOCUS_OPACITY  = 0.92;  // opacidad en foco
+const LCHT_OFF_OPACITY    = 0.28;  // opacidad fuera de foco (↑ antes 0.12)
+const LCHT_FOCUS_GAIN     = 1.30;  // brillo/tono en foco
+const LCHT_OFF_GAIN       = 0.80;  // brillo/tono fuera de foco (↑)
+const LCHT_FOCUS_SIGMA    = 0.55;  // suavidad Gauss
 
 /* ——— Refuerzos de legibilidad de líneas ——— */
 const LCHT_MIN_LINE_LUMA  = 0.42;  // luminancia mínima 0..1
@@ -60,11 +60,10 @@ function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, l
     dithering: true,
     flatShading: true,
     transparent: true,
-    opacity: LCHT_OFF_OPACITY         // opacidad base más alta
+    opacity: LCHT_OFF_OPACITY   // consistente con el loop
   });
-  matBase.color.multiplyScalar(1.14);  // leve “tinta” extra
-  matBase.emissive = matBase.color.clone();
-  matBase.emissiveIntensity = 0.18;    // auto-brillo base ↑
+  matBase.emissive = color.clone();
+  matBase.emissiveIntensity = 0.12;  // ↑ antes 0.08
 
   const [h0,s0,v0] = window.rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
@@ -83,6 +82,7 @@ function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, l
     mesh.userData.lcht     = lcht;
     mesh.userData.baseHsv  = baseHsv;
     mesh.userData.zSlot    = zSlot;
+    mesh.userData.baseRgb  = { r: color.r, g: color.g, b: color.b }; // ← referencia fija
     lichtGroup.add(mesh);
   }
   for (let j=0; j<=tilesY; j++){
@@ -94,6 +94,7 @@ function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, l
     mesh.userData.lcht     = lcht;
     mesh.userData.baseHsv  = baseHsv;
     mesh.userData.zSlot    = zSlot;
+    mesh.userData.baseRgb  = { r: color.r, g: color.g, b: color.b }; // ← referencia fija
     lichtGroup.add(mesh);
   }
 }
@@ -116,7 +117,7 @@ function build(){
   scene.add(lichtGroup);
 
   const step = cubeSize / 5;
-  const SIDE = 0.28;          // trazo un poco más grueso
+  const SIDE = 0.30;          // trazo un poco más grueso
   const JOIN = 0.02;
   const TILE_H = step * 0.92 * 3.0;
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
@@ -231,46 +232,52 @@ function build(){
 
     // — Foco rotativo suave con ventana Gauss y refuerzo de legibilidad
     const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
-    const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
     lichtGroup.traverse(m=>{
       if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-      // respiración (igual que antes)
+      // respiración + color base SIN acumulación
       if (m.userData.lcht){
         const P = m.userData.lcht;
         const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
-        m.material.emissiveIntensity = Math.max(0, k);
+
+        // 1) partimos SIEMPRE del color base respirado a partir de baseHsv
         if (m.userData.baseHsv){
           const bh  = m.userData.baseHsv;
           const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
           const rgb = hsvToRgb(h, bh.s, bh.v);
           m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-          m.material.emissive.copy(m.material.color);
+        } else if (m.userData.baseRgb){
+          // fallback: base RGB fijo
+          m.material.color.setRGB(m.userData.baseRgb.r, m.userData.baseRgb.g, m.userData.baseRgb.b);
         }
+
+        // 2) foco/atenuación con Gauss cíclico
+        let d = Math.abs(m.userData.zSlot - center);
+        d = Math.min(d, 5.0 - d);                        // distancia cíclica 0..2.5
+        const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
+        const w = Math.exp(-(d*d)/sigma2);               // peso 0..1
+
+        const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
+        const gain    = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * w;
+
+        // 3) aplicar gain SIN acumular
+        m.material.opacity = opacity;
+        m.material.color.multiplyScalar(gain);
+
+        // 4) emisivo coherente y respiración de intensidad
+        const intensityBase = Math.max(0, k);
+        const intensityGain = 0.55 + 0.45*gain;
+        m.material.emissive.copy(m.material.color);
+        m.material.emissiveIntensity = intensityBase * intensityGain;
       }
-
-      // peso Gaussiano 0..1 en el espacio cíclico de 5 capas
-      let d = Math.abs(m.userData.zSlot - center);
-      d = Math.min(d, 5.0 - d);
-      const w = Math.exp(-(d*d)/sigma2);
-
-      // mezcla de opacidad y ganancia
-      const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
-      const gain    = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * w;
-
-      m.material.opacity = opacity;
-      m.material.emissiveIntensity *= 0.55 + 0.45*gain;
-      m.material.color.multiplyScalar(gain);
-      m.material.emissive.multiplyScalar(gain);
-
       // — refuerzo: aseguramos luminancia mínima para que las líneas nunca se pierdan
       const r = m.material.color.r, g = m.material.color.g, b = m.material.color.b;
       const luma = 0.2126*r + 0.7152*g + 0.0722*b;
       if (luma < LCHT_MIN_LINE_LUMA){
         const s = LCHT_MIN_LINE_LUMA / Math.max(luma, 0.0001);
         m.material.color.multiplyScalar(s);
-        m.material.emissive.multiplyScalar(0.5*s);
+        m.material.emissive.copy(m.material.color);
       }
     });
 
