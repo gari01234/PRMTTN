@@ -1,224 +1,294 @@
 // ./engines/lcht.js
 // LCHT: deterministic light-tubes (extraído del HTML, registrado en ENGINE)
 let isOn = false;
-let group = null;
+let lichtGroup = null;
 let prevBg = null;
 let rafId = null;
-let avgSceneRange = 0;
+let __lchtBgBaseHSV = null;
+
+const LCHT_BG_DRIFT_AMP   = 0.07;
+const LCHT_BG_DRIFT_SPEED = 0.04;
+const LCHT_BG_S_MIN       = 0.16;
+const LCHT_BG_S_MAX       = 0.28;
+const LCHT_BG_V_MIN       = 0.88;
+const LCHT_BG_V_MAX       = 0.94;
+
+const LCHT_FOCUS_PERIOD   = 8.0;
+const LCHT_FOCUS_OPACITY  = 0.95;
+const LCHT_OFF_OPACITY    = 0.08;
+const LCHT_FOCUS_GAIN     = 1.75;
+const LCHT_OFF_GAIN       = 0.18;
 
 function getTHREE(){ return window.THREE; }
+function getScene(){ return window.scene; }
+function getCubeUniverse(){ return window.cubeUniverse; }
+function getPermutationGroup(){ return window.permutationGroup; }
 function getPerms(){
   const sel = document.getElementById('permutationList');
   if (!sel) return [];
   return Array.from(sel.selectedOptions).map(o => o.value.split(',').map(Number));
 }
 function getCubeSize(){
-  const w = window.cubeUniverse?.geometry?.parameters?.width;
+  const w = getCubeUniverse()?.geometry?.parameters?.width;
   return (typeof w === 'number' && w > 0) ? w : 30;
 }
-function colorFromVolume(p){
+
+function colorForPerm(pa){
   const THREE = getTHREE();
-  const cubeSize = getCubeSize();
-  const HALF = cubeSize/2, HX=144, HY=12, HZ=12;
-  const ix = ((Math.floor((p.x + HALF) / cubeSize * HX) % HX) + HX) % HX;
-  const iy = ((Math.floor((p.y + HALF) / cubeSize * HY) % HY) + HY) % HY;
-  const iz = ((Math.floor((p.z + HALF) / cubeSize * HZ) % HZ) + HZ) % HZ;
-  const {h,s,v} = window.idxToHSV(ix, iy, iz);
-  const [R,G,B] = window.hsvToRgb(h,s,v);
-  return new THREE.Color(R/255, G/255, B/255);
+  const idx = pa[ window.attributeMapping[1] ];
+  const val = window.getColor(idx);
+  return Array.isArray(val)
+    ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
+    : new THREE.Color(val);
 }
-function tubeKey(x1, y1, z1, x2, y2, z2) {
-  const a = `${x1},${y1},${z1}`, b = `${x2},${y2},${z2}`;
-  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
-}
-function meshColorForPermStr(permStr){
-  const THREE = getTHREE();
-  const m = window.permutationGroup?.children?.find(o => o.userData?.permStr === permStr);
-  if (m && m.material && m.material.color) {
-    return m.material.color.clone();
+
+function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot }){
+  const matBase = new THREE.MeshLambertMaterial({
+    color: color.clone(),
+    dithering: true,
+    flatShading: true,
+    transparent: true,
+    opacity: LCHT_OFF_OPACITY
+  });
+  matBase.emissive = color.clone();
+  matBase.emissiveIntensity = 0.08;
+
+  const [h0,s0,v0] = window.rgbToHsv(color.r*255, color.g*255, color.b*255);
+  const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
+
+  const panelW = tilesX * widthTile;
+  const panelH = tilesY * heightTile;
+  const halfW  = panelW * 0.5;
+  const halfH  = panelH * 0.5;
+
+  for (let i=0; i<=tilesX; i++){
+    const x = -halfW + i*widthTile;
+    const geo  = new THREE.BoxGeometry(line, panelH + join, line);
+    const mesh = new THREE.Mesh(geo, matBase.clone());
+    mesh.position.set(center.x + x, center.y, center.z);
+    if (nz < 0) mesh.rotateY(Math.PI);
+    mesh.userData.lcht     = lcht;
+    mesh.userData.baseHsv  = baseHsv;
+    mesh.userData.zSlot    = zSlot;
+    lichtGroup.add(mesh);
   }
-  return new THREE.Color(0x000000);
+  for (let j=0; j<=tilesY; j++){
+    const y = -halfH + j*heightTile;
+    const geo  = new THREE.BoxGeometry(panelW + join, line, line);
+    const mesh = new THREE.Mesh(geo, matBase.clone());
+    mesh.position.set(center.x, center.y + y, center.z);
+    if (nz < 0) mesh.rotateY(Math.PI);
+    mesh.userData.lcht     = lcht;
+    mesh.userData.baseHsv  = baseHsv;
+    mesh.userData.zSlot    = zSlot;
+    lichtGroup.add(mesh);
+  }
 }
+
+function smooth(x){ return x*x*(3-2*x); }
+
 function build(){
   const THREE = getTHREE();
+  const scene = getScene();
   const cubeSize = getCubeSize();
+
+  if (lichtGroup){
+    lichtGroup.traverse(o=>{
+      if (o.isMesh){
+        o.material?.dispose?.();
+        o.geometry?.dispose?.();
+      }
+    });
+    scene.remove(lichtGroup);
+  }
+  lichtGroup = new THREE.Group();
+  scene.add(lichtGroup);
+
   const step = cubeSize / 5;
+  const SIDE = 0.24;
+  const JOIN = 0.02;
+  const TILE_H = step * 0.92 * 3.0;
+  const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
 
-  if (group) {
-    group.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-    window.scene.remove(group);
-  }
-  group = new THREE.Group();
-  window.scene.add(group);
-
-  const litInfo = new Map();
   const perms = getPerms();
+  if (!perms.length) return;
 
-  // rango medio (2..6)
-  {
-    const rgs = perms.map(p => window.computeRange(window.computeSignature(p)));
-    avgSceneRange = rgs.reduce((a,b)=>a+b,0) / (rgs.length||1);
+  const order = perms.map((pa, i)=>({ i, r: window.lehmerRank(pa) }))
+                     .sort((a,b)=> a.r - b.r);
+
+  const layers = [];
+  for (let z=0; z<5; z++){
+    const pick = order[(z + window.sceneSeed + window.S_global) % order.length].i;
+    layers.push({ zSlot:z, permIdx: pick });
   }
 
-  perms.forEach((pa) => {
-    const sig = window.computeSignature(pa);
-    const rng = window.computeRange(sig);
-    const r   = window.lehmerRank(pa);
-    const I   = (r + window.sceneSeed + window.S_global) % 125;
-    const x0  = Math.floor(I / 25);
-    const y0  = Math.floor((I % 25) / 5);
-    const z0  = I % 5;
+  const REPEAT = 10;
+  const sceneKey = (37*window.sceneSeed + 101*window.S_global) % 360;
+  const baseH = ((sceneKey*37 + 113) % 360) / 360;
+  const baseS = LCHT_BG_S_MIN + ((sceneKey*19 + 71) % 100)/100 * (LCHT_BG_S_MAX - LCHT_BG_S_MIN);
+  const baseV = LCHT_BG_V_MIN + ((sceneKey*53 + 29) % 100)/100 * (LCHT_BG_V_MAX - LCHT_BG_V_MIN);
+  __lchtBgBaseHSV = [baseH, baseS, baseV];
 
-    const color = meshColorForPermStr(pa.join(','));
+  const rgb = window.hsvToRgb(__lchtBgBaseHSV[0], __lchtBgBaseHSV[1], __lchtBgBaseHSV[2]);
+  scene.background = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+
+  layers.forEach(({zSlot, permIdx})=>{
+    const pa      = perms[permIdx];
+    const baseCol = colorForPerm(pa);
+    const typeIdx = pa[ window.attributeMapping[1] ];
+    const ratio   = ROOT_RATIOS[typeIdx];
+
+    const widthTile  = ratio * TILE_H;
+    const heightTile = TILE_H;
+
+    const r  = window.lehmerRank(pa);
+    const I  = (r + window.sceneSeed + window.S_global) % 125;
+    const x0 = Math.floor(I / 25);
+    const y0 = Math.floor((I % 25) / 5);
+    const cx = (x0 - 2) * step;
+    const cy = (y0 - 2) * step;
+    const cz = (zSlot - 2) * step;
+
+    const baseTilesX = 4;
+    const tilesX     = baseTilesX * REPEAT;
+    const tilesY     = Math.max(2, Math.round(tilesX / ratio));
+
+    const sig  = window.computeSignature(pa);
+    const rng  = window.computeRange(sig);
+    const L    = pa[ window.attributeMapping[0] ];
     const lcht = {
-      I0 : 0.35 + 0.65 * Math.sqrt(pa[ window.attributeMapping ? window.attributeMapping[0] : 0 ] / 5),
+      I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
       amp: 0.05 + 0.10 * rng,
       f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((r % 360) / 360)
+      phi: 2 * Math.PI * ((window.lehmerRank(pa) % 360) / 360)
     };
-    const seen = new Set();
 
-    function addEdge(x1, y1, z1, x2, y2, z2){
-      const key = tubeKey(x1,y1,z1,x2,y2,z2);
-      if (seen.has(key)) return; seen.add(key);
-      if (!litInfo.has(key)) litInfo.set(key, { color: color.clone(), lcht: { ...lcht } });
-    }
-    function addCube(cx, cy, cz){
-      const v = [
-        [cx,     cy,     cz],
-        [cx + 1, cy,     cz],
-        [cx + 1, cy + 1, cz],
-        [cx,     cy + 1, cz],
-        [cx,     cy,     cz + 1],
-        [cx + 1, cy,     cz + 1],
-        [cx + 1, cy + 1, cz + 1],
-        [cx,     cy + 1, cz + 1]
-      ];
-      const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-      E.forEach(([a,b]) => addEdge(...v[a], ...v[b]));
-    }
+    const faceForward = (((window.lehmerRank(pa) + window.sceneSeed + window.S_global) & 1) === 0);
+    const normal = faceForward ? 1 : -1;
 
-    // torre central + cruz
-    const L = pa[ window.attributeMapping ? window.attributeMapping[0] : 0 ];
-    for (let s=0; s<L; s++){
-      const y = y0 + s;
-      addCube(x0, y, z0);
-      addCube(x0+1, y, z0); addCube(x0-1, y, z0);
-      addCube(x0,   y, z0+1); addCube(x0,   y, z0-1);
-    }
-    // brazos horizontales
-    const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
-    [y0, y0+L].forEach(yy=>{
-      dirs.forEach(([dx,_,dz])=>{
-        for(let s=0;s<L;s++) addCube(x0+dx*s, yy, z0+dz*s);
-      });
+    addRootRaster({
+      THREE,
+      center: new THREE.Vector3(cx, cy, cz),
+      widthTile,
+      heightTile,
+      tilesX,
+      tilesY,
+      line: SIDE,
+      join: JOIN,
+      color: baseCol.clone(),
+      nz: normal,
+      lcht,
+      zSlot
     });
   });
 
-  // genera geometría final
-  litInfo.forEach((info, key) => {
-    const [a, b] = key.split('|');
-    const [x1,y1,z1] = a.split(',').map(Number);
-    const [x2,y2,z2] = b.split(',').map(Number);
+  lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
 
-    const p1  = new THREE.Vector3((x1 - 2) * step, (y1 - 2) * step, (z1 - 2) * step);
-    const p2  = new THREE.Vector3((x2 - 2) * step, (y2 - 2) * step, (z2 - 2) * step);
-    const dir = new THREE.Vector3().subVectors(p2, p1);
-    const len = dir.length();
-    const dN  = dir.clone().normalize();
+  if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+  const t0 = (window.sceneSeed*13 + window.S_global*31) * 0.01745329252;
 
-    const SEG  = Math.max(1, Math.ceil(len / step));
-    const hSeg = len / SEG;
+  const sceneRef = scene;
+  function loop(ts){
+    if (!isOn || !lichtGroup){ rafId = null; return; }
+    const t = ts * 0.001;
 
-    const [h,s,v] = window.rgbToHsv(info.color.r*255, info.color.g*255, info.color.b*255);
-
-    for(let i=0;i<SEG;i++){
-      const mid = p1.clone().addScaledVector(dN, (i + 0.5) * hSeg);
-      const col = colorFromVolume(mid);
-      const SIDE = 0.2, JOIN = 0.02;
-      const geo = new THREE.BoxGeometry(SIDE, hSeg + JOIN, SIDE);
-      const mat = new THREE.MeshPhongMaterial({ color: col, shininess: 0, dithering: true, flatShading: true });
-      // Inicializar emissive una sola vez (evita allocs por frame)
-      mat.emissive = mat.color.clone();
-      const tube = new THREE.Mesh(geo, mat);
-      tube.position.copy(mid);
-      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dN);
-      tube.userData.baseHsv = { h, s, v };
-      tube.userData.lcht    = info.lcht;
-      group.add(tube);
+    if (__lchtBgBaseHSV){
+      const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP * Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t)) % 1;
+      const s = THREE.MathUtils.clamp(__lchtBgBaseHSV[1], LCHT_BG_S_MIN, LCHT_BG_S_MAX);
+      const v = THREE.MathUtils.clamp(__lchtBgBaseHSV[2], LCHT_BG_V_MIN, LCHT_BG_V_MAX);
+      const rgb = window.hsvToRgb(h, s, v);
+      sceneRef.background.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
     }
-  });
-}
 
-function animate(){
-  if (!isOn || !group) return;
-  const t = performance.now() * 0.001;
-  const vHz = 0.05 + 0.02 * (avgSceneRange - 2);
-  group.children.forEach(o=>{
-    const d = o.userData.lcht;
-    if (d) {
-      const I = d.I0 * (1 - d.amp * (1 + Math.cos(2*Math.PI*d.f*t + d.phi)) / 2);
-      // ANTES (malo para GC):
-      // o.material.emissive = o.material.color.clone();
+    const cycle = (t / LCHT_FOCUS_PERIOD) % 5;
+    const focusIndex = Math.floor(cycle);
+    const frac = cycle - focusIndex;
+    const prevIndex = (focusIndex + 4) % 5;
 
-      // AHORA (sin allocations por frame):
-      o.material.emissive.copy(o.material.color);
+    lichtGroup.traverse(mesh => {
+      if (!mesh.isMesh || !mesh.material || !mesh.userData || mesh.userData.zSlot === undefined) return;
 
-      // Si modulas brillo, hazlo con la intensidad:
-      o.material.emissiveIntensity = I * 0.15;
-    }
-    if (o.userData.baseHsv){
-      const { h, s, v } = o.userData.baseHsv;
-      const hShift = (h + t * vHz * 360) % 360;
-      const rgb    = window.hsvToRgb(hShift, s, v);
-      o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-    }
-  });
-  rafId = requestAnimationFrame(animate);
+      if (mesh.userData.lcht){
+        const P = mesh.userData.lcht;
+        const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
+        mesh.material.emissiveIntensity = Math.max(0, k);
+        if (mesh.userData.baseHsv){
+          const bh  = mesh.userData.baseHsv;
+          const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
+          const rgb = window.hsvToRgb(h, bh.s, bh.v);
+          mesh.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+          mesh.material.emissive.copy(mesh.material.color);
+        }
+      }
+
+      const z = mesh.userData.zSlot;
+      let alpha = LCHT_OFF_OPACITY;
+      let gain  = LCHT_OFF_GAIN;
+
+      if (z === focusIndex){
+        const s = smooth(frac);
+        alpha = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * s;
+        gain  = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * s;
+      } else if (z === prevIndex){
+        const s = smooth(1.0 - frac);
+        alpha = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * (s*0.15);
+        gain  = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * (s*0.15);
+      }
+      mesh.material.opacity = alpha;
+      mesh.material.emissiveIntensity *= 0.55 + 0.45*gain;
+      mesh.material.color.multiplyScalar(gain);
+      mesh.material.emissive.multiplyScalar(gain);
+    });
+
+    rafId = requestAnimationFrame(loop);
+  }
+  rafId = requestAnimationFrame(loop);
 }
 
 const LCHT_ENGINE = {
   name: 'LCHT',
   enter(){
     if (isOn) return;
-    // material del cubo → lambert para captar luz
-    if (!window.cubeUniverse.userData.prevMat){
-      window.cubeUniverse.userData.prevMat = window.cubeUniverse.material;
-      window.cubeUniverse.material = new getTHREE().MeshLambertMaterial({
-        color: window.cubeUniverse.userData.prevMat.color,
+    window.leaveBuildRenderBoost?.();
+    const cubeUniverse = getCubeUniverse();
+    if (cubeUniverse && !cubeUniverse.userData.prevMat){
+      cubeUniverse.userData.prevMat = cubeUniverse.material;
+      cubeUniverse.material = new getTHREE().MeshLambertMaterial({
+        color: cubeUniverse.userData.prevMat.color,
         transparent: true,
-        opacity: window.cubeUniverse.userData.prevMat.opacity,
-        side: window.cubeUniverse.userData.prevMat.side
+        opacity: cubeUniverse.userData.prevMat.opacity,
+        side: cubeUniverse.userData.prevMat.side
       });
     }
-    prevBg = window.scene.background ? window.scene.background.clone() : null;
-    window.scene.background = new getTHREE().Color(0xf4f4f4);
+    prevBg = getScene().background ? getScene().background.clone() : null;
 
     build();
-    group.visible = true;
-    window.cubeUniverse.visible = false;
-    window.permutationGroup.visible = false;
+    if (lichtGroup) lichtGroup.visible = true;
+    if (cubeUniverse) cubeUniverse.visible = false;
+    const permGroup = getPermutationGroup();
+    if (permGroup) permGroup.visible = false;
 
     isOn = true;
-    rafId = requestAnimationFrame(animate);
     if (typeof window.updateEngineButtonsUI === 'function') window.updateEngineButtonsUI();
   },
   leave(){
     if (!isOn) return;
-    if (group){
-      group.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
-      window.scene.remove(group);
-      group = null;
+    const scene = getScene();
+    if (lichtGroup){
+      lichtGroup.traverse(o=>{ if (o.isMesh){ o.geometry.dispose(); o.material.dispose(); } });
+      scene.remove(lichtGroup);
+      lichtGroup = null;
     }
-    // restaurar material del cubo
-    if (window.cubeUniverse.userData.prevMat){
-      window.cubeUniverse.material.dispose();
-      window.cubeUniverse.material = window.cubeUniverse.userData.prevMat;
-      delete window.cubeUniverse.userData.prevMat;
+    const cubeUniverse = getCubeUniverse();
+    if (cubeUniverse && cubeUniverse.userData.prevMat){
+      cubeUniverse.material.dispose();
+      cubeUniverse.material = cubeUniverse.userData.prevMat;
+      delete cubeUniverse.userData.prevMat;
     }
-    if (prevBg) window.scene.background = prevBg;
-    window.cubeUniverse.visible = true;
-    window.permutationGroup.visible = true;
+    if (prevBg) scene.background = prevBg;
+    const permGroup = getPermutationGroup();
+    if (permGroup) permGroup.visible = true;
+    if (cubeUniverse) cubeUniverse.visible = true;
 
     isOn = false;
     if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
