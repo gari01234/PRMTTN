@@ -23,7 +23,7 @@ const LCHT_BG_V_WOBBLE_SPEED = 0.017;  // Hz
 /* ——— Protagonismo rotativo (una capa a la vez, suave pero claro) ——— */
 const LCHT_FOCUS_PERIOD = 18.0;  // s por vuelta (5 capas)
 const LCHT_FOCUS_OPACITY = 1.0;  // la protagonista SIEMPRE opaca
-const LCHT_OFF_OPACITY   = 0.40; // el resto, visibles
+const LCHT_OFF_OPACITY   = 0.35; // el resto, visibles (sin desaparecer)
 const LCHT_FOCUS_GAIN    = 1.35; // ganancia de color de la protagonista
 const LCHT_OFF_GAIN      = 0.85; // ganancia mínima del resto
 const LCHT_FOCUS_SIGMA   = 0.55; // suavidad del cruce gaussiano
@@ -253,13 +253,15 @@ function build(){
       const isLead = (m.userData.zSlot === leadIndex);
 
       // — RESPIRACIÓN: partimos SIEMPRE del color base HSV (no acumula)
-      let rgb = m.userData.baseRGB;
+      let r = m.userData.baseRGB ? m.userData.baseRGB[0] : m.material.color.r;
+      let g = m.userData.baseRGB ? m.userData.baseRGB[1] : m.material.color.g;
+      let b = m.userData.baseRGB ? m.userData.baseRGB[2] : m.material.color.b;
       if (m.userData.lcht && m.userData.baseHsv){
         const P  = m.userData.lcht;
         const bh = m.userData.baseHsv;
         const h  = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
         const rr = hsvToRgb(h, bh.s, bh.v);
-        rgb = [rr[0]/255, rr[1]/255, rr[2]/255];
+        r = rr[0]/255; g = rr[1]/255; b = rr[2]/255;
       }
 
       // — GANANCIA ABSOLUTA (no multiplicativa respecto al frame previo)
@@ -268,14 +270,14 @@ function build(){
         : LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * w;
 
       // fijamos color FINAL directamente (sin multiply acumulativo)
-      const r = Math.min(1, rgb[0] * gain);
-      const g = Math.min(1, rgb[1] * gain);
-      const b = Math.min(1, rgb[2] * gain);
-      m.material.color.setRGB(r, g, b);
-      m.material.emissive.setRGB(r, g, b);
+      const outR = Math.min(1, r * gain);
+      const outG = Math.min(1, g * gain);
+      const outB = Math.min(1, b * gain);
+      m.material.color.setRGB(outR, outG, outB);
+      m.material.emissive.setRGB(outR, outG, outB);
 
       // — EMISIVO: desde base, modulando por respiración y foco (no acumula)
-      const P  = m.userData.lcht || { I0:0.9, amp:0.0, f:0.0, phi:0.0 };
+      const P  = m.userData.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
       const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi));
       const baseEI = (m.userData.baseEI != null) ? m.userData.baseEI : 0.28;
       const focusBoost = isLead ? 1.10 : (0.85 + 0.25 * w);
