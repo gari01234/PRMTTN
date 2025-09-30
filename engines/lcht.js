@@ -4,19 +4,21 @@ let isOn = false;
 let lichtGroup = null;
 let prevBg = null;
 let rafId = null;
-let __lchtBgBaseHSV = null;
-
 const { hsvToRgb } = window;
 
-/* ——— Fondo animado (deriva de hue, sin llegar a blanco) ——— */
-const LCHT_BG_DRIFT_AMP   = 0.18;  // amplitud de hue (0..1) — visible
-const LCHT_BG_DRIFT_SPEED = 0.08;  // Hz — deriva suave
-const LCHT_BG_S_MIN       = 0.18;  // evita desaturar (no blanco)
-const LCHT_BG_S_MAX       = 0.32;
-const LCHT_BG_V_MIN       = 0.86;  // evita blanco brillante
-const LCHT_BG_V_MAX       = 0.93;
-const LCHT_BG_S_DRIFT     = 0.06;  // pequeña oscilación de S
-const LCHT_BG_V_DRIFT     = 0.03;  // pequeña oscilación de V
+/* ——— Fondo animado (rotación completa de hue, sin llegar a blanco) ——— */
+let __lchtBgBaseHSV = null;
+// 1 vuelta de color cada ~70 s (ajusta a gusto)
+const LCHT_BG_ROT_SPEED = 0.014;  // vueltas de hue por segundo (0.014 ≈ 71 s/vuelta)
+const LCHT_BG_S_MIN     = 0.20;   // evita desaturar (no gris/blanco)
+const LCHT_BG_S_MAX     = 0.34;
+const LCHT_BG_V_MIN     = 0.86;   // evita blanco brillante
+const LCHT_BG_V_MAX     = 0.92;
+// pequeñas ondulaciones (suaves) de S y V para que “respire” el fondo
+const LCHT_BG_S_WOBBLE_AMP   = 0.05;
+const LCHT_BG_S_WOBBLE_SPEED = 0.023;  // Hz
+const LCHT_BG_V_WOBBLE_AMP   = 0.025;
+const LCHT_BG_V_WOBBLE_SPEED = 0.017;  // Hz
 
 /* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
 const LCHT_FOCUS_PERIOD   = 18.0;  // s por vuelta completa (5 capas)
@@ -202,20 +204,23 @@ function build(){
     const t = ts * 0.001;
 
     if (__lchtBgBaseHSV){
-      // — Fondo animado (hue + s/v con pequeña oscilación; nunca blanco)
+      // — Fondo animado: hue rota 360° de forma continua; S y V “respiran” suave
       {
-        const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP *
-                  Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t)) % 1;
+        // hue gira a velocidad constante → recorre todo el círculo de color
+        const h = (__lchtBgBaseHSV[0] + (t * LCHT_BG_ROT_SPEED)) % 1;
 
-        const sBase = THREE.MathUtils.clamp(__lchtBgBaseHSV[1], LCHT_BG_S_MIN, LCHT_BG_S_MAX);
-        const vBase = THREE.MathUtils.clamp(__lchtBgBaseHSV[2], LCHT_BG_V_MIN, LCHT_BG_V_MAX);
+        // punto medio de S y V dentro de sus bandas seguras (no blanco)
+        const sMid = (LCHT_BG_S_MIN + LCHT_BG_S_MAX) * 0.5;
+        const vMid = (LCHT_BG_V_MIN + LCHT_BG_V_MAX) * 0.5;
+        const sAmp = Math.max(0, Math.min((LCHT_BG_S_MAX - LCHT_BG_S_MIN) * 0.5 - 0.001, LCHT_BG_S_WOBBLE_AMP));
+        const vAmp = Math.max(0, Math.min((LCHT_BG_V_MAX - LCHT_BG_V_MIN) * 0.5 - 0.001, LCHT_BG_V_WOBBLE_AMP));
 
         const s = THREE.MathUtils.clamp(
-          sBase + LCHT_BG_S_DRIFT * Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * t + Math.PI/3),
+          sMid + sAmp * Math.sin(2*Math.PI*LCHT_BG_S_WOBBLE_SPEED * t + Math.PI/7),
           LCHT_BG_S_MIN, LCHT_BG_S_MAX
         );
         const v = THREE.MathUtils.clamp(
-          vBase + LCHT_BG_V_DRIFT * Math.cos(2*Math.PI*LCHT_BG_DRIFT_SPEED * t + Math.PI/5),
+          vMid + vAmp * Math.cos(2*Math.PI*LCHT_BG_V_WOBBLE_SPEED * t + Math.PI/5),
           LCHT_BG_V_MIN, LCHT_BG_V_MAX
         );
 
