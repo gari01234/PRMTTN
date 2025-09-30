@@ -1089,15 +1089,18 @@ function initSkySphere() {
     let isLCHT     = false;
     let lchtPrevBg = null;
 
-    /* ——— Fondo animado (deriva de hue, sin llegar a blanco) ——— */
-    let __lchtBgBaseHSV = null;
-    // más visible y aún suave
-    const LCHT_BG_DRIFT_AMP   = 0.12;   // amplitud de hue (0..1)
-    const LCHT_BG_DRIFT_SPEED = 0.06;   // Hz (deriva lenta pero perceptible)
-    const LCHT_BG_S_MIN       = 0.18;   // evita desaturar (no blanco)
-    const LCHT_BG_S_MAX       = 0.30;
-    const LCHT_BG_V_MIN       = 0.86;   // evita blanco brillante
-    const LCHT_BG_V_MAX       = 0.93;
+    /* ——— Fondo animado HSL (rotación completa del tono) ——— */
+    let __lchtBgHueSeed = 0;       // semilla determinista de tono 0..1
+
+    const LCHT_BG_HUE_SPEED   = 0.02;  // vueltas de HUE por segundo (0.02 ≈ 50 s/vuelta)
+    const LCHT_BG_S_BASE      = 0.38;  // saturación base (0..1) — nunca blanco
+    const LCHT_BG_L_BASE      = 0.92;  // luminosidad base (0..1)
+
+    const LCHT_BG_S_WOBBLE_AMP   = 0.06;  // respiración de S
+    const LCHT_BG_S_WOBBLE_SPEED = 0.018;
+
+    const LCHT_BG_L_WOBBLE_AMP   = 0.03;  // respiración de L (suave para no deslumbrar)
+    const LCHT_BG_L_WOBBLE_SPEED = 0.013;
 
     /* ——— Protagonismo rotativo (una capa a la vez, MUY suave) ——— */
     const LCHT_FOCUS_PERIOD   = 18.0;   // segundos por vuelta completa (5 capas)
@@ -1180,6 +1183,19 @@ function initSkySphere() {
       lichtGroup = new THREE.Group();
       scene.add(lichtGroup);
 
+      // semilla determinista del HUE (no depende del helper HSV)
+      const sceneKey = (37*sceneSeed + 101*S_global) % 360;
+      __lchtBgHueSeed = (sceneKey / 360);  // 0..1
+
+      // color inicial del fondo (ya no será blanco ni fijo en rojos)
+      {
+        const h = __lchtBgHueSeed % 1;
+        const s = LCHT_BG_S_BASE;
+        const l = LCHT_BG_L_BASE;
+        scene.background = new THREE.Color();
+        scene.background.setHSL(h, s, l);
+      }
+
       const step = cubeSize / 5;
       const SIDE = 0.24;          // ← un poco más gruesas
       const JOIN = 0.02;
@@ -1205,19 +1221,6 @@ function initSkySphere() {
       }
 
       const REPEAT = 10;
-
-      // Fondo animado (escogemos base HSV determinista)
-      const sceneKey = (37*sceneSeed + 101*S_global) % 360;
-      const baseH = ((sceneKey*37 + 113) % 360) / 360;
-      const baseS = LCHT_BG_S_MIN + ((sceneKey*19 + 71) % 100)/100 * (LCHT_BG_S_MAX - LCHT_BG_S_MIN);
-      const baseV = LCHT_BG_V_MIN + ((sceneKey*53 + 29) % 100)/100 * (LCHT_BG_V_MAX - LCHT_BG_V_MIN);
-      __lchtBgBaseHSV = [baseH, baseS, baseV];
-
-      // color inicial del fondo ya no blanco
-      {
-        const rgb = hsvToRgb(__lchtBgBaseHSV[0], __lchtBgBaseHSV[1], __lchtBgBaseHSV[2]);
-        scene.background = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-      }
 
       // Construcción de capas
       layers.forEach(({zSlot, permIdx})=>{
@@ -1284,15 +1287,21 @@ function initSkySphere() {
         if (!isLCHT || !lichtGroup) { window.__lchtRAF = null; return; }
         const t = ts * 0.001;
 
-        // — Fondo animado (deriva de hue, manteniendo s/v lejos del blanco)
+        // — Fondo animado HSL: H rota 360°, S y L “respiran” suavemente
         {
-          // hue oscila; s y v quedan acotados para no llegar a blanco
-          const h = (__lchtBgBaseHSV[0] + LCHT_BG_DRIFT_AMP *
-                    Math.sin(2*Math.PI*LCHT_BG_DRIFT_SPEED * (t))) % 1;
-          const s = THREE.MathUtils.clamp(__lchtBgBaseHSV[1], LCHT_BG_S_MIN, LCHT_BG_S_MAX);
-          const v = THREE.MathUtils.clamp(__lchtBgBaseHSV[2], LCHT_BG_V_MIN, LCHT_BG_V_MAX);
-          const rgb = hsvToRgb(h, s, v);
-          scene.background.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+          const h = (__lchtBgHueSeed + (t + t0) * LCHT_BG_HUE_SPEED) % 1;
+
+          const s = THREE.MathUtils.clamp(
+            LCHT_BG_S_BASE + LCHT_BG_S_WOBBLE_AMP * Math.sin(2*Math.PI*LCHT_BG_S_WOBBLE_SPEED * (t + t0)),
+            0.20, 0.80
+          );
+
+          const l = THREE.MathUtils.clamp(
+            LCHT_BG_L_BASE + LCHT_BG_L_WOBBLE_AMP * Math.cos(2*Math.PI*LCHT_BG_L_WOBBLE_SPEED * (t + t0)),
+            0.70, 0.95
+          );
+
+          scene.background.setHSL(h, s, l);
         }
 
         // — Foco rotativo suave: peso Gaussiano en el espacio cíclico de 5 capas
