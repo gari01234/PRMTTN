@@ -1087,14 +1087,15 @@ function initSkySphere() {
    ════════════════════════════════════════════════════════════ */
 
 /* ─── LCHT: atmósfera + respiración por Z + sombra interior ─── */
-const LCHT_HAZE_MIN    = 0.10;          // mezcla al fondo en Z cercano
-const LCHT_HAZE_MAX    = 0.55;          // mezcla al fondo en Z lejano (más fuerte)
-const LCHT_PHASE_STEP  = Math.PI / 5;   // desfase extra por capa Z (0..4)
-const LCHT_SHADOW_EDGE = { start: 0.55, end: 1.00, gain: 0.28 }; // sombra interior + marcada
-const LCHT_FOG_DENS    = 0.06;          // densidad del fog global (atmósfera real)
-const LCHT_ROT_Y_MAX_DEG = 3.0;         // inclinación máxima por Z (±3º)
-const __lchtTmpColor   = new THREE.Color();  // color temporal para mezclas
-const __lchtTmpVec3    = new THREE.Vector3();
+const LCHT_HAZE_MIN      = 0.06;          // mezcla al fondo en Z cercano (más baja)
+const LCHT_HAZE_MAX      = 0.20;          // mezcla al fondo en Z lejano (mucho más baja)
+const LCHT_PHASE_STEP    = Math.PI / 5;
+const LCHT_SHADOW_EDGE   = { start: 0.55, end: 1.00, gain: 0.28 };
+const LCHT_FOG_DENS      = 0.00;          // ← fog global APAGADO (0 = sin fog)
+const LCHT_ROT_Y_MAX_DEG = 3.0;
+const LCHT_Z_SPREAD      = 2.6;           // ← separación entre capas Z (× step)
+const __lchtTmpColor     = new THREE.Color();
+const __lchtTmpVec3      = new THREE.Vector3();
 
 let lichtGroup = null;
 let isLCHT     = false;
@@ -1293,7 +1294,7 @@ function buildLCHT(){
     // Centro de la celda en mundo (alineado a 5×5×5)
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
-    const cz = (z0Fix - 2) * step;
+    const cz = (z0Fix - 2) * step * LCHT_Z_SPREAD;
 
     // Hacemos el panel 10× más grande sin tocar los tiles → +tiles
     // Empezamos con una base razonable y multiplicamos
@@ -1349,7 +1350,7 @@ function buildLCHT(){
   });
   if (!isFinite(minZ)) minZ = -step*3;               // fallback estable
   addInnerShadowPlane({
-    z: minZ - step * 0.25,                            // un poco detrás
+    z: minZ - (step * LCHT_Z_SPREAD) * 0.35,   // un poco más atrás con spread
     width:  cubeSize * 0.92,
     height: cubeSize * 0.92
   });
@@ -1383,14 +1384,14 @@ function buildLCHT(){
         m.material.emissive.copy(m.material.color);
       }
 
-      // atmósfera: mezcla con el fondo según Z
+      // atmósfera: mezcla con el fondo según Z (más sutil)
       const haze = LCHT_HAZE_MIN + (LCHT_HAZE_MAX - LCHT_HAZE_MIN) * zN;
       const bg = (scene.background instanceof THREE.Color)
         ? scene.background
         : __lchtTmpColor.set(0xf4f4f4);
       __lchtTmpColor.copy(m.material.color).lerp(bg, haze);
       m.material.color.copy(__lchtTmpColor);
-      m.material.emissive.lerp(bg, haze * 0.9);
+      m.material.emissive.lerp(bg, haze * 0.6);
     });
     window.__lchtRAF = requestAnimationFrame(__lchtLoop);
   }
@@ -1419,7 +1420,8 @@ function buildLCHT(){
         }
         if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
         scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
-        scene.fog = new THREE.FogExp2(0xf4f4f4, LCHT_FOG_DENS);
+        // Fog solo si se pide (densidad > 0)
+        scene.fog = (LCHT_FOG_DENS > 0) ? new THREE.FogExp2(0xf4f4f4, LCHT_FOG_DENS) : null;
         if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
         buildLCHT();
         lichtGroup.visible        = true;
