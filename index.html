@@ -1087,13 +1087,14 @@ function initSkySphere() {
    ════════════════════════════════════════════════════════════ */
 
 /* ─── LCHT: atmósfera + respiración por Z + sombra interior ─── */
-const LCHT_HAZE_MIN    = 0.08;          // mezcla al fondo en Z más cercano
-const LCHT_HAZE_MAX    = 0.35;          // mezcla al fondo en Z más lejano
+const LCHT_HAZE_MIN    = 0.10;          // mezcla al fondo en Z cercano
+const LCHT_HAZE_MAX    = 0.55;          // mezcla al fondo en Z lejano (más fuerte)
 const LCHT_PHASE_STEP  = Math.PI / 5;   // desfase extra por capa Z (0..4)
-const LCHT_SHADOW_EDGE = { start: 0.70, end: 1.00, gain: 0.15 }; // sombra interior
-
-// color temporal para mezclas en el loop
-const __lchtTmpColor = new THREE.Color();
+const LCHT_SHADOW_EDGE = { start: 0.55, end: 1.00, gain: 0.28 }; // sombra interior + marcada
+const LCHT_FOG_DENS    = 0.06;          // densidad del fog global (atmósfera real)
+const LCHT_ROT_Y_MAX_DEG = 3.0;         // inclinación máxima por Z (±3º)
+const __lchtTmpColor   = new THREE.Color();  // color temporal para mezclas
+const __lchtTmpVec3    = new THREE.Vector3();
 
 let lichtGroup = null;
 let isLCHT     = false;
@@ -1113,7 +1114,7 @@ function colorForPerm(pa){
 /* Construye panel de líneas que SOLO delinean cada tile raíz (sin subdividir).
    - Cada tile raíz tiene: widthTile, heightTile
    - El panel se arma repitiendo esos tiles → líneas en las fronteras de los tiles. */
-function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zDepthNorm }){
+function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zDepthNorm, rotY }){
   const matBase = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -1131,17 +1132,23 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
+  // —— contenedor para aplicar rotación/transformaciones por capa Z ——
+  const g = new THREE.Group();
+  g.position.copy(center);
+  g.rotation.y = rotY || 0;
+  lichtGroup.add(g);
+
   // — Verticales: solo fronteras de tiles (tilesX+1 líneas)
   for (let i=0; i<=tilesX; i++){
     const x = -halfW + i*widthTile;
     const geo  = new THREE.BoxGeometry(line, panelH + join, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
-    mesh.position.set(center.x + x, center.y, center.z);
+    mesh.position.set(x, 0, 0);              // ← relativo al grupo
     if (nz < 0) mesh.rotateY(Math.PI);
     mesh.userData.lcht       = lcht;
     mesh.userData.baseHsv    = baseHsv;
     mesh.userData.zDepthNorm = zDepthNorm;
-    lichtGroup.add(mesh);
+    g.add(mesh);
   }
 
   // — Horizontales: solo fronteras de tiles (tilesY+1 líneas)
@@ -1149,12 +1156,12 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
     const y = -halfH + j*heightTile;
     const geo  = new THREE.BoxGeometry(panelW + join, line, line);
     const mesh = new THREE.Mesh(geo, matBase.clone());
-    mesh.position.set(center.x, center.y + y, center.z);
+    mesh.position.set(0, y, 0);              // ← relativo al grupo
     if (nz < 0) mesh.rotateY(Math.PI);
     mesh.userData.lcht       = lcht;
     mesh.userData.baseHsv    = baseHsv;
     mesh.userData.zDepthNorm = zDepthNorm;
-    lichtGroup.add(mesh);
+    g.add(mesh);
   }
 }
 
@@ -1312,6 +1319,9 @@ function buildLCHT(){
     // ——— peso de atmósfera para este Z (0 cerca → 1 lejos) ———
     const zDepthNorm = z0Fix / 4;  // 0..1 usando los 5 niveles (0..4)
 
+    // — inclinación suave por Z (±3°) para acentuar la profundidad —
+    const rotY = ( (zDepthNorm - 0.5) * 2.0 ) * (LCHT_ROT_Y_MAX_DEG * Math.PI / 180);
+
     addRootRaster({
       center: new THREE.Vector3(cx, cy, cz),
       widthTile,
@@ -1323,7 +1333,8 @@ function buildLCHT(){
       color: baseCol,   // color base tal cual
       nz: normal,
       lcht,
-      zDepthNorm        // ←<<< pasa el peso de Z
+      zDepthNorm,
+      rotY                  // ← NUEVO
     });
   });
 
@@ -1331,7 +1342,10 @@ function buildLCHT(){
   // Calcula el Z más lejano de las capas para colocar el plano detrás
   let minZ = +Infinity;
   lichtGroup.traverse(o=>{
-    if (o.isMesh) minZ = Math.min(minZ, o.position.z);
+    if (o.isMesh){
+      o.getWorldPosition(__lchtTmpVec3);
+      minZ = Math.min(minZ, __lchtTmpVec3.z);
+    }
   });
   if (!isFinite(minZ)) minZ = -step*3;               // fallback estable
   addInnerShadowPlane({
@@ -1351,19 +1365,25 @@ function buildLCHT(){
     const t = ts * 0.001;
     lichtGroup.traverse(m=>{
       if (!m.isMesh || !m.material || !m.userData || !m.userData.lcht) return;
+      // respiración (emissive)
       const P = m.userData.lcht;
       const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * t + P.phi);
       m.material.emissiveIntensity = Math.max(0, k);
+
+      // color base con wobble de tono
+      const zN = m.userData.zDepthNorm || 0; // 0..1
       if (m.userData.baseHsv){
         const bh  = m.userData.baseHsv;
         const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * t + P.phi)) % 1;
-        const rgb = hsvToRgb(h, bh.s, bh.v);
+        // — desaturación/oscurecimiento por Z (profundidad) —
+        const sZ  = bh.s * (1.0 - 0.35 * zN);
+        const vZ  = Math.min(1, bh.v * (1.0 - 0.05 * zN));
+        const rgb = hsvToRgb(h, sZ, vZ);
         m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
         m.material.emissive.copy(m.material.color);
       }
 
-      // —— ATMÓSFERA por Z: mezcla contra el fondo ——
-      const zN = m.userData.zDepthNorm || 0; // 0..1
+      // atmósfera: mezcla con el fondo según Z
       const haze = LCHT_HAZE_MIN + (LCHT_HAZE_MAX - LCHT_HAZE_MIN) * zN;
       const bg = (scene.background instanceof THREE.Color)
         ? scene.background
@@ -1399,6 +1419,7 @@ function buildLCHT(){
         }
         if (!lchtPrevBg) lchtPrevBg = scene.background ? scene.background.clone() : null;
         scene.background = new THREE.Color(0xf4f4f4);       // gris muy claro
+        scene.fog = new THREE.FogExp2(0xf4f4f4, LCHT_FOG_DENS);
         if (isFRBN) toggleFRBN();                           // LCHT excluye FRBN
         buildLCHT();
         lichtGroup.visible        = true;
@@ -1415,6 +1436,7 @@ function buildLCHT(){
           delete cubeUniverse.userData.prevMat;
         }
         if (lichtGroup) lichtGroup.visible = false;
+        scene.fog = null;
         if (lchtPrevBg) scene.background = lchtPrevBg;
         lchtPrevBg = null;
         cubeUniverse.visible      = true;
