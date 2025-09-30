@@ -1147,6 +1147,49 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
   }
 }
 
+/* Raster NEGATIVO: rellena cada tile y deja un margen = "línea" negativa */
+function addNegativeRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht }){
+  const matBase = new THREE.MeshLambertMaterial({
+    color: color.clone(),
+    dithering: true,
+    flatShading: true,
+    transparent: true,
+    opacity: 0.9
+  });
+  matBase.emissive = color.clone();
+  matBase.emissiveIntensity = 0.08;
+
+  // tamaño del "hueco" que queda entre tiles → grosor aparente de línea
+  const gapX = Math.max(line, 0.001);
+  const gapY = Math.max(line, 0.001);
+
+  const wInner = Math.max(0.001, widthTile  - gapX);
+  const hInner = Math.max(0.001, heightTile - gapY);
+
+  const halfW  = (tilesX * widthTile)  * 0.5;
+  const halfH  = (tilesY * heightTile) * 0.5;
+
+  // guardamos HSV base para el loop de respiración
+  const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
+  const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
+
+  for (let j=0; j<tilesY; j++){
+    const y = -halfH + (j+0.5)*heightTile;
+    for (let i=0; i<tilesX; i++){
+      const x = -halfW + (i+0.5)*widthTile;
+      const geo  = new THREE.PlaneGeometry(wInner, hInner);
+      const mesh = new THREE.Mesh(geo, matBase.clone());
+      mesh.position.set(center.x + x, center.y + y, center.z);
+      if (nz < 0) mesh.rotateY(Math.PI);
+      mesh.userData.lcht    = lcht;
+      mesh.userData.baseHsv = baseHsv;
+      // pequeño espesor para que reciba luz sin z-fight
+      mesh.geometry.computeVertexNormals();
+      lichtGroup.add(mesh);
+    }
+  }
+}
+
 /* ———————————————————————————————————————————————————————————— */
 function buildLCHT(){
   // limpiar escena previa
@@ -1162,13 +1205,12 @@ function buildLCHT(){
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
 
-  const step = cubeSize / 5; // 6 si cubeSize=30
-  const SIDE = 0.2;          // grosor de línea
+  const step = cubeSize / 5;
+  const SIDE = 0.2;     // grosor de línea visible (positivo) y hueco (negativo)
   const JOIN = 0.02;
 
-  // Altura de tile fija para TODOS los rasters (la de 1:1) — canon
-  const TILE_H = step * 0.92 * 3.0;     // escala global ×3 para TODOS los rasters
-  // Ratios raíz (ratio = width:height)
+  // Altura fija de tile (ancho = ratio × altura)
+  const TILE_H = step * 0.92 * 3.0;
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
 
   // Permutaciones activas
@@ -1176,76 +1218,48 @@ function buildLCHT(){
                      .map(o => o.value.split(',').map(Number));
   if (!perms.length) return;
 
-  // ——— Asignación Z única por raster (sin colisiones) ———
-  // Elegimos como máximo 5 rasters (uno por cada Z=0..4). Si hay más perms,
-  // las extra se omiten determinísticamente.
-  const zOwner = new Array(5).fill(-1); // zSlot -> permIdx
-  const placements = [];                 // [{permIdx, x0,y0,z0Fix}]
-
-  // Para estabilidad total, iteramos en orden determinista por lehmerRank asc.
+  // ——— SELECCIÓN determinista: a lo sumo 1 perm por tipo (1..5) ———
+  // Queda una progresión clara en Z: z=0→tipo1 (1:1), z=1→tipo2 (√2:1), ... z=4→tipo5 (√5:1)
+  const chosen = new Array(6).fill(-1); // índice por tipo (1..5) → permIdx
+  // orden determinista por lehmerRank ascendente
   const order = perms.map((pa, i)=>({i, r: lehmerRank(pa)}))
                      .sort((a,b)=> a.r - b.r);
+  order.forEach(({i})=>{
+    const typeIdx = perms[i][ attributeMapping[1] ]; // 1..5
+    if (typeIdx>=1 && typeIdx<=5 && chosen[typeIdx] === -1){
+      chosen[typeIdx] = i;
+    }
+  });
 
-  order.forEach(({i:permIdx})=>{
-    const pa = perms[permIdx];
+  // ——— Construcción (progresión en Z + alternancia positivo/negativo) ———
+  const REPEAT     = 10;             // panel grande sin cambiar el tamaño del tile
+  const baseTilesX = 4;
+  for (let zSlot = 0; zSlot < 5; zSlot++){
+    const typeIdx = zSlot + 1;       // 1..5 → 1:1 … √5:1
+    const permIdx = chosen[typeIdx];
+    if (permIdx === -1) continue;    // si no hay perm de ese tipo, capa vacía
+
+    const pa      = perms[permIdx];
+    const color   = colorForPerm(pa).clone();
+    const ratio   = ROOT_RATIOS[typeIdx];
+
+    const widthTile  = ratio * TILE_H;
+    const heightTile = TILE_H;
+
+    // Centro en su celda de 5×5×5 pero con Z FORZADO = zSlot (progresión)
     const r  = lehmerRank(pa);
     const I  = (r + sceneSeed + S_global) % 125;
     const x0 = Math.floor(I / 25);
     const y0 = Math.floor((I % 25) / 5);
-    const z0 = I % 5;
-
-    // stride determinista 1..4 (coprimo con 5)
-    let stride = ((sceneSeed*7 + S_global*11 + r*13) % 4) + 1;
-    if (stride === 5) stride = 4;
-
-    // probing determinista: busca un z libre; si no hay, se descarta
-    let picked = -1;
-    for (let k=0; k<5; k++){
-      const zTry = (z0 + k*stride) % 5;
-      if (zOwner[zTry] === -1){
-        zOwner[zTry] = permIdx;
-        picked = zTry;
-        break;
-      }
-    }
-    if (picked !== -1){
-      placements.push({ permIdx, x0, y0, z0Fix: picked });
-    }
-  });
-
-  // ——— Construcción de rasters ———
-  // Panel “grande” (10× la cobertura base) pero SIN alterar tamaño de tile
-  const REPEAT = 10;
-
-  // clave de escena para mantener hue-rotations estables
-  const sceneKey = (37*sceneSeed + 101*S_global) % 360;
-
-  placements.forEach(({permIdx, x0, y0, z0Fix}, idxScene)=>{
-    const pa      = perms[permIdx];
-    const baseCol = colorForPerm(pa);
-    const typeIdx = pa[ attributeMapping[1] ]; // 1..5 → elige cuál raster
-    const ratio   = ROOT_RATIOS[typeIdx];
-
-    // Tamaños de tile raíz (FIJOS por tipo)
-    const widthTile  = ratio * TILE_H;  // ancho = ratio × altura fija
-    const heightTile = TILE_H;          // igual para todos
-
-    // Centro de la celda en mundo (alineado a 5×5×5)
     const cx = (x0 - 2) * step;
     const cy = (y0 - 2) * step;
-    const cz = (z0Fix - 2) * step;
+    const cz = (zSlot - 2) * step;   // ← progresión limpia hacia el fondo
 
-    // Hacemos el panel 10× más grande sin tocar los tiles → +tiles
-    // Empezamos con una base razonable y multiplicamos
-    const baseTilesX = 4;                               // base determinista simple
-    const tilesX     = baseTilesX * REPEAT;             // 40 tiles a lo ancho
-    // Para que el panel no “aplane”: tilesY ≈ tilesX * (height/width) = tilesX / ratio
-    const tilesY     = Math.max(2, Math.round(tilesX / ratio));
+    // nº de tiles (ancho y alto) — solo repetición de la forma elemental
+    const tilesX = baseTilesX * REPEAT;            // 40
+    const tilesY = Math.max(2, Math.round(tilesX / ratio));
 
-    // Color determinista propio de la permutación
-    const color = baseCol.clone();  // color determinista propio de la permutación
-
-    // parámetros de “respiración” iguales a andamios
+    // parámetros de respiración deterministas (como antes)
     const sig  = computeSignature(pa);
     const rng  = computeRange(sig);
     const L    = pa[ attributeMapping[0] ];
@@ -1253,25 +1267,29 @@ function buildLCHT(){
       I0 : 0.35 + 0.65 * Math.sqrt(L / 5),
       amp: 0.05 + 0.10 * rng,
       f  : 0.10 + 0.175 * rng,
-      phi: 2 * Math.PI * ((lehmerRank(pa) % 360) / 360)
+      phi: 2 * Math.PI * ((r % 360) / 360)
     };
 
-    const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
+    const faceForward = (((r + sceneSeed + S_global) & 1) === 0);
     const normal = faceForward ? 1 : -1;
 
-    addRootRaster({
-      center: new THREE.Vector3(cx, cy, cz),
-      widthTile,
-      heightTile,
-      tilesX,
-      tilesY,
-      line: SIDE,
-      join: JOIN,
-      color,
-      nz: normal,
-      lcht
-    });
-  });
+    // Alternancia determinista: capas pares = POSITIVO (líneas), impares = NEGATIVO (relleno)
+    const isNegative = (zSlot % 2) === 1;
+
+    if (!isNegative){
+      addRootRaster({
+        center: new THREE.Vector3(cx, cy, cz),
+        widthTile, heightTile, tilesX, tilesY,
+        line: SIDE, join: JOIN, color, nz: normal, lcht
+      });
+    } else {
+      addNegativeRaster({
+        center: new THREE.Vector3(cx, cy, cz),
+        widthTile, heightTile, tilesX, tilesY,
+        line: SIDE, join: JOIN, color, nz: normal, lcht
+      });
+    }
+  }
 
   // Sin culling (que no parpadeen)
   lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
