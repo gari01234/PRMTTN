@@ -20,12 +20,12 @@ const LCHT_BG_S_WOBBLE_SPEED = 0.023;  // Hz
 const LCHT_BG_V_WOBBLE_AMP   = 0.025;
 const LCHT_BG_V_WOBBLE_SPEED = 0.017;  // Hz
 
-/* ——— Protagonismo rotativo (una capa a la vez, suave y visible) ——— */
-const LCHT_FOCUS_PERIOD   = 18.0;  // s por vuelta completa (5 capas)
-const LCHT_FOCUS_OPACITY  = 0.92;  // opacidad en foco
-const LCHT_OFF_OPACITY    = 0.28;  // opacidad fuera de foco (↑ antes 0.12)
-const LCHT_FOCUS_GAIN     = 1.30;  // brillo/tono en foco
-const LCHT_OFF_GAIN       = 0.80;  // brillo/tono fuera de foco (↑)
+/* ——— Protagonismo rotativo (suave y siempre legible) ——— */
+const LCHT_FOCUS_PERIOD   = 18.0;  // s por vuelta (5 capas)
+const LCHT_FOCUS_OPACITY  = 0.95;  // opacidad en foco (↑)
+const LCHT_OFF_OPACITY    = 0.32;  // opacidad fuera de foco (↑)
+const LCHT_FOCUS_GAIN     = 1.35;  // brillo/tono en foco
+const LCHT_OFF_GAIN       = 0.85;  // brillo/tono fuera de foco (↑)
 const LCHT_FOCUS_SIGMA    = 0.55;  // suavidad Gauss
 
 /* ——— Refuerzos de legibilidad de líneas ——— */
@@ -60,10 +60,10 @@ function addRootRaster({ THREE, center, widthTile, heightTile, tilesX, tilesY, l
     dithering: true,
     flatShading: true,
     transparent: true,
-    opacity: LCHT_OFF_OPACITY   // consistente con el loop
+    opacity: LCHT_OFF_OPACITY
   });
   matBase.emissive = color.clone();
-  matBase.emissiveIntensity = 0.12;  // ↑ antes 0.08
+  matBase.emissiveIntensity = 0.16;   // antes 0.08
 
   const [h0,s0,v0] = window.rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
@@ -117,7 +117,7 @@ function build(){
   scene.add(lichtGroup);
 
   const step = cubeSize / 5;
-  const SIDE = 0.30;          // trazo un poco más grueso
+  const SIDE = 0.32;   // antes 0.24
   const JOIN = 0.02;
   const TILE_H = step * 0.92 * 3.0;
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
@@ -230,46 +230,46 @@ function build(){
       }
     }
 
-    // — Foco rotativo suave con ventana Gauss y refuerzo de legibilidad
-    const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
-
     lichtGroup.traverse(m=>{
       if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-      // respiración + color base SIN acumulación
+      // === Color + respiración SIN acumulación ===
+      let baseR = 1, baseG = 1, baseB = 1;
       if (m.userData.lcht){
         const P = m.userData.lcht;
-        const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);
+        const k = P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi);  // 0..~1.1
 
-        // 1) partimos SIEMPRE del color base respirado a partir de baseHsv
+        // 1) reconstruir SIEMPRE el color desde su base (HSV preferente)
         if (m.userData.baseHsv){
           const bh  = m.userData.baseHsv;
           const h   = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
           const rgb = hsvToRgb(h, bh.s, bh.v);
-          m.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+          baseR = rgb[0]/255; baseG = rgb[1]/255; baseB = rgb[2]/255;
         } else if (m.userData.baseRgb){
-          // fallback: base RGB fijo
-          m.material.color.setRGB(m.userData.baseRgb.r, m.userData.baseRgb.g, m.userData.baseRgb.b);
+          baseR = m.userData.baseRgb.r; baseG = m.userData.baseRgb.g; baseB = m.userData.baseRgb.b;
         }
+        m.material.color.setRGB(baseR, baseG, baseB);
 
-        // 2) foco/atenuación con Gauss cíclico
+        // 2) foco Gaussiano (peso 0..1) en espacio cíclico de 5 capas
+        const center = (t / LCHT_FOCUS_PERIOD) * 5.0;
         let d = Math.abs(m.userData.zSlot - center);
-        d = Math.min(d, 5.0 - d);                        // distancia cíclica 0..2.5
+        d = Math.min(d, 5.0 - d);
         const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
-        const w = Math.exp(-(d*d)/sigma2);               // peso 0..1
+        const w = Math.exp(-(d*d)/sigma2);
 
+        // 3) parámetros interpolados (sin usar *= para evitar acumulación)
         const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * w;
         const gain    = LCHT_OFF_GAIN    + (LCHT_FOCUS_GAIN   - LCHT_OFF_GAIN)    * w;
 
-        // 3) aplicar gain SIN acumular
+        // aplicar opacidad/gain al color (recalcula cada frame)
         m.material.opacity = opacity;
-        m.material.color.multiplyScalar(gain);
+        m.material.color.setRGB(baseR*gain, baseG*gain, baseB*gain);
 
-        // 4) emisivo coherente y respiración de intensidad
-        const intensityBase = Math.max(0, k);
-        const intensityGain = 0.55 + 0.45*gain;
-        m.material.emissive.copy(m.material.color);
-        m.material.emissiveIntensity = intensityBase * intensityGain;
+        // 4) emisivo coherente con el color y respiración (sin multiplicar acumulativamente)
+        const kClamped = Math.max(0, k);
+        const intensityGain = 0.65 + 0.35*gain;
+        m.material.emissive.setRGB(baseR*gain, baseG*gain, baseB*gain);
+        m.material.emissiveIntensity = kClamped * intensityGain;
       }
       // — refuerzo: aseguramos luminancia mínima para que las líneas nunca se pierdan
       const r = m.material.color.r, g = m.material.color.g, b = m.material.color.b;
