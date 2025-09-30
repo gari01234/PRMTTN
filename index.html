@@ -1101,16 +1101,6 @@ function colorForPerm(pa){
 
 /* — HSV helpers ya existen en el proyecto: rgbToHsv / hsvToRgb — */
 
-/* hue shift determinista por SLOT Z (0..4) → color único por raster en escena */
-function hueRotateByZ(col, zSlot){
-  const [h,s,v] = rgbToHsv(col.r*255, col.g*255, col.b*255);
-  // 5 offsets equidistantes (0, 0.04, 0.08, 0.12, 0.16 vueltas ≈ 0..57.6°)
-  const dh = 0.04 * (zSlot % 5);
-  const h2 = (h + dh) % 1;
-  const rgb = hsvToRgb(h2, s, Math.min(1, v * 1.02));
-  return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-}
-
 /* Construye panel de líneas que SOLO delinean cada tile raíz (sin subdividir).
    - Cada tile raíz tiene: widthTile, heightTile
    - El panel se arma repitiendo esos tiles → líneas en las fronteras de los tiles. */
@@ -1177,7 +1167,7 @@ function buildLCHT(){
   const JOIN = 0.02;
 
   // Altura de tile fija para TODOS los rasters (la de 1:1) — canon
-  const TILE_H = step * 0.92;           // = 5.52 si step=6
+  const TILE_H = step * 0.92 * 3.0;     // escala global ×3 para TODOS los rasters
   // Ratios raíz (ratio = width:height)
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
 
@@ -1252,8 +1242,8 @@ function buildLCHT(){
     // Para que el panel no “aplane”: tilesY ≈ tilesX * (height/width) = tilesX / ratio
     const tilesY     = Math.max(2, Math.round(tilesX / ratio));
 
-    // Color único por raster en la escena (rotación de H determinista y estable)
-    const color = hueRotateByZ(baseCol, z0Fix);
+    // Color determinista propio de la permutación
+    const color = baseCol.clone();  // color determinista propio de la permutación
 
     // parámetros de “respiración” iguales a andamios
     const sig  = computeSignature(pa);
