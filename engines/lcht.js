@@ -40,9 +40,16 @@ const PP_COOL_CENTER = 0.58;   // cian/azulado estable
 // bias de tono hacia cálido en la prota y hacia frío en el resto
 const WARM_BIAS = 0.22;        // cuánto se acerca la prota al rojo (0..1)
 const COOL_BIAS = 0.18;        // cuánto se enfrían las no-prota (0..1)
-// — Sesgo extra de tono por posición en el raster (Hofmann: marco cálido / interior frío)
-const EDGE_WARM_BIAS = 0.25;   // cuánto se calienta el EXTERIOR (0..1)
-const EDGE_COOL_BIAS = 0.22;   // cuánto se enfría el INTERIOR (0..1)
+
+/* ——— Densidad, escala de panel y marco cálido/interior frío ——— */
+const DENSITY_MULT       = 3;     // ← 3× más denso
+const PANEL_SCALE_W      = 1.06;  // ← un poco más ancho
+const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
+const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
+
+const FRAME_FRAC       = 0.35;  // ← banda “marco” = 35% del ancho/alto
+const FRAME_WARM_BIAS  = 0.28;  // ← sesgo cálido estable en el marco
+const FRAME_COOL_BIAS  = 0.22;  // ← sesgo frío estable en el interior
 
 // ligera respiración según calidez (igual que backup)
 const PP_SAT_PUSH = 0.12;
@@ -93,7 +100,12 @@ function hueWarmth01(h){ // h en 0..1
   return THREE.MathUtils.clamp(0.5*(dWarm + dCool)*0.5 + 0.5, 0, 1);
 }
 
-function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot }){
+/* Construye panel de líneas que SOLO delinean cada tile raíz
+   Ahora acepta escalas de panel y etiqueta cada línea como marco/interior */
+function addRootRaster({
+  center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot,
+  scaleW=1.0, scaleH=1.0
+}){
   const matBase = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
@@ -111,20 +123,17 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
   const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-  const panelW = tilesX * widthTile;
-  const panelH = tilesY * heightTile;
+  // Tamaño del panel CON escala
+  const panelW = tilesX * widthTile * scaleW;
+  const panelH = tilesY * heightTile * scaleH;
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
-  // — Banda “exterior” = ~1/4 del raster
-  const band = Math.ceil(0.25 * Math.min(tilesX, tilesY));
+  // Umbrales para “marco” (banda FRAME_FRAC hacia adentro desde los bordes)
+  const xOuter = halfW  * (1.0 - FRAME_FRAC);
+  const yOuter = halfH  * (1.0 - FRAME_FRAC);
 
-  function place(x, y, isVertical, idx){
-    // ¿esta línea cae en la banda exterior?
-    const isExterior = isVertical
-      ? (idx < band || idx > tilesX - band)
-      : (idx < band || idx > tilesY - band);
-
+  function place(x, y, isVertical){
     const geo  = isVertical
       ? new THREE.BoxGeometry(line, panelH + join, line)
       : new THREE.BoxGeometry(panelW + join, line, line);
@@ -133,28 +142,30 @@ function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, jo
     mesh.position.set(center.x + x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
 
-    // bases ABSOLUTAS (sin acumulación) + flag exterior/interior
+    // ¿Esta línea cae en la banda de marco?
+    const isOuter = isVertical ? (Math.abs(x) >= xOuter) : (Math.abs(y) >= yOuter);
+
     mesh.userData = {
       lcht,
       baseHsv,
       baseRGB: [color.r, color.g, color.b],
       baseEI : LCHT_BASE_EI,
       zSlot,
-      isExterior   // true = marco (se calienta); false = interior (se enfría)
+      isOuter // ← etiqueta marco/interior
     };
     mesh.renderOrder = 10 + zSlot;
     lichtGroup.add(mesh);
   }
 
-  // Verticales
-  for (let i = 0; i <= tilesX; i++){
-    const x = -halfW + i*widthTile;
-    place(x, 0, true, i);
+  // — Verticales
+  for (let i=0; i<=tilesX; i++){
+    const x = -halfW + i*(panelW/tilesX);
+    place(x, 0, true);
   }
-  // Horizontales
-  for (let j = 0; j <= tilesY; j++){
-    const y = -halfH + j*heightTile;
-    place(0, y, false, j);
+  // — Horizontales
+  for (let j=0; j<=tilesY; j++){
+    const y = -halfH + j*(panelH/tilesY);
+    place(0, y, false);
   }
 }
 
@@ -218,9 +229,9 @@ function build(){
     const cy = (y0 - 2) * step;
     const cz = (zSlot - 2) * step * LAYER_Z_SEP;
 
-    const baseTilesX = 5;   // un poco más denso
+    const baseTilesX = 4 * DENSITY_MULT;   // ← antes 4; ahora 12 (3×)
     const tilesX     = Math.round(baseTilesX * REPEAT * GRID_SCALE);          // panel más grande
-    const tilesY     = Math.max(2, Math.round((baseTilesX * REPEAT * GRID_SCALE) / ratio));
+    const tilesY     = Math.max(2, Math.round(tilesX / ratio));
 
     const sig  = window.computeSignature(pa);
     const rng  = window.computeRange(sig);
@@ -235,6 +246,10 @@ function build(){
     const faceForward = (((window.lehmerRank(pa) + window.sceneSeed + window.S_global) & 1) === 0);
     const normal = faceForward ? 1 : -1;
 
+    // Escalas del panel: un poco más grande, y a los apaisados dales más altura
+    const scaleW = PANEL_SCALE_W;
+    const scaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
+
     addRootRaster({
       center: new THREE.Vector3(cx, cy, cz),
       widthTile,
@@ -246,7 +261,9 @@ function build(){
       color: baseCol.clone(),
       nz: normal,
       lcht,
-      zSlot
+      zSlot,
+      scaleW,
+      scaleH
     });
   });
 
@@ -290,16 +307,17 @@ function build(){
         const P  = base.lcht, bh = base.baseHsv;
         let h = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + 0.0) + P.phi)) % 1;
 
-        // sesgo Hofmann compuesto: prota→cálido, no-protas→frío, y además
-        // EXTERIOR (marco) más cálido / INTERIOR más frío
-        {
-          // wn ya está calculado (0..1). A partir de él armamos pesos de sesgo:
-          const biasWarm = THREE.MathUtils.clamp(WARM_BIAS * wn + (base.isExterior ? EDGE_WARM_BIAS : 0.0), 0, 0.65);
-          const biasCool = THREE.MathUtils.clamp(COOL_BIAS * (1.0 - wn) + (!base.isExterior ? EDGE_COOL_BIAS : 0.0), 0, 0.65);
+        // sesgo Hofmann por foco (prota → cálido, otras → frío)
+        h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
+        h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, COOL_BIAS * (1.0 - wn));
 
-          // primero atraemos el tono hacia cálido, luego hacia frío (orden suave)
-          h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, biasWarm);
-          h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, biasCool);
+        // sesgo estructural por RAUM: marco cálido estable / interior frío estable
+        if (base.isOuter) {
+          // el marco siempre empuja hacia cálido (independiente del foco)
+          h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, FRAME_WARM_BIAS);
+        } else {
+          // el interior siempre retrae hacia frío
+          h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, FRAME_COOL_BIAS);
         }
 
         // respiración suave de S y V (como antes)
