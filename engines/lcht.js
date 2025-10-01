@@ -52,6 +52,10 @@ const PP_VAL_PUSH = 0.06;
 const LAYER_Z_SEP = 1.85;      // ← MÁS separación entre rasters
 const PP_Z_PUSH   = 0.12;      // micro-parallax por calidez (conservar)
 
+/* ——— Escalado del grid y tamaño del rectángulo raíz ——— */
+const GRID_SCALE    = 1.25;  // ↑ hace el panel (grid) más grande
+const TILE_H_SHRINK = 2.40;  // ↓ hace cada rectángulo raíz más pequeño (antes 3.0)
+
 /* Halo (igual base, pero más discreto en no-protas) */
 const HALO_SCALE       = 1.55;
 const HALO_BASE        = 0.08;
@@ -175,7 +179,7 @@ function build(){
   __lchtStep = step;  // ← para PP_Z_PUSH
   const SIDE = 0.24 * 1.5;   // ← mitad de grosor
   const JOIN = 0.02 * 1.5;   // ajusta uniones acorde
-  const TILE_H = step * 0.92 * 3.0;
+  const TILE_H = step * 0.92 * TILE_H_SHRINK;  // rectángulo raíz más pequeño
   const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
 
   const perms = getPerms();
@@ -190,7 +194,7 @@ function build(){
     layers.push({ zSlot:z, permIdx: pick });
   }
 
-  const REPEAT = 10;
+  const REPEAT = 12;  // panel final más amplio
   const sceneKey = (37*window.sceneSeed + 101*window.S_global) % 360;
   __lchtBgHueSeed = (sceneKey / 360);
 
@@ -214,9 +218,9 @@ function build(){
     const cy = (y0 - 2) * step;
     const cz = (zSlot - 2) * step * LAYER_Z_SEP;
 
-    const baseTilesX = 4;
-    const tilesX     = baseTilesX * REPEAT;
-    const tilesY     = Math.max(2, Math.round(tilesX / ratio));
+    const baseTilesX = 5;   // un poco más denso
+    const tilesX     = Math.round(baseTilesX * REPEAT * GRID_SCALE);          // panel más grande
+    const tilesY     = Math.max(2, Math.round((baseTilesX * REPEAT * GRID_SCALE) / ratio));
 
     const sig  = window.computeSignature(pa);
     const rng  = window.computeRange(sig);
