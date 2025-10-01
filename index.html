@@ -1102,14 +1102,24 @@ function initSkySphere() {
     const LCHT_BG_L_WOBBLE_AMP   = 0.03;  // respiración de L (suave para no deslumbrar)
     const LCHT_BG_L_WOBBLE_SPEED = 0.013;
 
-    /* ——— Protagonismo rotativo (una capa a la vez, suave pero claro) ——— */
-    const LCHT_FOCUS_PERIOD = 18.0;  // s por vuelta (5 capas)
-    const LCHT_FOCUS_OPACITY = 1.0;  // la protagonista SIEMPRE opaca
-    const LCHT_OFF_OPACITY   = 0.35; // el resto, visibles (sin desaparecer)
-    const LCHT_FOCUS_GAIN    = 1.35; // boost de color de la protagonista
-    const LCHT_OFF_GAIN      = 0.85; // piso de ganancia del resto
-    const LCHT_FOCUS_SIGMA   = 0.55; // suavidad gaussiana del cruce
-    const LCHT_FOCUS_SHAPE   = 0.60; // 0..1 — menor = pico más pronunciado (más “prota”)
+    /* ——— Protagonismo rotativo (suave, sin apagados) ——— */
+    const LCHT_FOCUS_PERIOD = 18.0;
+
+    const LCHT_FOCUS_OPACITY = 1.00;  // prota 100% opaca
+    const LCHT_OFF_OPACITY   = 0.58;  // nunca por debajo de este valor
+
+    const LCHT_FOCUS_GAIN    = 1.80;  // color base en prota
+    const LCHT_OFF_GAIN      = 1.00;  // el resto no pierde color
+
+    const LCHT_FOCUS_SIGMA   = 0.55;  // cruce suave
+    const LCHT_FOCUS_SHAPE   = 0.60;  // 0..1 (0.6 = pico amable)
+
+    const LCHT_OPACITY_FLOOR = 0.58;  // pisos duros
+    const LCHT_GAIN_FLOOR    = 1.00;
+
+    /* brillo extra de la protagonista (emissive) */
+    const LCHT_BASE_EI       = 0.40;  // base
+    const LCHT_PROTAG_EI_BOOST = 2.50; // × sobre la base cuando wn→1
 
     /* color determinista base */
     function colorForPerm(pa){
@@ -1128,13 +1138,15 @@ function initSkySphere() {
         color: color.clone(),
         dithering: true,
         flatShading: true,
-        transparent: true,            // las “off” serán translúcidas
+        transparent: true,
         opacity: LCHT_OFF_OPACITY,
-        depthWrite: false,            // así no lavan a la protagonista
-        blending: THREE.NormalBlending
+        depthTest: true,
+        depthWrite: true,                 // ← no “lava” con el fondo
+        blending: THREE.NormalBlending,
+        toneMapped: true
       });
       matBase.emissive = color.clone();
-      matBase.emissiveIntensity = 0.28; // punch base
+      matBase.emissiveIntensity = LCHT_BASE_EI;  // ← base visible
 
       const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
       const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
@@ -1144,35 +1156,28 @@ function initSkySphere() {
       const halfW  = panelW * 0.5;
       const halfH  = panelH * 0.5;
 
-      // — Verticales
-      for (let i=0; i<=tilesX; i++){
-        const x = -halfW + i*widthTile;
-        const geo  = new THREE.BoxGeometry(line, panelH + join, line);
+      function place(x, y, isVertical){
+        const geo  = isVertical
+          ? new THREE.BoxGeometry(line, panelH + join, line)
+          : new THREE.BoxGeometry(panelW + join, line, line);
         const mesh = new THREE.Mesh(geo, matBase.clone());
-        mesh.position.set(center.x + x, center.y, center.z);
+        mesh.position.set(center.x + x, center.y + y, center.z);
         if (nz < 0) mesh.rotateY(Math.PI);
-        mesh.userData.lcht     = lcht;
-        mesh.userData.baseHsv  = baseHsv;
-        mesh.userData.baseRGB  = [color.r, color.g, color.b]; // bases absolutas
-        mesh.userData.baseEI   = mesh.material.emissiveIntensity;
-        mesh.userData.zSlot    = zSlot;
+
+        // bases ABSOLUTAS (no acumulación con el tiempo)
+        mesh.userData = {
+          lcht,
+          baseHsv,
+          baseRGB: [color.r, color.g, color.b],
+          baseEI : LCHT_BASE_EI,
+          zSlot
+        };
+        mesh.renderOrder = 10 + zSlot;   // orden estable por Z
         lichtGroup.add(mesh);
       }
 
-      // — Horizontales
-      for (let j=0; j<=tilesY; j++){
-        const y = -halfH + j*heightTile;
-        const geo  = new THREE.BoxGeometry(panelW + join, line, line);
-        const mesh = new THREE.Mesh(geo, matBase.clone());
-        mesh.position.set(center.x, center.y + y, center.z);
-        if (nz < 0) mesh.rotateY(Math.PI);
-        mesh.userData.lcht     = lcht;
-        mesh.userData.baseHsv  = baseHsv;
-        mesh.userData.baseRGB  = [color.r, color.g, color.b];
-        mesh.userData.baseEI   = mesh.material.emissiveIntensity;
-        mesh.userData.zSlot    = zSlot;
-        lichtGroup.add(mesh);
-      }
+      for (let i=0; i<=tilesX; i++) place(-halfW + i*widthTile, 0, true);
+      for (let j=0; j<=tilesY; j++) place(0, -halfH + j*heightTile, false);
     }
 
     /* ———————————————————————————————————————————————————————————— */
@@ -1204,8 +1209,8 @@ function initSkySphere() {
       }
 
       const step = cubeSize / 5;
-      const SIDE = 0.24;          // ← un poco más gruesas
-      const JOIN = 0.02;
+      const SIDE = 0.24 * 3.0;  // ← grosor ×3
+      const JOIN = 0.02 * 3.0;  // uniones acordes
 
       // Altura de tile fija para TODOS los rasters
       const TILE_H = step * 0.92 * 3.0;
@@ -1311,58 +1316,54 @@ function initSkySphere() {
           scene.background.setHSL(h, s, l);
         }
 
-        // — Foco rotativo suave con GAUSSIAN SOFTMAX (sin flips)
+        // — Foco rotativo con softmax gaussiano (continuo, sin saltos)
         const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
         const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
-        // 1) pesos por capa 0..4 normalizados (softmax gaussiano en anillo 5)
-        const weights = new Array(5);
-        let sumW = 0;
+        // pesos normalizados por capa (anillo de 5)
+        const weights = new Array(5); let sumW = 0;
         for (let z=0; z<5; z++){
-          let d = Math.abs(z - center);
-          d = Math.min(d, 5.0 - d);            // distancia en anillo
-          const w = Math.exp(-(d*d)/sigma2);   // gauss
-          weights[z] = w;
-          sumW += w;
+          let d = Math.abs(z - center); d = Math.min(d, 5.0 - d);
+          const w = Math.exp(-(d*d)/sigma2);
+          weights[z] = w; sumW += w;
         }
-        for (let z=0; z<5; z++) weights[z] /= sumW;  // normaliza (suma=1)
+        for (let z=0; z<5; z++) weights[z] /= sumW;
 
-        // 2) aplica peso normalizado por mesh (sin acumulaciones)
         lichtGroup.traverse(m=>{
           if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
-          // — respiración: SIEMPRE desde la base (sin *=)
-          let r = m.userData.baseRGB ? m.userData.baseRGB[0] : m.material.color.r;
-          let g = m.userData.baseRGB ? m.userData.baseRGB[1] : m.material.color.g;
-          let b = m.userData.baseRGB ? m.userData.baseRGB[2] : m.material.color.b;
-
-          if (m.userData.lcht && m.userData.baseHsv){
-            const P  = m.userData.lcht;
-            const bh = m.userData.baseHsv;
+          // — color “respirando” SIEMPRE desde la base (sin *=)
+          const base = m.userData;
+          let r = base.baseRGB[0], g = base.baseRGB[1], b = base.baseRGB[2];
+          if (base.lcht && base.baseHsv){
+            const P  = base.lcht, bh = base.baseHsv;
             const h  = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
-            const rr = hsvToRgb(h, bh.s, bh.v);
-            r = rr[0]/255; g = rr[1]/255; b = rr[2]/255;
+            const rgb = hsvToRgb(h, bh.s, bh.v);
+            r = rgb[0]/255; g = rgb[1]/255; b = rgb[2]/255;
           }
 
-          // — peso “suavizado” de esta capa (sube la prota sin saltos)
-          const wn = Math.pow(weights[m.userData.zSlot], LCHT_FOCUS_SHAPE); // curva más picuda
+          const wn = Math.pow(weights[base.zSlot], LCHT_FOCUS_SHAPE);
 
-          // — ganancia/opacity absolutas (no multiplicativas acumulativas)
-          const gain = LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * wn;
-          const opacity = LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn;
+          // — ganancia y opacidad ABSOLUTAS con pisos altos (no desaparecen)
+          const gainAbs    = Math.max(LCHT_GAIN_FLOOR,
+                               LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * wn);
+          const opacityAbs = Math.max(LCHT_OPACITY_FLOOR,
+                               LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn);
 
-          m.material.color.setRGB(Math.min(1, r*gain), Math.min(1, g*gain), Math.min(1, b*gain));
-          m.material.emissive.setRGB(Math.min(1, r*gain), Math.min(1, g*gain), Math.min(1, b*gain));
+          // color/emissive aplicados en absoluto
+          m.material.color.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
+          m.material.emissive.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
 
-          const P  = m.userData.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
+          // — brillo: la protagonista recibe un gran boost en emissive
+          const P  = base.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
           const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi));
-          const baseEI = (m.userData.baseEI != null) ? m.userData.baseEI : 0.28;
-          m.material.emissiveIntensity = baseEI * breath * (0.85 + 0.25*wn);
+          const ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
+          m.material.emissiveIntensity = breath * ei;
 
-          // — siempre transparente (interpola opacidad), sin depthWrite para evitar “lavar”
+          // opacidad estable; depthWrite ON evita “lavados”
           if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
-          m.material.depthWrite = false;
-          m.material.opacity = opacity;
+          m.material.depthWrite = true;
+          m.material.opacity    = opacityAbs;
         });
 
         window.__lchtRAF = requestAnimationFrame(__lchtLoop);
