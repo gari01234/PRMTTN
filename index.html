@@ -1266,7 +1266,8 @@ function initSkySphere() {
         layers.push({ zSlot:z, permIdx: pick });
       }
 
-      const REPEAT = 10;
+      // El panel se hace solo un poco más grande que la abertura (≈ 6% extra)
+      const PANEL_MARGIN = 1.06;
 
       // Construcción de capas
       layers.forEach(({zSlot, permIdx})=>{
@@ -1288,9 +1289,18 @@ function initSkySphere() {
         const cy = (y0 - 2) * step;
         const cz = (zSlot - 2) * step * LAYER_Z_SEP;  // ← más separación Z
 
-        const baseTilesX = 4;
-        const tilesX     = baseTilesX * REPEAT;
-        const tilesY     = Math.max(2, Math.round(tilesX / ratio));
+        // Tamaño de la abertura (interior del marco)
+        // Altura de abertura ≈ 3 * step * 0.92  (mismo canon que TILE_H)
+        const apertureH = step * 0.92 * 3.0;
+        const apertureW = apertureH * ratio;
+
+        // Queremos que el panel sea solo un poco mayor que la abertura
+        const targetW = apertureW * PANEL_MARGIN;
+        const targetH = apertureH * PANEL_MARGIN;
+
+        // Número de tiles que cubren ese tamaño (mínimo razonable para que se perciba la trama)
+        const tilesX = Math.max(3, Math.ceil(targetW / widthTile));
+        const tilesY = Math.max(3, Math.ceil(targetH / heightTile));
 
         const sig  = computeSignature(pa);
         const rng  = computeRange(sig);
