@@ -40,6 +40,9 @@ const PP_COOL_CENTER = 0.58;   // cian/azulado estable
 // bias de tono hacia cálido en la prota y hacia frío en el resto
 const WARM_BIAS = 0.22;        // cuánto se acerca la prota al rojo (0..1)
 const COOL_BIAS = 0.18;        // cuánto se enfrían las no-prota (0..1)
+// — Sesgo extra de tono por posición en el raster (Hofmann: marco cálido / interior frío)
+const EDGE_WARM_BIAS = 0.25;   // cuánto se calienta el EXTERIOR (0..1)
+const EDGE_COOL_BIAS = 0.22;   // cuánto se enfría el INTERIOR (0..1)
 
 // ligera respiración según calidez (igual que backup)
 const PP_SAT_PUSH = 0.12;
@@ -86,11 +89,8 @@ function hueWarmth01(h){ // h en 0..1
   return THREE.MathUtils.clamp(0.5*(dWarm + dCool)*0.5 + 0.5, 0, 1);
 }
 
-function addRootRaster({
-  center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot
-){
-  // material núcleo (sólido, opaco en foco)
-  const coreMat = new THREE.MeshLambertMaterial({
+function addRootRaster({ center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot }){
+  const matBase = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
     flatShading: true,
@@ -101,23 +101,8 @@ function addRootRaster({
     blending: THREE.NormalBlending,
     toneMapped: true
   });
-  coreMat.emissive = color.clone();
-  coreMat.emissiveIntensity = LCHT_BASE_EI;
-
-  // material halo (glow aditivo, sin escribir z-buffer)
-  const haloMat = new THREE.MeshLambertMaterial({
-    color: color.clone(),
-    dithering: true,
-    flatShading: true,
-    transparent: true,
-    opacity: HALO_BASE,
-    depthTest: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    toneMapped: true
-  });
-  haloMat.emissive = color.clone();
-  haloMat.emissiveIntensity = LCHT_BASE_EI;
+  matBase.emissive = color.clone();
+  matBase.emissiveIntensity = LCHT_BASE_EI;
 
   const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
@@ -127,48 +112,46 @@ function addRootRaster({
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
-  // Z push determinista por calidez
-  const warmth  = hueWarmth01(baseHsv.h); // 0..1, 1 = cálido
-  const zPush = (warmth - 0.5) * (PP_Z_PUSH * __lchtStep);
+  // — Banda “exterior” = ~1/4 del raster
+  const band = Math.ceil(0.25 * Math.min(tilesX, tilesY));
 
-  function place(x, y, isVertical){
-    const geoCore = isVertical
+  function place(x, y, isVertical, idx){
+    // ¿esta línea cae en la banda exterior?
+    const isExterior = isVertical
+      ? (idx < band || idx > tilesX - band)
+      : (idx < band || idx > tilesY - band);
+
+    const geo  = isVertical
       ? new THREE.BoxGeometry(line, panelH + join, line)
       : new THREE.BoxGeometry(panelW + join, line, line);
-    const geoHalo = isVertical
-      ? new THREE.BoxGeometry(line*HALO_SCALE, panelH + join, line*HALO_SCALE)
-      : new THREE.BoxGeometry((panelW + join), line*HALO_SCALE, line*HALO_SCALE);
 
-    // núcleo
-    const core = new THREE.Mesh(geoCore, coreMat.clone());
-    core.position.set(center.x + x, center.y + y, center.z + zPush);
-    if (nz < 0) core.rotateY(Math.PI);
-    core.renderOrder = 10 + zSlot;
+    const mesh = new THREE.Mesh(geo, matBase.clone());
+    mesh.position.set(center.x + x, center.y + y, center.z);
+    if (nz < 0) mesh.rotateY(Math.PI);
 
-    // halo
-    const halo = new THREE.Mesh(geoHalo, haloMat.clone());
-    halo.position.copy(core.position);
-    halo.rotation.copy(core.rotation);
-    halo.renderOrder = core.renderOrder + 1;
-
-    const baseRGB = [color.r, color.g, color.b];
-
-    // bases absolutas (para evitar acumulaciones)
-    core.userData = {
-      lcht, baseHsv, baseRGB, baseEI: LCHT_BASE_EI,
-      zSlot, isHalo:false
+    // bases ABSOLUTAS (sin acumulación) + flag exterior/interior
+    mesh.userData = {
+      lcht,
+      baseHsv,
+      baseRGB: [color.r, color.g, color.b],
+      baseEI : LCHT_BASE_EI,
+      zSlot,
+      isExterior   // true = marco (se calienta); false = interior (se enfría)
     };
-    halo.userData = {
-      lcht, baseHsv, baseRGB, baseEI: LCHT_BASE_EI,
-      zSlot, isHalo:true
-    };
-
-    lichtGroup.add(core);
-    lichtGroup.add(halo);
+    mesh.renderOrder = 10 + zSlot;
+    lichtGroup.add(mesh);
   }
 
-  for (let i=0; i<=tilesX; i++) place(-halfW + i*widthTile, 0, true);
-  for (let j=0; j<=tilesY; j++) place(0, -halfH + j*heightTile, false);
+  // Verticales
+  for (let i = 0; i <= tilesX; i++){
+    const x = -halfW + i*widthTile;
+    place(x, 0, true, i);
+  }
+  // Horizontales
+  for (let j = 0; j <= tilesY; j++){
+    const y = -halfH + j*heightTile;
+    place(0, y, false, j);
+  }
 }
 
 function build(){
@@ -303,9 +286,17 @@ function build(){
         const P  = base.lcht, bh = base.baseHsv;
         let h = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + 0.0) + P.phi)) % 1;
 
-        // sesgo Hofmann: prota → cálido, no-protas → frío
-        h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
-        h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, COOL_BIAS * (1.0 - wn));
+        // sesgo Hofmann compuesto: prota→cálido, no-protas→frío, y además
+        // EXTERIOR (marco) más cálido / INTERIOR más frío
+        {
+          // wn ya está calculado (0..1). A partir de él armamos pesos de sesgo:
+          const biasWarm = THREE.MathUtils.clamp(WARM_BIAS * wn + (base.isExterior ? EDGE_WARM_BIAS : 0.0), 0, 0.65);
+          const biasCool = THREE.MathUtils.clamp(COOL_BIAS * (1.0 - wn) + (!base.isExterior ? EDGE_COOL_BIAS : 0.0), 0, 0.65);
+
+          // primero atraemos el tono hacia cálido, luego hacia frío (orden suave)
+          h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, biasWarm);
+          h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, biasCool);
+        }
 
         // respiración suave de S y V (como antes)
         const s = THREE.MathUtils.clamp(bh.s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
