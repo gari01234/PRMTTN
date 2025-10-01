@@ -1120,6 +1120,9 @@ function initSkySphere() {
     // bias de tono hacia cálido en la prota y hacia frío en el resto
     const WARM_BIAS = 0.22;        // cuánto se acerca la prota al rojo (0..1)
     const COOL_BIAS = 0.18;        // cuánto se enfrían las no-prota (0..1)
+    // — Sesgo extra de tono por posición en el raster (Hofmann: marco cálido / interior frío)
+    const EDGE_WARM_BIAS = 0.25;   // cuánto se calienta el EXTERIOR (0..1)
+    const EDGE_COOL_BIAS = 0.22;   // cuánto se enfría el INTERIOR (0..1)
 
     // ligera respiración según calidez (igual que backup)
     const PP_SAT_PUSH = 0.12;
@@ -1170,7 +1173,15 @@ function initSkySphere() {
       const halfW  = panelW * 0.5;
       const halfH  = panelH * 0.5;
 
-      function place(x, y, isVertical){
+      // — Banda “exterior” = ~1/4 del raster
+      const band = Math.ceil(0.25 * Math.min(tilesX, tilesY));
+
+      function place(x, y, isVertical, idx){
+        // ¿esta línea cae en la banda exterior?
+        const isExterior = isVertical
+          ? (idx < band || idx > tilesX - band)
+          : (idx < band || idx > tilesY - band);
+
         const geo  = isVertical
           ? new THREE.BoxGeometry(line, panelH + join, line)
           : new THREE.BoxGeometry(panelW + join, line, line);
@@ -1178,20 +1189,29 @@ function initSkySphere() {
         mesh.position.set(center.x + x, center.y + y, center.z);
         if (nz < 0) mesh.rotateY(Math.PI);
 
-        // bases ABSOLUTAS (no acumulación con el tiempo)
+        // bases ABSOLUTAS (no acumulación con el tiempo) + flag exterior/interior
         mesh.userData = {
           lcht,
           baseHsv,
           baseRGB: [color.r, color.g, color.b],
           baseEI : LCHT_BASE_EI,
-          zSlot
+          zSlot,
+          isExterior   // true = marco (se calienta); false = interior (se enfría)
         };
         mesh.renderOrder = 10 + zSlot;   // orden estable por Z
         lichtGroup.add(mesh);
       }
 
-      for (let i=0; i<=tilesX; i++) place(-halfW + i*widthTile, 0, true);
-      for (let j=0; j<=tilesY; j++) place(0, -halfH + j*heightTile, false);
+      // Verticales
+      for (let i = 0; i <= tilesX; i++){
+        const x = -halfW + i*widthTile;
+        place(x, 0, true, i);
+      }
+      // Horizontales
+      for (let j = 0; j <= tilesY; j++){
+        const y = -halfH + j*heightTile;
+        place(0, y, false, j);
+      }
     }
 
     /* ———————————————————————————————————————————————————————————— */
@@ -1359,10 +1379,17 @@ function initSkySphere() {
             const P  = base.lcht, bh = base.baseHsv;
             let h = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
 
-            // sesgo Hofmann: prota → cálido, no-protas → frío
-            // wn = peso de foco [0..1] ya calculado arriba
-            h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
-            h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, COOL_BIAS * (1.0 - wn));
+            // sesgo Hofmann compuesto: prota→cálido, no-protas→frío, y además
+            // EXTERIOR (marco) más cálido / INTERIOR más frío
+            {
+              // wn ya está calculado (0..1). A partir de él armamos pesos de sesgo:
+              const biasWarm = THREE.MathUtils.clamp(WARM_BIAS * wn + (base.isExterior ? EDGE_WARM_BIAS : 0.0), 0, 0.65);
+              const biasCool = THREE.MathUtils.clamp(COOL_BIAS * (1.0 - wn) + (!base.isExterior ? EDGE_COOL_BIAS : 0.0), 0, 0.65);
+
+              // primero atraemos el tono hacia cálido, luego hacia frío (orden suave)
+              h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, biasWarm);
+              h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, biasCool);
+            }
 
             // respiración suave de S y V (como antes)
             const s = THREE.MathUtils.clamp(bh.s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
