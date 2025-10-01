@@ -1317,17 +1317,30 @@ function initSkySphere() {
         }
 
         // — Foco rotativo con softmax gaussiano (continuo, sin saltos)
-        const center = (t / LCHT_FOCUS_PERIOD) * 5.0; // 0..5
+        // ENVUELVE el centro al anillo de 5 capas y blinda la normalización
+        const center = ((t / LCHT_FOCUS_PERIOD) * 5.0) % 5.0;  // ← SIEMPRE en [0,5)
         const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
-        // pesos normalizados por capa (anillo de 5)
-        const weights = new Array(5); let sumW = 0;
-        for (let z=0; z<5; z++){
-          let d = Math.abs(z - center); d = Math.min(d, 5.0 - d);
-          const w = Math.exp(-(d*d)/sigma2);
-          weights[z] = w; sumW += w;
+        // pesos normalizados por capa (anillo de 5) con guard rails numéricos
+        const weights = new Array(5);
+        let sumW = 0;
+        for (let z = 0; z < 5; z++) {
+          // distancia en anillo: [0, 2.5]
+          let d = Math.abs(z - center);
+          if (d > 2.5) d = 5.0 - d;
+
+          const w = Math.exp(-(d * d) / sigma2);
+          weights[z] = w;
+          sumW += w;
         }
-        for (let z=0; z<5; z++) weights[z] /= sumW;
+
+        // si por estabilidad numérica sumW cae demasiado, reparte uniforme
+        if (sumW < 1e-6) {
+          for (let z = 0; z < 5; z++) weights[z] = 1 / 5;
+        } else {
+          const inv = 1 / sumW;
+          for (let z = 0; z < 5; z++) weights[z] *= inv;
+        }
 
         lichtGroup.traverse(m=>{
           if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
@@ -1342,7 +1355,8 @@ function initSkySphere() {
             r = rgb[0]/255; g = rgb[1]/255; b = rgb[2]/255;
           }
 
-          const wn = Math.pow(weights[base.zSlot], LCHT_FOCUS_SHAPE);
+          // peso suavizado y CLAMP para evitar NaN/Inf
+          let wn = Math.pow(Math.max(0, Math.min(1, weights[base.zSlot])), LCHT_FOCUS_SHAPE);
 
           // — ganancia y opacidad ABSOLUTAS con pisos altos (no desaparecen)
           const gainAbs    = Math.max(LCHT_GAIN_FLOOR,
@@ -1350,9 +1364,9 @@ function initSkySphere() {
           const opacityAbs = Math.max(LCHT_OPACITY_FLOOR,
                                LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn);
 
-          // color/emissive aplicados en absoluto
-          m.material.color.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
-          m.material.emissive.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
+          // aplica color/emissive (clamp 0..1)
+          m.material.color.setRGB(Math.min(1, r * gainAbs), Math.min(1, g * gainAbs), Math.min(1, b * gainAbs));
+          m.material.emissive.setRGB(Math.min(1, r * gainAbs), Math.min(1, g * gainAbs), Math.min(1, b * gainAbs));
 
           // — brillo: la protagonista recibe un gran boost en emissive
           const P  = base.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
@@ -1363,7 +1377,8 @@ function initSkySphere() {
           // opacidad estable; depthWrite ON evita “lavados”
           if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
           m.material.depthWrite = true;
-          m.material.opacity    = opacityAbs;
+          // clamp extra por si alguna plataforma trata NaN como 0
+          m.material.opacity = Math.min(1, Math.max(0.0, opacityAbs));
         });
 
         window.__lchtRAF = requestAnimationFrame(__lchtLoop);
