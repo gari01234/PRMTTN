@@ -2,6 +2,10 @@
 // LCHT: deterministic light-tubes (extraído del HTML, registrado en ENGINE)
 let isOn = false;
 let lichtGroup = null;
+/* H por capa para sincronizar fondo ↔ foco */
+let __lchtLayerHue = new Array(5).fill(0);
+/* step actual (para z push) */
+let __lchtStep = 1;
 let prevBg = null;
 let rafId = null;
 const { hsvToRgb, rgbToHsv } = window;
@@ -20,34 +24,49 @@ const LCHT_BG_S_WOBBLE_SPEED = 0.023;  // Hz
 const LCHT_BG_V_WOBBLE_AMP   = 0.025;
 const LCHT_BG_V_WOBBLE_SPEED = 0.017;  // Hz
 
-/* ——— Protagonismo rotativo (suave, sin apagados) ——— */
-const LCHT_FOCUS_PERIOD = 18.0;
+/* ——— Protagonismo + PUSH & PULL (Hofmann) ——— */
+const LCHT_FOCUS_PERIOD = 18.0;   // s por vuelta (5 capas)
+const LCHT_FOCUS_SIGMA  = 0.55;   // suavidad gaussiana
+const LCHT_FOCUS_SHAPE  = 0.60;   // curva del pico
 
+/* pisos altos (nadie desaparece) */
 const LCHT_FOCUS_OPACITY = 1.00;  // prota 100% opaca
-const LCHT_OFF_OPACITY   = 0.58;  // nunca por debajo de este valor
+const LCHT_OFF_OPACITY   = 0.58;  // resto
+const LCHT_OPACITY_FLOOR = 0.58;
 
-const LCHT_FOCUS_GAIN    = 1.80;  // color base en prota
-const LCHT_OFF_GAIN      = 1.00;  // el resto no pierde color
+const LCHT_FOCUS_GAIN  = 1.80;    // boost color prota
+const LCHT_OFF_GAIN    = 1.00;    // base resto
+const LCHT_GAIN_FLOOR  = 1.00;
 
-const LCHT_FOCUS_SIGMA   = 0.55;  // cruce suave
-const LCHT_FOCUS_SHAPE   = 0.60;  // 0..1 (0.6 = pico amable)
+/* Emissive / brillo */
+const LCHT_BASE_EI          = 0.40;  // base visible
+const LCHT_PROTAG_EI_BOOST  = 3.20;  // × sobre base cuando wn→1
 
-const LCHT_OPACITY_FLOOR = 0.58;  // pisos duros
-const LCHT_GAIN_FLOOR    = 1.00;
+/* — Push & Pull cromático (Hofmann) — 
+   “Lo cálido avanza” (rojos/amarillos), “lo frío retrocede” (cian/azules).
+   Usamos el H (0..1) en HSL/HSV para calcular ‘calidez’ y derivar:
+   - z micro-parallax (desplazamiento ligero en Z)
+   - grosor (más grueso si avanza)
+   - saturación/valor extra (más saturado si avanza)
+   Todo determinista en función del color base del raster. */
+const PP_WARM_CENTER = 0.00;      // H = 0 (rojo) como centro cálido
+const PP_COOL_CENTER = 0.55;      // H ≈ 0.55 (cian/verde-azulado)
+const PP_Z_PUSH      = 0.12;      // desplazamiento Z relativo al step
+const PP_THICK_PUSH  = 0.20;      // % de grosor extra por calidez
+const PP_GAIN_PUSH   = 0.25;      // +ganancia por calidez
+const PP_SAT_PUSH    = 0.12;      // +saturación por calidez (respiración)
+const PP_VAL_PUSH    = 0.06;      // +valor por calidez
 
-/* brillo extra de la protagonista (emissive) */
-const LCHT_BASE_EI       = 0.40;  // base
-const LCHT_PROTAG_EI_BOOST = 2.50; // × sobre la base cuando wn→1
+/* Glow (halo aditivo) */
+const HALO_SCALE      = 1.55;     // grosor del halo vs núcleo
+const HALO_BASE       = 0.08;     // opacidad mínima halo
+const HALO_FOCUS_BOOST= 0.85;     // extra de opacidad halo con foco
+const HALO_COOL_CUT   = 0.35;     // los fríos tienen menos halo (retroceden)
 
-/* ——— Glow y Push&Pull (Hans Hofmann) ——— */
-const LCHT_GLOW_SCALE       = 1.035;  // escalado XY del halo
-const LCHT_GLOW_MAX_OPACITY = 0.85;   // opacidad máx del halo
-const LCHT_GLOW_EI_MULT     = 3.0;    // multiplicador emissive del halo
-
-const LCHT_PP_Z_FACTOR      = 0.18;   // % del step para avance/retroceso en Z
-const LCHT_PP_HUE_SHIFT     = 0.03;   // delta de HUE (calentamiento/enfriamiento)
-const LCHT_PP_S_GAIN        = 0.18;   // +S cuando avanza
-const LCHT_PP_V_GAIN        = 0.22;   // +V cuando avanza
+/* Fondo: acompaña push & pull (el fondo tiende a complementar al foco) */
+const BG_COOL_OFFSET  = 0.58;     // +H ≈ complementario fresco
+const BG_S_COOL       = 0.32;     // saturación cuando enfría
+const BG_L_COOL       = 0.90;     // luminosidad cuando enfría
 
 /* ——— Refuerzos de legibilidad de líneas ——— */
 const LCHT_MIN_LINE_LUMA  = 0.42;  // luminancia mínima 0..1
@@ -75,12 +94,19 @@ function colorForPerm(pa){
     : new THREE.Color(val);
 }
 
+function hueWarmth01(h){ // h en 0..1
+  // cercanía simultánea a rojo (calor) y alejamiento de cian (frío)
+  const dWarm = Math.cos(2*Math.PI*(h - PP_WARM_CENTER)); // [-1..1]
+  const dCool = -Math.cos(2*Math.PI*(h - PP_COOL_CENTER)); // [-1..1]
+  // mezcla estable y normalizada a [0..1]
+  return THREE.MathUtils.clamp(0.5*(dWarm + dCool)*0.5 + 0.5, 0, 1);
+}
+
 function addRootRaster({
-  center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot,
-  ppBias, ppZAmp
-}){
-  // material base (core)
-  const matCore = new THREE.MeshLambertMaterial({
+  center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot
+){
+  // material núcleo (sólido, opaco en foco)
+  const coreMat = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
     flatShading: true,
@@ -91,80 +117,80 @@ function addRootRaster({
     blending: THREE.NormalBlending,
     toneMapped: true
   });
-  matCore.emissive = color.clone();
-  matCore.emissiveIntensity = LCHT_BASE_EI;
+  coreMat.emissive = color.clone();
+  coreMat.emissiveIntensity = LCHT_BASE_EI;
 
-  // material glow (aditivo)
-  const matGlow = new THREE.MeshLambertMaterial({
+  // material halo (glow aditivo, sin escribir z-buffer)
+  const haloMat = new THREE.MeshLambertMaterial({
     color: color.clone(),
     dithering: true,
     flatShading: true,
     transparent: true,
-    opacity: 0.0,                             // se anima
-    depthTest: false,
+    opacity: HALO_BASE,
+    depthTest: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    toneMapped: false                         // aditivo puro
+    toneMapped: true
   });
-  matGlow.emissive = color.clone();
-  matGlow.emissiveIntensity = LCHT_BASE_EI * LCHT_GLOW_EI_MULT;
+  haloMat.emissive = color.clone();
+  haloMat.emissiveIntensity = LCHT_BASE_EI;
 
-  // HSV base
   const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
   const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
+  const warmth  = hueWarmth01(baseHsv.h); // 0..1, 1 = cálido
 
   const panelW = tilesX * widthTile;
   const panelH = tilesY * heightTile;
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
+  // Z push determinista por calidez
+  const zPush = (warmth - 0.5) * (PP_Z_PUSH * __lchtStep);
+  const gPush = 1.0 + (warmth - 0.5) * PP_THICK_PUSH; // grosor
+  const gainP = 1.0 + (warmth - 0.5) * PP_GAIN_PUSH;  // ganancia base
+
   function place(x, y, isVertical){
-    const geo  = isVertical
+    const geoCore = isVertical
       ? new THREE.BoxGeometry(line, panelH + join, line)
       : new THREE.BoxGeometry(panelW + join, line, line);
+    const geoHalo = isVertical
+      ? new THREE.BoxGeometry(line*HALO_SCALE, panelH + join, line*HALO_SCALE)
+      : new THREE.BoxGeometry((panelW + join), line*HALO_SCALE, line*HALO_SCALE);
 
-    // CORE
-    const core = new THREE.Mesh(geo, matCore.clone());
-    core.position.set(center.x + x, center.y + y, center.z);
+    // núcleo
+    const core = new THREE.Mesh(geoCore, coreMat.clone());
+    core.position.set(center.x + x, center.y + y, center.z + zPush);
     if (nz < 0) core.rotateY(Math.PI);
+    core.scale.set(gPush, 1, gPush);
     core.renderOrder = 10 + zSlot;
-    core.userData = {
-      kind   : 'core',
-      lcht,
-      baseHsv,
-      baseRGB: [color.r, color.g, color.b],
-      baseEI : LCHT_BASE_EI,
-      baseZ  : center.z,
-      zSlot,
-      pp     : { bias: ppBias, zAmp: ppZAmp }
-    };
-    lichtGroup.add(core);
 
-    // GLOW (mismo geo, aditivo, un pelín más grande)
-    const glow = new THREE.Mesh(geo.clone(), matGlow.clone());
-    glow.position.copy(core.position);
-    glow.scale.set(
-      isVertical ? 1.0 : LCHT_GLOW_SCALE,
-      isVertical ? LCHT_GLOW_SCALE : 1.0,
-      1.0
-    );
-    if (nz < 0) glow.rotateY(Math.PI);
-    glow.renderOrder = 11 + zSlot;
-    glow.userData = {
-      kind   : 'glow',
-      lcht,
-      baseHsv,
-      baseRGB: [color.r, color.g, color.b],
-      baseEI : LCHT_BASE_EI * LCHT_GLOW_EI_MULT,
-      baseZ  : center.z,
-      zSlot,
-      pp     : { bias: ppBias, zAmp: ppZAmp }
+    // halo
+    const halo = new THREE.Mesh(geoHalo, haloMat.clone());
+    halo.position.copy(core.position);
+    halo.rotation.copy(core.rotation);
+    halo.renderOrder = core.renderOrder + 1;
+
+    const baseRGB = [color.r, color.g, color.b];
+
+    // bases absolutas (para evitar acumulaciones)
+    core.userData = {
+      lcht, baseHsv, baseRGB, baseEI: LCHT_BASE_EI,
+      zSlot, warmth, isHalo:false, gainP
     };
-    lichtGroup.add(glow);
+    halo.userData = {
+      lcht, baseHsv, baseRGB, baseEI: LCHT_BASE_EI,
+      zSlot, warmth, isHalo:true,  gainP
+    };
+
+    lichtGroup.add(core);
+    lichtGroup.add(halo);
   }
 
   for (let i=0; i<=tilesX; i++) place(-halfW + i*widthTile, 0, true);
   for (let j=0; j<=tilesY; j++) place(0, -halfH + j*heightTile, false);
+
+  // guardar H base de esta capa (para fondo sincronizado)
+  if (typeof __lchtLayerHue[zSlot] === 'number') __lchtLayerHue[zSlot] = baseHsv.h;
 }
 
 function build(){
@@ -183,9 +209,10 @@ function build(){
   }
   lichtGroup = new THREE.Group();
   scene.add(lichtGroup);
+  __lchtLayerHue = new Array(5).fill(0);
 
   const step = cubeSize / 5;
-  const PP_Z_AMP = step * LCHT_PP_Z_FACTOR;
+  __lchtStep = step;  // ← para PP_Z_PUSH
   const SIDE = 0.24 * 3.0;  // ← grosor ×3
   const JOIN = 0.02 * 3.0;  // uniones acordes
   const TILE_H = step * 0.92 * 3.0;
@@ -247,9 +274,6 @@ function build(){
     const faceForward = (((window.lehmerRank(pa) + window.sceneSeed + window.S_global) & 1) === 0);
     const normal = faceForward ? 1 : -1;
 
-    // sesgo determinista por capa ([-1,1])
-    const ppBias = (((window.lehmerRank(pa)*31 + zSlot*97 + window.sceneSeed*53 + window.S_global*71) % 200) / 100) - 1;
-
     addRootRaster({
       center: new THREE.Vector3(cx, cy, cz),
       widthTile,
@@ -261,46 +285,40 @@ function build(){
       color: baseCol.clone(),
       nz: normal,
       lcht,
-      zSlot,
-      ppBias,
-      ppZAmp: PP_Z_AMP
+      zSlot
     });
   });
 
   lichtGroup.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
 
   if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
-  const t0 = (window.sceneSeed*13 + window.S_global*31) * 0.01745329252;
-
   const sceneRef = scene;
   function loop(ts){
     if (!isOn || !lichtGroup){ rafId = null; return; }
     const t = ts * 0.001;
 
-    if (__lchtBgBaseHSV){
-      // — Fondo animado: hue rota 360° de forma continua; S y V “respiran” suave
-      {
-        // hue gira a velocidad constante → recorre todo el círculo de color
-        const h = (__lchtBgBaseHSV[0] + (t * LCHT_BG_ROT_SPEED)) % 1;
+    // — Fondo: se “opone” al foco para ayudar el push&pull
+    {
+      // centro del foco (0..5) y pesos normalizados (más abajo calculamos ‘weights’ también)
+      const center = (t / LCHT_FOCUS_PERIOD) * 5.0;
+      const sigma2 = 2.0 * LCHT_FOCUS_SIGMA * LCHT_FOCUS_SIGMA;
 
-        // punto medio de S y V dentro de sus bandas seguras (no blanco)
-        const sMid = (LCHT_BG_S_MIN + LCHT_BG_S_MAX) * 0.5;
-        const vMid = (LCHT_BG_V_MIN + LCHT_BG_V_MAX) * 0.5;
-        const sAmp = Math.max(0, Math.min((LCHT_BG_S_MAX - LCHT_BG_S_MIN) * 0.5 - 0.001, LCHT_BG_S_WOBBLE_AMP));
-        const vAmp = Math.max(0, Math.min((LCHT_BG_V_MAX - LCHT_BG_V_MIN) * 0.5 - 0.001, LCHT_BG_V_WOBBLE_AMP));
-
-        const s = THREE.MathUtils.clamp(
-          sMid + sAmp * Math.sin(2*Math.PI*LCHT_BG_S_WOBBLE_SPEED * t + Math.PI/7),
-          LCHT_BG_S_MIN, LCHT_BG_S_MAX
-        );
-        const v = THREE.MathUtils.clamp(
-          vMid + vAmp * Math.cos(2*Math.PI*LCHT_BG_V_WOBBLE_SPEED * t + Math.PI/5),
-          LCHT_BG_V_MIN, LCHT_BG_V_MAX
-        );
-
-        const rgb = hsvToRgb(h, s, v);
-        sceneRef.background.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+      const wTmp = new Array(5); let sumWtmp = 0;
+      for (let z=0; z<5; z++){
+        let d = Math.abs(z - center); d = Math.min(d, 5.0 - d);
+        const w = Math.exp(-(d*d)/sigma2);
+        wTmp[z] = w; sumWtmp += w;
       }
+      for (let z=0; z<5; z++) wTmp[z] /= sumWtmp;
+
+      // hue “promedio” del foco
+      let hFocus = 0;
+      for (let z=0; z<5; z++) hFocus += __lchtLayerHue[z] * wTmp[z];
+      hFocus = (hFocus + 1) % 1;
+
+      // Fondo se enfría/complementa
+      const hBg = (hFocus + BG_COOL_OFFSET) % 1;
+      sceneRef.background.setHSL(hBg, BG_S_COOL, BG_L_COOL);
     }
 
     // — Foco rotativo con softmax gaussiano (continuo, sin saltos)
@@ -320,67 +338,62 @@ function build(){
       if (!m.isMesh || !m.material || !m.userData || m.userData.zSlot === undefined) return;
 
       const base = m.userData;
+      const wn = Math.pow(weights[base.zSlot], LCHT_FOCUS_SHAPE); // foco 0..1
+      const warm = base.warmth; // 0..1
 
-      // — color base con respiración (siempre desde ABSOLUTO)
+      // — Color base “respirando” SIN acumulaciones
       let r = base.baseRGB[0], g = base.baseRGB[1], b = base.baseRGB[2];
-      let h = base.baseHsv.h,   s = base.baseHsv.s,   v = base.baseHsv.v;
-
-      if (base.lcht){
-        const P = base.lcht;
-        const hBreath = (h + 0.03*Math.sin(2*Math.PI*P.f*(t+t0) + P.phi)) % 1;
-        const rgb = hsvToRgb(hBreath, s, v);
+      if (base.lcht && base.baseHsv){
+        const P  = base.lcht, bh = base.baseHsv;
+        // push&pull: calidez aumenta S y V ligeramente
+        const sBoost = 1.0 + (warm - 0.5)*PP_SAT_PUSH;
+        const vBoost = 1.0 + (warm - 0.5)*PP_VAL_PUSH;
+        const h  = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + 0.0) + P.phi)) % 1;
+        const s  = THREE.MathUtils.clamp(bh.s * sBoost, 0, 1);
+        const v  = THREE.MathUtils.clamp(bh.v * vBoost, 0, 1);
+        const rgb = hsvToRgb(h, s, v);
         r = rgb[0]/255; g = rgb[1]/255; b = rgb[2]/255;
-        h = hBreath;
       }
 
-      // — peso “protagonismo” de esta capa (ya normalizado y estable)
-      const wn = Math.pow(Math.max(0, Math.min(1, weights[base.zSlot])), LCHT_FOCUS_SHAPE);
+      // — Ganancias absolutas por foco y por calidez (push)
+      const gainF = LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * wn;
+      const gainP = base.gainP; // definido en build: 1 + (warm-0.5)*PP_GAIN_PUSH
+      const gainAbs = Math.max(LCHT_GAIN_FLOOR, gainF * gainP);
 
-      // — PUSH & PULL: calienta/satura/ilumina al avanzar; enfría al retroceder
-      const sign = Math.sign(base.pp.bias) || 1;  // sesgo determinista
-      const advance = wn * Math.abs(base.pp.bias); // 0..1
+      // — Opacidad absoluta (con piso alto)
+      const opacityAbs = Math.max(
+        LCHT_OPACITY_FLOOR,
+        LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn
+      );
 
-      const hueShift = LCHT_PP_HUE_SHIFT * sign * advance;         // calentar/enfriar
-      const sGain    = 1.0 + LCHT_PP_S_GAIN * advance;             // +S
-      const vGain    = 1.0 + LCHT_PP_V_GAIN * advance;             // +V
+      // — Aplicar a cada tipo: núcleo vs halo
+      const isHalo = !!base.isHalo;
 
-      const rgbPP = hsvToRgb((h + hueShift + 1) % 1, Math.min(1, s*sGain), Math.min(1, v*vGain));
-      r = rgbPP[0]/255; g = rgbPP[1]/255; b = rgbPP[2]/255;
-
-      // — ganancia/opacity absolutas con pisos (no desaparecen)
-      const gainAbs    = Math.max(LCHT_GAIN_FLOOR,
-                       LCHT_OFF_GAIN + (LCHT_FOCUS_GAIN - LCHT_OFF_GAIN) * wn);
-      const opacityAbs = Math.max(LCHT_OPACITY_FLOOR,
-                       LCHT_OFF_OPACITY + (LCHT_FOCUS_OPACITY - LCHT_OFF_OPACITY) * wn);
-
-      // — aplica PUSH& PULL en Z (avance = se acerca a cámara)
-      const zOff = base.pp.zAmp * base.pp.bias * wn;
-      m.position.z = base.baseZ - zOff; // mantiene determinismo por frame
-
-      if (base.kind === 'core'){
-        // CORE: color y emissive “sólidos”
+      // núcleo: color normal + emisivo fuerte en foco
+      if (!isHalo){
         m.material.color.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
         m.material.emissive.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
 
         const P  = base.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
-        const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f*(t+t0) + P.phi));
+        const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + 0.0) + P.phi));
         const ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
         m.material.emissiveIntensity = breath * ei;
 
         if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
         m.material.depthWrite = true;
-        m.material.opacity    = Math.min(1, Math.max(0.0, opacityAbs));
+        m.material.opacity    = opacityAbs;
       } else {
-        // GLOW: aditivo, depende mucho de wn (sólo la prota “arde”)
-        const glowAlpha = LCHT_GLOW_MAX_OPACITY * wn;
-        m.material.opacity = Math.min(1, Math.max(0.0, glowAlpha));
-
-        m.material.color.setRGB(r, g, b);
-        m.material.emissive.setRGB(r, g, b);
+        // halo: aditivo, más fuerte en foco y en cálidos (warm) — los fríos retroceden
+        const haloGain = gainAbs * (0.65 + 0.35*wn) * (1.0 - HALO_COOL_CUT*(1.0 - warm));
+        m.material.color.setRGB(Math.min(1, r*haloGain), Math.min(1, g*haloGain), Math.min(1, b*haloGain));
+        m.material.emissive.setRGB(Math.min(1, r*haloGain), Math.min(1, g*haloGain), Math.min(1, b*haloGain));
 
         const P  = base.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
-        const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f*(t+t0) + P.phi));
-        m.material.emissiveIntensity = base.baseEI * (0.8 + 0.4*wn) * breath;
+        const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + 0.0) + P.phi));
+        m.material.emissiveIntensity = base.baseEI * (1.2 + 1.1*wn) * breath;
+
+        m.material.opacity = THREE.MathUtils.clamp(HALO_BASE + HALO_FOCUS_BOOST*wn, 0, 1);
+        m.material.depthWrite = false;
       }
     });
 
