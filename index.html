@@ -1127,50 +1127,44 @@ function initSkySphere() {
     const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
     const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
 
-    // ==== Apertura y escalado (REEMPLAZA) ====
-    const APERTURE_UNITS    = 4.05;  // tamaño interno aprox. en múltiplos de step
-    const APERTURE_OVERSCAN = 1.02;  // respiración mínima (2%)
+    // ==== Hueco desde frustum (NO más APERTURE_UNITS) ==================
+    // Fracción del frustum visible que ocupa la abertura (0.0–1.0).
+    // 0.88 suele encajar bien con el bisel de RAUM sin tocarlo.
+    const APERTURE_FRAC   = 0.88;
 
-    // ——— Plano de referencia de la abertura y corrección de perspectiva ———
-    // Z del plano del hueco (centro de la “ventana” en tu escena). En LCHT suele ser 0.
-    // Si tu hueco está en otro Z, ajusta este valor una vez y listo.
-    const APERTURE_PLANE_Z = 0;
+    // Seguridad para no rozar el bisel en ningún dispositivo
+    const APERTURE_SAFE   = 0.985;
 
-    // Margen de seguridad adicional aplicado tras la corrección de perspectiva
-    const PERSPECTIVE_SAFE = 0.995;
+    // Diferencia visual marco/interior (refuerza Hofmann)
+    const FRAME_LINES     = 2;    // nº de líneas exteriores por eje que son “marco”
+    const FRAME_WARM_BIAS = 0.78; // marco → mucho más cálido
+    const FRAME_COOL_BIAS = 0.66; // interior → más frío
+    const FRAME_SAT_ADD   = 0.22; // +S en marco
+    const FRAME_VAL_ADD   = 0.12; // +V en marco
+    const INNER_SAT_CUT   = 0.18; // −S en interior
+    const INNER_VAL_CUT   = 0.10; // −V en interior
+    const FRAME_EI_BOOST  = 0.75; // +emissive marco
+    const INNER_EI_CUT    = 0.38; // −emissive interior
+    const FRAME_OPA_BOOST = 0.22; // +opacidad marco
+    const INNER_OPA_CUT   = 0.20; // −opacidad interior
 
-    // Diferencia de presencia entre marco e interior (opacidad extra)
-    // (esto refuerza visualmente el push-and-pull)
-    const FRAME_OPA_BOOST = 0.18;  // +18% opacidad en marco
-    const INNER_OPA_CUT   = 0.18;  // −18% opacidad en interior
-
-    // Encaje seguro **uniforme** en ambos ejes (sin boosts):
-    const SAFE_FIT_X = 0.965;        // no exceder 96.5% del ancho útil
-    const SAFE_FIT_Y = 0.965;        // no exceder 96.5% del alto útil
-    const SCALE_MIN  = 0.80, SCALE_MAX = 1.40;
-
-    // Centrado fijo en la apertura
-    const ANCHOR_TO_APERTURE = true;
-
-    // El tamaño final lo decide el fit, no el grid:
-    const GRID_SCALE = 1.00;
-
-    // ==== RAUM: marco cálido / interior frío (REEMPLAZA) ====
-    // nº de líneas exteriores que cuentan como “marco”
-    const FRAME_LINES       = 2;
-    const FRAME_WARM_BIAS   = 0.75;  // empuje de tono hacia cálido en marco
-    const FRAME_COOL_BIAS   = 0.62;  // empuje de tono hacia frío en interior
-    const FRAME_SAT_ADD     = 0.16;  // +S en marco
-    const FRAME_VAL_ADD     = 0.10;  // +V en marco
-    const INNER_SAT_CUT     = 0.12;  // −S en interior
-    const INNER_VAL_CUT     = 0.08;  // −V en interior
-    const FRAME_EI_BOOST    = 0.70;  // +70% emissive en marco
-    const INNER_EI_CUT      = 0.35;  // −35% emissive en interior
-    // Mantener sincronizados estos valores con la guía de push&pull RAUM.
-
-    // ligera respiración según calidez (igual que backup)
+    // Push base de foco (como tenías)
     const PP_SAT_PUSH = 0.12;
     const PP_VAL_PUSH = 0.06;
+
+    // El tamaño final LO DECIDE el fit, no el grid
+    const GRID_SCALE = 1.00;
+
+    const ANCHOR_TO_APERTURE = true;
+
+    // —— util: tamaño del frustum a una Z dada
+    function frustumSizeAtZ(cam, z){
+      if (!cam || !cam.position) return { w: 1, h: 1 };
+      const dist = Math.abs(cam.position.z - z);
+      const h = 2 * dist * Math.tan(THREE.MathUtils.degToRad(cam.fov * 0.5));
+      const w = h * cam.aspect;
+      return { w, h };
+    }
 
     // separación Z entre capas (↑) y micro-push
     const LAYER_Z_SEP = 1.85;      // ← MÁS separación entre rasters
@@ -1211,7 +1205,8 @@ function initSkySphere() {
         depthTest: true,
         depthWrite: true,
         blending: THREE.NormalBlending,
-        toneMapped: false            // ← CLAVE: no lavar el emissive/HSV
+        toneMapped: false,
+        colorWrite: true
       });
       matBase.emissive = color.clone();
       matBase.emissiveIntensity = LCHT_BASE_EI;
@@ -1343,8 +1338,10 @@ function initSkySphere() {
 
         // ---------- DERIVA LOS TILES DESDE LA ABERTURA (robusto) ----------
         const safeRatio  = ratio > 0 ? ratio : 1.0;
-        const apertureW  = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
-        const apertureH  = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+        const cam = (typeof camera !== 'undefined') ? camera : null;
+        const fr  = frustumSizeAtZ(cam, cz);
+        let apertureW = fr.w * APERTURE_FRAC;
+        let apertureH = fr.h * APERTURE_FRAC;
 
         // altura de tile fija, ancho = ratio * altura
         const widthTile  = safeRatio * TILE_H;
@@ -1355,44 +1352,28 @@ function initSkySphere() {
         const tilesY = Math.max(3,                 Math.ceil(apertureH / heightTile) + FRAME_LINES + 1);
 
         // Escalas base (sin fit)
-        const baseScaleW = PANEL_SCALE_W;
-        const baseScaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
 
-        // Tamaño del panel sin encaje
-        const panelW0 = tilesX * widthTile  * baseScaleW;
-        const panelH0 = tilesY * heightTile * baseScaleH;
+        // Tamaño del panel “en crudo”
+        const panelW0 = tilesX * widthTile  * (PANEL_SCALE_W);
+        const panelH0 = tilesY * heightTile * (PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0));
 
-        // factor **uniforme**: encaja dentro de la apertura en ambos ejes (sin perspectiva)
+        // ==== Hueco visible MEDIDO a la profundidad real de esta capa ====
+        // Esto hace que TODAS las capas —cercanas o lejanas— se encajen igual en pantalla.
+
+        // Hueco final (le damos margen y lo “recortamos” algo para el bisel)
+        apertureW *= APERTURE_SAFE;
+        apertureH *= APERTURE_SAFE;
+
+        // Escalado UNIFORME para no distorsionar el ratio del raster
         let s = Math.min(
-          (apertureW * SAFE_FIT_X) / Math.max(1e-6, panelW0),
-          (apertureH * SAFE_FIT_Y) / Math.max(1e-6, panelH0)
+          apertureW / Math.max(1e-6, panelW0),
+          apertureH / Math.max(1e-6, panelH0)
         );
-        s = THREE.MathUtils.clamp(s, SCALE_MIN, SCALE_MAX);
 
-        // ——— Corrección de perspectiva por profundidad de la capa ———
-        // Queremos que el panel, a su profundidad cz, se vea con el MISMO encaje que en el plano de la abertura.
-        const cam = (typeof camera !== 'undefined') ? camera : null;
-        const camZ = cam && cam.position ? cam.position.z : 0;
-        const dPanel = Math.abs(camZ - cz);
-        const dApert = Math.max(1e-6, Math.abs(camZ - APERTURE_PLANE_Z));
-        let persp = dPanel / dApert;           // si está más lejos, hay que escalar ↑ en mundo
-        persp *= PERSPECTIVE_SAFE;             // pequeño margen para no tocar el bisel
-
-        // Escalas provisionales
-        const WIDE_X_TIGHTEN = 0.975;
-        let scaleW = s * persp * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
-        let scaleH = s * persp;
-
-        // ——— Verificación final contra la abertura (por si acaso) ———
-        const visW = panelW0 * scaleW;
-        const visH = panelH0 * scaleH;
-        const kFix = Math.min(
-          (apertureW * SAFE_FIT_X) / Math.max(1e-6, visW),
-          (apertureH * SAFE_FIT_Y) / Math.max(1e-6, visH),
-          1.0
-        );
-        scaleW *= kFix;
-        scaleH *= kFix;
+        // En apaisados aprieto mínimamente X para evitar “asomar” lateral
+        const WIDE_X_TIGHTEN = 0.985;
+        const scaleW = s * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
+        const scaleH = s;
 
         const sig  = computeSignature(pa);
         const rng  = computeRange(sig);
@@ -1489,18 +1470,17 @@ function initSkySphere() {
             h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
             h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, COOL_BIAS * (1.0 - wn));
 
-            // RAUM: marco cálido / interior frío con refuerzo de S/V
-            if (base.isOuter) {
+            if (base.isOuter) {                 // —— MARCO
               h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, FRAME_WARM_BIAS);
               s = THREE.MathUtils.clamp(s + FRAME_SAT_ADD, 0, 1);
               v = THREE.MathUtils.clamp(v + FRAME_VAL_ADD, 0, 1);
-            } else {
+            } else {                            // —— INTERIOR
               h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, FRAME_COOL_BIAS);
               s = THREE.MathUtils.clamp(s * (1.0 - INNER_SAT_CUT), 0, 1);
               v = THREE.MathUtils.clamp(v * (1.0 - INNER_VAL_CUT), 0, 1);
             }
 
-            // respiración suave de S y V (como antes)
+            // respiración por foco (mantén)
             s = THREE.MathUtils.clamp(s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
             v = THREE.MathUtils.clamp(v * (1.0 + (wn - 0.5)*PP_VAL_PUSH*2), 0, 1);
 
@@ -1518,27 +1498,26 @@ function initSkySphere() {
           m.material.color.setRGB(Math.min(1, r * gainAbs), Math.min(1, g * gainAbs), Math.min(1, b * gainAbs));
           m.material.emissive.setRGB(Math.min(1, r * gainAbs), Math.min(1, g * gainAbs), Math.min(1, b * gainAbs));
 
-          const P  = base.lcht || { I0:1.0, amp:0.0, f:0.0, phi:0.0 };
-          const breath = Math.max(0, P.I0 + P.amp * Math.sin(2*Math.PI*P.f * (t + t0) + P.phi));
-
           // opacidad estable; depthWrite ON evita “lavados”
           if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
           m.material.depthWrite = true;
 
           if (base.lcht){
-            // opacidad estable + refuerzo RAUM (muy visible)
-            let opa = Math.max(0.0, opacityAbs);
-            opa *= base.isOuter ? (1.0 + FRAME_OPA_BOOST) : (1.0 - INNER_OPA_CUT);
-            m.material.opacity = Math.min(1, Math.max(0.02, opa));
+            // ——— Opacidad con RAUM (hace el marco “venir hacia ti”)
+            let opa = opacityAbs * (base.isOuter ? (1.0 + FRAME_OPA_BOOST) : (1.0 - INNER_OPA_CUT));
+            m.material.opacity = THREE.MathUtils.clamp(opa, 0.05, 1.0);
 
-            // emissive (ya tienes el boost para prota + RAUM)
+            // ——— Emissive con RAUM + foco
             let ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
             ei *= base.isOuter ? (1.0 + FRAME_EI_BOOST) : (1.0 - INNER_EI_CUT);
-            m.material.emissiveIntensity = breath * ei;
+            m.material.emissiveIntensity = Math.max(
+              0,
+              base.lcht.I0 + base.lcht.amp * Math.sin(2*Math.PI*base.lcht.f*(t + t0) + base.lcht.phi)
+            ) * ei;
           } else {
             // halo: su presencia depende casi totalmente del foco (evita blanqueos)
             m.material.opacity = THREE.MathUtils.clamp(HALO_BASE*0.25 + HALO_FOCUS_BOOST*wn, 0, 1);
-            m.material.emissiveIntensity = base.baseEI * (0.9 + 1.3*wn) * breath;
+            m.material.emissiveIntensity = base.baseEI * (0.9 + 1.3*wn);
           }
         });
 
