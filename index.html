@@ -1129,8 +1129,13 @@ function initSkySphere() {
 
     /* ——— Apertura (fit del panel a la “ventana”) ———
        Ajusta APERTURE_UNITS si tu hueco visible es mayor/menor. */
-    const APERTURE_UNITS    = 3.85;  // (↑ un pelín) ancho/alto ≈ 3.85 * step
-    const APERTURE_OVERSCAN = 1.03;  // 3% más grande que la abertura
+    const APERTURE_UNITS    = 4.05;  // ↑ un poco más grande; ajusta si tu hueco real difiere
+    const APERTURE_OVERSCAN = 1.04;  // 4% mayor para que respire y no roce el bisel
+
+    // Queremos que el raster "LLENE" la apertura: objetivo por eje (puede escalar ↑ o ↓)
+    const FILL_TARGET_X = 1.10;      // 10% por encima del tamaño de apertura (eje X)
+    const FILL_TARGET_Y = 1.10;      // 10% por encima del tamaño de apertura (eje Y)
+    const FIT_MIN = 0.85, FIT_MAX = 1.35; // límites de seguridad al escalar
 
     /* Centrar SIEMPRE los rasters en la apertura (ignorar (x0,y0) de perm) */
     const ANCHOR_TO_APERTURE = true;
@@ -1141,8 +1146,14 @@ function initSkySphere() {
     /* Mantener grosor real más fino (evita “más grueso” por encogimiento) */
 
     const FRAME_FRAC       = 0.35;  // ← banda “marco” = 35% del ancho/alto
-    const FRAME_WARM_BIAS  = 0.32;  // ← sesgo cálido estable en el marco
-    const FRAME_COOL_BIAS  = 0.26;  // ← sesgo frío estable en el interior
+    const FRAME_WARM_BIAS  = 0.48;  // ↑ sesgo de tono cálido en marco
+    const FRAME_COOL_BIAS  = 0.42;  // ↑ sesgo de tono frío en interior
+
+    // Pequeñas modulaciones extra de saturación/valor para reforzar profundidad
+    const FRAME_SAT_ADD    = 0.10;  // +S en marco
+    const FRAME_VAL_ADD    = 0.06;  // +V en marco (ligeramente más luminoso)
+    const INNER_SAT_CUT    = 0.08;  // −S en interior
+    const INNER_VAL_CUT    = 0.04;  // −V en interior
 
     // ligera respiración según calidez (igual que backup)
     const PP_SAT_PUSH = 0.12;
@@ -1354,13 +1365,19 @@ function initSkySphere() {
         const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
         const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
 
-        // Fit independiente por eje: solo reduce si se pasa (no estira)
-        const fitX = Math.min(1, apertureW / Math.max(1e-6, panelW0));
-        const fitY = Math.min(1, apertureH / Math.max(1e-6, panelH0));
+        // Queremos LLENAR la apertura: si el panel es pequeño, escalamos ↑;
+        // si es grande, escalamos ↓. Además, damos un "target" de overscan por eje.
+        let fitX = (apertureW * FILL_TARGET_X) / Math.max(1e-6, panelW0);
+        let fitY = (apertureH * FILL_TARGET_Y) / Math.max(1e-6, panelH0);
 
-        // Opcional: estrechar un 3% los apaisados para que no “asomen” lateralmente
+        // Limitar el rango de escalado por estabilidad
+        fitX = THREE.MathUtils.clamp(fitX, FIT_MIN, FIT_MAX);
+        fitY = THREE.MathUtils.clamp(fitY, FIT_MIN, FIT_MAX);
+
+        // Opcional: estrechar un 3% los apaisados para evitar que "asomen" lateralmente
         const WIDE_X_TIGHTEN = 0.97;
 
+        // Escalas finales a pasar al constructor del raster
         const scaleW = baseScaleW * fitX * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
         const scaleH = baseScaleH * fitY;
 
@@ -1439,6 +1456,8 @@ function initSkySphere() {
           if (base.lcht && base.baseHsv){
             const P  = base.lcht, bh = base.baseHsv;
             let h = (bh.h + 0.03*Math.sin(2*Math.PI*P.f * (t + t0) + P.phi)) % 1;
+            let s = bh.s;
+            let v = bh.v;
 
             // sesgo Hofmann por foco (prota → cálido, otras → frío)
             h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
@@ -1446,16 +1465,20 @@ function initSkySphere() {
 
             // sesgo estructural por RAUM: marco cálido estable / interior frío estable
             if (base.isOuter) {
-              // el marco siempre empuja hacia cálido (independiente del foco)
+              // Marco: empuja tono a cálido + realce de S y V
               h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, FRAME_WARM_BIAS);
+              s = THREE.MathUtils.clamp(s + FRAME_SAT_ADD, 0, 1);
+              v = THREE.MathUtils.clamp(v + FRAME_VAL_ADD, 0, 1);
             } else {
-              // el interior siempre retrae hacia frío
+              // Interior: retrae a frío + recorte de S y V
               h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, FRAME_COOL_BIAS);
+              s = THREE.MathUtils.clamp(s * (1.0 - INNER_SAT_CUT), 0, 1);
+              v = THREE.MathUtils.clamp(v * (1.0 - INNER_VAL_CUT), 0, 1);
             }
 
             // respiración suave de S y V (como antes)
-            const s = THREE.MathUtils.clamp(bh.s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
-            const v = THREE.MathUtils.clamp(bh.v * (1.0 + (wn - 0.5)*PP_VAL_PUSH*2), 0, 1);
+            s = THREE.MathUtils.clamp(s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
+            v = THREE.MathUtils.clamp(v * (1.0 + (wn - 0.5)*PP_VAL_PUSH*2), 0, 1);
 
             const rgb = hsvToRgb(h, s, v);
             r = rgb[0]/255; g = rgb[1]/255; b = rgb[2]/255;
