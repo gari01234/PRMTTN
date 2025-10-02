@@ -49,27 +49,29 @@ const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √
 
 // ==== Apertura y escalado (REEMPLAZA) ====
 const APERTURE_UNITS    = 4.05;  // tamaño interno aprox. en múltiplos de step
-const APERTURE_OVERSCAN = 1.03;  // 3% de respiración
+const APERTURE_OVERSCAN = 1.02;  // respiración mínima (2%)
 
-// Encaja SIEMPRE por ambos ejes con un único factor uniforme:
-const SAFE_FIT_X = 0.98;         // no exceder 98% del ancho útil
-const SAFE_FIT_Y = 0.98;         // no exceder 98% del alto útil
-const FILL_BOOST = 1.015;        // pequeño “empuje” para llenar sin tocar bisel
-const SCALE_MIN  = 0.80, SCALE_MAX = 1.40; // límites de seguridad
+// Encaje seguro **uniforme** en ambos ejes (sin boosts):
+const SAFE_FIT_X = 0.965;        // no exceder 96.5% del ancho útil
+const SAFE_FIT_Y = 0.965;        // no exceder 96.5% del alto útil
+const SCALE_MIN  = 0.80, SCALE_MAX = 1.40;
 
-// Eliminamos la dependencia del “GRID_SCALE” para el tamaño final del panel:
-const GRID_SCALE = 1.00; // ← déjalo neutro; el tamaño vendrá del fit
+// Centrado fijo en la apertura
+const ANCHOR_TO_APERTURE = true;
+
+// El tamaño final lo decide el fit, no el grid:
+const GRID_SCALE = 1.00;
 
 // ==== RAUM: marco cálido / interior frío (REEMPLAZA) ====
-const FRAME_LINES       = 2;     // nº de líneas exteriores que cuentan como “marco”
-const FRAME_WARM_BIAS   = 0.72;  // empuje de tono hacia cálido en marco
-const FRAME_COOL_BIAS   = 0.60;  // empuje de tono hacia frío en interior
-const FRAME_SAT_ADD     = 0.14;  // +S en marco
-const FRAME_VAL_ADD     = 0.08;  // +V en marco
-const INNER_SAT_CUT     = 0.10;  // −S en interior
-const INNER_VAL_CUT     = 0.06;  // −V en interior
-const FRAME_EI_BOOST    = 0.60;  // +60% emissive en marco
-const INNER_EI_CUT      = 0.30;  // −30% emissive en interior
+const FRAME_LINES       = 2;
+const FRAME_WARM_BIAS   = 0.75;  // empuje de tono hacia cálido en marco
+const FRAME_COOL_BIAS   = 0.62;  // empuje de tono hacia frío en interior
+const FRAME_SAT_ADD     = 0.16;  // +S en marco
+const FRAME_VAL_ADD     = 0.10;  // +V en marco
+const INNER_SAT_CUT     = 0.12;  // −S en interior
+const INNER_VAL_CUT     = 0.08;  // −V en interior
+const FRAME_EI_BOOST    = 0.70;  // +70% emissive en marco
+const INNER_EI_CUT      = 0.35;  // −35% emissive en interior
 
 // ligera respiración según calidez (igual que backup)
 const PP_SAT_PUSH = 0.12;
@@ -134,7 +136,7 @@ function addRootRaster({
     depthTest: true,
     depthWrite: true,
     blending: THREE.NormalBlending,
-    toneMapped: true
+    toneMapped: false            // ← CLAVE: no lavar el emissive/HSV
   });
   matBase.emissive = color.clone();
   matBase.emissiveIntensity = LCHT_BASE_EI;
@@ -149,8 +151,8 @@ function addRootRaster({
   const halfH  = panelH * 0.5;
 
   // --- helpers para decidir si es “marco” por CONTEO de líneas ---
-  const isFrameIndexX = (i) => (i < FRAME_LINES) || (i > tilesX - FRAME_LINES);
-  const isFrameIndexY = (j) => (j < FRAME_LINES) || (j > tilesY - FRAME_LINES);
+  const isFrameIndexX = (i) => (i <= FRAME_LINES) || (i >= tilesX - FRAME_LINES);
+  const isFrameIndexY = (j) => (j <= FRAME_LINES) || (j >= tilesY - FRAME_LINES);
 
   function place(x, y, isVertical, isOuter){
     const geo  = isVertical
@@ -233,9 +235,6 @@ function build(){
     const typeIdx = pa[ window.attributeMapping[1] ];
     const ratio   = ROOT_RATIOS[typeIdx];
 
-    const widthTile  = ratio * TILE_H;
-    const heightTile = TILE_H;
-
     const r  = window.lehmerRank(pa);
     const I  = (r + window.sceneSeed + window.S_global) % 125;
     const x0 = Math.floor(I / 25);
@@ -244,37 +243,36 @@ function build(){
     const cy = (y0 - 2) * step;
     const cz = (zSlot - 2) * step * LAYER_Z_SEP;
 
-    // ---------- DERIVA LOS TILES DESDE LA ABERTURA (nuevo) ----------
-    const baseTilesX = 4 * DENSITY_MULT;     // densidad base por “familia”
+    // ---------- DERIVA LOS TILES DESDE LA ABERTURA (robusto) ----------
     const safeRatio  = ratio > 0 ? ratio : 1.0;
-
-    // Priorizamos contar tiles para que el panel “nazca” del hueco:
-    const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
-    const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+    const apertureW  = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+    const apertureH  = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
 
     // altura de tile fija, ancho = ratio * altura
-    const widthTile  = ratio * TILE_H;
+    const widthTile  = safeRatio * TILE_H;
     const heightTile = TILE_H;
 
-    // número de tiles aproximado que cabrían, con un ligero over para no quedar corto
-    const tilesX = Math.max(3, Math.round((apertureW / widthTile)  * 1.05));
-    const tilesY = Math.max(3, Math.round((apertureH / heightTile) * 1.05));
+    // nº de tiles aproximado que cabrían SIN escala (ligero over para no quedar corto)
+    const tilesX = Math.max(4 * DENSITY_MULT, Math.ceil(apertureW / widthTile)  + FRAME_LINES + 1);
+    const tilesY = Math.max(3,                 Math.ceil(apertureH / heightTile) + FRAME_LINES + 1);
 
-    // tamaño del panel sin escalado
-    const panelW0 = tilesX * widthTile  * PANEL_SCALE_W;
-    const panelH0 = tilesY * heightTile * (PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0));
+    // Escalas base (sin fit)
+    const baseScaleW = PANEL_SCALE_W;
+    const baseScaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
 
-    // factor **uniforme**: llenamos sin sobrepasar ninguno de los dos ejes
+    // Tamaño del panel sin encaje
+    const panelW0 = tilesX * widthTile  * baseScaleW;
+    const panelH0 = tilesY * heightTile * baseScaleH;
+
+    // factor **uniforme**: encaja dentro de la apertura en ambos ejes
     let s = Math.min(
       (apertureW * SAFE_FIT_X) / Math.max(1e-6, panelW0),
       (apertureH * SAFE_FIT_Y) / Math.max(1e-6, panelH0)
-    ) * FILL_BOOST;
-
+    );
     s = THREE.MathUtils.clamp(s, SCALE_MIN, SCALE_MAX);
 
-    // En apaisados, estrecha 2–3% para evitar “asomar” por los laterales.
+    // En apaisados estrecha un toque para evitar “asomar” por los laterales
     const WIDE_X_TIGHTEN = 0.975;
-
     const scaleW = s * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
     const scaleH = s;
 
@@ -392,7 +390,6 @@ function build(){
         m.material.emissive.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
 
         let ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
-        // refuerzo RAUM
         ei *= base.isOuter ? (1.0 + FRAME_EI_BOOST) : (1.0 - INNER_EI_CUT);
         m.material.emissiveIntensity = breath * ei;
 
