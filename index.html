@@ -1128,14 +1128,21 @@ function initSkySphere() {
     const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
 
     /* ——— Apertura (fit del panel a la “ventana”) ———
-       Se mide en múltiplos de `step`. 3.75 encaja dentro del bisel del marco
-       en la mayoría de escenas; súbelo/bájalo si tu apertura real difiere. */
-    const APERTURE_UNITS   = 3.75;  // ancho/alto interno ≈ 3.75 * step
-    const APERTURE_OVERSCAN = 1.03; // panel un 3% más grande que la abertura (respira)
+       Ajusta APERTURE_UNITS si tu hueco visible es mayor/menor. */
+    const APERTURE_UNITS    = 3.85;  // (↑ un pelín) ancho/alto ≈ 3.85 * step
+    const APERTURE_OVERSCAN = 1.03;  // 3% más grande que la abertura
+
+    /* Centrar SIEMPRE los rasters en la apertura (ignorar (x0,y0) de perm) */
+    const ANCHOR_TO_APERTURE = true;
+
+    /* Afinar escala global del grid (ligero) */
+    const GRID_SCALE    = 1.10;
+
+    /* Mantener grosor real más fino (evita “más grueso” por encogimiento) */
 
     const FRAME_FRAC       = 0.35;  // ← banda “marco” = 35% del ancho/alto
-    const FRAME_WARM_BIAS  = 0.28;  // ← sesgo cálido estable en el marco
-    const FRAME_COOL_BIAS  = 0.22;  // ← sesgo frío estable en el interior
+    const FRAME_WARM_BIAS  = 0.32;  // ← sesgo cálido estable en el marco
+    const FRAME_COOL_BIAS  = 0.26;  // ← sesgo frío estable en el interior
 
     // ligera respiración según calidez (igual que backup)
     const PP_SAT_PUSH = 0.12;
@@ -1145,8 +1152,7 @@ function initSkySphere() {
     const LAYER_Z_SEP = 1.85;      // ← MÁS separación entre rasters
     const PP_Z_PUSH   = 0.12;      // micro-parallax por calidez (conservar)
 
-    /* ——— Escalado del grid y tamaño del rectángulo raíz ——— */
-    const GRID_SCALE    = 1.10;  // un pelín más contenido (antes 1.15)
+    /* ——— Tamaño del rectángulo raíz ——— */
     const TILE_H_SHRINK = 2.40;  // ↓ hace cada rectángulo raíz más pequeño (antes 3.0)
 
     /* Halo (igual base, pero más discreto en no-protas) */
@@ -1265,8 +1271,8 @@ function initSkySphere() {
       }
 
       const step = cubeSize / 5;
-      const SIDE = 0.24 * 1.5;   // ← mitad de grosor
-      const JOIN = 0.02 * 1.5;   // ajusta uniones acorde
+      const SIDE = 0.24 * 1.00;   // (antes 1.5) = líneas más finas en mundo
+      const JOIN = 0.02 * 1.00;   // unión acorde
 
       // Altura de tile fija para TODOS los rasters
       const TILE_H = step * 0.92 * TILE_H_SHRINK;
@@ -1301,13 +1307,21 @@ function initSkySphere() {
         const widthTile  = ratio * TILE_H;
         const heightTile = TILE_H;
 
-        // Centro determinista con Z forzado a zSlot
+        // Centro determinista con Z forzado a zSlot (pero opcionalmente anclado)
         const r  = lehmerRank(pa);
         const I  = (r + sceneSeed + S_global) % 125;
         const x0 = Math.floor(I / 25);
         const y0 = Math.floor((I % 25) / 5);
-        const cx = (x0 - 2) * step;
-        const cy = (y0 - 2) * step;
+
+        let cx = (x0 - 2) * step;
+        let cy = (y0 - 2) * step;
+
+        if (ANCHOR_TO_APERTURE) {
+          // Alinea la malla al centro de la ventana (0,0) en pantalla
+          cx = 0;
+          cy = 0;
+        }
+
         const cz = (zSlot - 2) * step * LAYER_Z_SEP;  // ← más separación Z
 
         const baseTilesX = 4 * DENSITY_MULT;   // ← antes 4; ahora 12 (3×)
@@ -1332,22 +1346,21 @@ function initSkySphere() {
         const baseScaleW = PANEL_SCALE_W;
         const baseScaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
 
-        // Tamaño “previsto” del panel sin ajuste a la apertura
-        const predictedTilesX = Math.round(4 * DENSITY_MULT * GRID_SCALE);
-        const predictedTilesY = Math.max(2, Math.round(predictedTilesX / safeRatio * 1.15));
-        const panelW0 = predictedTilesX * widthTile * baseScaleW;
-        const panelH0 = predictedTilesY * heightTile * baseScaleH;
+        // Tamaño del panel con los tiles REALES (sin fit)
+        const panelW0 = tilesX * widthTile  * baseScaleW;
+        const panelH0 = tilesY * heightTile * baseScaleH;
 
         // Tamaño de la apertura (ligeramente mayor por OVERSCAN)
         const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
         const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
 
-        // Fit independiente por eje: si el panel excede, se reduce; si cabe, no se estira
+        // Fit independiente por eje: solo reduce si se pasa (no estira)
         const fitX = Math.min(1, apertureW / Math.max(1e-6, panelW0));
         const fitY = Math.min(1, apertureH / Math.max(1e-6, panelH0));
 
-        // Escalas finales que se pasan al constructor del raster
-        const WIDE_X_TIGHTEN = 0.97; // 3% más estrecho si es apaisado
+        // Opcional: estrechar un 3% los apaisados para que no “asomen” lateralmente
+        const WIDE_X_TIGHTEN = 0.97;
+
         const scaleW = baseScaleW * fitX * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
         const scaleH = baseScaleH * fitY;
 
