@@ -47,9 +47,29 @@ const PANEL_SCALE_W      = 1.06;  // ← un poco más ancho
 const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
 const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
 
-const FRAME_FRAC       = 0.35;  // ← banda “marco” = 35% del ancho/alto
-const FRAME_WARM_BIAS  = 0.28;  // ← sesgo cálido estable en el marco
-const FRAME_COOL_BIAS  = 0.22;  // ← sesgo frío estable en el interior
+// ==== Apertura y escalado (REEMPLAZA) ====
+const APERTURE_UNITS    = 4.05;  // tamaño interno aprox. en múltiplos de step
+const APERTURE_OVERSCAN = 1.03;  // 3% de respiración
+
+// Encaja SIEMPRE por ambos ejes con un único factor uniforme:
+const SAFE_FIT_X = 0.98;         // no exceder 98% del ancho útil
+const SAFE_FIT_Y = 0.98;         // no exceder 98% del alto útil
+const FILL_BOOST = 1.015;        // pequeño “empuje” para llenar sin tocar bisel
+const SCALE_MIN  = 0.80, SCALE_MAX = 1.40; // límites de seguridad
+
+// Eliminamos la dependencia del “GRID_SCALE” para el tamaño final del panel:
+const GRID_SCALE = 1.00; // ← déjalo neutro; el tamaño vendrá del fit
+
+// ==== RAUM: marco cálido / interior frío (REEMPLAZA) ====
+const FRAME_LINES       = 2;     // nº de líneas exteriores que cuentan como “marco”
+const FRAME_WARM_BIAS   = 0.72;  // empuje de tono hacia cálido en marco
+const FRAME_COOL_BIAS   = 0.60;  // empuje de tono hacia frío en interior
+const FRAME_SAT_ADD     = 0.14;  // +S en marco
+const FRAME_VAL_ADD     = 0.08;  // +V en marco
+const INNER_SAT_CUT     = 0.10;  // −S en interior
+const INNER_VAL_CUT     = 0.06;  // −V en interior
+const FRAME_EI_BOOST    = 0.60;  // +60% emissive en marco
+const INNER_EI_CUT      = 0.30;  // −30% emissive en interior
 
 // ligera respiración según calidez (igual que backup)
 const PP_SAT_PUSH = 0.12;
@@ -60,7 +80,6 @@ const LAYER_Z_SEP = 1.85;      // ← MÁS separación entre rasters
 const PP_Z_PUSH   = 0.12;      // micro-parallax por calidez (conservar)
 
 /* ——— Escalado del grid y tamaño del rectángulo raíz ——— */
-const GRID_SCALE    = 1.15;  // ↑ hace el panel (grid) más grande
 const TILE_H_SHRINK = 2.40;  // ↓ hace cada rectángulo raíz más pequeño (antes 3.0)
 
 /* Halo (igual base, pero más discreto en no-protas) */
@@ -129,11 +148,11 @@ function addRootRaster({
   const halfW  = panelW * 0.5;
   const halfH  = panelH * 0.5;
 
-  // Umbrales para “marco” (banda FRAME_FRAC hacia adentro desde los bordes)
-  const xOuter = halfW  * (1.0 - FRAME_FRAC);
-  const yOuter = halfH  * (1.0 - FRAME_FRAC);
+  // --- helpers para decidir si es “marco” por CONTEO de líneas ---
+  const isFrameIndexX = (i) => (i < FRAME_LINES) || (i > tilesX - FRAME_LINES);
+  const isFrameIndexY = (j) => (j < FRAME_LINES) || (j > tilesY - FRAME_LINES);
 
-  function place(x, y, isVertical){
+  function place(x, y, isVertical, isOuter){
     const geo  = isVertical
       ? new THREE.BoxGeometry(line, panelH + join, line)
       : new THREE.BoxGeometry(panelW + join, line, line);
@@ -142,30 +161,27 @@ function addRootRaster({
     mesh.position.set(center.x + x, center.y + y, center.z);
     if (nz < 0) mesh.rotateY(Math.PI);
 
-    // ¿Esta línea cae en la banda de marco?
-    const isOuter = isVertical ? (Math.abs(x) >= xOuter) : (Math.abs(y) >= yOuter);
-
     mesh.userData = {
       lcht,
       baseHsv,
       baseRGB: [color.r, color.g, color.b],
       baseEI : LCHT_BASE_EI,
       zSlot,
-      isOuter // ← etiqueta marco/interior
+      isOuter
     };
     mesh.renderOrder = 10 + zSlot;
     lichtGroup.add(mesh);
   }
 
-  // — Verticales
-  for (let i=0; i<=tilesX; i++){
+  // Verticales
+  for (let i = 0; i <= tilesX; i++){
     const x = -halfW + i*(panelW/tilesX);
-    place(x, 0, true);
+    place(x, 0, true, isFrameIndexX(i));
   }
-  // — Horizontales
-  for (let j=0; j<=tilesY; j++){
+  // Horizontales
+  for (let j = 0; j <= tilesY; j++){
     const y = -halfH + j*(panelH/tilesY);
-    place(0, y, false);
+    place(0, y, false, isFrameIndexY(j));
   }
 }
 
@@ -205,7 +221,6 @@ function build(){
     layers.push({ zSlot:z, permIdx: pick });
   }
 
-  const REPEAT = 1;  // panel final más amplio
   const sceneKey = (37*window.sceneSeed + 101*window.S_global) % 360;
   __lchtBgHueSeed = (sceneKey / 360);
 
@@ -229,10 +244,39 @@ function build(){
     const cy = (y0 - 2) * step;
     const cz = (zSlot - 2) * step * LAYER_Z_SEP;
 
-    const baseTilesX = 4 * DENSITY_MULT;   // ← antes 4; ahora 12 (3×)
-    const tilesX     = Math.round(baseTilesX * REPEAT * GRID_SCALE);          // panel más grande
+    // ---------- DERIVA LOS TILES DESDE LA ABERTURA (nuevo) ----------
+    const baseTilesX = 4 * DENSITY_MULT;     // densidad base por “familia”
     const safeRatio  = ratio > 0 ? ratio : 1.0;
-    const tilesY     = Math.max(2, Math.round(tilesX / safeRatio * 1.15));
+
+    // Priorizamos contar tiles para que el panel “nazca” del hueco:
+    const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+    const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+
+    // altura de tile fija, ancho = ratio * altura
+    const widthTile  = ratio * TILE_H;
+    const heightTile = TILE_H;
+
+    // número de tiles aproximado que cabrían, con un ligero over para no quedar corto
+    const tilesX = Math.max(3, Math.round((apertureW / widthTile)  * 1.05));
+    const tilesY = Math.max(3, Math.round((apertureH / heightTile) * 1.05));
+
+    // tamaño del panel sin escalado
+    const panelW0 = tilesX * widthTile  * PANEL_SCALE_W;
+    const panelH0 = tilesY * heightTile * (PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0));
+
+    // factor **uniforme**: llenamos sin sobrepasar ninguno de los dos ejes
+    let s = Math.min(
+      (apertureW * SAFE_FIT_X) / Math.max(1e-6, panelW0),
+      (apertureH * SAFE_FIT_Y) / Math.max(1e-6, panelH0)
+    ) * FILL_BOOST;
+
+    s = THREE.MathUtils.clamp(s, SCALE_MIN, SCALE_MAX);
+
+    // En apaisados, estrecha 2–3% para evitar “asomar” por los laterales.
+    const WIDE_X_TIGHTEN = 0.975;
+
+    const scaleW = s * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
+    const scaleH = s;
 
     const sig  = window.computeSignature(pa);
     const rng  = window.computeRange(sig);
@@ -246,10 +290,6 @@ function build(){
 
     const faceForward = (((window.lehmerRank(pa) + window.sceneSeed + window.S_global) & 1) === 0);
     const normal = faceForward ? 1 : -1;
-
-    // Escalas del panel: un poco más grande, y a los apaisados dales más altura
-    const scaleW = PANEL_SCALE_W;
-    const scaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
 
     addRootRaster({
       center: new THREE.Vector3(cx, cy, cz),
@@ -312,18 +352,20 @@ function build(){
         h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
         h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, COOL_BIAS * (1.0 - wn));
 
-        // sesgo estructural por RAUM: marco cálido estable / interior frío estable
-        if (base.isOuter) {
-          // el marco siempre empuja hacia cálido (independiente del foco)
-          h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, FRAME_WARM_BIAS);
-        } else {
-          // el interior siempre retrae hacia frío
-          h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, FRAME_COOL_BIAS);
-        }
-
         // respiración suave de S y V (como antes)
-        const s = THREE.MathUtils.clamp(bh.s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
-        const v = THREE.MathUtils.clamp(bh.v * (1.0 + (wn - 0.5)*PP_VAL_PUSH*2), 0, 1);
+        let s = THREE.MathUtils.clamp(bh.s * (1.0 + (wn - 0.5)*PP_SAT_PUSH*2), 0, 1);
+        let v = THREE.MathUtils.clamp(bh.v * (1.0 + (wn - 0.5)*PP_VAL_PUSH*2), 0, 1);
+
+        // RAUM: marco cálido / interior frío con refuerzo de S/V
+        if (base.isOuter) {
+          h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, FRAME_WARM_BIAS);
+          s = THREE.MathUtils.clamp(s + FRAME_SAT_ADD, 0, 1);
+          v = THREE.MathUtils.clamp(v + FRAME_VAL_ADD, 0, 1);
+        } else {
+          h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, FRAME_COOL_BIAS);
+          s = THREE.MathUtils.clamp(s * (1.0 - INNER_SAT_CUT), 0, 1);
+          v = THREE.MathUtils.clamp(v * (1.0 - INNER_VAL_CUT), 0, 1);
+        }
 
         const rgb = hsvToRgb(h, s, v);
         r = rgb[0]/255; g = rgb[1]/255; b = rgb[2]/255;
@@ -349,7 +391,9 @@ function build(){
         m.material.color.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
         m.material.emissive.setRGB(Math.min(1, r*gainAbs), Math.min(1, g*gainAbs), Math.min(1, b*gainAbs));
 
-        const ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
+        let ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
+        // refuerzo RAUM
+        ei *= base.isOuter ? (1.0 + FRAME_EI_BOOST) : (1.0 - INNER_EI_CUT);
         m.material.emissiveIntensity = breath * ei;
 
         if (!m.material.transparent){ m.material.transparent = true; m.material.needsUpdate = true; }
