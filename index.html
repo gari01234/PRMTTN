@@ -1127,33 +1127,34 @@ function initSkySphere() {
     const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
     const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
 
-    /* ——— Apertura (fit del panel a la “ventana”) ———
-       Ajusta APERTURE_UNITS si tu hueco visible es mayor/menor. */
-    const APERTURE_UNITS    = 4.05;  // ↑ un poco más grande; ajusta si tu hueco real difiere
-    const APERTURE_OVERSCAN = 1.04;  // 4% mayor para que respire y no roce el bisel
+    // ==== Apertura y escalado ====
+    const APERTURE_UNITS    = 4.05;  // tamaño interno de la "ventana" en múltiplos de step
+    const APERTURE_OVERSCAN = 1.04;  // 4% de respiración contra el bisel
 
-    // Queremos que el raster "LLENE" la apertura: objetivo por eje (puede escalar ↑ o ↓)
-    const FILL_TARGET_X = 1.10;      // 10% por encima del tamaño de apertura (eje X)
-    const FILL_TARGET_Y = 1.10;      // 10% por encima del tamaño de apertura (eje Y)
-    const FIT_MIN = 0.85, FIT_MAX = 1.35; // límites de seguridad al escalar
+    // Modo de ajuste: llenar por ALTURA y no pasarse en ANCHO
+    const FILL_BY_HEIGHT = true;
+    const X_SAFE_MARGIN  = 0.98;     // nunca exceder 98% del ancho visible
+    const SCALE_MIN = 0.80, SCALE_MAX = 1.40; // límites de seguridad
 
-    /* Centrar SIEMPRE los rasters en la apertura (ignorar (x0,y0) de perm) */
+    // Centrado fijo en la apertura
     const ANCHOR_TO_APERTURE = true;
 
-    /* Afinar escala global del grid (ligero) */
-    const GRID_SCALE    = 1.10;
+    // Escala suave global del grid (mantén)
+    const GRID_SCALE = 1.10;
 
-    /* Mantener grosor real más fino (evita “más grueso” por encogimiento) */
+    // ==== RAUM: marco cálido / interior frío ====
+    const FRAME_FRAC       = 0.35;  // 35% desde los bordes
+    const FRAME_WARM_BIAS  = 0.50;  // ↑ tono hacia cálido en el marco
+    const FRAME_COOL_BIAS  = 0.44;  // ↑ tono hacia frío en el interior
 
-    const FRAME_FRAC       = 0.35;  // ← banda “marco” = 35% del ancho/alto
-    const FRAME_WARM_BIAS  = 0.48;  // ↑ sesgo de tono cálido en marco
-    const FRAME_COOL_BIAS  = 0.42;  // ↑ sesgo de tono frío en interior
+    // Reforzar presencia con S/V y emissive
+    const FRAME_SAT_ADD    = 0.10;
+    const FRAME_VAL_ADD    = 0.06;
+    const INNER_SAT_CUT    = 0.08;
+    const INNER_VAL_CUT    = 0.04;
 
-    // Pequeñas modulaciones extra de saturación/valor para reforzar profundidad
-    const FRAME_SAT_ADD    = 0.10;  // +S en marco
-    const FRAME_VAL_ADD    = 0.06;  // +V en marco (ligeramente más luminoso)
-    const INNER_SAT_CUT    = 0.08;  // −S en interior
-    const INNER_VAL_CUT    = 0.04;  // −V en interior
+    const FRAME_EI_BOOST   = 0.30;  // +30% de emissive en marco
+    const INNER_EI_CUT     = 0.18;  // −18% de emissive en interior
 
     // ligera respiración según calidez (igual que backup)
     const PP_SAT_PUSH = 0.12;
@@ -1357,29 +1358,33 @@ function initSkySphere() {
         const baseScaleW = PANEL_SCALE_W;
         const baseScaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
 
-        // Tamaño del panel con los tiles REALES (sin fit)
+        // Tamaño del panel sin fit
         const panelW0 = tilesX * widthTile  * baseScaleW;
         const panelH0 = tilesY * heightTile * baseScaleH;
 
-        // Tamaño de la apertura (ligeramente mayor por OVERSCAN)
+        // Tamaño de la apertura con overscan
         const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
         const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
 
-        // Queremos LLENAR la apertura: si el panel es pequeño, escalamos ↑;
-        // si es grande, escalamos ↓. Además, damos un "target" de overscan por eje.
-        let fitX = (apertureW * FILL_TARGET_X) / Math.max(1e-6, panelW0);
-        let fitY = (apertureH * FILL_TARGET_Y) / Math.max(1e-6, panelH0);
+        // --- Escalado UNIFORME ---
+        // 1) llenamos por ALTURA (o por la menor de las dos si desactivas FILL_BY_HEIGHT)
+        // 2) si al hacerlo nos pasamos en ANCHO, reducimos hasta caber (X_SAFE_MARGIN)
+        let sByH = apertureH / Math.max(1e-6, panelH0);
+        let sByW = apertureW / Math.max(1e-6, panelW0);
+        let s    = FILL_BY_HEIGHT ? sByH : Math.min(sByH, sByW);
 
-        // Limitar el rango de escalado por estabilidad
-        fitX = THREE.MathUtils.clamp(fitX, FIT_MIN, FIT_MAX);
-        fitY = THREE.MathUtils.clamp(fitY, FIT_MIN, FIT_MAX);
+        // si con s nos pasamos lateralmente, recorta
+        if (panelW0 * s > apertureW * X_SAFE_MARGIN) {
+          s = (apertureW * X_SAFE_MARGIN) / panelW0;
+        }
 
-        // Opcional: estrechar un 3% los apaisados para evitar que "asomen" lateralmente
+        // márgenes de seguridad
+        s = THREE.MathUtils.clamp(s, SCALE_MIN, SCALE_MAX);
+
+        // estrechar apaisados un toque para evitar sobresalir visual
         const WIDE_X_TIGHTEN = 0.97;
-
-        // Escalas finales a pasar al constructor del raster
-        const scaleW = baseScaleW * fitX * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
-        const scaleH = baseScaleH * fitY;
+        const scaleW = s * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
+        const scaleH = s;
 
         addRootRaster({
           center: new THREE.Vector3(cx, cy, cz),
@@ -1463,14 +1468,12 @@ function initSkySphere() {
             h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, WARM_BIAS * wn);
             h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, COOL_BIAS * (1.0 - wn));
 
-            // sesgo estructural por RAUM: marco cálido estable / interior frío estable
+            // RAUM: marco cálido / interior frío con refuerzo de S/V
             if (base.isOuter) {
-              // Marco: empuja tono a cálido + realce de S y V
               h = THREE.MathUtils.lerp(h, PP_WARM_CENTER, FRAME_WARM_BIAS);
               s = THREE.MathUtils.clamp(s + FRAME_SAT_ADD, 0, 1);
               v = THREE.MathUtils.clamp(v + FRAME_VAL_ADD, 0, 1);
             } else {
-              // Interior: retrae a frío + recorte de S y V
               h = THREE.MathUtils.lerp(h, PP_COOL_CENTER, FRAME_COOL_BIAS);
               s = THREE.MathUtils.clamp(s * (1.0 - INNER_SAT_CUT), 0, 1);
               v = THREE.MathUtils.clamp(v * (1.0 - INNER_VAL_CUT), 0, 1);
@@ -1503,7 +1506,15 @@ function initSkySphere() {
 
           if (base.lcht){
             // — brillo: la protagonista recibe un gran boost en emissive
-            const ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
+            let ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
+
+            // refuerzo RAUM en presencia (emissive)
+            if (base.isOuter) {
+              ei *= (1.0 + FRAME_EI_BOOST);
+            } else {
+              ei *= (1.0 - INNER_EI_CUT);
+            }
+
             m.material.emissiveIntensity = breath * ei;
 
             // clamp extra por si alguna plataforma trata NaN como 0
