@@ -1127,34 +1127,32 @@ function initSkySphere() {
     const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
     const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
 
-    // ==== Apertura y escalado ====
-    const APERTURE_UNITS    = 4.05;  // tamaño interno de la "ventana" en múltiplos de step
-    const APERTURE_OVERSCAN = 1.04;  // 4% de respiración contra el bisel
+    // ==== Apertura y escalado (REEMPLAZA) ====
+    const APERTURE_UNITS    = 4.05;  // tamaño interno aprox. en múltiplos de step
+    const APERTURE_OVERSCAN = 1.03;  // 3% de respiración
 
-    // Modo de ajuste: llenar por ALTURA y no pasarse en ANCHO
-    const FILL_BY_HEIGHT = true;
-    const X_SAFE_MARGIN  = 0.98;     // nunca exceder 98% del ancho visible
-    const SCALE_MIN = 0.80, SCALE_MAX = 1.40; // límites de seguridad
+    // Encaja SIEMPRE por ambos ejes con un único factor uniforme:
+    const SAFE_FIT_X = 0.98;         // no exceder 98% del ancho útil
+    const SAFE_FIT_Y = 0.98;         // no exceder 98% del alto útil
+    const FILL_BOOST = 1.015;        // pequeño “empuje” para llenar sin tocar bisel
+    const SCALE_MIN  = 0.80, SCALE_MAX = 1.40; // límites de seguridad
 
     // Centrado fijo en la apertura
     const ANCHOR_TO_APERTURE = true;
 
-    // Escala suave global del grid (mantén)
-    const GRID_SCALE = 1.10;
+    // Eliminamos la dependencia del “GRID_SCALE” para el tamaño final del panel:
+    const GRID_SCALE = 1.00; // ← déjalo neutro; el tamaño vendrá del fit
 
-    // ==== RAUM: marco cálido / interior frío ====
-    const FRAME_FRAC       = 0.35;  // 35% desde los bordes
-    const FRAME_WARM_BIAS  = 0.50;  // ↑ tono hacia cálido en el marco
-    const FRAME_COOL_BIAS  = 0.44;  // ↑ tono hacia frío en el interior
-
-    // Reforzar presencia con S/V y emissive
-    const FRAME_SAT_ADD    = 0.10;
-    const FRAME_VAL_ADD    = 0.06;
-    const INNER_SAT_CUT    = 0.08;
-    const INNER_VAL_CUT    = 0.04;
-
-    const FRAME_EI_BOOST   = 0.30;  // +30% de emissive en marco
-    const INNER_EI_CUT     = 0.18;  // −18% de emissive en interior
+    // ==== RAUM: marco cálido / interior frío (REEMPLAZA) ====
+    const FRAME_LINES       = 2;     // nº de líneas exteriores que cuentan como “marco”
+    const FRAME_WARM_BIAS   = 0.72;  // empuje de tono hacia cálido en marco
+    const FRAME_COOL_BIAS   = 0.60;  // empuje de tono hacia frío en interior
+    const FRAME_SAT_ADD     = 0.14;  // +S en marco
+    const FRAME_VAL_ADD     = 0.08;  // +V en marco
+    const INNER_SAT_CUT     = 0.10;  // −S en interior
+    const INNER_VAL_CUT     = 0.06;  // −V en interior
+    const FRAME_EI_BOOST    = 0.60;  // +60% emissive en marco
+    const INNER_EI_CUT      = 0.30;  // −30% emissive en interior
 
     // ligera respiración según calidez (igual que backup)
     const PP_SAT_PUSH = 0.12;
@@ -1213,11 +1211,11 @@ function initSkySphere() {
       const halfW  = panelW * 0.5;
       const halfH  = panelH * 0.5;
 
-      // Umbrales para “marco” (banda FRAME_FRAC hacia adentro desde los bordes)
-      const xOuter = halfW  * (1.0 - FRAME_FRAC);
-      const yOuter = halfH  * (1.0 - FRAME_FRAC);
+      // --- helpers para decidir si es “marco” por CONTEO de líneas ---
+      const isFrameIndexX = (i) => (i < FRAME_LINES) || (i > tilesX - FRAME_LINES);
+      const isFrameIndexY = (j) => (j < FRAME_LINES) || (j > tilesY - FRAME_LINES);
 
-      function place(x, y, isVertical){
+      function place(x, y, isVertical, isOuter){
         const geo  = isVertical
           ? new THREE.BoxGeometry(line, panelH + join, line)
           : new THREE.BoxGeometry(panelW + join, line, line);
@@ -1225,9 +1223,6 @@ function initSkySphere() {
         const mesh = new THREE.Mesh(geo, matBase.clone());
         mesh.position.set(center.x + x, center.y + y, center.z);
         if (nz < 0) mesh.rotateY(Math.PI);
-
-        // ¿Esta línea cae en la banda de marco?
-        const isOuter = isVertical ? (Math.abs(x) >= xOuter) : (Math.abs(y) >= yOuter);
 
         // bases ABSOLUTAS (no acumulación con el tiempo) + flag marco/interior
         mesh.userData = {
@@ -1245,12 +1240,12 @@ function initSkySphere() {
       // Verticales
       for (let i = 0; i <= tilesX; i++){
         const x = -halfW + i*(panelW/tilesX);
-        place(x, 0, true);
+        place(x, 0, true, isFrameIndexX(i));
       }
       // Horizontales
       for (let j = 0; j <= tilesY; j++){
         const y = -halfH + j*(panelH/tilesY);
-        place(0, y, false);
+        place(0, y, false, isFrameIndexY(j));
       }
     }
 
@@ -1315,10 +1310,6 @@ function initSkySphere() {
         const typeIdx = pa[ attributeMapping[1] ]; // 1..5
         const ratio   = ROOT_RATIOS[typeIdx];
 
-        // Tamaño de tile raíz (fijo por tipo)
-        const widthTile  = ratio * TILE_H;
-        const heightTile = TILE_H;
-
         // Centro determinista con Z forzado a zSlot (pero opcionalmente anclado)
         const r  = lehmerRank(pa);
         const I  = (r + sceneSeed + S_global) % 125;
@@ -1336,10 +1327,21 @@ function initSkySphere() {
 
         const cz = (zSlot - 2) * step * LAYER_Z_SEP;  // ← más separación Z
 
-        const baseTilesX = 4 * DENSITY_MULT;   // ← antes 4; ahora 12 (3×)
-        const tilesX     = Math.round(baseTilesX * REPEAT * GRID_SCALE);
+        // ---------- DERIVA LOS TILES DESDE LA ABERTURA (nuevo) ----------
+        const baseTilesX = 4 * DENSITY_MULT;     // densidad base por “familia”
         const safeRatio  = ratio > 0 ? ratio : 1.0;
-        const tilesY     = Math.max(2, Math.round(tilesX / safeRatio * 1.15));
+
+        // Priorizamos contar tiles para que el panel “nazca” del hueco:
+        const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+        const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+
+        // altura de tile fija, ancho = ratio * altura
+        const widthTile  = safeRatio * TILE_H;
+        const heightTile = TILE_H;
+
+        // número de tiles aproximado que cabrían, con un ligero over para no quedar corto
+        const tilesX = Math.max(baseTilesX, Math.round((apertureW / widthTile)  * 1.05));
+        const tilesY = Math.max(3, Math.round((apertureH / heightTile) * 1.05));
 
         const sig  = computeSignature(pa);
         const rng  = computeRange(sig);
@@ -1354,35 +1356,21 @@ function initSkySphere() {
         const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
         const normal = faceForward ? 1 : -1;
 
-        // Escalas del panel base: un poco más grande y, si es apaisado, añade altura
-        const baseScaleW = PANEL_SCALE_W;
-        const baseScaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
+        // Tamaño del panel sin escalado
+        const panelW0 = tilesX * widthTile  * PANEL_SCALE_W;
+        const panelH0 = tilesY * heightTile * (PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0));
 
-        // Tamaño del panel sin fit
-        const panelW0 = tilesX * widthTile  * baseScaleW;
-        const panelH0 = tilesY * heightTile * baseScaleH;
+        // factor **uniforme**: llenamos sin sobrepasar ninguno de los dos ejes
+        let s = Math.min(
+          (apertureW * SAFE_FIT_X) / Math.max(1e-6, panelW0),
+          (apertureH * SAFE_FIT_Y) / Math.max(1e-6, panelH0)
+        ) * FILL_BOOST;
 
-        // Tamaño de la apertura con overscan
-        const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
-        const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
-
-        // --- Escalado UNIFORME ---
-        // 1) llenamos por ALTURA (o por la menor de las dos si desactivas FILL_BY_HEIGHT)
-        // 2) si al hacerlo nos pasamos en ANCHO, reducimos hasta caber (X_SAFE_MARGIN)
-        let sByH = apertureH / Math.max(1e-6, panelH0);
-        let sByW = apertureW / Math.max(1e-6, panelW0);
-        let s    = FILL_BY_HEIGHT ? sByH : Math.min(sByH, sByW);
-
-        // si con s nos pasamos lateralmente, recorta
-        if (panelW0 * s > apertureW * X_SAFE_MARGIN) {
-          s = (apertureW * X_SAFE_MARGIN) / panelW0;
-        }
-
-        // márgenes de seguridad
         s = THREE.MathUtils.clamp(s, SCALE_MIN, SCALE_MAX);
 
-        // estrechar apaisados un toque para evitar sobresalir visual
-        const WIDE_X_TIGHTEN = 0.97;
+        // En apaisados, estrecha 2–3% para evitar “asomar” por los laterales.
+        const WIDE_X_TIGHTEN = 0.975;
+
         const scaleW = s * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
         const scaleH = s;
 
@@ -1509,11 +1497,7 @@ function initSkySphere() {
             let ei = base.baseEI * (0.85 + 0.25*wn) * (1.0 + LCHT_PROTAG_EI_BOOST*wn);
 
             // refuerzo RAUM en presencia (emissive)
-            if (base.isOuter) {
-              ei *= (1.0 + FRAME_EI_BOOST);
-            } else {
-              ei *= (1.0 - INNER_EI_CUT);
-            }
+            ei *= base.isOuter ? (1.0 + FRAME_EI_BOOST) : (1.0 - INNER_EI_CUT);
 
             m.material.emissiveIntensity = breath * ei;
 
