@@ -1127,6 +1127,12 @@ function initSkySphere() {
     const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
     const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
 
+    /* ——— Apertura (fit del panel a la “ventana”) ———
+       Se mide en múltiplos de `step`. 3.75 encaja dentro del bisel del marco
+       en la mayoría de escenas; súbelo/bájalo si tu apertura real difiere. */
+    const APERTURE_UNITS   = 3.75;  // ancho/alto interno ≈ 3.75 * step
+    const APERTURE_OVERSCAN = 1.03; // panel un 3% más grande que la abertura (respira)
+
     const FRAME_FRAC       = 0.35;  // ← banda “marco” = 35% del ancho/alto
     const FRAME_WARM_BIAS  = 0.28;  // ← sesgo cálido estable en el marco
     const FRAME_COOL_BIAS  = 0.22;  // ← sesgo frío estable en el interior
@@ -1140,7 +1146,7 @@ function initSkySphere() {
     const PP_Z_PUSH   = 0.12;      // micro-parallax por calidez (conservar)
 
     /* ——— Escalado del grid y tamaño del rectángulo raíz ——— */
-    const GRID_SCALE    = 1.15;  // ↑ hace el panel (grid) más grande
+    const GRID_SCALE    = 1.10;  // un pelín más contenido (antes 1.15)
     const TILE_H_SHRINK = 2.40;  // ↓ hace cada rectángulo raíz más pequeño (antes 3.0)
 
     /* Halo (igual base, pero más discreto en no-protas) */
@@ -1322,9 +1328,28 @@ function initSkySphere() {
         const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
         const normal = faceForward ? 1 : -1;
 
-        // Escalas del panel: un poco más grande, y a los apaisados dales más altura
-        const scaleW = PANEL_SCALE_W;
-        const scaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
+        // Escalas del panel base: un poco más grande y, si es apaisado, añade altura
+        const baseScaleW = PANEL_SCALE_W;
+        const baseScaleH = PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0);
+
+        // Tamaño “previsto” del panel sin ajuste a la apertura
+        const predictedTilesX = Math.round(4 * DENSITY_MULT * GRID_SCALE);
+        const predictedTilesY = Math.max(2, Math.round(predictedTilesX / safeRatio * 1.15));
+        const panelW0 = predictedTilesX * widthTile * baseScaleW;
+        const panelH0 = predictedTilesY * heightTile * baseScaleH;
+
+        // Tamaño de la apertura (ligeramente mayor por OVERSCAN)
+        const apertureW = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+        const apertureH = (APERTURE_UNITS * step) * APERTURE_OVERSCAN;
+
+        // Fit independiente por eje: si el panel excede, se reduce; si cabe, no se estira
+        const fitX = Math.min(1, apertureW / Math.max(1e-6, panelW0));
+        const fitY = Math.min(1, apertureH / Math.max(1e-6, panelH0));
+
+        // Escalas finales que se pasan al constructor del raster
+        const WIDE_X_TIGHTEN = 0.97; // 3% más estrecho si es apaisado
+        const scaleW = baseScaleW * fitX * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
+        const scaleH = baseScaleH * fitY;
 
         addRootRaster({
           center: new THREE.Vector3(cx, cy, cz),
