@@ -1198,26 +1198,69 @@ function initSkySphere() {
     const HALO_FOCUS_BOOST = 0.85;
     const HALO_COOL_CUT    = 0.35;
 
-    /* Par de colores determinista para cada permutación:
-       - warm: cerca de PP_WARM_CENTER
-       - cool: cerca de PP_COOL_CENTER
-       Sin repeticiones: desplazamiento por salto áureo usando lehmerRank+seed. */
-    function twoToneFor(pa){
-      const r  = lehmerRank(pa);
-      const t  = (((r + sceneSeed + S_global) * PHI_STEP) % 1);  // 0..1 pseudo-caótico
+    /* ===== Paleta determinista por “slots” al estilo 13245 =====
+       - 12 slots por escena (0..11), derivados de las perms/patrones existentes
+       - Cada raster usa dos slots: sWarm = s, sCool = (s+6)%12 (complementarios)
+       - Sin repeticiones entre rasters: open addressing con salto coprimo (+5)
+       Requiere que existan: PATTERNS[activePatternId], idxToHSV, hsvToRgb, ensureContrastRGB
+    */
 
-      // hue dentro de una “banda” alrededor de cada centro
-      const hw = (PP_WARM_CENTER + (t - 0.5) * 2 * WARM_BAND + 1) % 1;
-      const hc = (PP_COOL_CENTER + (t - 0.5) * 2 * COOL_BAND + 1) % 1;
+    /* Convierte un slot (0..11) a color usando el mismo núcleo cromático que 13245 */
+    function colorFromSlot(slotIndex, sig, seed){
+      // Deriva índices deterministas de patrón como en 13245 (ligera “descorrelación” por slot)
+      const off = (slotIndex % 12);
+      let [hI, sI, vI] = PATTERNS[activePatternId](sig, seed, off);
 
-      const rgbW = hsvToRgb(hw, PAIR_SAT, PAIR_VAL);
-      const rgbC = hsvToRgb(hc, PAIR_SAT, PAIR_VAL);
+      // “Mapeo” de cuadrícula a HSV físico
+      const hsv = idxToHSV(hI, sI, vI);
+      let rgb   = hsvToRgb(hsv.h, hsv.s, hsv.v);
+      rgb       = ensureContrastRGB(rgb);
 
-      return {
-        warm: new THREE.Color(rgbW[0]/255, rgbW[1]/255, rgbW[2]/255),
-        cool: new THREE.Color(rgbC[0]/255, rgbC[1]/255, rgbC[2]/255),
-        warmHSV: { h: hw, s: PAIR_SAT, v: PAIR_VAL },
-        coolHSV: { h: hc, s: PAIR_SAT, v: PAIR_VAL }
+      const col = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+      return { color: col, hsv: { h:hsv.h, s:hsv.s, v:hsv.v } };
+    }
+
+    /* Asignador de pares de slots sin colisiones para hasta 5 rasters */
+    function makeSlotAllocator(perms, sceneSeed, S_global){
+      const USED = new Array(12).fill(false);
+      const JUMP = 5;      // salto coprimo con 12 (open addressing)
+      const GAP  = 6;      // slot complementario (cálido/frío)
+
+      return function pairFor(pa){
+        const r   = lehmerRank(pa);
+        const sig = computeSignature(pa);
+        // base determinista de entrada al anillo de 12
+        let s0 = ( (r + sceneSeed + S_global) % 12 + 12 ) % 12;
+
+        // busca el primer par libre (s, s+6) avanzando de 5 en 5
+        for (let k=0; k<12; k++){
+          const s    = (s0 + k*JUMP) % 12;
+          const sopp = (s + GAP) % 12;
+          if (!USED[s] && !USED[sopp]){
+            USED[s] = USED[sopp] = true;
+
+            // genera colores base para cada slot con el “núcleo 13245”
+            const warmBase = colorFromSlot(s,    sig, sceneSeed + S_global);
+            const coolBase = colorFromSlot(sopp, sig, sceneSeed + S_global);
+
+            return {
+              warm: warmBase.color,
+              cool: coolBase.color,
+              warmHSV: warmBase.hsv,
+              coolHSV: coolBase.hsv
+            };
+          }
+        }
+
+        // fallback imposible en práctica (12 slots, máx 5 rasters) — pero por seguridad
+        const warmBase = colorFromSlot(s0,       sig, sceneSeed + S_global);
+        const coolBase = colorFromSlot((s0+GAP)%12, sig, sceneSeed + S_global);
+        return {
+          warm: warmBase.color,
+          cool: coolBase.color,
+          warmHSV: warmBase.hsv,
+          coolHSV: coolBase.hsv
+        };
       };
     }
 
@@ -1340,10 +1383,13 @@ function initSkySphere() {
         layers.push({ zSlot:z, permIdx: pick });
       }
 
+      // ——— Asignador de pares cálido/frío, sin colisiones (12 slots por escena) ———
+      const slotPairFor = makeSlotAllocator(perms, sceneSeed, S_global);
+
       // Construcción de capas
       layers.forEach(({zSlot, permIdx})=>{
         const pa   = perms[permIdx];
-        const typeIdx = pa[ attributeMapping[1] ]; 
+        const typeIdx = pa[ attributeMapping[1] ];
         const spec = RASTER_SPECS[typeIdx];
 
         // medidas ×2 (GLOBAL_SCALE) – TODO vuelve el doble de grande
@@ -1371,8 +1417,8 @@ function initSkySphere() {
         const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
         const normal = faceForward ? 1 : -1;
 
-        // par cálido/frío exclusivo para ESTE raster
-        const tonePair = twoToneFor(pa);
+        // par cálido/frío EXCLUSIVO para ESTE raster (sin repetir en la escena)
+        const tonePair = slotPairFor(pa);
 
         addRootRaster({
           center: new THREE.Vector3(cx, cy, cz),
