@@ -1113,9 +1113,19 @@ function initSkySphere() {
     const LCHT_BASE_EI         = 0.40;
     const LCHT_PROTAG_EI_BOOST = 3.20;
 
+    /* ===== Escala global para ver TODO el doble de grande ===== */
+    const GLOBAL_SCALE = 2.0;   // ← NUEVO (antes implícito = 1)
+
     /* — Push & Pull cromático (solo desde color) — */
     const PP_WARM_CENTER = 0.00;   // rojo
     const PP_COOL_CENTER = 0.58;   // cian/azulado estable
+
+    /* ===== Paleta bi-tónica determinista (warm/cool por raster) ===== */
+    const PAIR_SAT   = 0.72;
+    const PAIR_VAL   = 0.92;
+    const WARM_BAND  = 0.10;    // amplitud de desviación alrededor del centro cálido
+    const COOL_BAND  = 0.10;    // amplitud de desviación alrededor del centro frío
+    const PHI_STEP   = 0.618033988749895; // salto de oro para evitar repeticiones
 
     // bias de tono hacia cálido en la prota y hacia frío en el resto
     const WARM_BIAS = 0.22;        // cuánto se acerca la prota al rojo (0..1)
@@ -1188,13 +1198,27 @@ function initSkySphere() {
     const HALO_FOCUS_BOOST = 0.85;
     const HALO_COOL_CUT    = 0.35;
 
-    /* color determinista base */
-    function colorForPerm(pa){
-      const idx = pa[ attributeMapping[1] ]; // 1..5
-      const val = getColor(idx);
-      return Array.isArray(val)
-        ? new THREE.Color(val[0]/255, val[1]/255, val[2]/255)
-        : new THREE.Color(val);
+    /* Par de colores determinista para cada permutación:
+       - warm: cerca de PP_WARM_CENTER
+       - cool: cerca de PP_COOL_CENTER
+       Sin repeticiones: desplazamiento por salto áureo usando lehmerRank+seed. */
+    function twoToneFor(pa){
+      const r  = lehmerRank(pa);
+      const t  = (((r + sceneSeed + S_global) * PHI_STEP) % 1);  // 0..1 pseudo-caótico
+
+      // hue dentro de una “banda” alrededor de cada centro
+      const hw = (PP_WARM_CENTER + (t - 0.5) * 2 * WARM_BAND + 1) % 1;
+      const hc = (PP_COOL_CENTER + (t - 0.5) * 2 * COOL_BAND + 1) % 1;
+
+      const rgbW = hsvToRgb(hw, PAIR_SAT, PAIR_VAL);
+      const rgbC = hsvToRgb(hc, PAIR_SAT, PAIR_VAL);
+
+      return {
+        warm: new THREE.Color(rgbW[0]/255, rgbW[1]/255, rgbW[2]/255),
+        cool: new THREE.Color(rgbC[0]/255, rgbC[1]/255, rgbC[2]/255),
+        warmHSV: { h: hw, s: PAIR_SAT, v: PAIR_VAL },
+        coolHSV: { h: hc, s: PAIR_SAT, v: PAIR_VAL }
+      };
     }
 
     /* helpers HSV existen: rgbToHsv / hsvToRgb */
@@ -1203,11 +1227,11 @@ function initSkySphere() {
        Dibuja verticales/horizontales y marca cada línea como marco/interior
        según frameCols/Rows exactos por lado. */
     function addRootRaster({
-      center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot,
-      frameCols, frameRows
+      center, widthTile, heightTile, tilesX, tilesY, line, join, nz, lcht, zSlot,
+      frameCols, frameRows,
+      tonePair  // { warm, cool, warmHSV, coolHSV }
     }){
-      const matBase = new THREE.MeshLambertMaterial({
-        color: color.clone(),
+      const baseMat = new THREE.MeshLambertMaterial({
         dithering: true,
         flatShading: true,
         transparent: true,
@@ -1218,11 +1242,6 @@ function initSkySphere() {
         toneMapped: false,
         colorWrite: true
       });
-      matBase.emissive = color.clone();
-      matBase.emissiveIntensity = LCHT_BASE_EI;
-
-      const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
-      const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
       const panelW = tilesX * widthTile;
       const panelH = tilesY * heightTile;
@@ -1240,13 +1259,23 @@ function initSkySphere() {
           ? new THREE.BoxGeometry(line, panelH + join, line)
           : new THREE.BoxGeometry(panelW + join, line, line);
 
-        const mesh = new THREE.Mesh(geo, matBase.clone());
+        // color base por zona
+        const c  = (isOuter ? tonePair.warm : tonePair.cool).clone();
+        const hsv = isOuter ? tonePair.warmHSV : tonePair.coolHSV;
+
+        const mat = baseMat.clone();
+        mat.color = c.clone();
+        mat.emissive = c.clone();
+        mat.emissiveIntensity = LCHT_BASE_EI;
+
+        const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(center.x + x, center.y + y, center.z);
         if (nz < 0) mesh.rotateY(Math.PI);
 
         mesh.userData = {
-          lcht, baseHsv,
-          baseRGB: [color.r, color.g, color.b],
+          lcht,
+          baseHsv: hsv,
+          baseRGB: [c.r, c.g, c.b],
           baseEI : LCHT_BASE_EI,
           zSlot,
           isOuter
@@ -1255,12 +1284,12 @@ function initSkySphere() {
         lichtGroup.add(mesh);
       }
 
-      // Verticales (i = 0..tilesX)
+      // Verticales
       for (let i = 0; i <= tilesX; i++){
         const x = -halfW + i*(panelW/tilesX);
         place(x, 0, true, isOuterCol(i));
       }
-      // Horizontales (j = 0..tilesY)
+      // Horizontales
       for (let j = 0; j <= tilesY; j++){
         const y = -halfH + j*(panelH/tilesY);
         place(0, y, false, isOuterRow(j));
@@ -1295,10 +1324,6 @@ function initSkySphere() {
         scene.background.setHSL(h, s, l);
       }
 
-      const step = cubeSize / 5;
-      const SIDE = 0.24 * 1.00;   // (antes 1.5) = líneas más finas en mundo
-      const JOIN = 0.02 * 1.00;   // unión acorde
-
       // Permutaciones activas
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
@@ -1317,23 +1342,22 @@ function initSkySphere() {
 
       // Construcción de capas
       layers.forEach(({zSlot, permIdx})=>{
-        const pa      = perms[permIdx];
-        const baseCol = colorForPerm(pa);
-
-        // tipo 1..5 (mapea tu attributeMapping[1])
-        const typeIdx = pa[ attributeMapping[1] ];
+        const pa   = perms[permIdx];
+        const typeIdx = pa[ attributeMapping[1] ]; 
         const spec = RASTER_SPECS[typeIdx];
 
-        const widthTile  = spec.tileW;
-        const heightTile = spec.tileH;
+        // medidas ×2 (GLOBAL_SCALE) – TODO vuelve el doble de grande
+        const widthTile  = spec.tileW * GLOBAL_SCALE;
+        const heightTile = spec.tileH * GLOBAL_SCALE;
         const tilesX     = spec.tilesX;
         const tilesY     = spec.tilesY;
 
-        // Centro en apertura (0,0) y Z según tu canon
-        let cx = 0, cy = 0;
+        // centro en la apertura (0,0); Z igual que tu canon
+        const step = cubeSize/5;
+        const cx = 0, cy = 0;
         const cz = (zSlot - 2) * step * LAYER_Z_SEP;
 
-        // respiración determinista (igual que tenías)
+        // respiración determinista (igual)
         const sig  = computeSignature(pa);
         const rng  = computeRange(sig);
         const L    = pa[ attributeMapping[0] ];
@@ -1347,20 +1371,23 @@ function initSkySphere() {
         const faceForward = (((lehmerRank(pa) + sceneSeed + S_global) & 1) === 0);
         const normal = faceForward ? 1 : -1;
 
+        // par cálido/frío exclusivo para ESTE raster
+        const tonePair = twoToneFor(pa);
+
         addRootRaster({
           center: new THREE.Vector3(cx, cy, cz),
           widthTile,
           heightTile,
           tilesX,
           tilesY,
-          line: SIDE,
-          join: JOIN,
-          color: baseCol.clone(),
+          line: 0.24 * GLOBAL_SCALE,     // grosor de línea también ×2
+          join: 0.02 * GLOBAL_SCALE,
           nz: normal,
           lcht,
           zSlot,
           frameCols: spec.frameCols,
-          frameRows: spec.frameRows
+          frameRows: spec.frameRows,
+          tonePair
         });
       });
 
