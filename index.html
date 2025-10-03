@@ -1121,22 +1121,7 @@ function initSkySphere() {
     const WARM_BIAS = 0.22;        // cuánto se acerca la prota al rojo (0..1)
     const COOL_BIAS = 0.18;        // cuánto se enfrían las no-prota (0..1)
 
-    /* ——— Densidad, escala de panel y marco cálido/interior frío ——— */
-    const DENSITY_MULT       = 3;     // ← 3× más denso
-    const PANEL_SCALE_W      = 1.06;  // ← un poco más ancho
-    const PANEL_SCALE_H      = 1.06;  // ← un poco más alto (base)
-    const PANEL_EXTRA_H_WIDE = 1.08;  // ← extra de altura si ratio > 1 (√2, √3, 2, √5)
-
-    // ==== Hueco desde frustum (NO más APERTURE_UNITS) ==================
-    // Fracción del frustum visible que ocupa la abertura (0.0–1.0).
-    // 0.88 suele encajar bien con el bisel de RAUM sin tocarlo.
-    const APERTURE_FRAC   = 0.88;
-
-    // Seguridad para no rozar el bisel en ningún dispositivo
-    const APERTURE_SAFE   = 0.985;
-
     // Diferencia visual marco/interior (refuerza Hofmann)
-    const FRAME_LINES     = 2;    // nº de líneas exteriores por eje que son “marco”
     const FRAME_WARM_BIAS = 0.78; // marco → mucho más cálido
     const FRAME_COOL_BIAS = 0.66; // interior → más frío
     const FRAME_SAT_ADD   = 0.22; // +S en marco
@@ -1152,26 +1137,50 @@ function initSkySphere() {
     const PP_SAT_PUSH = 0.12;
     const PP_VAL_PUSH = 0.06;
 
-    // El tamaño final LO DECIDE el fit, no el grid
-    const GRID_SCALE = 1.00;
+    /* ===== LCHT · medidas fijas por Raster (centrado, sin “fit”) =====
+       Altura de tile SIEMPRE 5.00. El ancho del tile depende del Raster.
+       tilesX/Y = nº total de celdas del raster completo (exterior+interior).
+       El marco (outer) se define con nº exacto de columnas/filas por lado. */
+    const TILE_H_FIXED = 5.00;
 
-    const ANCHOR_TO_APERTURE = true;
+    const RASTER_SPECS = {
+      // idx: 1..5  (1:1, √2:1, √3:1, 2:1, √5:1)
+      1: {             // 1:1
+        tileW: 5.0000, tileH: TILE_H_FIXED,
+        tilesX: 12, tilesY: 11,       // 60 × 55
+        frameCols: { L:2, R:2 },      // márgenes 10.00 por lado
+        frameRows: { T:2, B:2 }       // márgenes 10.00 por lado
+      },
+      2: {             // √2:1
+        tileW: 7.0711, tileH: TILE_H_FIXED,
+        tilesX: 9, tilesY: 11,        // 63.6396 × 55
+        frameCols: { L:2, R:2 },      // 14.1421 por lado
+        frameRows: { T:2, B:2 }       // 10.00 por lado
+      },
+      3: {             // √3:1
+        tileW: 8.6603, tileH: TILE_H_FIXED,
+        tilesX: 7, tilesY: 11,        // 60.6218 × 55
+        frameCols: { L:2, R:2 },      // 17.3205 por lado
+        frameRows: { T:3, B:3 }       // 15.00 por lado
+      },
+      4: {             // 2:1
+        tileW: 10.0000, tileH: TILE_H_FIXED,
+        tilesX: 6, tilesY: 11,        // 60 × 55
+        frameCols: { L:1, R:1 },      // 10.00 por lado
+        frameRows: { T:1, B:1 }       // 5.00 por lado
+      },
+      5: {             // √5:1
+        tileW: 11.1803, tileH: TILE_H_FIXED,
+        tilesX: 6, tilesY: 11,        // 67.0820 × 55
+        frameCols: { L:1, R:1 },      // 11.1803 por lado
+        frameRows: { T:1, B:1 }       // 5.00 por lado
+      }
+    };
 
-    // —— util: tamaño del frustum a una Z dada
-    function frustumSizeAtZ(cam, z){
-      if (!cam || !cam.position) return { w: 1, h: 1 };
-      const dist = Math.abs(cam.position.z - z);
-      const h = 2 * dist * Math.tan(THREE.MathUtils.degToRad(cam.fov * 0.5));
-      const w = h * cam.aspect;
-      return { w, h };
-    }
+    // Z (igual que ya tenías)
+    const LAYER_Z_SEP = 1.85;   // separación entre 5 capas
 
-    // separación Z entre capas (↑) y micro-push
-    const LAYER_Z_SEP = 1.85;      // ← MÁS separación entre rasters
     const PP_Z_PUSH   = 0.12;      // micro-parallax por calidez (conservar)
-
-    /* ——— Tamaño del rectángulo raíz ——— */
-    const TILE_H_SHRINK = 2.40;  // ↓ hace cada rectángulo raíz más pequeño (antes 3.0)
 
     /* Halo (igual base, pero más discreto en no-protas) */
     const HALO_SCALE       = 1.55;
@@ -1190,11 +1199,12 @@ function initSkySphere() {
 
     /* helpers HSV existen: rgbToHsv / hsvToRgb */
 
-    /* Construye panel de líneas que SOLO delinean cada tile raíz
-       Ahora acepta escalas de panel y etiqueta cada línea como marco/interior */
+    /* Panel de líneas de “root rectangles”.
+       Dibuja verticales/horizontales y marca cada línea como marco/interior
+       según frameCols/Rows exactos por lado. */
     function addRootRaster({
       center, widthTile, heightTile, tilesX, tilesY, line, join, color, nz, lcht, zSlot,
-      scaleW=1.0, scaleH=1.0
+      frameCols, frameRows
     }){
       const matBase = new THREE.MeshLambertMaterial({
         color: color.clone(),
@@ -1214,15 +1224,16 @@ function initSkySphere() {
       const [h0,s0,v0] = rgbToHsv(color.r*255, color.g*255, color.b*255);
       const baseHsv = { h: h0, s: Math.min(1, s0*1.04), v: Math.min(1, v0*1.03) };
 
-      // Tamaño del panel CON escala
-      const panelW = tilesX * widthTile * scaleW;
-      const panelH = tilesY * heightTile * scaleH;
+      const panelW = tilesX * widthTile;
+      const panelH = tilesY * heightTile;
       const halfW  = panelW * 0.5;
       const halfH  = panelH * 0.5;
 
-      // --- helpers para decidir si es “marco” por CONTEO de líneas ---
-      const isFrameIndexX = (i) => (i <= FRAME_LINES) || (i >= tilesX - FRAME_LINES);
-      const isFrameIndexY = (j) => (j <= FRAME_LINES) || (j >= tilesY - FRAME_LINES);
+      const Lx = frameCols?.L|0, Rx = frameCols?.R|0;
+      const Ty = frameRows?.T|0, By = frameRows?.B|0;
+
+      const isOuterCol = (i) => (i <= Lx) || (i >= tilesX - Rx);
+      const isOuterRow = (j) => (j <= By) || (j >= tilesY - Ty);
 
       function place(x, y, isVertical, isOuter){
         const geo  = isVertical
@@ -1233,28 +1244,26 @@ function initSkySphere() {
         mesh.position.set(center.x + x, center.y + y, center.z);
         if (nz < 0) mesh.rotateY(Math.PI);
 
-        // bases ABSOLUTAS (no acumulación con el tiempo) + flag marco/interior
         mesh.userData = {
-          lcht,
-          baseHsv,
+          lcht, baseHsv,
           baseRGB: [color.r, color.g, color.b],
           baseEI : LCHT_BASE_EI,
           zSlot,
           isOuter
         };
-        mesh.renderOrder = 10 + zSlot;   // orden estable por Z
+        mesh.renderOrder = 10 + zSlot;
         lichtGroup.add(mesh);
       }
 
-      // Verticales
+      // Verticales (i = 0..tilesX)
       for (let i = 0; i <= tilesX; i++){
         const x = -halfW + i*(panelW/tilesX);
-        place(x, 0, true, isFrameIndexX(i));
+        place(x, 0, true, isOuterCol(i));
       }
-      // Horizontales
+      // Horizontales (j = 0..tilesY)
       for (let j = 0; j <= tilesY; j++){
         const y = -halfH + j*(panelH/tilesY);
-        place(0, y, false, isFrameIndexY(j));
+        place(0, y, false, isOuterRow(j));
       }
     }
 
@@ -1290,10 +1299,6 @@ function initSkySphere() {
       const SIDE = 0.24 * 1.00;   // (antes 1.5) = líneas más finas en mundo
       const JOIN = 0.02 * 1.00;   // unión acorde
 
-      // Altura de tile fija para TODOS los rasters
-      const TILE_H = step * 0.92 * TILE_H_SHRINK;
-      const ROOT_RATIOS = [0, 1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5)];
-
       // Permutaciones activas
       const perms = Array.from(document.getElementById('permutationList').selectedOptions)
                      .map(o => o.value.split(',').map(Number));
@@ -1310,71 +1315,25 @@ function initSkySphere() {
         layers.push({ zSlot:z, permIdx: pick });
       }
 
-      const REPEAT = 1;  // panel final más amplio
-
       // Construcción de capas
       layers.forEach(({zSlot, permIdx})=>{
         const pa      = perms[permIdx];
         const baseCol = colorForPerm(pa);
-        const typeIdx = pa[ attributeMapping[1] ]; // 1..5
-        const ratio   = ROOT_RATIOS[typeIdx];
 
-        // Centro determinista con Z forzado a zSlot (pero opcionalmente anclado)
-        const r  = lehmerRank(pa);
-        const I  = (r + sceneSeed + S_global) % 125;
-        const x0 = Math.floor(I / 25);
-        const y0 = Math.floor((I % 25) / 5);
+        // tipo 1..5 (mapea tu attributeMapping[1])
+        const typeIdx = pa[ attributeMapping[1] ];
+        const spec = RASTER_SPECS[typeIdx];
 
-        let cx = (x0 - 2) * step;
-        let cy = (y0 - 2) * step;
+        const widthTile  = spec.tileW;
+        const heightTile = spec.tileH;
+        const tilesX     = spec.tilesX;
+        const tilesY     = spec.tilesY;
 
-        if (ANCHOR_TO_APERTURE) {
-          // Alinea la malla al centro de la ventana (0,0) en pantalla
-          cx = 0;
-          cy = 0;
-        }
+        // Centro en apertura (0,0) y Z según tu canon
+        let cx = 0, cy = 0;
+        const cz = (zSlot - 2) * step * LAYER_Z_SEP;
 
-        const cz = (zSlot - 2) * step * LAYER_Z_SEP;  // ← más separación Z
-
-        // ---------- DERIVA LOS TILES DESDE LA ABERTURA (robusto) ----------
-        const safeRatio  = ratio > 0 ? ratio : 1.0;
-        const cam = (typeof camera !== 'undefined') ? camera : null;
-        const fr  = frustumSizeAtZ(cam, cz);
-        let apertureW = fr.w * APERTURE_FRAC;
-        let apertureH = fr.h * APERTURE_FRAC;
-
-        // altura de tile fija, ancho = ratio * altura
-        const widthTile  = safeRatio * TILE_H;
-        const heightTile = TILE_H;
-
-        // nº de tiles aproximado que cabrían SIN escala (ligero over para no quedar corto)
-        const tilesX = Math.max(4 * DENSITY_MULT, Math.ceil(apertureW / widthTile)  + FRAME_LINES + 1);
-        const tilesY = Math.max(3,                 Math.ceil(apertureH / heightTile) + FRAME_LINES + 1);
-
-        // Escalas base (sin fit)
-
-        // Tamaño del panel “en crudo”
-        const panelW0 = tilesX * widthTile  * (PANEL_SCALE_W);
-        const panelH0 = tilesY * heightTile * (PANEL_SCALE_H * (ratio > 1.0 ? PANEL_EXTRA_H_WIDE : 1.0));
-
-        // ==== Hueco visible MEDIDO a la profundidad real de esta capa ====
-        // Esto hace que TODAS las capas —cercanas o lejanas— se encajen igual en pantalla.
-
-        // Hueco final (le damos margen y lo “recortamos” algo para el bisel)
-        apertureW *= APERTURE_SAFE;
-        apertureH *= APERTURE_SAFE;
-
-        // Escalado UNIFORME para no distorsionar el ratio del raster
-        let s = Math.min(
-          apertureW / Math.max(1e-6, panelW0),
-          apertureH / Math.max(1e-6, panelH0)
-        );
-
-        // En apaisados aprieto mínimamente X para evitar “asomar” lateral
-        const WIDE_X_TIGHTEN = 0.985;
-        const scaleW = s * (ratio > 1.0 ? WIDE_X_TIGHTEN : 1.0);
-        const scaleH = s;
-
+        // respiración determinista (igual que tenías)
         const sig  = computeSignature(pa);
         const rng  = computeRange(sig);
         const L    = pa[ attributeMapping[0] ];
@@ -1400,8 +1359,8 @@ function initSkySphere() {
           nz: normal,
           lcht,
           zSlot,
-          scaleW,
-          scaleH
+          frameCols: spec.frameCols,
+          frameRows: spec.frameRows
         });
       });
 
