@@ -1266,9 +1266,7 @@ function initSkySphere() {
 
     /* helpers HSV existen: rgbToHsv / hsvToRgb */
 
-    /* Panel de líneas de “root rectangles”.
-       Dibuja verticales/horizontales y, para evitar “sangrados” entre zonas,
-       SEGMENTA cada línea en 3 tramos (cálido/ frío /cálido) según el marco. */
+    /* Panel de líneas con segmentación estricta sin sangrados */
     function addRootRaster({
       center, widthTile, heightTile, tilesX, tilesY, line, join, nz, lcht, zSlot,
       frameCols, frameRows,
@@ -1297,24 +1295,46 @@ function initSkySphere() {
       const Ty = Math.max(0, Math.min(tilesY, (frameRows?.T|0)));
       const By = Math.max(0, Math.min(tilesY, (frameRows?.B|0)));
 
-      // ————— helpers ——————————————————————————————————————————————
+      // Tamaños reales de cada zona
+      const topH    = Ty * heightTile;
+      const bottomH = By * heightTile;
+      const midH    = Math.max(0, panelH - topH - bottomH);
+
+      const leftW   = Lx * widthTile;
+      const rightW  = Rx * widthTile;
+      const midW    = Math.max(0, panelW - leftW - rightW);
+
+      // Epsilon OUTWARD (solo hacia el borde externo del raster)
+      const SEAM_EPS = Math.max(1e-4, 0.0005 * GLOBAL_SCALE);
+
+      // helpers
       function makeMat(isOuter){
         const base = isOuter ? tonePair.warm : tonePair.cool;
         const mat  = baseMat.clone();
         mat.color = base.clone();
         mat.emissive = base.clone();
         mat.emissiveIntensity = LCHT_BASE_EI;
+
+        // (opcional) separa mínimamente marco/interior en Z para evitar coplanaridad
+        mat.polygonOffset = true;
+        mat.polygonOffsetUnits  = isOuter ? -1 : 0;
+        mat.polygonOffsetFactor = isOuter ? -0.5 : 0;
+
         return mat;
       }
+
       function addSeg(x, y, w, h, isOuter){
-        const geo  = new THREE.BoxGeometry(
-          Math.max(1e-6, w + (w>0 ? join : 0)),
-          Math.max(1e-6, h + (h>0 ? join : 0)),
-          line
-        );
+        const ww = Math.max(1e-6, w);
+        const hh = Math.max(1e-6, h);
+        const geo  = new THREE.BoxGeometry(ww, hh, line);
+
         const mesh = new THREE.Mesh(geo, makeMat(isOuter));
-        mesh.position.set(center.x + x, center.y + y, center.z);
+        // pequeño offset Z opcional para el marco
+        const zOff = isOuter ? (0.25 * line) : 0.0;
+
+        mesh.position.set(center.x + x, center.y + y, center.z + zOff);
         if (nz < 0) mesh.rotateY(Math.PI);
+
         const hsv = isOuter ? tonePair.warmHSV : tonePair.coolHSV;
         mesh.userData = {
           lcht,
@@ -1324,36 +1344,27 @@ function initSkySphere() {
           zSlot,
           isOuter
         };
-        mesh.renderOrder = 10 + zSlot;
+        mesh.renderOrder = 10 + zSlot + (isOuter ? 0.01 : 0);
         lichtGroup.add(mesh);
       }
-
-      // Anchos/altos de las zonas (en unidades de mundo)
-      const topH    = Ty * heightTile;
-      const bottomH = By * heightTile;
-      const midH    = Math.max(0, panelH - topH - bottomH);
-
-      const leftW   = Lx * widthTile;
-      const rightW  = Rx * widthTile;
-      const midW    = Math.max(0, panelW - leftW - rightW);
 
       // ————— VERTICALES (i = 0..tilesX) ————————————————————————
       for (let i = 0; i <= tilesX; i++){
         const x = -halfW + i*(panelW/tilesX);
 
-        // tramo superior (cálido) — solo si Ty>0
+        // tramo superior (cálido) — SOLO hacia fuera (+EPS arriba)
         if (Ty > 0){
-          const yTop =  halfH - topH*0.5;
-          addSeg(x, yTop, line, topH, /*warm*/true);
+          const yTop =  halfH - topH*0.5 + SEAM_EPS*0.5;
+          addSeg(x, yTop, line, topH + SEAM_EPS, true);
         }
-        // tramo central (frío) — solo si hay zona interior
+        // tramo central (frío) — SIN overshoot
         if (midH > 0){
-          addSeg(x, 0, line, midH, /*warm?*/false);
+          addSeg(x, 0, line, Math.max(0, midH - SEAM_EPS*2), false);
         }
-        // tramo inferior (cálido) — solo si By>0
+        // tramo inferior (cálido) — SOLO hacia fuera (+EPS abajo)
         if (By > 0){
-          const yBot = -halfH + bottomH*0.5;
-          addSeg(x, yBot, line, bottomH, /*warm*/true);
+          const yBot = -halfH + bottomH*0.5 - SEAM_EPS*0.5;
+          addSeg(x, yBot, line, bottomH + SEAM_EPS, true);
         }
       }
 
@@ -1361,19 +1372,19 @@ function initSkySphere() {
       for (let j = 0; j <= tilesY; j++){
         const y = -halfH + j*(panelH/tilesY);
 
-        // tramo izquierdo (cálido)
+        // tramo izquierdo (cálido) — SOLO hacia fuera (+EPS a la izquierda)
         if (Lx > 0){
-          const xL = -halfW + leftW*0.5;
-          addSeg(xL, y, leftW, line, /*warm*/true);
+          const xL = -halfW + leftW*0.5 - SEAM_EPS*0.5;
+          addSeg(xL, y, leftW + SEAM_EPS, line, true);
         }
-        // tramo central (frío)
+        // tramo central (frío) — SIN overshoot
         if (midW > 0){
-          addSeg(0, y, midW, line, /*warm?*/false);
+          addSeg(0, y, Math.max(0, midW - SEAM_EPS*2), line, false);
         }
-        // tramo derecho (cálido)
+        // tramo derecho (cálido) — SOLO hacia fuera (+EPS a la derecha)
         if (Rx > 0){
-          const xR =  halfW - rightW*0.5;
-          addSeg(xR, y, rightW, line, /*warm*/true);
+          const xR =  halfW - rightW*0.5 + SEAM_EPS*0.5;
+          addSeg(xR, y, rightW + SEAM_EPS, line, true);
         }
       }
     }
