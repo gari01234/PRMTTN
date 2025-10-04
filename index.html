@@ -1295,6 +1295,12 @@ function initSkySphere() {
       const Ty = Math.max(0, Math.min(tilesY, (frameRows?.T|0)));
       const By = Math.max(0, Math.min(tilesY, (frameRows?.B|0)));
 
+      // ¿Esta línea vertical/horizontal pertenece al marco?
+      // Nota: las líneas de interfaz (i==Lx, i==tilesX-Rx, j==By, j==tilesY-Ty)
+      // se consideran INTERIOR (frías): por eso usamos < y > (NO ≤ ni ≥).
+      const isOuterCol = (i) => (i < Lx) || (i > tilesX - Rx);
+      const isOuterRow = (j) => (j < By) || (j > tilesY - Ty);
+
       // Tamaños reales de cada zona
       const topH    = Ty * heightTile;
       const bottomH = By * heightTile;
@@ -1352,19 +1358,22 @@ function initSkySphere() {
       for (let i = 0; i <= tilesX; i++){
         const x = -halfW + i*(panelW/tilesX);
 
-        // tramo superior (cálido) — SOLO hacia fuera (+EPS arriba)
-        if (Ty > 0){
-          const yTop =  halfH - topH*0.5 + SEAM_EPS*0.5;
-          addSeg(x, yTop, line, topH + SEAM_EPS, true);
-        }
-        // tramo central (frío) — SIN overshoot
-        if (midH > 0){
-          addSeg(x, 0, line, Math.max(0, midH - SEAM_EPS*2), false);
-        }
-        // tramo inferior (cálido) — SOLO hacia fuera (+EPS abajo)
-        if (By > 0){
-          const yBot = -halfH + bottomH*0.5 - SEAM_EPS*0.5;
-          addSeg(x, yBot, line, bottomH + SEAM_EPS, true);
+        if (isOuterCol(i)) {
+          // Línea ENTERA cálida (está dentro del marco)
+          addSeg(x, 0, line, panelH, /*warm*/true);
+        } else {
+          // Línea de INTERIOR: segmentada caliente/fría/caliente
+          if (Ty > 0){
+            const yTop =  halfH - topH*0.5 + SEAM_EPS*0.5;
+            addSeg(x, yTop, line, topH + SEAM_EPS, /*warm*/true);
+          }
+          if (midH > 0){
+            addSeg(x, 0, line, Math.max(0, midH - SEAM_EPS*2), /*warm?*/false);
+          }
+          if (By > 0){
+            const yBot = -halfH + bottomH*0.5 - SEAM_EPS*0.5;
+            addSeg(x, yBot, line, bottomH + SEAM_EPS, /*warm*/true);
+          }
         }
       }
 
@@ -1372,19 +1381,22 @@ function initSkySphere() {
       for (let j = 0; j <= tilesY; j++){
         const y = -halfH + j*(panelH/tilesY);
 
-        // tramo izquierdo (cálido) — SOLO hacia fuera (+EPS a la izquierda)
-        if (Lx > 0){
-          const xL = -halfW + leftW*0.5 - SEAM_EPS*0.5;
-          addSeg(xL, y, leftW + SEAM_EPS, line, true);
-        }
-        // tramo central (frío) — SIN overshoot
-        if (midW > 0){
-          addSeg(0, y, Math.max(0, midW - SEAM_EPS*2), line, false);
-        }
-        // tramo derecho (cálido) — SOLO hacia fuera (+EPS a la derecha)
-        if (Rx > 0){
-          const xR =  halfW - rightW*0.5 + SEAM_EPS*0.5;
-          addSeg(xR, y, rightW + SEAM_EPS, line, true);
+        if (isOuterRow(j)) {
+          // Línea ENTREGAMENTE cálida (está dentro del marco)
+          addSeg(0, y, panelW, line, /*warm*/true);
+        } else {
+          // Línea de INTERIOR: segmentada caliente/fría/caliente
+          if (Lx > 0){
+            const xL = -halfW + leftW*0.5 - SEAM_EPS*0.5;
+            addSeg(xL, y, leftW + SEAM_EPS, line, /*warm*/true);
+          }
+          if (midW > 0){
+            addSeg(0, y, Math.max(0, midW - SEAM_EPS*2), line, /*warm?*/false);
+          }
+          if (Rx > 0){
+            const xR =  halfW - rightW*0.5 + SEAM_EPS*0.5;
+            addSeg(xR, y, rightW + SEAM_EPS, line, /*warm*/true);
+          }
         }
       }
     }
