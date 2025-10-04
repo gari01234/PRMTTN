@@ -1291,11 +1291,23 @@ function initSkySphere() {
       const halfW  = panelW * 0.5;
       const halfH  = panelH * 0.5;
 
-      const Lx = frameCols?.L|0, Rx = frameCols?.R|0;
-      const Ty = frameRows?.T|0, By = frameRows?.B|0;
+      // nº de columnas/filas de marco por lado (aseguramos enteros y rango)
+      const Lx = Math.max(0, Math.min(tilesX, (frameCols?.L|0)));
+      const Rx = Math.max(0, Math.min(tilesX, (frameCols?.R|0)));
+      const Ty = Math.max(0, Math.min(tilesY, (frameRows?.T|0)));
+      const By = Math.max(0, Math.min(tilesY, (frameRows?.B|0)));
 
-      const isOuterCol = (i) => (i <= Lx) || (i >= tilesX - Rx);
-      const isOuterRow = (j) => (j <= By) || (j >= tilesY - Ty);
+      /*
+       * Clasificación CORRECTA por índices de líneas:
+       *   - Verticales i = 0..tilesX   (delimitan tilesX columnas)
+       *   - Horizontales j = 0..tilesY  (delimitan tilesY filas)
+       *
+       * El marco ocupa Lx/Rx columnas y By/Ty filas por lado.
+       * Las 4 líneas de interfaz (i==Lx, i==tilesX-Rx, j==By, j==tilesY-Ty)
+       * PERTENECEN AL INTERIOR (frío) → por eso usamos < y > (NO ≤ ni ≥).
+       */
+      const isOuterCol = (i) => (i < Lx) || (i > tilesX - Rx);
+      const isOuterRow = (j) => (j < By) || (j > tilesY - Ty);
 
       function place(x, y, isVertical, isOuter){
         const geo  = isVertical
