@@ -1267,8 +1267,8 @@ function initSkySphere() {
     /* helpers HSV existen: rgbToHsv / hsvToRgb */
 
     /* Panel de líneas de “root rectangles”.
-       Dibuja verticales/horizontales y marca cada línea como marco/interior
-       según frameCols/Rows exactos por lado. */
+       Dibuja verticales/horizontales y, para evitar “sangrados” entre zonas,
+       SEGMENTA cada línea en 3 tramos (cálido/ frío /cálido) según el marco. */
     function addRootRaster({
       center, widthTile, heightTile, tilesX, tilesY, line, join, nz, lcht, zSlot,
       frameCols, frameRows,
@@ -1291,46 +1291,35 @@ function initSkySphere() {
       const halfW  = panelW * 0.5;
       const halfH  = panelH * 0.5;
 
-      // nº de columnas/filas de marco por lado (aseguramos enteros y rango)
+      // nº de columnas/filas de marco por lado (enteros y acotados)
       const Lx = Math.max(0, Math.min(tilesX, (frameCols?.L|0)));
       const Rx = Math.max(0, Math.min(tilesX, (frameCols?.R|0)));
       const Ty = Math.max(0, Math.min(tilesY, (frameRows?.T|0)));
       const By = Math.max(0, Math.min(tilesY, (frameRows?.B|0)));
 
-      /*
-       * Clasificación CORRECTA por índices de líneas:
-       *   - Verticales i = 0..tilesX   (delimitan tilesX columnas)
-       *   - Horizontales j = 0..tilesY  (delimitan tilesY filas)
-       *
-       * El marco ocupa Lx/Rx columnas y By/Ty filas por lado.
-       * Las 4 líneas de interfaz (i==Lx, i==tilesX-Rx, j==By, j==tilesY-Ty)
-       * PERTENECEN AL INTERIOR (frío) → por eso usamos < y > (NO ≤ ni ≥).
-       */
-      const isOuterCol = (i) => (i < Lx) || (i > tilesX - Rx);
-      const isOuterRow = (j) => (j < By) || (j > tilesY - Ty);
-
-      function place(x, y, isVertical, isOuter){
-        const geo  = isVertical
-          ? new THREE.BoxGeometry(line, panelH + join, line)
-          : new THREE.BoxGeometry(panelW + join, line, line);
-
-        // color base por zona
-        const c  = (isOuter ? tonePair.warm : tonePair.cool).clone();
-        const hsv = isOuter ? tonePair.warmHSV : tonePair.coolHSV;
-
-        const mat = baseMat.clone();
-        mat.color = c.clone();
-        mat.emissive = c.clone();
+      // ————— helpers ——————————————————————————————————————————————
+      function makeMat(isOuter){
+        const base = isOuter ? tonePair.warm : tonePair.cool;
+        const mat  = baseMat.clone();
+        mat.color = base.clone();
+        mat.emissive = base.clone();
         mat.emissiveIntensity = LCHT_BASE_EI;
-
-        const mesh = new THREE.Mesh(geo, mat);
+        return mat;
+      }
+      function addSeg(x, y, w, h, isOuter){
+        const geo  = new THREE.BoxGeometry(
+          Math.max(1e-6, w + (w>0 ? join : 0)),
+          Math.max(1e-6, h + (h>0 ? join : 0)),
+          line
+        );
+        const mesh = new THREE.Mesh(geo, makeMat(isOuter));
         mesh.position.set(center.x + x, center.y + y, center.z);
         if (nz < 0) mesh.rotateY(Math.PI);
-
+        const hsv = isOuter ? tonePair.warmHSV : tonePair.coolHSV;
         mesh.userData = {
           lcht,
           baseHsv: hsv,
-          baseRGB: [c.r, c.g, c.b],
+          baseRGB: [mesh.material.color.r, mesh.material.color.g, mesh.material.color.b],
           baseEI : LCHT_BASE_EI,
           zSlot,
           isOuter
@@ -1339,15 +1328,53 @@ function initSkySphere() {
         lichtGroup.add(mesh);
       }
 
-      // Verticales
+      // Anchos/altos de las zonas (en unidades de mundo)
+      const topH    = Ty * heightTile;
+      const bottomH = By * heightTile;
+      const midH    = Math.max(0, panelH - topH - bottomH);
+
+      const leftW   = Lx * widthTile;
+      const rightW  = Rx * widthTile;
+      const midW    = Math.max(0, panelW - leftW - rightW);
+
+      // ————— VERTICALES (i = 0..tilesX) ————————————————————————
       for (let i = 0; i <= tilesX; i++){
         const x = -halfW + i*(panelW/tilesX);
-        place(x, 0, true, isOuterCol(i));
+
+        // tramo superior (cálido) — solo si Ty>0
+        if (Ty > 0){
+          const yTop =  halfH - topH*0.5;
+          addSeg(x, yTop, line, topH, /*warm*/true);
+        }
+        // tramo central (frío) — solo si hay zona interior
+        if (midH > 0){
+          addSeg(x, 0, line, midH, /*warm?*/false);
+        }
+        // tramo inferior (cálido) — solo si By>0
+        if (By > 0){
+          const yBot = -halfH + bottomH*0.5;
+          addSeg(x, yBot, line, bottomH, /*warm*/true);
+        }
       }
-      // Horizontales
+
+      // ————— HORIZONTALES (j = 0..tilesY) ———————————————————————
       for (let j = 0; j <= tilesY; j++){
         const y = -halfH + j*(panelH/tilesY);
-        place(0, y, false, isOuterRow(j));
+
+        // tramo izquierdo (cálido)
+        if (Lx > 0){
+          const xL = -halfW + leftW*0.5;
+          addSeg(xL, y, leftW, line, /*warm*/true);
+        }
+        // tramo central (frío)
+        if (midW > 0){
+          addSeg(0, y, midW, line, /*warm?*/false);
+        }
+        // tramo derecho (cálido)
+        if (Rx > 0){
+          const xR =  halfW - rightW*0.5;
+          addSeg(xR, y, rightW, line, /*warm*/true);
+        }
       }
     }
 
