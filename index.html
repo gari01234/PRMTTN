@@ -72,22 +72,12 @@
   #exportEmbedButton    { position:fixed; right:10px; bottom:170px;  }   /* Save JSON */
   #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
   #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
-#randomConfigButton   { position:fixed; left:10px; bottom:130px;  }   /* BUILD  */
    #certButton           { position:fixed; right:10px; bottom:30px; }   /* Edition Certificate */
-  /* === FRBN toggle === */
-#frbnWrap { position:fixed; left:10px; bottom:90px; z-index:260; }
-#frbnButton { position:relative; }  /* dentro del wrap */
-#frbnInfoButton{
-  position:absolute; top:-6px; right:-6px;
-  padding:2px 6px; font-size:10px; opacity:.9;
-  background:rgba(255,255,255,0.2);
-}
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
   /* Ocultar los no usados */
-  #btnDebugColors,
-  #triadicConfigButton{
+  #btnDebugColors{
     display:none !important;
   }
 
@@ -192,26 +182,6 @@
   }
   #infoPanel section{ margin-bottom:18px; }
   #infoPanel hr{ border:none; border-top:1px dashed #aaa; margin:18px 0; }
-  /* === LCHT toggle === */
-  #lchtWrap  { position:fixed; left:10px; bottom:50px; z-index:260; }
-  #lchtButton{ position:relative; }
-
-  /* === OFFNNG toggle === */
-  #offnngButton{
-    position:fixed; left:10px; bottom:290px;   /* 40 px por encima de PLAY (170) */
-    z-index:260;
-  }
-
-  #tmslButton{
-    position:fixed; left:10px; bottom:330px;   /* mismo look & feel */
-    z-index:260;
-    border:none; border-radius:4px;
-    padding:8px 12px; font-size:12px;
-    background:rgba(255,255,255,0.12);
-    cursor:none; transition:background .2s;
-  }
-  #tmslButton:hover{ background:rgba(255,255,255,0.20); }
-
   /* === ENGINE MENU (reemplaza botones sueltos) === */
   #engineSelectWrap {
     position: fixed;
@@ -413,9 +383,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
 
       // Pattern
       if (typeof config.pattern === 'number') {
-        activePatternId = config.pattern;
+        const p = Math.floor(config.pattern);
+        activePatternId = (p >= 1 && p <= 11) ? p : 1;
         const selPattern = document.getElementById('patternSelect');
-        if (selPattern) selPattern.value = String(config.pattern);
+        if (selPattern) selPattern.value = String(activePatternId);
       }
 
       // Manual colors
@@ -471,10 +442,9 @@ document.getElementById('json-upload').addEventListener('change', function(event
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
     let cubeUniverse, permutationGroup;
-    const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
+    const cubeSize = 30, halfCube = cubeSize/2;
 
-    const EPS = 1e-6;
-    let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
+    let isPaused = false, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
     let paletteRGB = [];
@@ -484,13 +454,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
     /* variables globales para fondo y paredes */
     let bgHSV = {h:0,s:0,v:1};
     let wallHSV = {h:0,s:0,v:1};
-    let  currentHarmony = 'triad';
     let activePatternId = 1;           // arranca en Contención
-      const ΔE_MIN = 20;
 
       // >>> NUEVO:
       let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
-      let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
 
       /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
@@ -561,9 +528,6 @@ function restoreBuildView(){
       __buildBoostPrev.pr = null; __buildBoostPrev.exp = null;
     }
 
-    const GOLD = 137.50776405003785;      // ángulo áureo
-    /*  razón áurea al cuadrado  ≈ 2.618…  */
-    const PHI2 = 2.618033988749895;
     /* ——— salto coprimo con 144: barre los 144 valores de H ——— */
     const PHI_H = 89;             // 89 ≡ 144 / φ  (gcd 89,144 = 1)
     /* ——— saltos coprimos para los 12 niveles de S y V ——— */
@@ -586,23 +550,6 @@ function restoreBuildView(){
       };
     }
 
-    /* ═════════ COLOR-FIELD 144 × 12 × 12  ═════════════════════════════ */
-    /* Devuelve el color del «voxel HSV» que ocupa la posición p (mundo) */
-    function colorFromVolume(p){
-      const HALF = cubeSize / 2;          // ±15  (cubo 30×30×30 ya existe)
-      const HX = 144, HY = 12, HZ = 12;   // rejilla 20 736 colores
-
-      /* índices enteros en cada eje, envueltos al rango válido */
-      const ix = ((Math.floor((p.x + HALF) / cubeSize * HX) % HX) + HX) % HX;
-      const iy = ((Math.floor((p.y + HALF) / cubeSize * HY) % HY) + HY) % HY;
-      const iz = ((Math.floor((p.z + HALF) / cubeSize * HZ) % HZ) + HZ) % HZ;
-
-      /* HSV determinista → RGB → THREE.Color */
-      const {h,s,v} = idxToHSV(ix, iy, iz);
-      const [R,G,B] = hsvToRgb(h, s, v);
-      return new THREE.Color(R/255, G/255, B/255);
-    }
-
     /* Normaliza cualquier hue a rango [0 … 360) */
     function normHue(deg){
       return ((deg % 360) + 360) % 360;
@@ -615,9 +562,6 @@ function restoreBuildView(){
        — NO altera funciones globales ni motores.
        — Determinismo: usa (patternId, slot, seed, sceneSeed, S_global).
        ════════════════════════════════════════════════════════════════ */
-
-    const _SC_PI   = Math.PI;
-    const _SC_TAU  = Math.PI * 2.0;
 
     /* Índices → valores de tu rejilla HSV */
     function _sc_idxToH(hIdx){ return (hIdx % 144) * 2.5; }         // grados
@@ -843,16 +787,6 @@ const PATTERNS = {
   }
 };
 
-/* ---------- BLOQUE DE UTILIDADES COLOR v1.3-RC2 ---------- */
-const ANG7 = [
-  [0,0,0,0,0,0,0],                         // monocromo (idx 0)
-  [0,30,60,90,120,150,180],                // análoga
-  [0,180,0,180,0,180,0],                   // complementaria
-  [0,150,210,0,150,210,0],                 // comp. dividida
-  [0,120,240,60,180,300,30],               // tríada
-  [0,90,180,270,45,135,225],               // cuadrado
-  [0,0,0,0,0,0,0]                          // “tonos” (misma H, S escalado)
-];
 function rgbToHsv(r,g,b){
   r/=255; g/=255; b/=255;
   const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
@@ -965,25 +899,6 @@ function rebuildSceneColours(){
 
 /* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
 // 1)  f̂  de un glifo  →  promedio firma, llevada a [0-1]
-function normFhat(sig){           // sig = [f1…f5] entre 2 y 10
-  const avg = sig.reduce((a,b)=>a+b,0)/sig.length;   // 2 … 10
-  return (avg-2)/8;                                  // 0 … 1
-}
-
-// 2)  pinza a [0,1]
-function clamp01(x){ return Math.max(0, Math.min(1,x)); }
-
-/* ———————————————————————————————————————————————— *
- * Devuelve el valor de una propiedad que puede ser:
- *   · número → se usa tal cual
- *   · función → se evalúa con los argumentos dados
- * fallback se usa si la propiedad es null/undefined.
- * ———————————————————————————————————————————————— */
-function evalProp(prop, args = [], fallback = 0){
-  return (typeof prop === 'function') ? prop(...args) :
-         (prop ?? fallback);
-}
-
 /* contrast-fix eliminado: función ensureContrast() suprimida */
     const minRangeValue = 2, maxRangeValue = 6;
     const shapeMapping = {
@@ -994,26 +909,8 @@ function evalProp(prop, args = [], fallback = 0){
       5:{w:4.5,h:4.5*Math.sqrt(5)}
     };
 
-    function sumXYZ(pa,map){
-      return pa[ map[2] ] + pa[ map[3] ] + pa[ map[4] ];
-    }
-
     function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
     function mapRangeToSpeed(r,mn,mx){return 0.001 + (r-mn)*(0.005-0.001)/(mx-mn);}
-    /* === BUILD → paso angular por frame para una permutación (permStr "1,2,3,4,5") === */
-    function getBuildRotStep(permStr){
-      try{
-        if (!permutationGroup || !permutationGroup.children || !permStr) return 0;
-        for (let i = 0; i < permutationGroup.children.length; i++){
-          const m = permutationGroup.children[i];
-          if (m && m.userData && m.userData.permStr === permStr){
-            const s = m.userData.rotationSpeed;
-            return (typeof s === 'number') ? s : 0;   // Δθ por frame (mismo que BUILD)
-          }
-        }
-      }catch(_){ }
-      return 0;
-    }
     function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
     function getPermutations(arr){
@@ -1122,33 +1019,23 @@ function evalProp(prop, args = [], fallback = 0){
                   .map(o => o.value.split(',').map(Number));
     }
     function setActivePattern(id){
-      activePatternId = parseInt(id,10);
+      const p = parseInt(id, 10);
+      activePatternId = (p >= 1 && p <= 11) ? p : 1;
       refreshAll({rebuild:false});
     }
     function updateTopRightDisplay(){
-      const cfg=`Atributos: [${attributeMapping.slice(0,5).join(',')}]`;
-      const rt =`Calificación: ${userRating?userRating:'Aún no calificada'}`;
-      let info='';
-      Array.from(document.getElementById('permutationList').selectedOptions).forEach(o=>{
-        const pa=o.value.split(',').map(Number),
-              sig=computeSignature(pa),
-              rg=computeRange(sig);
-        info+=`<div style="margin:2px 0;">Perm (${o.value}) | Firma [${sig.join(', ')}] | Rango ${rg}</div>`;
-      });
-      document.getElementById('topRightDisplay').innerHTML = cfg+'<br>'+rt+'<br>'+info;
+      // HUD desactivado (topRightDisplay está oculto por CSS)
     }
 
     function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map[0]], cv=pa[map[1]],
+      const fv=pa[map[0]],
             d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
 
       // --- COLOR determinista (cuadrícula HSV) ---
       let rgb;
-      if(activePatternId === 0){
-        rgb = paletteRGB[cv-1] || [255,255,255];
-      }else{
+      {
         const sig  = computeSignature(pa);
-        const slot = lehmerRank(pa) % 12;      // 0-11
+        const slot = lehmerRank(pa) % 12; // 0..11
         let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
         sI = (sI * PHI_S) % 12;
         vI = (vI * PHI_V) % 12;
@@ -1585,81 +1472,16 @@ function saveImage(){
 }
 
 
-    /* Paleta v1.3 — se recalcula siempre que cambia la escena            *
-     * 1. Semilla RGB = suma ponderada de posiciones y P1-P3 (firma).    *
-     * 2. Selección de armonía idx = (R+2G+3B) mod 7                     */
-function thirtyFive(){return 35;}
-
-function makeClassicPalette(){
-      /* --- 1. Semilla RGBglobal --- */
-      let Rg=0,Gg=0,Bg=0;
-      permutationGroup.children.forEach(mesh=>{
-        const pa = mesh.userData.permStr.split(',').map(Number);
-        const sig = mesh.userData.signature;            // [f1..f5]
-        const P1=pa[0], P2=pa[1], P3=pa[2];
-        const {x,y,z} = mesh.position;
-        Rg += (P1*Math.abs(x)+sig[0])|0;
-        Gg += (P2*Math.abs(y)+sig[1])|0;
-        Bg += (P3*Math.abs(z)+sig[2])|0;
-      });
-      Rg%=256; Gg%=256; Bg%=256;
-
-      /* --- 2. HSV base --- */
-      const [H0] = rgbToHsv(Rg,Gg,Bg);
-      const idx = (Rg + 2*Gg + 3*Bg) % 7;
-      const Δ = ANG7[idx];
-
-      /* --- 3. Construir 7 tonos HSV --- */
-      const HSV = [];
-      for(let k=0;k<7;k++){
-        let h = (H0 + Δ[k]) % 360,
-            s = 0.70,
-            v = 0.85;
-        if(idx===0){ v = 0.55+0.05*k; }          // monocromo
-        if(idx===2 && k>1){ v = 0.85-0.05*(k-1);} // complementario grad.
-        if(idx===3 && k>2){ s = 0.85-0.05*(k-3);} // comp.dividida grad S
-        if(idx===6){ s = 0.40+0.05*k; }           // tonos
-        HSV.push([h,s,v]);
-      }
-
-      /* --- 4. A HSV → RGB, validar contraste ∆E ≥ 22 --- */
-      paletteRGB=[];
-      for(let i=0;i<7;i++){
-        let rgb=hsvToRgb(...HSV[i]);
-        let tries=0;
-        while(i>0 &&
-              deltaE(rgbToLab(...rgb), rgbToLab(...paletteRGB[0])) <  thirtyFive() &&
-              tries<25){
-          /* si el hue es demasiado parecido => rotar 18°; si no, subir V */
-          if(Math.abs(HSV[i][0]-HSV[0][0])<20){
-            HSV[i][0] = (HSV[i][0]+18)%360;
-          }else{
-            HSV[i][2] = Math.min(1, HSV[i][2]+0.04);
-          }
-          rgb = hsvToRgb(...HSV[i]); tries++;
-        }
-      paletteRGB.push(rgb);
-      }
-    }
-
 function makePalette(){
-  /* modo legacy */
-  if (activePatternId === 0){ makeClassicPalette(); return; }
-
   paletteRGB = [];
   for(let i=0;i<12;i++){
     let [hI,sI,vI] = PATTERNS[activePatternId]([0,0,0,0,0], sceneSeed, i);
     sI = (sI * PHI_S) % 12;
     vI = (vI * PHI_V) % 12;
     const {h,s,v} = idxToHSV(hI,sI,vI);
-    paletteRGB.push( hsvToRgb(h,s,v) );
+    paletteRGB.push(hsvToRgb(h,s,v));
   }
-  // colores de fondo y paredes se calculan aparte
 }
-
-    function getColor(idx){
-      return manualOverride[idx] || paletteRGB[idx-1] || '#ffffff';
-    }
 
     function applyPalette(){
       for(let i=1;i<=5;i++){
@@ -1677,17 +1499,13 @@ function makePalette(){
         let hex;
         if(manualOverride[idx]){
           hex = manualOverride[idx];
-        }else if(activePatternId===0){
-          hex = '#'+new THREE.Color(
-                    ...paletteRGB[idx-1].map(v=>v/255)).getHexString();
         }else{
           const sig  = computeSignature(pa);
           const slot = lehmerRank(pa) % 12;
-          let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig,sceneSeed,slot);
-          /* dispersión coprima en S y V */
+          let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig, sceneSeed, slot);
           sIdx = (sIdx * PHI_S) % 12;
           vIdx = (vIdx * PHI_V) % 12;
-          const {h,s,v} = idxToHSV(hIdx,sIdx,vIdx);
+          const {h,s,v} = idxToHSV(hIdx, sIdx, vIdx);
           const rgb = hsvToRgb(h,s,v);
           hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
         }
@@ -1712,14 +1530,6 @@ function makePalette(){
           }
         });
       }
-
-/* ──────────────────────────────────────────────────────────────────────
- *  R5NOVA · pasada final (AISLADA)
- *    • Selección por AABB.min.z (más robusto)
- *    • Grosor fijo BACK_THICKNESS para toda la fila del fondo
- *    • Color propio por pieza usando secuencia dorada (sin PATTERNS/sceneSeed)
- *    • Material propio (clonado) para no ser sobreescrito por otros motores
- * ──────────────────────────────────────────────────────────────────── */
 
       function refreshAll(opts = {rebuild:false}){
   if(!opts.keepManual){
@@ -1769,11 +1579,10 @@ function updateCubeColor(manual=true){
 
     function toggleTexts(){
       const ids = [
-        'controls','topRightDisplay','ratingContainer',
-        'playButton','randomConfigButton','aiPlanningButton','saveImageButton',
+        'controls',
+        'playButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
-        'frbnWrap','lchtWrap','infoButton','certButton','offnngButton',
-        'tmslButton','engineSelectWrap','raumButton'   // ← añadidos para ocultar en Minimal UI
+        'infoButton','certButton','engineSelectWrap'
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -1806,91 +1615,6 @@ function updateCubeColor(manual=true){
       if(sel) sel.value = String(activePatternId);            // actualiza el <select>
       refreshAll({rebuild:false});
     }
-
-    function setMode(m){
-      currentMode = m;
-      const manual = document.getElementById('manualControls');
-      if (manual) manual.style.display = (m === "manual" ? "block" : "none");
-      const evo = document.getElementById('evolutionControls'); // puede no existir
-      if (evo) evo.style.display = (m === "evolution" ? "block" : "none");
-      refreshAll({rebuild:true});
-    }
-
-/**
- * Dada una firma [f1,f2,f3,f4,f5], devuelve los colores triádicos
- * { colorShape, colorCube, colorBG } en formato CSS HSL.
- */
-function computeTriadicColors(firma) {
-  // 1) Normaliza f_i ∈ {3…9} a u_i ∈ [0,1]
-  const u = firma.map(fi => (fi - 3) / 6);
-
-  // 2) Hue base mixto (60% de u[1], 10% de cada otro)
-  const phi0 = 360 * (
-    0.1 * u[0] +
-    0.6 * u[1] +
-    0.1 * u[2] +
-    0.1 * u[3] +
-    0.1 * u[4]
-  );
-
-  // 3) Triádico: +0°, +120°, +240°
-  const shapeHue =  phi0;
-  const cubeHue  = (phi0 + 120) % 360;
-  const bgHue    = (phi0 + 240) % 360;
-
-  // 4) Saturación y luminosidad fijas
-  const S = 80, L = 50;
-
-  return {
-    colorShape: `hsl(${shapeHue.toFixed(1)},${S}%,${L}%)`,
-    colorCube:  `hsl(${cubeHue.toFixed(1)},${S}%,${L}%)`,
-    colorBG:    `hsl(${bgHue.toFixed(1)},${S}%,${L}%)`
-  };
-}
-function applyTriadicConfiguration() {
-  // 1) Repite la selección aleatoria de permutaciones
-  generateRandomConfigurationNoCollision();
-
-  // 2) Ahora solo aplica los colores triádicos deterministas:
-  if (permutationGroup.children.length > 0) {
-    const baseSig = permutationGroup.children[0].userData.signature;
-    const { colorCube, colorBG } = computeTriadicColors(baseSig);
-
-    // Paredes del cubo
-    if (cubeUniverse.material?.color?.setStyle) {
-      cubeUniverse.material.color.setStyle(colorCube);
-    } else {
-      cubeUniverse.material.color = new THREE.Color(colorCube);
-    }
-
-    // Fondo
-    scene.background = new THREE.Color(colorBG);
-  }
-
-  // Cada prisma
-  permutationGroup.children.forEach(mesh => {
-    const sig = mesh.userData.signature;
-    const { colorShape } = computeTriadicColors(sig);
-    if (mesh.material?.color?.setStyle) {
-      mesh.material.color.setStyle(colorShape);
-    } else {
-      mesh.material.color = new THREE.Color(colorShape);
-    }
-  });
-}
-    document.querySelectorAll('.ratingBtn').forEach(el=>{
-      const r=+el.getAttribute('data-rating');
-      el.addEventListener('click',()=>{
-        userRating=r;
-        const cols={1:"#8B0000",2:"#FF4500",3:"#FFA500",4:"#9ACD32",5:"#008000"};
-        document.querySelectorAll('.ratingBtn').forEach((b,i)=>{
-          b.style.color=(i<r?cols[r]:"#000");
-        });
-        updateTopRightDisplay();
-      });
-      el.addEventListener('mouseenter',()=>showPopup(`Calificación: ${r}`,1000));
-    });
-
     function applyEvolution(){
       const mr=parseFloat(document.getElementById('mutationRate').value),
             th=parseFloat(document.getElementById('threshold').value),
@@ -1928,8 +1652,7 @@ Expresate con libertad. Si necesitas inspiración para la selección de colores,
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
       const useRating = false;
-      const userPrompt = `Calificación actual: ${userRating||"sin calificar"}. `
-                       + `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
+      const userPrompt = `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
 Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotaci[...]
 Elige libremente el color del fondo del universo, el color de las paredes del cubo y el color de las permutaciones.
 Recuerda: el color del fondo y de las permutaciones también son parte del pensamiento. No lo dejes al azar ni a la costumbre. No repitas el negro por inercia, no repitas colores primarios por inercia[...]
@@ -2476,7 +2199,6 @@ function renderArchPanel(html){
       populateAttributeMappingSelect();
       applyEmbedParams();
       makePalette();
-      setMode("manual");
       refreshAll({rebuild:true});
       enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
 
