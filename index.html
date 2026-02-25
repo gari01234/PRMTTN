@@ -619,16 +619,6 @@ window.Tilers = {
     <label for="engineSelect" style="display:block;margin-bottom:4px;">Engine</label>
     <select id="engineSelect" onchange="applyEngineFromSelect(this.value)">
       <option value="BUILD">BUILD</option>
-      <option value="FRBN">FRBN</option>
-      <option value="LCHT">LCHT</option>
-      <option value="OFFNNG">OFFNNG</option>
-      <option value="TMSL">TMSL</option>
-      <option value="RAUM">RAUM</option>
-      <option value="13245">13245</option>
-      <option value="KEPLR">KEPLR</option>
-      <option value="RAPHI">RAPHI</option>
-      <option value="GRVTY">GRVTY</option>
-      <option value="R5NOVA">R5NOVA</option>
     </select>
   </div>
 
@@ -9323,6 +9313,136 @@ function ensureOnlyGRVTYFromUI(){ ensureOnlyGRVTY(); updateEngineSelectUI(); }
 })();
 
 
+</script>
+
+<script>
+(function PRMTTN_BUILD_ONLY_LOCK(){
+  if (window.__PRMTTN_BUILD_ONLY_LOCK__) return;
+  window.__PRMTTN_BUILD_ONLY_LOCK__ = true;
+
+  const ARCHIVED = ['FRBN','LCHT','OFFNNG','TMSL','RAUM','13245','KEPLR','RAPHI','GRVTY','R5NOVA'];
+
+  function stateKey(id){
+    return id === 'GRVTY' ? 'isGRVTY' : ('is' + id);
+  }
+
+  function syncBuildUI(){
+    try{
+      const sel = document.getElementById('engineSelect');
+      if (sel){
+        Array.from(sel.options).forEach(function(opt){
+          if (opt.value !== 'BUILD') opt.remove();
+        });
+        if (!sel.querySelector('option[value="BUILD"]')){
+          const opt = document.createElement('option');
+          opt.value = 'BUILD';
+          opt.textContent = 'BUILD';
+          sel.appendChild(opt);
+        }
+        sel.value = 'BUILD';
+        sel.disabled = true;
+      }
+    }catch(_){}
+
+    try{
+      const btn = document.getElementById('engineCycleButton');
+      if (btn){
+        btn.disabled = true;
+        btn.style.opacity = '0.35';
+        btn.title = 'BUILD only';
+      }
+    }catch(_){}
+  }
+
+  function forceBuild(){
+    try{
+      if (typeof window.switchToBuild === 'function') window.switchToBuild();
+    }catch(_){}
+
+    try{
+      if (typeof window.refreshAll === 'function') window.refreshAll({ rebuild:true });
+    }catch(_){}
+
+    try{
+      if (typeof window.WW_applyFor === 'function') window.WW_applyFor('BUILD');
+    }catch(_){}
+
+    syncBuildUI();
+  }
+
+  window.updateEngineSelectUI = function(){
+    syncBuildUI();
+  };
+
+  window.applyEngineFromSelect = function(val){
+    forceBuild();
+    return;
+  };
+
+  window.cycleEngine = function(){
+    forceBuild();
+    return;
+  };
+
+  ARCHIVED.forEach(function(id){
+    const sKey = stateKey(id);
+
+    const toggleName   = 'toggle' + id;
+    const ensureName   = 'ensureOnly' + id;
+    const ensureUIName = ensureName + 'FromUI';
+    const buildName    = 'build' + id;
+    const rebuildName  = 'rebuild' + id + 'IfActive';
+    const wallSetter   = 'setWall_' + id;
+
+    const origToggle = window[toggleName];
+
+    if (typeof origToggle === 'function'){
+      window[toggleName] = function(){
+        let active = false;
+        try { active = !!window[sKey]; } catch(_){}
+
+        if (active){
+          try { return origToggle.apply(this, arguments); } catch(_){}
+          try { syncBuildUI(); } catch(_){}
+          return;
+        }
+
+        forceBuild();
+        return;
+      };
+    }
+
+    if (typeof window[ensureName] === 'function'){
+      window[ensureName] = function(){ forceBuild(); };
+    }
+
+    if (typeof window[ensureUIName] === 'function'){
+      window[ensureUIName] = function(){ forceBuild(); };
+    }
+
+    if (typeof window[buildName] === 'function'){
+      window[buildName] = function(){ forceBuild(); };
+    }
+
+    if (typeof window[rebuildName] === 'function'){
+      window[rebuildName] = function(){ return; };
+    }
+
+    if (typeof window[wallSetter] === 'function'){
+      window[wallSetter] = function(){
+        try{
+          if (typeof window.WW_applyFor === 'function') window.WW_applyFor('BUILD');
+        }catch(_){}
+      };
+    }
+  });
+
+  setTimeout(forceBuild, 0);
+  if (typeof requestAnimationFrame === 'function'){
+    requestAnimationFrame(forceBuild);
+  }
+  forceBuild();
+})();
 </script>
 
 </body>
