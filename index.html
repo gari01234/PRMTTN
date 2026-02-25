@@ -528,373 +528,203 @@ function restoreBuildView(){
       __buildBoostPrev.pr = null; __buildBoostPrev.exp = null;
     }
 
-    /* ——— salto coprimo con 144: barre los 144 valores de H ——— */
-    const PHI_H = 89;             // 89 ≡ 144 / φ  (gcd 89,144 = 1)
-    /* ——— saltos coprimos para los 12 niveles de S y V ——— */
-    const PHI_S = 5;              // gcd(5,12) = 1
-    const PHI_V = 7;              // gcd(7,12) = 1
+    /* ════════════════════════════════════════════════
+   CHROMA ENGINE v2 · hash → HSV lattice 144×12×12
+   - determinismo absoluto
+   - sin conditioner / sin contraste / sin vibrance / sin emissive
+   - patrones 1..11 = llaves enteras de mezcla
+   ════════════════════════════════════════════════ */
 
-    /* ═════════ CUADRÍCULA HSV 144·12·12 ═══════════════════════════════════ */
-    const H_STEPS  = 144;                               // 360° / 2.5°
-    const S_LEVELS = [...Array(12)].map((_,i)=>0.25 + 0.72*i/11); // 0.25 – 0.97
-    const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + 0.75*i/11); // 0.20 – 0.95
+/* ═════════ CUADRÍCULA HSV 144·12·12 ═════════ */
+const H_STEPS  = 144;                                   // 360° / 2.5°
+const S_LEVELS = [...Array(12)].map((_,i)=>0.25 + 0.72*i/11); // 0.25 – 0.97
+const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + 0.75*i/11); // 0.20 – 0.95
+const HSV_TOTAL   = H_STEPS * 12 * 12;                  // 20 736
+const HSV_S_STRIDE = H_STEPS;                           // 144
+const HSV_V_STRIDE = H_STEPS * 12;                      // 1 728
 
-    /* ——— Discretización canónica para FRBN (catálogo de fases) ——— */
-
-    function idxToHSV(hIdx,sIdx,vIdx){
-      const h = ((hIdx%H_STEPS)+H_STEPS) % H_STEPS;      // 0-143
-      return {
-        h: h * 360 / H_STEPS,                            // 0-359.5 °
-        s: S_LEVELS[ ((sIdx%12)+12)%12 ],
-        v: V_LEVELS[ ((vIdx%12)+12)%12 ]
-      };
-    }
-
-    /* Normaliza cualquier hue a rango [0 … 360) */
-    function normHue(deg){
-      return ((deg % 360) + 360) % 360;
-    }
-
-    /* ════════════════════════════════════════════════════════════════
-       COLOR CONDITIONER · por patrón (local, determinista, sin hooks)
-       — Trabaja en el espacio de ÍNDICES (H_idx, S_idx, V_idx)
-       — Mantiene tu discretización original: H:144, S:12, V:12
-       — NO altera funciones globales ni motores.
-       — Determinismo: usa (patternId, slot, seed, sceneSeed, S_global).
-       ════════════════════════════════════════════════════════════════ */
-
-    /* Índices → valores de tu rejilla HSV */
-    function _sc_idxToH(hIdx){ return (hIdx % 144) * 2.5; }         // grados
-    function _sc_idxToS(sIdx){ return 0.25 + 0.72 * ( (sIdx%12) / 11 ); }
-    function _sc_idxToV(vIdx){ return 0.20 + 0.75 * ( (vIdx%12) / 11 ); }
-
-    /* Valores → índices de tu rejilla HSV (con clamp) */
-    function _sc_HtoIdx(Hdeg){
-      let h = Hdeg % 360; if (h < 0) h += 360;
-      return Math.round(h / 2.5) % 144;
-    }
-    function _sc_StoIdx(S){
-      const x = (S - 0.25) / 0.72;                // 0..1 ideal
-      return Math.max(0, Math.min(11, Math.round(x * 11)));
-    }
-    function _sc_VtoIdx(V){
-      const x = (V - 0.20) / 0.75;                // 0..1 ideal
-      return Math.max(0, Math.min(11, Math.round(x * 11)));
-    }
-
-    /* HSV → RGB (para ajuste suave de luminancia) */
-    function _sc_hsv2rgb(Hdeg, S, V){
-      const h = ( (Hdeg % 360) + 360 ) % 360 / 60.0;
-      const c = V * S;
-      const x = c * (1 - Math.abs((h % 2) - 1));
-      const m = V - c;
-      let r=0,g=0,b=0;
-      if      (h < 1){ r=c; g=x; b=0; }
-      else if (h < 2){ r=x; g=c; b=0; }
-      else if (h < 3){ r=0; g=c; b=x; }
-      else if (h < 4){ r=0; g=x; b=c; }
-      else if (h < 5){ r=x; g=0; b=c; }
-      else           { r=c; g=0; b=x; }
-      return [r+m, g+m, b+m];
-    }
-
-    /* Luma (Rec.709) */
-    function _sc_lumaRGB(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
-
-    /* Envuelve diferencia angular en [-180, +180] */
-    function _sc_angDiff(a, b){
-      let d = (a - b) % 360; if (d < -180) d += 360; if (d > 180) d -= 360; return d;
-    }
-
-    /* Semilla determinista suave (0..1) desde escena + patrón + slot */
-    function _sc_hash01(patternId, slot, seed){
-      const sceneSeedVal = (typeof sceneSeed !== 'undefined') ? (sceneSeed|0) : 0;
-      const SGlobalVal = (typeof S_global !== 'undefined') ? (S_global|0) : 0;
-      const a = sceneSeedVal, b = SGlobalVal;
-      let x = ( (a*73856093) ^ (b*19349663) ^ (patternId*83492791) ^ (slot*2971215073) ^ (seed*1664525) ) >>> 0;
-      // LCG un paso
-      x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
-      return (x & 0xFFFFFF) / 0xFFFFFF; // 0..1
-    }
-
-    /* Tabla de “intenciones” por patrón (resumen de tu teoría)
-       spanH:   compresión/expansión del abanico angular (1=sin cambio)
-       sMean/vMean: medias objetivo
-       sTight/vTight: 0..1 (0 = no mover, 1 = llevar a la media)
-       luma:   luminancia objetivo (0..1, ajuste leve)
-       mode:   estrategia de separación (none | altHiLo | jitter | narrow)
-    */
-    const _SC_POLICY = {
-      1:  { spanH:0.75, sMean:0.62, vMean:0.78, sTight:0.35, vTight:0.35, luma:0.68, mode:'narrow' },        // Contención estructural
-      2:  { spanH:1.40, sMean:0.70, vMean:0.72, sTight:0.15, vTight:0.10, luma:0.64, mode:'altHiLo' },       // Contraste & Disonancia
-      3:  { spanH:1.00, sMean:0.55, vMean:0.72, sTight:0.30, vTight:0.30, luma:0.66, mode:'none' },          // Disposición no semántica
-      4:  { spanH:0.85, sMean:0.58, vMean:0.74, sTight:0.30, vTight:0.30, luma:0.67, mode:'jitter' },        // Ambigüedad estructurada
-      5:  { spanH:0.60, sMean:0.52, vMean:0.76, sTight:0.45, vTight:0.35, luma:0.68, mode:'narrow' },        // Campo sin centro
-      6:  { spanH:1.10, sMean:0.64, vMean:0.80, sTight:0.25, vTight:0.25, luma:0.70, mode:'none' },          // Presencia autosuficiente
-      7:  { spanH:0.95, sMean:0.60, vMean:0.76, sTight:0.25, vTight:0.25, luma:0.68, mode:'altHiLo' },       // Asimetría asociativa
-      8:  { spanH:1.20, sMean:0.66, vMean:0.78, sTight:0.20, vTight:0.25, luma:0.69, mode:'jitter' },        // Dinámica irregular
-      9:  { spanH:0.80, sMean:0.56, vMean:0.74, sTight:0.35, vTight:0.30, luma:0.67, mode:'narrow' },        // Habitable sin traducción
-      10: { spanH:0.90, sMean:0.60, vMean:0.78, sTight:0.25, vTight:0.30, luma:0.69, mode:'jitter' },        // Resonancia
-      11: { spanH:0.95, sMean:0.48, vMean:0.86, sTight:0.40, vTight:0.30, luma:0.75, mode:'none' }           // Transparencia activa
-    };
-
-    /* Acondicionador principal: recibe índices crudos del patrón y devuelve
-       NUEVOS índices (H_idx, S_idx, V_idx) ya ajustados al patrón. */
-    function conditionHSV(hIdx, sIdx, vIdx, patternId, slot, seed){
-      const pol = _SC_POLICY[patternId] || _SC_POLICY[1];
-
-      // 1) Índices → valores
-      let H = _sc_idxToH(hIdx);   // grados
-      let S = _sc_idxToS(sIdx);
-      let V = _sc_idxToV(vIdx);
-
-      // 2) Ancla y span de H (determinista por escena / patrón / slot)
-      const sceneSeedVal = (typeof sceneSeed !== 'undefined') ? (sceneSeed|0) : 0;
-      const SGlobalVal = (typeof S_global !== 'undefined') ? (S_global|0) : 0;
-      const baseAnchor = ((37*sceneSeedVal + 53*SGlobalVal + 11*patternId + 7*(slot|0)) % 144) * 2.5; // deg
-      const d = _sc_angDiff(H, baseAnchor);            // [-180,180]
-      H = baseAnchor + d * pol.spanH;
-
-      // 3) Ajuste de S/V hacia medias (mezcla controlada)
-      S = S + (pol.sMean - S) * pol.sTight;
-      V = V + (pol.vMean - V) * pol.vTight;
-
-      // 4) Separación/variación determinista por “modo”
-      const r = _sc_hash01(patternId, slot, seed) - 0.5;   // [-0.5,0.5]
-      if (pol.mode === 'altHiLo'){
-        const sign = (slot % 2 === 0) ? +1 : -1;
-        S = Math.max(0.25, Math.min(0.97, S + sign * (0.08 + 0.04*r)));
-        V = Math.max(0.20, Math.min(0.98, V + sign * (0.05 + 0.03*r)));
-        // empujón extra en H para ΔH grande
-        H += sign * (18 + 8*r); // grados
-      }else if (pol.mode === 'jitter'){
-        // irregularidad leve, sin crear foco
-        H += (8 * r);
-        S = Math.max(0.25, Math.min(0.97, S + 0.04*r));
-        V = Math.max(0.20, Math.min(0.98, V + 0.03*r));
-      }else if (pol.mode === 'narrow'){
-        // span ya lo hace; micro-variación para evitar coincidencias exactas
-        H += (4 * r);
-      }
-
-      // 5) Luma objetivo (ajuste MUY leve sobre V manteniendo S/H)
-      //    — calculamos luma actual y acercamos a pol.luma
-      {
-        const [rC,gC,bC] = _sc_hsv2rgb(H, Math.max(0,Math.min(1,S)), Math.max(0,Math.min(1,V)));
-        const Y = _sc_lumaRGB(rC, gC, bC);
-        const dY = pol.luma - Y;
-        // ganancia pequeña para no “romper” la paleta (máx ±0.06 aprox)
-        V = Math.max(0.20, Math.min(0.98, V + 0.20 * dY));
-      }
-
-      // 6) Volver a ÍNDICES (clamp a tu rejilla discreta)
-      const Hn = _sc_HtoIdx(H);
-      const Sn = _sc_StoIdx(S);
-      const Vn = _sc_VtoIdx(V);
-      return [Hn, Sn, Vn];
-    }
-
-
-    /* ═════════ 11 patrones cromáticos — versión PHI_H (89) + acondicionador local ═════════ */
-const PATTERNS = {
-  1: (sig, seed, i) => {
-    const base = (sig.reduce((a,v)=>a+v,0) + seed*7) % 144;
-    const hIdx = (base + (i%12)*6) % 144;
-    const sIdx = (sig[3] + seed + i) % 12;
-    const vIdx = (sig[1] + sig[4] + i) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 1, i, seed);
-  },
-
-  2: (sig, seed, i) => {
-    const base = (sig[0]*17 + seed*5) % 144;
-    const hIdx = (base + ((i%12)*48)) % 144;
-    const sIdx = (sig[1] + i*3 + seed) % 12;
-    const vIdx = (sig[2]*2 + i + seed) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 2, i, seed);
-  },
-
-  3: (s,seed,i) => {
-    const b = (s[2]*13 + seed*5 + i*11) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[0] + i*2 + seed) % 12;
-    const vIdx = (s[1] + s[3] + i)   % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 3, i, seed);
-  },
-
-  4: (s,seed,i) => {
-    const b = (s[1]*15 + seed*3 + i*7) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[0] + seed + i) % 12;
-    const vIdx = (s[2] + s[4] + seed + i) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 4, i, seed);
-  },
-
-  5: (s,seed,i) => {
-    const b = (i*31 + s[3]*13 + seed*5) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[1] + seed + i) % 12;
-    const vIdx = (s[2] + seed + i) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 5, i, seed);
-  },
-
-  6: (s,seed,i) => {
-    const b = (s[1]*31 + seed*13 + i*7) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[2] + seed + i) % 12;
-    const vIdx = (s[3] + s[4] + seed + i) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 6, i, seed);
-  },
-
-  7: (s,seed,i) => {
-    const b = (s[0]*11 + seed*3 + i*37) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[2] + seed + i*2) % 12;
-    const vIdx = (s[4] + s[1]*2 + seed + i) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 7, i, seed);
-  },
-
-  8: (s,seed,i) => {
-    const r = Math.abs(s[4]-s[0]) + Math.abs(s[3]-s[1]) + s[2];
-    const b = (r*13 + seed*7) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[1]*3 + seed + i*2) % 12;
-    const vIdx = (s[3] + i*5 + seed*3) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 8, i, seed);
-  },
-
-  9: (s,seed,i) => {
-    const b = (s[4]*12 + seed*7 + i*11) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[2] + seed + i) % 12;
-    const vIdx = (s[1] + seed + i*2) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 9, i, seed);
-  },
-
- 10: (s,seed,i) => {
-    const b = (seed*5 + s.reduce((a,v)=>a+v,0)*3 + i*7) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[2] + seed + i) % 12;
-    const vIdx = (s[4]*2 + seed + i*3) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 10, i, seed);
-  },
-
- 11: (s,seed,i) => {
-    const b = (s[3]*13 + seed*11 + i*7) % 144;
-    const hIdx = (b + i*PHI_H) % 144;
-    const sIdx = (s[0] + seed + i)   % 12;
-    const vIdx = (s[1] + seed + i*2) % 12;
-    return conditionHSV(hIdx, sIdx, vIdx, 11, i, seed);
-  }
-};
-
-function rgbToHsv(r,g,b){
-  r/=255; g/=255; b/=255;
-  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
-  let h=0;
-  if(d){
-    if(max===r) h=((g-b)/d)%6;
-    else if(max===g) h=(b-r)/d+2;
-    else h=(r-g)/d+4;
-    h*=60; if(h<0) h+=360;
-  }
-  const s=max?d/max:0, v=max;
-  return [h,s,v];
+function idxToHSV(hIdx,sIdx,vIdx){
+  const h = ((hIdx%H_STEPS)+H_STEPS) % H_STEPS;      // 0-143
+  return {
+    h: h * 360 / H_STEPS,                            // 0-359.5 °
+    s: S_LEVELS[ ((sIdx%12)+12)%12 ],
+    v: V_LEVELS[ ((vIdx%12)+12)%12 ]
+  };
 }
+
+/* Normaliza cualquier hue a rango [0 … 360) */
+function normHue(deg){
+  return ((deg % 360) + 360) % 360;
+}
+
+/* HSV → RGB */
 function hsvToRgb(h,s,v){
-  h = h % 360;
+  h = ((h % 360) + 360) % 360;
   const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
-  let [r,g,b]=[0,0,0];
-  if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;}
-  else if(h<180){g=c;b=x;} else if(h<240){g=x;b=c;}
-  else if(h<300){r=x;b=c;} else {r=c;b=x;}
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}
+  else if(h<120){r=x;g=c;}
+  else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}
+  else if(h<300){r=x;b=c;}
+  else {r=c;b=x;}
   return [(r+m)*255,(g+m)*255,(b+m)*255].map(v=>Math.round(v));
 }
+
+/* HSV struct → #rrggbb */
 function hsvToHex({h,s,v}){
   const [r,g,b] = hsvToRgb(h,s,v);
   return '#'+new THREE.Color(r/255,g/255,b/255).getHexString();
 }
-/* contraste CIE76 */
-function deltaE(lab1,lab2){
-  return Math.sqrt(
-    (lab1[0]-lab2[0])**2+
-    (lab1[1]-lab2[1])**2+
-    (lab1[2]-lab2[2])**2
-  );
-}
-function rgbToLab(r,g,b){                      // aproximación rápida
-  const xyz=[r/255,g/255,b/255].map(v=>{
-    v=v>0.04045?((v+0.055)/1.055)**2.4:v/12.92;
-    return v*100;
-  });
-  const x=xyz[0]*0.4124+xyz[1]*0.3576+xyz[2]*0.1805;
-  const y=xyz[0]*0.2126+xyz[1]*0.7152+xyz[2]*0.0722;
-  const z=xyz[0]*0.0193+xyz[1]*0.1192+xyz[2]*0.9505;
-  const xyzN=[95.047,100.0,108.883];
-  const f= t=> t>0.008856 ? t**(1/3) : (7.787*t)+16/116;
-  const [fx,fy,fz]=[x,y,z].map((v,i)=>f(v/xyzN[i]));
-  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+
+/* RGB [0..255] → #rrggbb */
+function rgbToHex(rgb){
+  return '#'+new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255).getHexString();
 }
 
-/* ======  NUEVO  — utilidades de contraste con el FONDO  ====== */
-const ΔE_BG_MIN = 22;          // contraste mínimo CIE76
+/* ────────── Hash core (32-bit, determinista) ────────── */
 
-function hexToRgb(hex){
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  const n = parseInt(m[1],16);
-  return [(n>>16)&255, (n>>8)&255, n&255];
+/* FNV-1a 32-bit (mezcla enteros) */
+function fnv1a32(h, v){
+  h ^= (v >>> 0);
+  return Math.imul(h, 16777619) >>> 0;
 }
 
-/**
- * Sube o baja la luminosidad (v) del color RGB recibido hasta que
- * alcance ΔE_BG_MIN puntos de contraste contra el fondo actual.
- * Devuelve el RGB corregido.
- */
-function ensureContrastRGB(rgb){
-  /* color de fondo efectivo */
-  let bgRgb;
-  if (bgOverride) {
-    bgRgb = hexToRgb(bgOverride);
-  } else if (scene && scene.background && scene.background.isColor) {
-    // fondo actual de THREE.Color (incluye el gris de LCHT)
-    bgRgb = [
-      Math.round(scene.background.r * 255),
-      Math.round(scene.background.g * 255),
-      Math.round(scene.background.b * 255)
-    ];
-  } else {
-    bgRgb = hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
-  }
-
-  let [h,s,v] = rgbToHsv(rgb[0], rgb[1], rgb[2]);  // pasamos a HSV
-  let tries = 0;
-  while (deltaE(rgbToLab(...rgb), rgbToLab(...bgRgb)) < ΔE_BG_MIN && tries < 24){
-    // alterna aclarar / oscurecer en pasos de 0.04
-    v = (tries % 2) ? Math.max(0, v - 0.04) : Math.min(1, v + 0.04);
-    rgb = hsvToRgb(h, s, v);
-    tries++;
-  }
-  return rgb;
+/* Avalancha 32-bit (finalizer) */
+function avalanche32(x){
+  x ^= x >>> 16;
+  x = Math.imul(x, 0x7feb352d) >>> 0;
+  x ^= x >>> 15;
+  x = Math.imul(x, 0x846ca68b) >>> 0;
+  x ^= x >>> 16;
+  return x >>> 0;
 }
+
+/* Proyección uniforme: u32 → (hIdx,sIdx,vIdx) en 144×12×12 */
+function hsvIdxFromU32(u){
+  const t = (u % HSV_TOTAL) >>> 0;
+  const hIdx = t % H_STEPS;
+  const sIdx = ((t / HSV_S_STRIDE) | 0) % 12;
+  const vIdx = ((t / HSV_V_STRIDE) | 0) % 12;
+  return [hIdx, sIdx, vIdx];
+}
+
+/* Llaves enteras por patrón (1..11) */
+const PATTERN_KEYS = {
+  1:  [0x243f6a88, 0x85a308d3, 0x13198a2e],
+  2:  [0x03707344, 0xa4093822, 0x299f31d0],
+  3:  [0x082efa98, 0xec4e6c89, 0x452821e6],
+  4:  [0x38d01377, 0xbe5466cf, 0x34e90c6c],
+  5:  [0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5],
+  6:  [0xb5470917, 0x9216d5d9, 0x8979fb1b],
+  7:  [0xd1310ba6, 0x98dfb5ac, 0x2ffd72db],
+  8:  [0xd01adfb7, 0xb8e1afed, 0x6a267e96],
+  9:  [0xba7c9045, 0xf12c7f99, 0x24a19947],
+  10: [0xb3916cf7, 0x0801f2e2, 0x858efc16],
+  11: [0x636920d8, 0x71574e69, 0xa458fea3]
+};
+function getPatternKeys(patternId){
+  return PATTERN_KEYS[patternId] || PATTERN_KEYS[1];
+}
+
+/* Tags para separar dominios (glifo / fondo / paredes / palette) */
+const TAG_GLYPH = 0x474c5946; // 'GLYF'
+const TAG_BG    = 0x42475052; // 'BGPR'
+const TAG_WALL  = 0x57414c4c; // 'WALL'
+const TAG_CHNL  = 0x43484e4c; // 'CHNL'
+
+/* Hash canónico para una permutación (puede ser “escena actual” o “escena hipotética”) */
+function hashPermutationCore(pa, sig, r, seedVal, sVal, patternId){
+  const keys = getPatternKeys(patternId);
+
+  let h = 0x811c9dc5;                 // offset basis FNV
+  h = fnv1a32(h, seedVal | 0);
+  h = fnv1a32(h, sVal    | 0);
+  h = fnv1a32(h, patternId | 0);
+  h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
+  h = fnv1a32(h, TAG_GLYPH);
+
+  h = fnv1a32(h, r | 0);
+
+  // números base de la permutación (1..5)
+  for(let i=0;i<5;i++) h = fnv1a32(h, pa[i] | 0);
+
+  // firma (f1..f5)
+  for(let i=0;i<5;i++) h = fnv1a32(h, sig[i] | 0);
+
+  return avalanche32(h);
+}
+
+/* Hash canónico para color de escena (fondo / paredes) */
+function hashSceneCore(sig, slot, seedVal, sVal, patternId, tag){
+  const keys = getPatternKeys(patternId);
+
+  let h = 0x811c9dc5;
+  h = fnv1a32(h, seedVal | 0);
+  h = fnv1a32(h, sVal    | 0);
+  h = fnv1a32(h, patternId | 0);
+  h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
+  h = fnv1a32(h, tag >>> 0);
+  h = fnv1a32(h, slot | 0);
+  for(let i=0;i<5;i++) h = fnv1a32(h, sig[i] | 0);
+  return avalanche32(h);
+}
+
+/* API canónica: color del glifo */
+function colorInfoForPermutation(pa, seedVal = sceneSeed, sVal = S_global, patternId = activePatternId){
+  const r = lehmerRank(pa);
+  const sig = computeSignature(pa);
+  const u = hashPermutationCore(pa, sig, r, seedVal, sVal, patternId);
+  const [hIdx, sIdx, vIdx] = hsvIdxFromU32(u);
+  const hsv = idxToHSV(hIdx, sIdx, vIdx);
+  const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v);
+  const hex = rgbToHex(rgb);
+  return { r, sig, u, hIdx, sIdx, vIdx, hsv, rgb, hex };
+}
+function colorForPermutation(pa){
+  return colorInfoForPermutation(pa).rgb;
+}
+
+/* API canónica: color “de canal” 1..5 (para el panel manual), derivado sólo de invariantes */
+function colorForChannel(channelIdx, seedVal = sceneSeed, sVal = S_global, patternId = activePatternId){
+  const keys = getPatternKeys(patternId);
+  let h = 0x811c9dc5;
+  h = fnv1a32(h, seedVal | 0);
+  h = fnv1a32(h, sVal    | 0);
+  h = fnv1a32(h, patternId | 0);
+  h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
+  h = fnv1a32(h, TAG_CHNL);
+  h = fnv1a32(h, channelIdx | 0);
+  h = avalanche32(h);
+  const [hIdx, sIdx, vIdx] = hsvIdxFromU32(h);
+  const hsv = idxToHSV(hIdx, sIdx, vIdx);
+  return hsvToRgb(hsv.h, hsv.s, hsv.v);
+}
+
+/* API canónica: HSV del fondo/paredes */
+function hsvInfoForScene(tag, sig, slot, seedVal = sceneSeed, sVal = S_global, patternId = activePatternId){
+  const u = hashSceneCore(sig, slot, seedVal, sVal, patternId, tag);
+  const [hIdx, sIdx, vIdx] = hsvIdxFromU32(u);
+  const hsv = idxToHSV(hIdx, sIdx, vIdx);
+  const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v);
+  const hex = rgbToHex(rgb);
+  return { u, hIdx, sIdx, vIdx, hsv, rgb, hex };
+}
+
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
 /* ——— calcula HSV para fondo y paredes de forma acoplada al set activo ——— */
 function rebuildSceneColours(){
-  // Permutaciones activas (en el mismo orden visual)
   const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                     .map(o => o.value.split(',').map(Number));
+    .map(o => o.value.split(',').map(Number));
 
-  // Firmas para fondo/cubo (si no hay, usa dummy neutra)
   const firstSig = perms[0] ? computeSignature(perms[0]) : [0,0,0,0,0];
-  const lastSig  = perms.length > 1 ? computeSignature(perms[perms.length-1]) : firstSig;
+  const lastSig  = perms.length ? computeSignature(perms[perms.length-1]) : firstSig;
 
-  // Slots acoplados al tamaño del set (idéntico a BUILD + spreads coprimos)
-  let [h1,s1,v1] = PATTERNS[activePatternId](firstSig, sceneSeed, perms.length);
-  let [h2,s2,v2] = PATTERNS[activePatternId](lastSig,  sceneSeed, perms.length + 1);
+  const n = perms.length | 0;
 
-  s1 = (s1 * PHI_S) % 12;  v1 = (v1 * PHI_V) % 12;
-  s2 = (s2 * PHI_S) % 12;  v2 = (v2 * PHI_V) % 12;
-
-  bgHSV   = idxToHSV(h1, s1, v1);   // ← Fondo = “slot #n” con firma del primero
-  wallHSV = idxToHSV(h2, s2, v2);   // ← Paredes = “slot #n+1” con firma del último
+  // Fondo y paredes: sólo invariantes + firma + slot (n / n+1)
+  bgHSV   = hsvInfoForScene(TAG_BG,   firstSig, n).hsv;
+  wallHSV = hsvInfoForScene(TAG_WALL, lastSig,  n+1).hsv;
 }
 
 /* ===\u2003UTIL extra — firma normalizada y contraste\u2003===================== */
@@ -1028,64 +858,42 @@ function rebuildSceneColours(){
     }
 
     function createPermutationObjectWithMapping(pa,map){
-      const fv=pa[map[0]],
-            d=shapeMapping[fv], w=d.w, h=d.h, t=0.5;
+  const fv = pa[map[0]];
+  const d  = shapeMapping[fv];
+  const w  = d.w, h = d.h, t = 0.5;
 
-      // --- COLOR determinista (cuadrícula HSV) ---
-      let rgb;
-      {
-        const sig  = computeSignature(pa);
-        const slot = lehmerRank(pa) % 12; // 0..11
-        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-        sI = (sI * PHI_S) % 12;
-        vI = (vI * PHI_V) % 12;
-        const {h,s,v} = idxToHSV(hI,sI,vI);
-        rgb = hsvToRgb(h,s,v);
-      }
-      // Contraste mínimo contra el fondo actual
-      rgb = ensureContrastRGB(rgb);
+  // Color canónico (hash → HSV lattice → RGB)
+  const rgb = colorForPermutation(pa);
 
-      // --- POSICIÓN (antes de material para calcular frontalidad) ---
-      const [X,Y,Z]=computeShiftRankXYZ(pa);
+  // Posición (sin cambios)
+  const [X,Y,Z] = computeShiftRankXYZ(pa);
 
-      // --- BUILD · Vibrance v2: saturación fuerte sin quemar y sin spec blanco ---
-      const zNorm = (Z + halfCube) / cubeSize;               // -15→0 · +15→1
+  // Material puro (sin emissive)
+  const mat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255),
+    dithering: true
+  });
 
-      // 1) Partimos del RGB con contraste mínimo contra fondo
-      let [h0, s0, v0] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+  const geo  = new THREE.BoxGeometry(w,h,t);
+  const mesh = new THREE.Mesh(geo, mat);
 
-      // 2) Vibrance: sube S con más fuerza cuanto más baja sea S (y un plus por frontalidad)
-      const vib = 0.22 + 0.10 * zNorm;                       // 0.22…0.32
-      const s1  = Math.min(1, s0 + vib * (1 - s0));
+  mesh.position.set(
+    clamp(X,-halfCube+w/2,halfCube-w/2),
+    clamp(Y,-halfCube+h/2,halfCube-h/2),
+    clamp(Z,-halfCube+t/2,halfCube-t/2)
+  );
 
-      // 3) Brillo controlado: ligero boost pero con techo para evitar “quemados” en ACES
-      const v1  = Math.min(0.93, v0 * (1.02 + 0.06 * zNorm));
+  const sig = computeSignature(pa);
+  const rg  = computeRange(sig);
+  mesh.userData = {
+    permStr: pa.join(','),
+    signature: sig,
+    range: rg,
+    rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue)
+  };
 
-      // 4) Volvemos a RGB
-      const rgbBoost = hsvToRgb(h0, s1, v1);
-
-      // 5) Material difuso (Lambert) → colores más limpios y saturados (sin specular blanco)
-      const mat = new THREE.MeshLambertMaterial({
-        color: new THREE.Color(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255),
-        dithering: true
-      });
-
-      // Pequeña auto-luminancia para “energía” sin quemar (mucho menor que antes)
-      mat.emissive = new THREE.Color(rgbBoost[0]/255, rgbBoost[1]/255, rgbBoost[2]/255);
-      mat.emissiveIntensity = 0.03 + 0.12 * zNorm;   // antes 0.08 + 0.30*zNorm
-
-      const geo=new THREE.BoxGeometry(w,h,t);
-      const mesh=new THREE.Mesh(geo,mat);
-      mesh.position.set(
-        clamp(X,-halfCube+w/2,halfCube-w/2),
-        clamp(Y,-halfCube+h/2,halfCube-h/2),
-        clamp(Z,-halfCube+t/2,halfCube-t/2)
-      );
-
-      const sig=computeSignature(pa), rg=computeRange(sig);
-      mesh.userData={permStr:pa.join(','), signature:sig, range:rg, rotationSpeed:mapRangeToSpeed(rg,minRangeValue,maxRangeValue)};
-      return mesh;
-    }
+  return mesh;
+}
     function createPermutationObject(pa){ return createPermutationObjectWithMapping(pa,attributeMapping); }
 
     function checkCollisionsInGroup(g){
@@ -1474,62 +1282,38 @@ function saveImage(){
 
 function makePalette(){
   paletteRGB = [];
-  for(let i=0;i<12;i++){
-    let [hI,sI,vI] = PATTERNS[activePatternId]([0,0,0,0,0], sceneSeed, i);
-    sI = (sI * PHI_S) % 12;
-    vI = (vI * PHI_V) % 12;
-    const {h,s,v} = idxToHSV(hI,sI,vI);
-    paletteRGB.push(hsvToRgb(h,s,v));
+  for(let k=1;k<=5;k++){
+    paletteRGB.push(colorForChannel(k));
   }
 }
 
     function applyPalette(){
-      for(let i=1;i<=5;i++){
-        const autoRGB = paletteRGB[i-1] || [255,255,255];
-        const autoHEX = '#'+new THREE.Color(
-            autoRGB[0]/255,autoRGB[1]/255,autoRGB[2]/255).getHexString();
-        const hex     = manualOverride[i] || autoHEX;
-        const input   = document.getElementById('color'+i);
-        if(input) input.value = hex;
-      }
+  // 1) Actualiza los pickers (solo canales 1..5)
+  updateColorPickersFromScene();
 
-      permutationGroup.children.forEach(o=>{
-        const pa   = o.userData.permStr.split(',').map(Number);
-        const idx  = pa[attributeMapping[1]];          // 1-5
-        let hex;
-        if(manualOverride[idx]){
-          hex = manualOverride[idx];
-        }else{
-          const sig  = computeSignature(pa);
-          const slot = lehmerRank(pa) % 12;
-          let [hIdx,sIdx,vIdx] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-          sIdx = (sIdx * PHI_S) % 12;
-          vIdx = (vIdx * PHI_V) % 12;
-          const {h,s,v} = idxToHSV(hIdx, sIdx, vIdx);
-          const rgb = hsvToRgb(h,s,v);
-          hex = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
-        }
-        o.material.color.setStyle(hex);
-      });
-      updateColorPickersFromScene();
+  // 2) Aplica color a cada glifo: canónico por permutación, salvo override manual por canal
+  permutationGroup.children.forEach(o=>{
+    const pa   = o.userData.permStr.split(',').map(Number);
+    const idx  = pa[attributeMapping[1]]; // valor 1..5 del atributo “color”
+    if(manualOverride[idx]){
+      o.material.color.setStyle(manualOverride[idx]);
+      return;
     }
+    const rgb = colorForPermutation(pa);
+    o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+  });
+}
 
     /* ——— Sincroniza los <input type="color"> con los colores reales ——— */
     function updateColorPickersFromScene(){
-      // memoriza el primer glifo encontrado para cada índice P2 (1-5)
-      const seen = {};
-        permutationGroup.children.forEach(o=>{
-          const pa  = o.userData.permStr.split(',').map(Number);
-          const idx = pa[attributeMapping[1]];           // 1-5
-          if(!seen[idx]){
-            const c = o.material.color;                     // THREE.Color
-            const hex = '#'+c.getHexString();
-            const inp = document.getElementById('color'+idx);
-            if(inp) inp.value = hex;
-            seen[idx]=true;
-          }
-        });
-      }
+  for(let i=1;i<=5;i++){
+    const autoRGB = paletteRGB[i-1] || [255,255,255];
+    const autoHEX = rgbToHex(autoRGB);
+    const hex     = manualOverride[i] || autoHEX;
+    const input   = document.getElementById('color'+i);
+    if(input) input.value = hex;
+  }
+}
 
       function refreshAll(opts = {rebuild:false}){
   if(!opts.keepManual){
@@ -1831,50 +1615,31 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
     }
 
     function mostrarDebugColores(){
-      if(!permutationGroup || !permutationGroup.children.length){
-        alert('No hay permutaciones en pantalla'); return;
-      }
+  if(!permutationGroup || !permutationGroup.children.length){
+    alert('No hay permutaciones en pantalla'); return;
+  }
 
-      /* color de fondo efectivo para contraste ΔE */
-      const bgRgb = bgOverride
-          ? hexToRgb(bgOverride)
-          : hsvToRgb(bgHSV.h, bgHSV.s, bgHSV.v);
+  let txt =
+    'Permutación | r | hIdx | sIdx | vIdx | h° |  s  |  v  | #hex\n' +
+    '────────────┼───┼──────┼──────┼──────┼────┼─────┼─────┼────────\n';
 
-      const bgLab = rgbToLab(...bgRgb);
+  permutationGroup.children.forEach(mesh => {
+    const paArr = mesh.userData.permStr.split(',').map(Number);
+    const info  = colorInfoForPermutation(paArr);
 
-      let txt =
-        'Permutación |slot|  h° |  s  |  v  | ΔEbg |  #hex\n' +
-        '────────────┼────┼─────┼─────┼─────┼─────┼────────\n';
+    txt += `${mesh.userData.permStr.padEnd(12)}|`+
+           `${info.r.toString().padStart(3)}|`+
+           `${info.hIdx.toString().padStart(6)}|`+
+           `${info.sIdx.toString().padStart(6)}|`+
+           `${info.vIdx.toString().padStart(6)}|`+
+           `${normHue(info.hsv.h).toFixed(1).padStart(4)}|`+
+           `${info.hsv.s.toFixed(2).padStart(5)}|`+
+           `${info.hsv.v.toFixed(2).padStart(5)}| ${info.hex}\n`;
+  });
 
-      permutationGroup.children.forEach(mesh => {
-        const paArr   = mesh.userData.permStr.split(',').map(Number);
-        const permStr = paArr.join(',');
-        const slot    = lehmerRank(paArr) % 12;
-
-        /* HSV teórico desde el patrón */
-        const sig = computeSignature(paArr);
-        let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot);
-        sI = (sI * PHI_S) % 12;
-        vI = (vI * PHI_V) % 12;
-        const {h,s,v} = idxToHSV(hI, sI, vI);
-
-        const rgb = [
-          Math.round(mesh.material.color.r * 255),
-          Math.round(mesh.material.color.g * 255),
-          Math.round(mesh.material.color.b * 255)
-        ];
-        const ΔEbg = deltaE(rgbToLab(...rgb), bgLab).toFixed(1);
-        const hex = '#' + mesh.material.color.getHexString();
-
-        txt += `${permStr.padEnd(12)}|${slot.toString().padStart(2)} |`+
-               `${normHue(h).toFixed(1).padStart(5)}|`+
-               `${s.toFixed(2)}|${v.toFixed(2)}|`+
-               `${ΔEbg.padStart(5)}| ${hex}\n`;
-      });
-
-      console.log(txt);   // copia completa al log
-      alert(txt);         // vista rápida
-    }
+  console.log(txt);
+  alert(txt);
+}
 
     /* ============================================================
      *  PANEL "Descripción arquitectónica"
@@ -1886,7 +1651,6 @@ function showArchitecturalDescription(){
   const perms    = selOpts.map(o => o.value.split(',').map(Number));
   const m        = attributeMapping.slice(0,5);
 
-  // determinism
   const sceneSeed_new = computeSceneSeedFrom(perms, m);
   const S_new         = computeGlobalS(perms, m);
   const mRank         = mappingRank(m);
@@ -1896,22 +1660,19 @@ function showArchitecturalDescription(){
   ranks.forEach(r=>{ sumR+=r; sumR2+=r*r; });
 
   const step = cubeSize/5;
+  const keys = getPatternKeys(activePatternId);
 
-  // ======= STRUCTURE =======
   const structureHTML = `
   <h3>Structure</h3>
   <p>
     Below are the deterministic formulas that explain
-    <b>why each permutation is exactly at its position,
-    why permutations and their environment have those colors</b>,
-    and why <b>the whole scene — shapes, colors and positions — is reproducible
-    whenever the inputs are the same</b>.
+    <b>why each permutation is exactly at its position</b>,
+    and <b>why each permutation has exactly its color</b>,
+    and why <b>the whole scene is reproducible whenever the inputs are the same</b>.
   </p>
 
   <div class="formula">
     <b>1) Global scene seed (sceneSeed)</b><br>
-    It fixes the chromatic base angle of the whole scene.
-    <br><br>
     sumR = Σ LehmerRank(Pᵢ) &nbsp;|&nbsp; sumR2 = Σ (LehmerRank(Pᵢ))² <br>
     mRank = LehmerRank([m₀+1,m₁+1,m₂+1,m₃+1,m₄+1])<br><br>
     <span class="box">sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360</span>
@@ -1919,38 +1680,33 @@ function showArchitecturalDescription(){
 
   <div class="formula">
     <b>2) Structural term for positions (S)</b><br>
-    <i>S</i> couples positions to the attribute reorganization (mapping) used for (x,y,z).
-    <br><br>
     <span class="box">S = ( Σ (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125</span>
   </div>
 
   <div class="formula">
-    <b>3) Shift‑Rank: position of each permutation</b><br>
-    Combines the permutation Lehmer rank with the global invariants to assign
-    a unique index over a 5×5×5 lattice.
-    <br><br>
+    <b>3) Shift-Rank: position of each permutation</b><br>
     <span class="box">I = (r + sceneSeed + S) mod 125</span><br>
     From I → (x,y,z) ∈ {0..4}³ → position inside the 30×30×30 cube.
   </div>
 
   <div class="formula">
-    <b>4) Deterministic color (HSV lattice 144×12×12)</b><br>
-    Each permutation color comes from a well‑distributed slot (r mod 12)
-    and a chromatic pattern (1–11) with coprime spreads for S and V.
-    <br><br>
-    H ∈ 144 steps (2.5°), S ∈ 12, V ∈ 12<br>
-    slot = r mod 12<br>
-    pattern → [hIdx,sIdx,vIdx]; s' = (sIdx·5) mod 12; v' = (vIdx·7) mod 12<br>
-    HSV = idxToHSV(hIdx,s',v') → RGB
-  </div>
-
-  <div class="formula">
-    <b>5) Minimum contrast against background</b><br>
-    Each color is automatically adjusted to satisfy ΔE (CIE76) ≥ 22 against the current background.
+    <b>4) Deterministic color (hash → HSV lattice 144×12×12)</b><br>
+    We compute a 32-bit hash and project it uniformly onto 20&nbsp;736 discrete HSV voxels.<br><br>
+    Inputs mixed (only integers from the system):<br>
+    sceneSeed, S, activePatternId, patternKeys, r, permutation digits, signature.<br><br>
+    <span class="box">
+      u = Avalanche32(FNV1a32(sceneSeed, S, patternId, keys, TAG_GLYPH, r, P, signature))
+    </span><br>
+    <span class="box">
+      t = u mod (144·12·12) = u mod 20736
+      → hIdx = t mod 144
+      → sIdx = ⌊t/144⌋ mod 12
+      → vIdx = ⌊t/1728⌋ mod 12
+    </span><br>
+    HSV = idxToHSV(hIdx,sIdx,vIdx) → RGB
   </div>
   `;
 
-  // ======= ARCHITECTURAL PLANS =======
   let plansHTML = `
   <h3>Architectural Plans</h3>
 
@@ -1964,15 +1720,10 @@ function showArchitecturalDescription(){
       <li><b>sceneSeed</b> = <b>${sceneSeed_new}</b></li>
       <li><b>S</b> = <b>${S_new}</b></li>
       <li>activePatternId = <b>${activePatternId}</b></li>
+      <li>patternKeys = <b>[${keys.map(x=>('0x'+(x>>>0).toString(16))).join(', ')}]</b></li>
     </ul>
   </section>
-  <section>
-    <h4>Phenotypic scope of this edition</h4>
-    <div class="formula">
-      <b>BUILD:</b> 120 attribute-mappings × 11 chromatic-patterns = <b>1 320</b> deterministic visuals.<br>
-      The permutations are acquired as a <b>group</b>; the count does not multiply by the number of permutations in the group.
-    </div>
-  </section>
+
   <hr/>
   `;
 
@@ -1987,14 +1738,7 @@ function showArchitecturalDescription(){
     const z    = I % 5;
     const X    = (x-2)*step, Y=(y-2)*step, Z=(z-2)*step;
 
-    const slot = r % 12;
-    let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed_new, slot);
-    const sIdx = (sI * PHI_S) % 12;
-    const vIdx = (vI * PHI_V) % 12;
-    const hsv  = idxToHSV(hI, sIdx, vIdx);
-    let  rgb   = hsvToRgb(hsv.h, hsv.s, hsv.v);
-    rgb        = ensureContrastRGB(rgb);
-    const hex  = '#'+new THREE.Color(rgb[0]/255,rgb[1]/255,rgb[2]/255).getHexString();
+    const info = colorInfoForPermutation(perm, sceneSeed_new, S_new, activePatternId);
 
     plansHTML += `
     <section class="perm">
@@ -2008,10 +1752,9 @@ function showArchitecturalDescription(){
         (x,y,z) = (${x}, ${y}, ${z}) → (X,Y,Z) = (${X.toFixed(2)}, ${Y.toFixed(2)}, ${Z.toFixed(2)})
       </div>
       <div class="formula">
-        slot = r mod 12 = ${slot}<br>
-        pattern → [hI,sI,vI] = [${hI}, ${sI}, ${vI}]<br>
-        s' = ${sIdx}, v' = ${vIdx}<br>
-        HSV = (${hsv.h.toFixed(2)}°, ${hsv.s.toFixed(2)}, ${hsv.v.toFixed(2)}) → RGB = ${hex}
+        u = ${info.u} (32-bit)<br>
+        (hIdx,sIdx,vIdx) = (${info.hIdx}, ${info.sIdx}, ${info.vIdx})<br>
+        HSV = (${info.hsv.h.toFixed(2)}°, ${info.hsv.s.toFixed(2)}, ${info.hsv.v.toFixed(2)}) → RGB = ${info.hex}
       </div>
     </section>
     <hr/>
@@ -2019,22 +1762,20 @@ function showArchitecturalDescription(){
   });
 
   const firstSig = perms[0] ? computeSignature(perms[0]) : [0,0,0,0,0];
-  const lastSig  = perms[perms.length-1] ? computeSignature(perms[perms.length-1]) : [0,0,0,0,0];
+  const lastSig  = perms.length ? computeSignature(perms[perms.length-1]) : firstSig;
+  const n = perms.length | 0;
 
-  const fondoIdx = PATTERNS[activePatternId](firstSig, sceneSeed_new, perms.length);
-  const cuboIdx  = PATTERNS[activePatternId](lastSig,  sceneSeed_new, perms.length+1);
-
-  const fondoHSV = idxToHSV(...fondoIdx);
-  const cuboHSV  = idxToHSV(...cuboIdx);
+  const bgInfo   = hsvInfoForScene(TAG_BG,   firstSig, n,   sceneSeed_new, S_new, activePatternId);
+  const wallInfo = hsvInfoForScene(TAG_WALL, lastSig,  n+1, sceneSeed_new, S_new, activePatternId);
 
   plansHTML += `
     <section>
       <h4>Background & cube walls</h4>
       <div class="formula">
-        Background (slot = #${perms.length}) → idx = [${fondoIdx.join(', ')}] → HSV = (${fondoHSV.h.toFixed(2)}°, ${fondoHSV.s.toFixed(2)}, ${fondoHSV.v.toFixed(2)})
+        Background (slot = #${n}) → (hIdx,sIdx,vIdx)=(${bgInfo.hIdx},${bgInfo.sIdx},${bgInfo.vIdx}) → HSV = (${bgInfo.hsv.h.toFixed(2)}°, ${bgInfo.hsv.s.toFixed(2)}, ${bgInfo.hsv.v.toFixed(2)}) → ${bgInfo.hex}
       </div>
       <div class="formula">
-        Cube (slot = #${perms.length+1}) → idx = [${cuboIdx.join(', ')}] → HSV = (${cuboHSV.h.toFixed(2)}°, ${cuboHSV.s.toFixed(2)}, ${cuboHSV.v.toFixed(2)})
+        Cube (slot = #${n+1}) → (hIdx,sIdx,vIdx)=(${wallInfo.hIdx},${wallInfo.sIdx},${wallInfo.vIdx}) → HSV = (${wallInfo.hsv.h.toFixed(2)}°, ${wallInfo.hsv.s.toFixed(2)}, ${wallInfo.hsv.v.toFixed(2)}) → ${wallInfo.hex}
       </div>
     </section>
 
