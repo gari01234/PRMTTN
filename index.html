@@ -7,356 +7,7 @@
   <!-- Three .js + OrbitControls (una sola vez) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script>
-// Bootstrap GRVTY flags to avoid ReferenceError before its script loads
-if (typeof window.isGRVTY === 'undefined') window.isGRVTY = false;
-// Optional no-ops so calls won't crash if invoked early
-if (typeof window.ensureOnlyGRVTY === 'undefined') window.ensureOnlyGRVTY = function(){
-  if (!window.isGRVTY && typeof window.toggleGRVTY === 'function') window.toggleGRVTY();
-};
-if (typeof window.ensureOnlyGRVTYFromUI === 'undefined') window.ensureOnlyGRVTYFromUI = function(){
-  window.ensureOnlyGRVTY(); if (typeof updateEngineSelectUI==='function') updateEngineSelectUI();
-};
-if (typeof window.rebuildGRVTYIfActive === 'undefined') window.rebuildGRVTYIfActive = function(){};
-  </script>
-  <!-- === tilers.js embebido (JS puro) — crea window.Tilers === -->
-    <script type="module">
-/* ───────── tilers (JS puro) — núcleo de ensambles multi-familia ───────── */
-const PHI   = (1 + Math.sqrt(5)) / 2;
-const ROOT2 = Math.SQRT2;
-const ROOT3 = Math.sqrt(3);
-const ROOT4 = Math.sqrt(4);   // = 2
-const ROOT5 = Math.sqrt(5);
-const EPS   = 1e-6;
 
-/* util mínimo */
-function near(a,b,eps=EPS){ return Math.abs(a-b) <= eps; }
-
-/* ───────────── PRNG con SEED (mulberry32) ───────────── */
-let __rng = Math.random;       // por defecto
-let __seedU32 = 0;
-
-function mulberry32(a){
-  return function(){
-    let t = a += 0x6D2B79F5;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function setSeed(u32){
-  __seedU32 = (u32 >>> 0) || 1;
-  __rng = mulberry32(__seedU32);
-}
-function rand(){ return __rng(); }
-function randRange(a,b){ return a + (b-a) * rand(); }
-function randBool(p=0.5){ return rand() < p; }
-
-/* Catálogo de familias + alias proporcionales útiles para matching */
-const families = [
-  { id:'phi', r:PHI,   aliases:[1/PHI, 1-PHI**-1, PHI**2-PHI] },
-  { id:'r2',  r:ROOT2, aliases:[1/ROOT2, 2-ROOT2] },
-  { id:'r3',  r:ROOT3, aliases:[1/ROOT3, ROOT3-1, 1-(ROOT3-1)] },
-  { id:'r4',  r:ROOT4, aliases:[1/ROOT4, 1] },
-  { id:'r5',  r:ROOT5, aliases:[1/ROOT5, (ROOT5-2)] }
-];
-
-/* identifica familia por proximidad (tolerancia holgada para ratios derivados) */
-function whichFamily(r, eps=2e-2){
-  let best = null;
-  for (const f of families){
-    for (const c of [f.r, ...f.aliases]){
-      const d = Math.abs(r - c);
-      if (!best || d < best.d) best = { f:f.id, d };
-    }
-  }
-  return (best && best.d <= eps) ? best.f : null;
-}
-
-/* familia dominante por “área” en el inventario; fallback φ */
-function dominantFamily(inv){
-  const acc = {phi:0,r2:0,r3:0,r4:0,r5:0};
-  (inv?.ratios||[]).forEach(it=>{
-    const fam = whichFamily(it.r) ?? 'phi';
-    acc[fam] += it.area || 0;
-  });
-  return Object.keys(acc).reduce((best,f)=> acc[f]>acc[best]?f:best,'phi');
-}
-
-/* ---------- 1) Euclid / Continued Fraction → mosaico de cuadrados ---------- */
-function tilesEuclid(b, r, tag='euclid'){
-  const out=[];
-  let x=b.x, y=b.y, w=b.w, h=b.h;
-
-  const orient = (w>=h) ? 1 : -1;     // 1 vertical; -1 horizontal
-  if (orient<0){ [w,h] = [h,w]; }
-
-  let W=w, H=h;
-  let baseX=0, baseY=0;
-  while (W > EPS && H > EPS){
-    const q = Math.floor(W / H + EPS);
-    for (let i=0;i<q;i++){
-      const rect = orient>0
-        ? { x: b.x + baseX + i*H, y: b.y + baseY, w: H, h: H, tag }
-        : { x: b.x + baseY,       y: b.y + baseX + i*H, w: H, h: H, tag };
-      out.push(rect);
-    }
-    const rem = W - q*H;
-    if (rem <= EPS) break;
-    if (orient>0){ baseX += q*H; } else { baseY += q*H; }
-    W = H; H = rem;
-  }
-  return out;
-}
-
-/* ---------- 2) Beatty / Sturmian (dos tamaños L/S) ---------- */
-function beattyPairFor(f){
-  if (f==='phi'){ return [PHI*PHI, (PHI*PHI)/(PHI*PHI-1)]; }
-  if (f==='r2'){  const a=1+ROOT2; return [a, a/(a-1)]; }
-  if (f==='r3'){  const a=1+ROOT3; return [a, a/(a-1)]; }
-  if (f==='r4'){  const a=1+ROOT4; return [a, a/(a-1)]; }
-  const a=1+ROOT5; return [a, a/(a-1)];
-}
-function tilesBeatty(b, f, majorFirst=true, tag='beatty'){
-  const [alpha] = beattyPairFor(f);
-  const N = Math.max(2, Math.round(b.w / (b.h*0.25)));
-  const seq = [];
-  for (let k=1;k<=N;k++){
-    const LA = Math.floor(k*alpha) - Math.floor((k-1)*alpha);
-    seq.push(LA===2); // true=L, false=S
-  }
-
-  const rVal = (f==='phi'?PHI : f==='r2'?ROOT2 : f==='r3'?ROOT3 : f==='r4'?ROOT4 : ROOT5);
-  const L =  majorFirst ? b.h           : b.h / rVal;
-  const S =  majorFirst ? b.h / rVal    : b.h;
-
-  const wL = 1.0, wS = 1/(alpha-1);
-  const widths = seq.map(s => s ? wL : wS);
-  const sum = widths.reduce((a,c)=>a+c,0);
-  const kscale = b.w / sum;
-
-  let x = b.x;
-  const out = [];
-  for (let i=0;i<widths.length;i++){
-    const cw = widths[i]*kscale;
-    const ch = seq[i] ? L : S;
-    out.push({x, y:b.y, w:cw, h:ch, tag});
-    if (ch < b.h - EPS){
-      out.push({x, y:b.y+ch, w:cw, h:b.h-ch, tag});
-    }
-    x += cw;
-    if (x > b.x + b.w - EPS) break;
-  }
-  return out;
-}
-
-/* ---------- 3) Sustitución inflacionaria (Fibo/Pell/√3) ---------- */
-function substRules(f){
-  if (f==='phi') return ['LS','L'];      // Fibonacci
-  if (f==='r2')  return ['LSS','L'];     // tipo Pell
-  if (f==='r3')  return ['LLS','L'];     // √3
-  return null;                           // r4/r5 → sin reglas específicas (fallback)
-}
-function tilesSubstitution(b, f, iters=6, tag='subst'){
-  const rules = substRules(f);
-  if (!rules){
-    return tilesBeatty(b, f, true, 'beatty');
-  }
-  let word = 'L';
-  const [RL,RS] = rules;
-  for (let i=0;i<iters;i++){
-    let next=''; for (const ch of word) next += (ch==='L'?RL:RS);
-    word = next;
-  }
-  const rVal = (f==='phi'?PHI : f==='r2'?ROOT2 : ROOT3);
-  const wL = 1, wS = 1 / rVal;
-  const widths = [...word].map(ch => ch==='L'?wL:wS);
-  const sum = widths.reduce((a,c)=>a+c,0);
-  const kscale = b.w / sum;
-  let x = b.x;
-  const out = [];
-  for (const ch of word){
-    const cw = (ch==='L'?wL:wS)*kscale;
-    out.push({x, y:b.y, w:cw, h:b.h, tag});
-    x += cw;
-    if (x > b.x + b.w - EPS) break;
-  }
-  return out;
-}
-
-/* ---------- 4) NUEVO: BSP “split-rect” con alternancia H/V, ratio 0.35–0.65,
-                        tamaño mínimo de celda y fusión de adyacentes ---------- */
-function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-
-function tilesBSP(b, opt={}){
-  const minCell   = Math.max(0, opt.minCell || 3.0);
-  const rMin      = clamp(opt.ratioMin ?? 0.35, 0.05, 0.95);
-  const rMax      = clamp(opt.ratioMax ?? 0.65, rMin, 0.95);
-  const targetN   = Array.isArray(opt.targetN) ? Math.round(
-                      clamp(Math.floor(randRange(opt.targetN[0], opt.targetN[1]+1)), 2, 64)
-                    ) : Math.round(clamp(opt.targetN || 10, 2, 64));
-  const mergeProb = clamp(opt.mergeProb ?? 0.25, 0, 1);
-
-  const out = [];
-
-  function splitRect(R, lastOrient){
-    // condición de parada: objetivo de celdas y tamaño mínimo
-    const canV = (R.w >= 2*minCell + EPS);
-    const canH = (R.h >= 2*minCell + EPS);
-
-    if (out.length >= targetN || (!canV && !canH)){
-      out.push({ x:R.x, y:R.y, w:R.w, h:R.h, tag:'bsp' });
-      return;
-    }
-
-    // alternancia “suave”: 70% alterna respecto a la anterior; si no, decide por aspecto
-    let orient;
-    if (lastOrient && rand() < 0.70){
-      orient = (lastOrient==='H' ? 'V' : 'H');
-    } else {
-      if (R.w / Math.max(R.h, EPS) > 1.25) orient = 'V';
-      else if (R.h / Math.max(R.w, EPS) > 1.25) orient = 'H';
-      else orient = randBool() ? 'V' : 'H';
-    }
-
-    if (orient==='V' && !canV) orient='H';
-    if (orient==='H' && !canH) orient='V';
-
-    if (orient==='V'){
-      // ratio limitado por minCell
-      let r = clamp(randRange(rMin, rMax), minCell / R.w, 1 - (minCell / R.w));
-      const w1 = Math.max(minCell, R.w * r);
-      const w2 = R.w - w1;
-      const L = { x:R.x,       y:R.y, w:w1, h:R.h };
-      const Rr= { x:R.x + w1, y:R.y, w:w2, h:R.h };
-      splitRect(L, 'V'); splitRect(Rr, 'V');
-    } else {
-      let r = clamp(randRange(rMin, rMax), minCell / R.h, 1 - (minCell / R.h));
-      const h1 = Math.max(minCell, R.h * r);
-      const h2 = R.h - h1;
-      const T = { x:R.x, y:R.y,        w:R.w, h:h1 };
-      const B = { x:R.x, y:R.y + h1,   w:R.w, h:h2 };
-      splitRect(T, 'H'); splitRect(B, 'H');
-    }
-  }
-
-  splitRect(b, null);
-
-  // — FUSIÓN DE CELDAS ADYACENTES (25% por defecto) —
-  function tryMerge(a,b){
-    // horizontal: misma y, misma h, tocan por x
-    if (near(a.y,b.y) && near(a.h,b.h) && (near(a.x + a.w, b.x) || near(b.x + b.w, a.x))){
-      const x = Math.min(a.x,b.x);
-      const w = a.w + b.w;
-      return { x, y:a.y, w, h:a.h, tag:'bsp-merged' };
-    }
-    // vertical: misma x, misma w, tocan por y
-    if (near(a.x,b.x) && near(a.w,b.w) && (near(a.y + a.h, b.y) || near(b.y + b.h, a.y))){
-      const y = Math.min(a.y,b.y);
-      const h = a.h + b.h;
-      return { x:a.x, y, w:a.w, h, tag:'bsp-merged' };
-    }
-    return null;
-  }
-
-  if (out.length > 2 && mergeProb > 0){
-    // intentos acotados para no ciclar
-    for (let pass=0; pass<3; pass++){
-      let merged = false;
-      for (let i=0; i<out.length && !merged; i++){
-        for (let j=i+1; j<out.length && !merged; j++){
-          if (randBool(mergeProb)){
-            const m = tryMerge(out[i], out[j]);
-            if (m){
-              const a = out[i], b = out[j];
-              out.splice(j,1); out.splice(i,1); // quita b luego a
-              out.push(m);
-              merged = true;
-            }
-          }
-        }
-      }
-      if (!merged) break;
-    }
-  }
-
-  return out;
-}
-
-/* ---------- 5) Orquestador con alternancia de estrategias + BSP ---------- */
-function fillByStrategy(rect, fam, strategy){
-  if (strategy==='beatty') return tilesBeatty(rect, fam, true, 'beatty');
-  if (strategy==='subst')  return tilesSubstitution(rect, fam, 7, 'subst'); // r4/r5 → Beatty
-  return tilesEuclid(rect, rect.w/rect.h, 'euclid-in-band');
-}
-
-function assemble(b, inv, opt={}){
-  // Semilla del motor (si viene) — mismo PRNG para todo
-  if (typeof opt.rndSeed === 'number') setSeed(opt.rndSeed);
-
-  const fam = (opt.familyId && ['phi','r2','r3','r4','r5'].includes(opt.familyId))
-    ? opt.familyId
-    : dominantFamily(inv || {ratios:[]});
-
-  const rBox = Math.max(b.w,b.h) / Math.min(b.w,b.h);
-
-  // ——— Picker de “plantilla” ponderado (si no nos forzan un engine)
-  let engine = opt.engine || (()=>{
-    const roll = rand();
-    if (roll < 0.50) return 'bsp';
-    if (roll < 0.85) return 'bands';
-    if (roll < 0.95) return 'beatty';
-    return 'spiral';
-  })();
-
-  // ——— Ejecuta el motor elegido (sin returns tempranos que anulen ramas) ———
-  let rects = [];
-
-  if (engine === 'bsp'){
-    rects = tilesBSP(b, {
-      minCell   : opt.minCell ?? 3.0,
-      ratioMin  : opt.ratioMin ?? 0.35,
-      ratioMax  : opt.ratioMax ?? 0.65,
-      targetN   : opt.targetN  ?? [6,14],
-      mergeProb : opt.mergeProb ?? 0.25
-    });
-  } else if (engine === 'bands'){
-    // bandas euclidianas + ciclo de estrategias (ponderado si no nos dan uno)
-    const cycle = Array.isArray(opt.strategyCycle) && opt.strategyCycle.length
-      ? opt.strategyCycle
-      : (rand()<0.5 ? ['beatty','euclid','subst'] : ['euclid','beatty','subst']);
-    const bands = tilesEuclid(b, rBox, 'euclid-band');
-    for (let i=0;i<bands.length;i++){
-      const strat = cycle[i % cycle.length];
-      rects.push(...fillByStrategy(bands[i], fam, strat));
-    }
-  } else if (engine === 'beatty'){
-    rects = tilesBeatty(b, fam, true, 'beatty');
-  } else if (engine === 'spiral'){
-    rects = tilesSubstitution(b, fam, 7, 'subst');
-  } else {
-    // fallback robusto → bands
-    const bands = tilesEuclid(b, rBox, 'euclid-band');
-    for (const band of bands){
-      rects.push(...tilesBeatty(
-        { x:band.x, y:band.y, w:band.w, h:band.h }, fam, true, 'beatty-in-band'
-      ));
-    }
-  }
-
-  return rects;
-}
-
-/* exporta en global */
-window.Tilers = {
-  PHI, ROOT2, ROOT3, ROOT4, ROOT5,
-  families, whichFamily,
-  assemble,
-  // PRNG público para trazabilidad / tests
-  setSeed,
-  get seed(){ return __seedU32; }
-};
-    </script>
   <style>
   body {
     margin: 0;
@@ -822,29 +473,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let cubeUniverse, permutationGroup;
     const cubeSize = 30, segment = cubeSize/5, halfCube = cubeSize/2;
 
-    // === R5NOVA — configuración AISLADA (sin depender de otros motores) ===
-    // Todo lo de R5NOVA toma estos valores y NADA más.
-    const R5NOVA_CFG = {
-      // Selección de “fila del fondo”: usamos minZ del AABB en mundo
-      BACK_BAND     : 1.8,          // ancho de la rebanada desde zMin (en unidades de mundo)
-
-      // Grosor objetivo de TODAS las piezas de esa fila (en unidades de mundo, no relativas)
-      BACK_THICKNESS: 0.18,         // pon 0.10–0.40 para probar cambios visibles
-
-      // Material ‘flat’ por defecto (sin luces) para aislar color de la iluminación global
-      MATERIAL      : 'basic',      // 'basic' (flat) o 'lambert' si prefieres difuso
-
-      // “Secuencia dorada” 100% determinista para evitar repeticiones de tono
-      HUE_BASE      : 0.0,                             // grados
-      HUE_STEP      : 137.50776405003785,              // ángulo áureo (evita ciclos cortos)
-      SAT           : 0.86,                            // 0..1
-      VAL           : 0.92,                            // 0..1
-      MIN_HUE_DIFF  : 12,                               // separación mínima entre tonos (grados)
-
-      // Mantener legibilidad frente al fondo (puedes poner false si no lo quieres)
-      ENSURE_CONTRAST: true
-    };
-
     const EPS = 1e-6;
     let isPaused = false, currentMode = "manual", userRating = null, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
@@ -863,10 +491,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
       // >>> NUEVO:
       let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
       let avgSceneRange = 0;          // 2 … 6  →  se usa como factor de velocidad
-
-      // BUILD-only compatibility (motores archivados físicamente)
-      let skySphere = null, offnngMesh = null, lichtGroup = null;
-      let isFRBN = false, isLCHT = false, isOFFNNG = false, isTMSL = false, isRAUM = false, is13245 = false, isKEPLR = false, isRAPHI = false, isR5NOVA = false;
 
       /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
@@ -892,518 +516,29 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const BUILD_FOV = 34;
     const BUILD_Z   = 84;
 
-    /* ============================================================
-       CAMERAS · definición independiente por motor (fuente única)
-       ============================================================ */
-    function setCamera_FRBN(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 55);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
-    function setCamera_LCHT(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 130);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
-    function setCamera_OFFNNG(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 47.5);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
-    function setCamera_KEPLR(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 45);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-
-        // ← IMPORTANTE: resetear límites de zoom para este motor
-        controls.minDistance = 0;
-        controls.maxDistance = Infinity;
-
-        controls.update();
-      }
-    }
-
-    function setCamera_RAPHI(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 45);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-
-        // ← IMPORTANTE: resetear límites de zoom para este motor
-        controls.minDistance = 0;
-        controls.maxDistance = Infinity;
-
-        controls.update();
-      }
-    }
-
-    function setCamera_R5NOVA(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov = 75; camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 108);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
-    function setCamera_GRVTY(){
-// Vista tipo “horizonte/mar”: más baja y mirando más hacia abajo.
+    function setCamera_BUILD(){
   camera.up.set(0,1,0);
-  camera.near = 0.1;
-  camera.far  = 4000;
-  camera.fov  = 75;                 // mantenemos tu FOV actual
+  camera.near = 0.1; camera.far = 4000;
+  camera.fov  = 75;
   camera.updateProjectionMatrix();
 
-  // Ojo un poco más bajo y un pelín más atrás
-  const eyeX = 0.0, eyeY = 32.0, eyeZ = 275.0;
-  // Apunta más abajo para que el suelo (grid) llene la parte inferior
-  const tgtY = 90.0;
-
-  if (controls && controls.target) controls.target.set(0, tgtY, 0);
-  camera.position.set(eyeX, eyeY, eyeZ);
-  camera.lookAt(0, tgtY, 0);
-
+  if (controls && controls.target) controls.target.set(0, 0, 0);
   if (controls){
     controls.enabled = true;
     controls.enableRotate = true;
     controls.enablePan    = true;
     controls.enableZoom   = true;
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
     controls.screenSpacePanning = false;
+    controls.update();
+  }
+}
 
-    // Restringimos el pitch a un rango “mirando hacia abajo”
-    // (π/2 es horizontal). Permitimos ~−0.35..+0.05 rad respecto a horizontal.
-    controls.minPolarAngle = Math.PI/2 - 0.35;
-    controls.maxPolarAngle = Math.PI/2 + 0.05;
-
-    // Zoom útil para este encuadre (no afecta a otros motores)
-    controls.minDistance = 170;
-    controls.maxDistance = 520;
-
-
-        controls.update();
-      }
-    }
-
-    /* 13245 · ventana nivelada (verticales rectas) con yaw + pan/zoom
-       - Usa tu encuadre de referencia del WW Tuning (X/Z iguales)
-       - Altura de ojo = 22.92 (de tu captura)
-       - IMPORTANTE: target.y = eyeY para bloquear el pitch (sin ver “desde arriba”)
-    */
-    function setCamera_13245(){
-      const eyeY = 52.5;                // altura de ojo (planta baja sensación nivel)
-      const eyeX = 4.97, eyeZ = 164.12;  // desde tu WW Tuning
-      const tgtX = 5.13, tgtZ = -0.1;   // desde tu WW Tuning (pero nivelado en Y)
-
-      camera.up.set(0,1,0);
-      camera.near = 0.1;
-      camera.far  = 4000;
-      camera.fov  = 75;
-      camera.updateProjectionMatrix();
-
-      // Cámara y target: MISMA Y → sin inclinación (verticales “derechas”)
-      camera.position.set(eyeX, eyeY, eyeZ);
-      if (controls && controls.target) controls.target.set(tgtX, eyeY, tgtZ);
-      camera.lookAt(tgtX, eyeY, tgtZ);
-
-      if (controls){
-        controls.enabled = true;
-
-        // Rotación permitida solo en yaw (sin pitch): bloqueamos el ángulo polar
-        controls.enableRotate = true;
-        controls.minPolarAngle = Math.PI / 2; // horizontal
-        controls.maxPolarAngle = Math.PI / 2; // horizontal
-
-        // Pan libre (incluye mover arriba/abajo) manteniendo cámara nivelada
-        controls.enablePan = true;
-        controls.screenSpacePanning = true;
-
-        // Zoom útil alrededor de tu distancia (~173) sin permitir acercarse demasiado
-        controls.enableZoom = true;
-        controls.minDistance = 120;
-        controls.maxDistance = 260;
-
-        // (Opcional cómodo) algo de velocidad para pan/orbit
-        controls.rotateSpeed = 0.9;
-        controls.panSpeed    = 0.8;
-
-        controls.update();
-      }
-    }
-
-    /* RAUM: frontal fija, sin rotación/pan; zoom limitado (encuadre “DESEADO”) */
-    function setCamera_RAUM(){
-      const target = (controls && controls.target) ? controls.target : new THREE.Vector3(0,0,0);
-
-      camera.up.set(0,1,0);
-      camera.near = 0.1;
-      camera.far  = 4000;
-      camera.fov  = 75;
-      camera.updateProjectionMatrix();
-
-      // Posición exacta deseada (ver captura): z = 82.90
-      camera.position.set(0, 0, 82.90);
-      camera.lookAt(target);
-
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = false;  // sin rotación
-        controls.enablePan    = false;  // sin pan
-        controls.enableZoom   = true;   // sólo zoom (limitado)
-
-        // Limites de zoom ajustados a este encuadre
-        controls.minDistance  = 78;     // evita “acercarte de más”
-        controls.maxDistance  = 140;
-        controls.update();
-      }
-    }
-
-    /* TMSL: nivelada (solo yaw), alejada y con límites amplios */
-    function setCamera_TMSL(){
-      camera.up.set(0,1,0);
-      camera.fov = 75; camera.updateProjectionMatrix();
-      const eyeY = (controls && controls.target) ? controls.target.y : 0;
-      if (controls && controls.target) controls.target.set(0, eyeY, 0);
-      camera.position.set(0, eyeY, 71);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.screenSpacePanning = true;
-        controls.minDistance = 10;
-        controls.maxDistance = 300;
-        controls.minPolarAngle = Math.PI / 2;
-        controls.maxPolarAngle = Math.PI / 2;
-        controls.update();
-      }
-    }
-
-    /* BUILD: vista base (frontal libre) — aislada como los demás motores */
-    function setCamera_BUILD(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1; camera.far = 4000;
-      camera.fov  = 75;  camera.updateProjectionMatrix();
-      if (controls && controls.target) controls.target.set(0, 0, 0);
-      camera.position.set(0, 0, 50);
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
-    Object.assign(window, {
-      setCamera_BUILD,
-      setCamera_FRBN,
-      setCamera_LCHT,
-      setCamera_OFFNNG,
-      setCamera_KEPLR,
-      setCamera_RAPHI,
-      setCamera_R5NOVA,
-      setCamera_GRVTY,
-      setCamera_13245,
-      setCamera_RAUM,
-      setCamera_TMSL
-    });
-
-    /* Cámara por motor: wrapper sin parpadeo ni doble carga */
-    (function installCameraPerEngine(){
-      const pairs = [
-        ['toggleFRBN',   'isFRBN',   'setCamera_FRBN'],
-        ['toggleLCHT',   'isLCHT',   'setCamera_LCHT'],
-        ['toggleOFFNNG', 'isOFFNNG', 'setCamera_OFFNNG'],
-        ['toggleTMSL',   'isTMSL',   'setCamera_TMSL'],
-        ['toggleRAUM',   'isRAUM',   'setCamera_RAUM'],
-        ['toggle13245',  'is13245',  'setCamera_13245'],
-        ['toggleKEPLR',  'isKEPLR',  'setCamera_KEPLR'],
-        ['toggleRAPHI',  'isRAPHI',  'setCamera_RAPHI'],
-        ['toggleR5NOVA', 'isR5NOVA', 'setCamera_R5NOVA'],
-        ['toggleGRVTY',  'isGRVTY',  'setCamera_GRVTY']
-      ];
-      pairs.forEach(([fname, flag, cset])=>{
-        const fn = window[fname];
-        if (typeof fn !== 'function' || fn.__camHooked) return;
-        window[fname] = function(...args){
-          const wasOn = !!window[flag];
-          const out   = fn.apply(this, args);
-          const nowOn = !!window[flag];
-          if (!wasOn && nowOn && typeof window[cset] === 'function'){
-            window[cset]();
-          }
-          return out;
-        };
-        window[fname].__camHooked = true;
-      });
-
-      // BUILD no tiene flag toggle: interceptamos “switchToBuild” y “applyStandardView”
-      ['switchToBuild','applyStandardView'].forEach(name=>{
-        const fn = window[name];
-        if (typeof fn !== 'function' || fn.__camHooked) return;
-        window[name] = function(...args){
-          const out = fn.apply(this, args);
-          try{ window.setCamera_BUILD(); }catch(_){ }
-          return out;
-        };
-        window[name].__camHooked = true;
-      });
-    })();
-
-    /* ============================================================
-       WALLS · definición independiente por motor (fuente única)
-       - Misma apertura por defecto en todos los motores
-       - outer (ancho total) = 2 × (auto) para tapar laterales
-       - KEPLR deja de “verse más chico” al tener su spec propia
-       ============================================================ */
-
-    /* Valores base (puedes cambiar aquí si quieres otro estándar):
-       distance = separación del muro
-       thickness = grosor del “marco”
-       open = tamaño de apertura
-       outer = ancho total del muro (lo forzamos a 2× más abajo)
-    */
-    const WALL_BASE = { distance: 110, thickness: 15, open: 100 };
-
-    const WALL_SPECS = {
-      BUILD : { ...WALL_BASE },
-      FRBN  : { ...WALL_BASE },
-      LCHT  : { ...WALL_BASE, distance: 110 }, // mismo look que tu cámara
-      OFFNNG: { ...WALL_BASE, distance: 110 },
-      TMSL  : { ...WALL_BASE, distance: 110 },
-      RAUM  : { ...WALL_BASE, distance: 110 },
-      '13245':{ ...WALL_BASE, distance: 110 },
-      KEPLR : { ...WALL_BASE, distance: 110 }, // evita “apertura más chica”
-      RAPHI : { ...WALL_BASE, distance: 110 },
-      R5NOVA: { ...WALL_BASE, distance: 110 },
-      GRVTY : { ...WALL_BASE, distance: 110, open: 420 } // horizonte muy lejos
-    };
-
-    /* Aplica un spec al motor indicado y fuerza outer=2× */
-    function applyWallSpec(engine){
-      try{
-        const WW = window.WW || null;
-        if (!WW) return;
-
-        // Spec explícito para este motor
-        const s = Object.assign({}, WALL_SPECS[engine] || WALL_BASE);
-
-        // “outer” (largo lateral) 2×. Si WW.get() ya tiene uno, lo duplicamos.
-        let outerAuto = null;
-        try{
-          const g = WW.get ? WW.get(engine) : null;
-          if (g && g.params && typeof g.params.outer === 'number') outerAuto = g.params.outer;
-        }catch(_){ }
-        const fallbackOuter = (s.open + s.thickness * 2);   // aproximación razonable
-        const outer2x = (outerAuto ? outerAuto * 2.0 : fallbackOuter * 2.0);
-
-        // Intenta setters específicos si existen, y registra en SPECS
-        if (!WW.SPECS) WW.SPECS = Object.create(null);
-        WW.SPECS[engine] = { distance: s.distance, thickness: s.thickness, open: s.open, outer: outer2x };
-
-        if (typeof WW.setDistance === 'function') WW.setDistance(engine, s.distance);
-        if (typeof WW.setThickness === 'function') WW.setThickness(engine, s.thickness);
-        if (typeof WW.setOpen === 'function')      WW.setOpen(engine,      s.open);
-        if (typeof WW.setOuter === 'function')     WW.setOuter(engine,     outer2x);
-
-        // Fuerza reconstrucción/aplicación si el módulo la expone
-        if (typeof WW.apply === 'function')        WW.apply(engine);
-        if (typeof WW.rebuild === 'function')      WW.rebuild(engine);
-        if (typeof WW.update === 'function')       WW.update();
-      }catch(_){ }
-    }
-
-    /* Helpers por motor – misma interfaz que las cámaras */
-    function setWall_BUILD(){  applyWallSpec('BUILD'); }
-    function setWall_FRBN(){   applyWallSpec('FRBN'); }
-    function setWall_LCHT(){   applyWallSpec('LCHT'); }
-    function setWall_OFFNNG(){ applyWallSpec('OFFNNG'); }
-    function setWall_TMSL(){   applyWallSpec('TMSL'); }
-    function setWall_RAUM(){   applyWallSpec('RAUM'); }
-    function setWall_13245(){  applyWallSpec('13245'); }
-    function setWall_KEPLR(){  applyWallSpec('KEPLR'); }
-    function setWall_RAPHI(){  applyWallSpec('RAPHI'); }
-    function setWall_R5NOVA(){ applyWallSpec('R5NOVA'); }
-    function setWall_GRVTY(){  applyWallSpec('GRVTY'); }
-
-    Object.assign(window, {
-      setWall_BUILD, setWall_FRBN, setWall_LCHT, setWall_OFFNNG, setWall_TMSL,
-      setWall_RAUM, setWall_13245, setWall_KEPLR, setWall_RAPHI, setWall_R5NOVA, setWall_GRVTY
-    });
-
-    /* Hook automático: cuando entras a un motor, aplica SU muro */
-    (function installWallPerEngine(){
-      const pairs = [
-        ['toggleFRBN',   'isFRBN',   'setWall_FRBN'],
-        ['toggleLCHT',   'isLCHT',   'setWall_LCHT'],
-        ['toggleOFFNNG', 'isOFFNNG', 'setWall_OFFNNG'],
-        ['toggleTMSL',   'isTMSL',   'setWall_TMSL'],
-        ['toggleRAUM',   'isRAUM',   'setWall_RAUM'],
-        ['toggle13245',  'is13245',  'setWall_13245'],
-        ['toggleKEPLR',  'isKEPLR',  'setWall_KEPLR'],
-        ['toggleRAPHI',  'isRAPHI',  'setWall_RAPHI'],
-        ['toggleR5NOVA', 'isR5NOVA', 'setWall_R5NOVA'],
-        ['toggleGRVTY',  'isGRVTY',  'setWall_GRVTY']
-      ];
-      pairs.forEach(([fname, flag, wset])=>{
-        const fn = window[fname];
-        if (typeof fn !== 'function' || fn.__wallHooked) return;
-        window[fname] = function(...args){
-          const wasOn = !!window[flag];
-          const out   = fn.apply(this, args);
-          const nowOn = !!window[flag];
-          if (!wasOn && nowOn && typeof window[wset] === 'function'){
-            window[wset]();
-          }
-          return out;
-        };
-        window[fname].__wallHooked = true;
-      });
-
-      // Para BUILD, interceptamos “switchToBuild” y “applyStandardView”
-      ['switchToBuild','applyStandardView'].forEach(name=>{
-        const fn = window[name];
-        if (typeof fn !== 'function' || fn.__wallHooked) return;
-        window[name] = function(...args){
-          const out = fn.apply(this, args);
-          try{ window.setWall_BUILD(); }catch(_){ }
-          return out;
-        };
-        window[name].__wallHooked = true;
-      });
-
-      // Aplica de inicio el muro del motor activo (o BUILD si ninguno está ON)
-      const applyInitial = ()=>{
-        try{
-          if (window.isFRBN)      return setWall_FRBN();
-          if (window.isLCHT)      return setWall_LCHT();
-          if (window.isOFFNNG)    return setWall_OFFNNG();
-          if (window.isTMSL)      return setWall_TMSL();
-          if (window.isRAUM)      return setWall_RAUM();
-          if (window.is13245)     return setWall_13245();
-          if (window.isKEPLR)     return setWall_KEPLR();
-          if (window.isRAPHI)     return setWall_RAPHI();
-          if (window.isR5NOVA)    return setWall_R5NOVA();
-          if (window.isGRVTY)     return setWall_GRVTY();
-          return setWall_BUILD();
-        }catch(_){ }
-      };
-      applyInitial();
-    })();
-
-    function applyBuildCamera(eyeY = 0){
-      camera.up.set(0,1,0);
-      camera.near = 0.1;
-      camera.far  = 4000;
-      camera.fov  = BUILD_FOV;
-      camera.updateProjectionMatrix();
-
-      if (controls && controls.target) controls.target.set(0, eyeY, 0);
-      camera.position.set(0, eyeY, BUILD_Z);
-
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-    }
-
-    // ——— Volver al BUILD “normal” (usa tu selector de vista)
-    function restoreBuildView(){
-      camera.up.set(0,1,0);
-      camera.near = 0.1;
-      camera.far  = 4000;
-      camera.fov  = 75;                // tu FOV por defecto en BUILD/UI
-      camera.updateProjectionMatrix();
-
-      if (controls){
-        controls.enabled = true;
-        controls.enableRotate = true;
-        controls.enablePan    = true;
-        controls.enableZoom   = true;
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.screenSpacePanning = false;
-        controls.update();
-      }
-      // reposiciona según el dropdown (front/top/iso…)
-      try { applyStandardView(); } catch(_){ }
-    }
+function restoreBuildView(){
+  setCamera_BUILD();
+  applyStandardView();
+}
 
     // === BUILD render boost (solo activo en BUILD) ==============================
     let __buildBoostPrev = { pr: null, exp: null };
@@ -1426,27 +561,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
       __buildBoostPrev.pr = null; __buildBoostPrev.exp = null;
     }
 
-    // === RAUM crispness boost (solo activo en RAUM) =============================
-    let __raumBoostPrev = { pr: null, exp: null };
-
-    function enterRaumRenderBoost(){
-      if (!renderer || __raumBoostPrev.pr !== null) return;
-      __raumBoostPrev.pr  = renderer.getPixelRatio();
-      __raumBoostPrev.exp = renderer.toneMappingExposure;
-
-      // Más nitidez SOLO en RAUM (cap prudente para FPS)
-      const PR = Math.min(window.devicePixelRatio || 1, 2.75);
-      renderer.setPixelRatio(PR);
-      renderer.toneMappingExposure = 0.98;
-    }
-
-    function leaveRaumRenderBoost(){
-      if (!renderer || __raumBoostPrev.pr === null) return;
-      renderer.setPixelRatio(__raumBoostPrev.pr);
-      renderer.toneMappingExposure = __raumBoostPrev.exp;
-      __raumBoostPrev.pr = null; __raumBoostPrev.exp = null;
-    }
-
     const GOLD = 137.50776405003785;      // ángulo áureo
     /*  razón áurea al cuadrado  ≈ 2.618…  */
     const PHI2 = 2.618033988749895;
@@ -1462,7 +576,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
     const V_LEVELS = [...Array(12)].map((_,i)=>0.20 + 0.75*i/11); // 0.20 – 0.95
 
     /* ——— Discretización canónica para FRBN (catálogo de fases) ——— */
-    const FRBN_K = 144;   // alineado con H_STEPS (2.5° × 144)
 
     function idxToHSV(hIdx,sIdx,vIdx){
       const h = ((hIdx%H_STEPS)+H_STEPS) % H_STEPS;      // 0-143
@@ -1990,33 +1103,6 @@ function evalProp(prop, args = [], fallback = 0){
       return S % 125;
     }
 
-    /* ===== Seed determinista para el LAYOUT (R5NOVA · tilers) =====
-       Usa exactamente las mismas invariantes globales que ya gobiernan color/posiciones
-       (sceneSeed, S_global, mappingRank) + stats del set (sumR, sumSig, n).
-       Devuelve un entero U32 para el PRNG del motor de layout. */
-    function computeLayoutSeed(){
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions)
-                         .map(o => o.value.split(',').map(Number));
-      const mRank = mappingRank(attributeMapping.slice(0,5));
-
-      let sumR = 0, sumSig = 0;
-      perms.forEach(p=>{
-        const r = lehmerRank(p);
-        sumR += r;
-        const s = computeSignature(p);
-        sumSig += s.reduce((a,b)=>a+b,0);
-      });
-
-      // mezcla (sin colisiones obvias) → U32
-      let x = 0 >>> 0;
-      x = (x ^ (sceneSeed * 1315423911)) >>> 0;
-      x = (x ^ ((S_global   *  374761393) >>> 0)) >>> 0;
-      x = (x ^ ((perms.length * 668265263) >>> 0)) >>> 0;
-      x = (x ^ ((mRank      *     362437) >>> 0)) >>> 0;
-      x = (x ^ ((sumR       * 1013904223) >>> 0)) >>> 0;
-      x = (x ^ ((sumSig     *  224682251) >>> 0)) >>> 0;
-      return x >>> 0;
-    }
     function computeShiftRankXYZ(p){
       const r = lehmerRank(p);
       const I = (r + sceneSeed + S_global) % 125;   // <<< NUEVO: acoplado a S_global
@@ -2035,33 +1121,6 @@ function evalProp(prop, args = [], fallback = 0){
       return Array.from(document.getElementById('permutationList').selectedOptions)
                   .map(o => o.value.split(',').map(Number));
     }
-    function raumSignatures(){
-      const perms = getSelectedPerms();
-      const sigs  = perms.map(p => computeSignature(p));
-      return sigs.length ? sigs : [[0,0,0,0,0]];
-    }
-    function raumStats(){
-      const perms = getSelectedPerms();
-      let sumR=0, sumR2=0;
-      perms.forEach(p => { const r = lehmerRank(p); sumR += r; sumR2 += r*r; });
-      const mRank = mappingRank(attributeMapping.slice(0,5));
-      const slot0 = perms.length;
-      return { perms, sumR, sumR2, mRank, slot0 };
-    }
-    /* Color determinista para el elemento k de RAUM (k=1..7) */
-    function raumColorFor(k){
-      const sigs = raumSignatures();
-      const { slot0 } = raumStats();
-      const sig  = sigs[(k-1) % sigs.length];
-      let [hI,sI,vI] = PATTERNS[activePatternId](sig, sceneSeed, slot0 + k);
-      sI = (sI * PHI_S) % 12;
-      vI = (vI * PHI_V) % 12;
-      const {h,s,v} = idxToHSV(hI, sI, vI);
-      let rgb = hsvToRgb(h,s,v);
-      rgb = ensureContrastRGB(rgb);
-      return new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-    }
-
     function setActivePattern(id){
       activePatternId = parseInt(id,10);
       refreshAll({rebuild:false});
@@ -2413,8 +1472,7 @@ function updateScene(attemptResolve=true){
 
   if(attemptResolve) autoResolveColisionesGlobal();
   else updateTopRightDisplay();
-      if (isFRBN && skySphere) buildGanzfeld();   // mantiene FRBN sincronizado
-  }
+}
     function onMouseMove(e){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
@@ -2501,22 +1559,11 @@ function saveImage(){
   final.width = A2_W; final.height = A2_H;
   const fctx = final.getContext('2d');
 
-  if (isFRBN) {
-    // —— FRBN: cubrir A2 sin bandas (recorte centrado)
-    const scale = Math.max(A2_W / renderW, A2_H / renderH);
-    const drawW = Math.ceil(renderW * scale);
-    const drawH = Math.ceil(renderH * scale);
-    const offX  = Math.floor((A2_W - drawW) / 2);
-    const offY  = Math.floor((A2_H - drawH) / 2);
-    fctx.drawImage(tmp, offX, offY, drawW, drawH);
-  } else {
-    // —— Modo normal: mantener todo visible (letterbox centrado)
-    fctx.fillStyle = clearHex;
-    fctx.fillRect(0, 0, A2_W, A2_H);
-    const offX = Math.floor((A2_W - renderW) / 2);
-    const offY = Math.floor((A2_H - renderH) / 2);
-    fctx.drawImage(tmp, offX, offY);
-  }
+  fctx.fillStyle = clearHex;
+  fctx.fillRect(0, 0, A2_W, A2_H);
+  const offX = Math.floor((A2_W - renderW) / 2);
+  const offY = Math.floor((A2_H - renderH) / 2);
+  fctx.drawImage(tmp, offX, offY);
 
   final.toBlob((blob)=>{
     const a = document.createElement('a');
@@ -2673,111 +1720,6 @@ function makePalette(){
  *    • Color propio por pieza usando secuencia dorada (sin PATTERNS/sceneSeed)
  *    • Material propio (clonado) para no ser sobreescrito por otros motores
  * ──────────────────────────────────────────────────────────────────── */
-function adjustR5NovaAfterBuild(){
-  if (typeof isR5NOVA === 'undefined' || !isR5NOVA) return;
-  if (!permutationGroup) return;
-
-  const root   = permutationGroup;
-  const tmpBox = new THREE.Box3();
-
-  // 1) zMin global = mínimo de minZ (AABB en mundo) entre todas las piezas
-  let zMin = +Infinity;
-  root.traverse(o=>{
-    if (!o.isMesh || o === cubeUniverse) return;
-    tmpBox.setFromObject(o);
-    if (tmpBox.min.z < zMin) zMin = tmpBox.min.z;
-  });
-  if (!isFinite(zMin)) return;
-
-  const bandMax = zMin + R5NOVA_CFG.BACK_BAND;
-
-  // 2) Tomamos SOLO piezas cuyo minZ entra en la banda [zMin .. zMin+BACK_BAND]
-  //    y orden estable (Y asc, luego X asc, luego minZ asc) para indexar colores
-  const backRow = [];
-  root.traverse(o=>{
-    if (!o.isMesh || o === cubeUniverse) return;
-    tmpBox.setFromObject(o);
-    if (tmpBox.min.z <= bandMax + 1e-6){
-      backRow.push({
-        mesh: o,
-        x   : o.position.x,
-        y   : o.position.y,
-        z0  : tmpBox.min.z
-      });
-    }
-  });
-  backRow.sort((a,b)=> (a.y - b.y) || (a.x - b.x) || (a.z0 - b.z0));
-
-  // util hue: diferencia circular mínima en grados
-  const hueDelta = (a, b) => {
-    let d = Math.abs(a - b) % 360;
-    return d > 180 ? 360 - d : d;
-  };
-
-  const usedH = []; // h usados (para imponer MIN_HUE_DIFF)
-
-  // 3) Procesar cada pieza del fondo: detener giro, fijar grosor, color flat único
-  backRow.forEach((item, idx)=>{
-    const o = item.mesh;
-
-    // a) Detener animación y resets para que el escalado en Z sea coherente
-    o.userData.rotationSpeed = 0;
-    o.rotation.set(0,0,0);
-    o.updateWorldMatrix(true, false);
-
-    // b) Calcular grosor actual en mundo y escalar SOLO Z a BACK_THICKNESS
-    tmpBox.setFromObject(o);
-    const thickNow = Math.max(1e-6, tmpBox.max.z - tmpBox.min.z);
-    const sZ = R5NOVA_CFG.BACK_THICKNESS / thickNow;
-    o.scale.z *= sZ;
-    o.updateWorldMatrix(true, false);
-
-    // c) Re-anclar al plano de fondo: minZ → zMin exacto
-    tmpBox.setFromObject(o);
-    const dz = zMin - tmpBox.min.z;
-    o.position.z += dz;
-    o.updateWorldMatrix(true, false);
-
-    // d) Material PROPIO (no compartido) y preferentemente plano (sin luces)
-    if (!o.userData._r5novaOwnMat){
-      let mat;
-      if (R5NOVA_CFG.MATERIAL === 'basic'){
-        mat = new THREE.MeshBasicMaterial({ color: 0xffffff, dithering: true });
-      } else {
-        mat = new THREE.MeshLambertMaterial({ color: 0xffffff, dithering: true });
-      }
-      if (o.material && o.material.transparent){
-        mat.transparent = true;
-        mat.opacity     = o.material.opacity;
-      }
-      o.material = mat;
-      o.userData._r5novaOwnMat = true;
-    }
-
-    // e) Color 100% desacoplado: H(i) = H0 + i·φ  (con separación mínima entre tonos)
-    let h = (R5NOVA_CFG.HUE_BASE + idx * R5NOVA_CFG.HUE_STEP) % 360;
-    let guard = 0;
-    while (usedH.some(u => hueDelta(h, u) < R5NOVA_CFG.MIN_HUE_DIFF) && guard < 36){
-      h = (h + 7) % 360; // micro-desplazamiento determinista si cae muy cerca
-      guard++;
-    }
-    usedH.push(h);
-
-    let rgb = hsvToRgb(h, R5NOVA_CFG.SAT, R5NOVA_CFG.VAL);
-    if (R5NOVA_CFG.ENSURE_CONTRAST) rgb = ensureContrastRGB(rgb);
-
-    o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-
-    // Emisión suave (si el material lo soporta) — no depende de vibrance/FRBN/etc.
-    if ('emissive' in o.material){
-      o.material.emissive = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-      o.material.emissiveIntensity = 0.08;
-    }
-
-    o.material.needsUpdate = true;
-  });
-}
-
 
       function refreshAll(opts = {rebuild:false}){
   if(!opts.keepManual){
@@ -3087,46 +2029,36 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         refreshAll({rebuild:true}); updateTopRightDisplay();
       }
     }
-
     function applyStandardView(){
-      const target = new THREE.Vector3(0,0,0);
+  const target = new THREE.Vector3(0,0,0);
 
-      // === VIEW MANAGER (solo para BUILD; NO tocar cámaras de motores) ==============
-      {
-        // Si hay un motor activo, no tocar la cámara aquí.
-        if (isFRBN || isLCHT || isOFFNNG || isTMSL || isRAUM || is13245 || isKEPLR || isR5NOVA || (typeof isGRVTY !== 'undefined' && isGRVTY) || (typeof isRAPHI !== 'undefined' && isRAPHI)) {
-          controls.update();
-          return;
-        }
+  const view = document.getElementById('standardView').value;
+  const pos = new THREE.Vector3();
 
-        // BUILD “puro”: aplica la vista estándar seleccionada
-        const view = document.getElementById('standardView').value;
-        const pos = new THREE.Vector3();
-        switch(view){
-          case "isometric": pos.set(50,50,50); break;
-          case "top":       pos.set(0,80,0);   break;
-          case "front":     pos.set(0,0,40);   break;
-          case "side":      pos.set(50,0,0);   break;
-          case "diagonal":  pos.set(-50,50,-50); break;
-          default:          pos.set(0,0,50);
-        }
-        camera.position.copy(pos);
-        camera.lookAt(target);
+  switch(view){
+    case "isometric": pos.set(50,50,50); break;
+    case "top":       pos.set(0,80,0);   break;
+    case "front":     pos.set(0,0,40);   break;
+    case "side":      pos.set(50,0,0);   break;
+    case "diagonal":  pos.set(-50,50,-50); break;
+    default:          pos.set(0,0,50);
+  }
 
-        controls.enabled            = true;
-        controls.enableRotate       = true;
-        controls.enablePan          = true;
-        controls.enableZoom         = true;
-        controls.minDistance        = 10;
-        controls.maxDistance        = 200;
-        controls.minPolarAngle      = 0;
-        controls.maxPolarAngle      = Math.PI;
-        controls.screenSpacePanning = false;
+  camera.position.copy(pos);
+  camera.lookAt(target);
 
-        controls.update();
-        return;
-      }
-    }
+  controls.enabled            = true;
+  controls.enableRotate       = true;
+  controls.enablePan          = true;
+  controls.enableZoom         = true;
+  controls.minDistance        = 10;
+  controls.maxDistance        = 200;
+  controls.minPolarAngle      = 0;
+  controls.maxPolarAngle      = Math.PI;
+  controls.screenSpacePanning = false;
+
+  controls.update();
+}
 
     function applyEmbedParams(){
       const p=new URLSearchParams(window.location.search);
@@ -3314,11 +2246,9 @@ function showArchitecturalDescription(){
   <section>
     <h4>Phenotypic scope of this edition</h4>
     <div class="formula">
-      <b>BUILD:</b> 120 attribute‑mappings × 11 chromatic‑patterns = <b>1 320</b> deterministic visuals.<br>
-      <b>FRBN:</b> catalog parameter K = <b>144</b> → <b>1 320 × 144 = 190 080</b> canonical states.<br>
+      <b>BUILD:</b> 120 attribute-mappings × 11 chromatic-patterns = <b>1 320</b> deterministic visuals.<br>
       The permutations are acquired as a <b>group</b>; the count does not multiply by the number of permutations in the group.
     </div>
-    <small>K is a catalog parameter (editorial choice). Any change is documented and applies only to future editions.</small>
   </section>
   <hr/>
   `;
@@ -3595,384 +2525,159 @@ function cycleEngine(){
 
       init();
 
-      /* ──────────────────────────────────────────────────────────────
-       * WHITE WALLS · Multi-engine manager (una pared por motor)
-       * - Apertura fija: 50×50 cm
-       * - Espesor: 12 cm
-       * - Distancia desde cámara: 60 cm
-       * - Tamaño exterior (outer): 200 cm
-       * - Cada motor tiene su propia pared y se activa/oculta al cambiar
-       * - Sin doble montaje: **NO** activamos pared al cargar (lo hará WW_PROFILES)
-       * ───────────────────────────────────────────────────────────── */
-      (function WhiteWallMulti(){
-        const WALL_LAYER = 7;
+      (function WhiteWallBuildOnly(){
+  const WALL_LAYER = 7;
 
-        // ---------- utilidades ----------
-        function makeFrameGeometry(outer, open, thickness){
-          const half = outer * 0.5;
-          const h2   = open  * 0.5;
+  function makeFrameGeometry(outer, open, thickness){
+    const half = outer * 0.5;
+    const h2   = open  * 0.5;
 
-          const shape = new THREE.Shape();
-          shape.moveTo(-half, -half); shape.lineTo( half, -half);
-          shape.lineTo( half,  half); shape.lineTo(-half,  half);
-          shape.lineTo(-half, -half);
+    const shape = new THREE.Shape();
+    shape.moveTo(-half, -half); shape.lineTo( half, -half);
+    shape.lineTo( half,  half); shape.lineTo(-half,  half);
+    shape.lineTo(-half, -half);
 
-          const hole = new THREE.Path();
-          hole.moveTo(-h2, -h2); hole.lineTo( h2, -h2);
-          hole.lineTo( h2,  h2); hole.lineTo(-h2,  h2);
-          hole.lineTo(-h2, -h2);
-          shape.holes.push(hole);
+    const hole = new THREE.Path();
+    hole.moveTo(-h2, -h2); hole.lineTo( h2, -h2);
+    hole.lineTo( h2,  h2); hole.lineTo(-h2,  h2);
+    hole.lineTo(-h2, -h2);
+    shape.holes.push(hole);
 
-          const geo = new THREE.ExtrudeGeometry(shape, {
-            depth: thickness, bevelEnabled: false, steps: 1, curveSegments: 1
-          });
-          // cara exterior del muro en z = 0 del mesh
-          geo.translate(0, 0, -thickness);
-          geo.computeBoundingSphere(); geo.computeBoundingBox();
-          return geo;
-        }
-        function dispose(obj){
-          if (!obj) return;
-          obj.traverse(n=>{
-            if (n.isMesh){
-              n.geometry && n.geometry.dispose && n.geometry.dispose();
-              const mats = Array.isArray(n.material) ? n.material : [n.material];
-              mats.forEach(m=>m && m.dispose && m.dispose());
-            }
-          });
-          obj.parent && obj.parent.remove && obj.parent.remove(obj);
-        }
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: thickness, bevelEnabled: false, steps: 1, curveSegments: 1
+    });
+    geo.translate(0, 0, -thickness);
+    geo.computeBoundingSphere(); geo.computeBoundingBox();
+    return geo;
+  }
 
-        // ---------- fábrica de una pared (para un motor) ----------
-        function createWall({open=70, outer=200, thickness=15, distance=93}={}){
-          const rig = new THREE.Group();
-          rig.matrixAutoUpdate = false;
-          rig.frustumCulled    = false;
-          scene.add(rig);
+  function createWall({open=100, outer=600, thickness=15, distance=93}={}){
+    const rig = new THREE.Group();
+    rig.matrixAutoUpdate = false;
+    rig.frustumCulled    = false;
+    scene.add(rig);
 
-          const matFront = new THREE.MeshStandardMaterial({
-            color: 0xECE9E4, roughness: 0.92, metalness: 0.0, dithering: true
-          });
-          const matJamb  = new THREE.MeshStandardMaterial({
-            color: 0xDEDAD4, roughness: 0.95, metalness: 0.0, dithering: true
-          });
+    const matFront = new THREE.MeshStandardMaterial({
+      color: 0xECE9E4, roughness: 0.92, metalness: 0.0, dithering: true
+    });
+    const matJamb  = new THREE.MeshStandardMaterial({
+      color: 0xDEDAD4, roughness: 0.95, metalness: 0.0, dithering: true
+    });
 
-          const geo = makeFrameGeometry(outer, open, thickness);
-          const frame = new THREE.Mesh(geo, matFront);
-          frame.renderOrder   = 100000;
-          frame.frustumCulled = false;
-          frame.position.set(0, 0, -distance);
-          frame.layers.set(WALL_LAYER);
-          rig.add(frame);
+    const geo = makeFrameGeometry(outer, open, thickness);
+    const frame = new THREE.Mesh(geo, matFront);
+    frame.renderOrder   = 100000;
+    frame.frustumCulled = false;
+    frame.position.set(0, 0, -distance);
+    frame.layers.set(WALL_LAYER);
+    rig.add(frame);
 
-          // Jambas reales (Leibung)
-          const h2 = open * 0.5, t = thickness, zc = -distance - t*0.5;
-          const left   = new THREE.Mesh(new THREE.BoxGeometry(t, open, t), matJamb);
-          const right  = new THREE.Mesh(new THREE.BoxGeometry(t, open, t), matJamb);
-          const top    = new THREE.Mesh(new THREE.BoxGeometry(open, t, t), matJamb);
-          const bottom = new THREE.Mesh(new THREE.BoxGeometry(open, t, t), matJamb);
-          left.position.set( -h2 - t*0.5, 0, zc);
-          right.position.set(  h2 + t*0.5, 0, zc);
-          top.position.set(0,  h2 + t*0.5, zc);
-          bottom.position.set(0,-h2 - t*0.5, zc);
-          [left,right,top,bottom].forEach(m=>{
-            m.renderOrder=100001; m.frustumCulled=false; m.layers.set(WALL_LAYER); rig.add(m);
-          });
+    const h2 = open * 0.5, t = thickness, zc = -distance - t*0.5;
+    const left   = new THREE.Mesh(new THREE.BoxGeometry(t, open, t), matJamb);
+    const right  = new THREE.Mesh(new THREE.BoxGeometry(t, open, t), matJamb);
+    const top    = new THREE.Mesh(new THREE.BoxGeometry(open, t, t), matJamb);
+    const bottom = new THREE.Mesh(new THREE.BoxGeometry(open, t, t), matJamb);
+    left.position.set( -h2 - t*0.5, 0, zc);
+    right.position.set(  h2 + t*0.5, 0, zc);
+    top.position.set(0,  h2 + t*0.5, zc);
+    bottom.position.set(0,-h2 - t*0.5, zc);
+    [left,right,top,bottom].forEach(m=>{
+      m.renderOrder=100001; m.frustumCulled=false; m.layers.set(WALL_LAYER); rig.add(m);
+    });
 
-          // Luces solo para el muro
-          camera.layers.enable(WALL_LAYER);
-          const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.55);
-          hemi.layers.set(WALL_LAYER);
-          const dir  = new THREE.DirectionalLight(0xffffff, 0.65);
-          dir.position.set(-distance*0.8, distance*1.2, -distance*0.2);
-          dir.layers.set(WALL_LAYER);
-          rig.add(hemi, dir);
+    camera.layers.enable(WALL_LAYER);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.55);
+    hemi.layers.set(WALL_LAYER);
+    const dir  = new THREE.DirectionalLight(0xffffff, 0.65);
+    dir.position.set(-distance*0.8, distance*1.2, -distance*0.2);
+    dir.layers.set(WALL_LAYER);
+    rig.add(hemi, dir);
 
-          return {
-            rig, frame,
-            params: {open, outer, thickness, distance},
-            setVisible(v){ rig.visible = !!v; },
-            setDistance(d){
-              this.params.distance = d;
-              frame.position.set(0,0,-d);
-              const zc = -d - this.params.thickness*0.5;
-              left.position.z = right.position.z = top.position.z = bottom.position.z = zc;
-            },
-            setOuter(o){
-              this.params.outer = o;
-              const newGeo = makeFrameGeometry(o, this.params.open, this.params.thickness);
-              this.frame.geometry.dispose(); this.frame.geometry = newGeo;
-            },
-            setOpen(o){
-              this.params.open = o;
-              const t  = this.params.thickness;
-              const zc = -this.params.distance - t*0.5;
-              const h2 = o * 0.5;
+    return {
+      rig, frame,
+      params: {open, outer, thickness, distance},
+      setVisible(v){ rig.visible = !!v; },
+      setDistance(d){
+        this.params.distance = d;
+        frame.position.set(0,0,-d);
+        const zc2 = -d - this.params.thickness*0.5;
+        left.position.z = right.position.z = top.position.z = bottom.position.z = zc2;
+      },
+      setOuter(o){
+        this.params.outer = o;
+        const newGeo = makeFrameGeometry(o, this.params.open, this.params.thickness);
+        this.frame.geometry.dispose(); this.frame.geometry = newGeo;
+      },
+      setOpen(o){
+        this.params.open = o;
+        const t2  = this.params.thickness;
+        const zc2 = -this.params.distance - t2*0.5;
+        const h22 = o * 0.5;
 
-              // marco
-              const gFrame = makeFrameGeometry(this.params.outer, o, t);
-              this.frame.geometry.dispose(); this.frame.geometry = gFrame;
+        const gFrame = makeFrameGeometry(this.params.outer, o, t2);
+        this.frame.geometry.dispose(); this.frame.geometry = gFrame;
 
-              // jambas (Leibung)
-              left.geometry.dispose();   left.geometry   = new THREE.BoxGeometry(t, o, t);
-              right.geometry.dispose();  right.geometry  = new THREE.BoxGeometry(t, o, t);
-              top.geometry.dispose();    top.geometry    = new THREE.BoxGeometry(o, t, t);
-              bottom.geometry.dispose(); bottom.geometry = new THREE.BoxGeometry(o, t, t);
+        left.geometry.dispose();   left.geometry   = new THREE.BoxGeometry(t2, o, t2);
+        right.geometry.dispose();  right.geometry  = new THREE.BoxGeometry(t2, o, t2);
+        top.geometry.dispose();    top.geometry    = new THREE.BoxGeometry(o, t2, t2);
+        bottom.geometry.dispose(); bottom.geometry = new THREE.BoxGeometry(o, t2, t2);
 
-              left.position.set( -h2 - t*0.5, 0, zc);
-              right.position.set(  h2 + t*0.5, 0, zc);
-              top.position.set(0,  h2 + t*0.5, zc);
-              bottom.position.set(0,-h2 - t*0.5, zc);
-            },
-            setThickness(t){
-              this.params.thickness = t;
-              const o  = this.params.open;
-              const zc = -this.params.distance - t*0.5;
-              const h2 = o * 0.5;
+        left.position.set( -h22 - t2*0.5, 0, zc2);
+        right.position.set(  h22 + t2*0.5, 0, zc2);
+        top.position.set(0,  h22 + t2*0.5, zc2);
+        bottom.position.set(0,-h22 - t2*0.5, zc2);
+      },
+      setThickness(t2){
+        this.params.thickness = t2;
+        const o  = this.params.open;
+        const zc2 = -this.params.distance - t2*0.5;
+        const h22 = o * 0.5;
 
-              // marco
-              const gFrame = makeFrameGeometry(this.params.outer, o, t);
-              this.frame.geometry.dispose(); this.frame.geometry = gFrame;
+        const gFrame = makeFrameGeometry(this.params.outer, o, t2);
+        this.frame.geometry.dispose(); this.frame.geometry = gFrame;
 
-              // jambas
-              left.geometry.dispose();   left.geometry   = new THREE.BoxGeometry(t, o, t);
-              right.geometry.dispose();  right.geometry  = new THREE.BoxGeometry(t, o, t);
-              top.geometry.dispose();    top.geometry    = new THREE.BoxGeometry(o, t, t);
-              bottom.geometry.dispose(); bottom.geometry = new THREE.BoxGeometry(o, t, t);
+        left.geometry.dispose();   left.geometry   = new THREE.BoxGeometry(t2, o, t2);
+        right.geometry.dispose();  right.geometry  = new THREE.BoxGeometry(t2, o, t2);
+        top.geometry.dispose();    top.geometry    = new THREE.BoxGeometry(o, t2, t2);
+        bottom.geometry.dispose(); bottom.geometry = new THREE.BoxGeometry(o, t2, t2);
 
-              left.position.set( -h2 - t*0.5, 0, zc);
-              right.position.set(  h2 + t*0.5, 0, zc);
-              top.position.set(0,  h2 + t*0.5, zc);
-              bottom.position.set(0,-h2 - t*0.5, zc);
-            },
-            dispose(){ dispose(rig); }
-          };
-        }
+        left.position.set( -h22 - t2*0.5, 0, zc2);
+        right.position.set(  h22 + t2*0.5, 0, zc2);
+        top.position.set(0,  h22 + t2*0.5, zc2);
+        bottom.position.set(0,-h22 - t2*0.5, zc2);
+      }
+    };
+  }
 
-        // ---------- manager por motor ----------
-        const ENGINES = ['BUILD','FRBN','LCHT','OFFNNG','TMSL','RAUM','13245','KEPLR','RAPHI','GRVTY','R5NOVA'];
-        const walls = Object.create(null);
-        let active = null, rafId = null;
+  const wall = createWall({open:100, outer:600, thickness:15, distance:93});
+  wall.setVisible(true);
 
-        function ensure(engine){
-          if (walls[engine]) return walls[engine];
-          // configuración base para TODOS: outer=200 (2×), open=50, thk=12, dist=60
-          walls[engine] = createWall({open:100, outer:600, thickness:15, distance:93});
-          walls[engine].setVisible(false);
-          return walls[engine];
-        }
-        function engineId(){
-          if (window.isGRVTY)  return 'GRVTY';
-          if (window.isR5NOVA) return 'R5NOVA';
-          if (window.isRAPHI)  return 'RAPHI';
-          if (window.isKEPLR)  return 'KEPLR';
-          if (window.is13245)  return '13245';
-          if (window.isRAUM)   return 'RAUM';
-          if (window.isTMSL)   return 'TMSL';
-          if (window.isOFFNNG) return 'OFFNNG';
-          if (window.isLCHT)   return 'LCHT';
-          if (window.isFRBN)   return 'FRBN';
-          return 'BUILD';
-        }
-        function setActive(id){
-          const key = id || engineId();
-          ENGINES.forEach(k=>ensure(k).setVisible(k===key));
-          active = ensure(key);
-        }
+  (function tick(){
+    try{
+      wall.rig.position.copy(camera.position);
+      wall.rig.quaternion.copy(camera.quaternion);
+      wall.rig.updateMatrix(); wall.rig.updateMatrixWorld(true);
+    }catch(_){ }
+    requestAnimationFrame(tick);
+  })();
 
-        // seguir cámara (solo para la pared activa)
-        (function tick(){
-          try{
-            if (active){
-              active.rig.position.copy(camera.position);
-              active.rig.quaternion.copy(camera.quaternion);
-              active.rig.updateMatrix(); active.rig.updateMatrixWorld(true);
-            }
-          }catch(_){ }
-          rafId = requestAnimationFrame(tick);
-        })();
+  window.WW = {
+    get(){ return wall; },
+    setDistance(d){ wall.setDistance(d); },
+    setOuter(o){ wall.setOuter(o); },
+    setOpen(o){ wall.setOpen(o); },
+    setThickness(t){ wall.setThickness(t); },
+    activeInfo(){
+      const d = wall.params.distance, t = wall.params.thickness;
+      const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+      const backCenter = camera.position.clone().add(dir.clone().multiplyScalar(-(d+t)));
+      return { dir, backCenter, distance:d, thickness:t };
+    }
+  };
 
-        // API pública (ampliada y estable)
-        window.WW = {
-          ensure, setActive,
-          setDistance(engine, d){ ensure(engine).setDistance(d); },
-          setOuter(engine, o){ ensure(engine).setOuter(o); },
-          setOpen(engine, o){ ensure(engine).setOpen(o); },
-          setThickness(engine, t){ ensure(engine).setThickness(t); },
-          get(engine){ return ensure(engine); },
-          show(engine){ setActive(engine); },              // alias
-          activeEngine(){ return engineId(); },            // id actual
-          activeInfo(){                                    // plano trasero del hueco
-            if (!active) return null;
-            const d = active.params.distance, t = active.params.thickness;
-            const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
-            const backCenter = camera.position.clone().add(dir.clone().multiplyScalar(-(d+t)));
-            return { dir, backCenter, distance:d, thickness:t };
-          }
-        };
-
-        // **Importante**: NO activamos ninguna pared aquí.
-        // WW_PROFILES_SINGLE será quien haga WW.show() con debounce único.
-      })();
-
-        /* ──────────────────────────────────────────────────────────────
-         * WW_PROFILES · Modo PASIVO (no toca cámara, sin auto-schedule)
-         * - Sólo ajusta la pared por motor cuando se le invoca explícitamente.
-         * - Expone: window.WW_applyFor(key)  ← úsalo al encender cada motor.
-         * ───────────────────────────────────────────────────────────── */
-        (function WW_PROFILES_SINGLE(){
-          if (window.__WW_PROFILES_READY) return;
-          window.__WW_PROFILES_READY = true;
-
-          // Distancia del muro por motor (NO afecta cámara)
-          const DIST = {
-            BUILD:93, FRBN:93, LCHT:93, OFFNNG:93, TMSL:93, RAUM:93, '13245':93,
-            KEPLR:93, RAPHI:93, GRVTY:93, R5NOVA:93
-          };
-
-          // Alineación de shells (TMSL/R5NOVA) al plano trasero del hueco (NO toca cámara)
-          function alignShellToBackPlane(obj){
-            try{
-              if (!obj || !window.WW || !window.WW.activeInfo) return;
-              const info = window.WW.activeInfo(); if (!info) return;
-              const n  = info.dir.clone();
-              const s0 = n.dot(info.backCenter);
-              obj.updateMatrixWorld(true);
-              const box = new THREE.Box3().setFromObject(obj);
-              const pts = [
-                new THREE.Vector3(box.min.x, box.min.y, box.min.z),
-                new THREE.Vector3(box.min.x, box.min.y, box.max.z),
-                new THREE.Vector3(box.min.x, box.max.y, box.min.z),
-                new THREE.Vector3(box.min.x, box.max.y, box.max.z),
-                new THREE.Vector3(box.max.x, box.min.y, box.min.z),
-                new THREE.Vector3(box.max.x, box.min.y, box.max.z),
-                new THREE.Vector3(box.max.x, box.max.y, box.min.z),
-                new THREE.Vector3(box.max.x, box.max.y, box.max.z),
-              ];
-              let max = -Infinity;
-              for (let p of pts){ p.applyMatrix4(obj.matrixWorld); const s = n.dot(p); if (s>max) max=s; }
-              const EPS = 0.5;
-              const delta = (s0 - EPS) - max;
-              if (Math.abs(delta) > 1e-6){
-                obj.position.add(n.multiplyScalar(delta));
-                obj.updateMatrixWorld(true);
-              }
-            }catch(_){ }
-          }
-
-          // Aplicación explícita: mostrar pared + fijar distancia + alinear shells si aplica
-          function applyFor(key){
-            try{
-              if (!window.WW) return;
-              const id = key || (window.WW.activeEngine ? window.WW.activeEngine() : 'BUILD');
-              window.WW.show(id);                    // muestra sólo la pared del motor activo
-              // outer = 2× del base (o al menos 2× del hueco + marcos) para tapar laterales
-              try{
-                const w = window.WW.get(id);
-                const baseOuter = (w && w.params && typeof w.params.outer === 'number') ? w.params.outer : 400;
-                const minOuter  = (w && w.params) ? (w.params.open + w.params.thickness * 2) * 2 : 400;
-                const newOuter  = Math.max(baseOuter * 2, minOuter);
-                window.WW.setOuter(id, newOuter);
-              }catch(_){ }
-              window.WW.setDistance(id, DIST[id] ?? 93);
-
-              // Ajustes que NO tocan la cámara:
-              try{ if (id==='TMSL'   && window.__tmslDecorGroup) alignShellToBackPlane(window.__tmslDecorGroup); }catch(_){ }
-              try{ if (id==='R5NOVA' && window.groupR5NOVA)      alignShellToBackPlane(window.groupR5NOVA);      }catch(_){ }
-            }catch(_){ }
-          }
-
-          // API pública: los toggles de motor llamarán a esto
-          window.WW_applyFor = applyFor;
-
-          // UI opcional: dejamos NO-OP la cámara para evitar interferencias
-          const ROOTS = Object.create(null);
-          window.registerEngineRoot = function(id, root){ ROOTS[id] = root; };
-          function mulWall(f){
-            try{
-              const id = window.WW?.activeEngine?.() || 'BUILD';
-              const w  = window.WW?.get?.(id);
-              if (!w) return;
-              const newDist = Math.max(5, (w.params.distance||60) * f);
-              window.WW.setDistance(id, newDist);
-            }catch(_){ }
-          }
-          function mulCam(_f){ /* NO-OP: no tocamos la cámara desde aquí */ }
-          function mulScene(f){
-            try{
-              const id = (window.WW?.activeEngine?.()) || 'BUILD';
-              const root = ROOTS[id];
-              if (!root) return;
-              root.scale.multiplyScalar(f);
-              root.updateMatrixWorld(true);
-            }catch(_){ }
-          }
-          window.WW_UI = { mulWall, mulCam, mulScene };
-        })();
-
-        /* ───────── Llama a WW_applyFor(key) una vez cuando cada motor entra ON ───────── */
-        (function BindWallsToEngineToggles(){
-          if (window.__WW_BOUNDS_INSTALLED__) return;
-          window.__WW_BOUNDS_INSTALLED__ = true;
-
-          function bind(name, flag, key){
-            const orig = window[name];
-            if (typeof orig !== 'function' || orig.__wwBindApplied) return;
-            window[name] = function(){
-              const wasOn = !!window[flag];
-              const out   = orig.apply(this, arguments);
-              const nowOn = !!window[flag];
-              if (!wasOn && nowOn){ try{ window.WW_applyFor && window.WW_applyFor(key); }catch(_){ } }
-              return out;
-            };
-            window[name].__wwBindApplied = true;
-          }
-
-          bind('toggleFRBN',   'isFRBN',   'FRBN');
-          bind('toggleLCHT',   'isLCHT',   'LCHT');
-          bind('toggleOFFNNG', 'isOFFNNG', 'OFFNNG');
-          bind('toggleTMSL',   'isTMSL',   'TMSL');
-          bind('toggleRAUM',   'isRAUM',   'RAUM');
-          bind('toggle13245',  'is13245',  '13245');
-          bind('toggleKEPLR',  'isKEPLR',  'KEPLR');
-          bind('toggleRAPHI',  'isRAPHI',  'RAPHI');
-          bind('toggleGRVTY',  'isGRVTY',  'GRVTY');
-          bind('toggleR5NOVA', 'isR5NOVA', 'R5NOVA');
-
-          // Sincroniza pared una sola vez si al cargar ya hay un motor activo
-          setTimeout(()=>{
-            try{
-              const id =
-                (window.isGRVTY   && 'GRVTY')  ||
-                (window.isR5NOVA  && 'R5NOVA') ||
-                (window.isRAPHI   && 'RAPHI')  ||
-                (window.isKEPLR   && 'KEPLR')  ||
-                (window.is13245   && '13245')  ||
-                (window.isRAUM    && 'RAUM')   ||
-                (window.isTMSL    && 'TMSL')   ||
-                (window.isOFFNNG  && 'OFFNNG') ||
-                (window.isLCHT    && 'LCHT')   ||
-                (window.isFRBN    && 'FRBN')   ||
-                'BUILD';
-              if (window.WW_applyFor) window.WW_applyFor(id);
-            }catch(_){ }
-          }, 0);
-        })();
-
-        /* ==== WALLS SHIM: desactiva el bloque antiguo y delega todo en WW_applyFor ==== */
-        (function replaceLegacyWallSetters(){
-          window.setWall_BUILD  = function(){ try{ window.WW_applyFor('BUILD'); }catch(_){ } };
-          window.setWall_FRBN   = function(){ try{ window.WW_applyFor('FRBN'); }catch(_){ } };
-          window.setWall_LCHT   = function(){ try{ window.WW_applyFor('LCHT'); }catch(_){ } };
-          window.setWall_OFFNNG = function(){ try{ window.WW_applyFor('OFFNNG'); }catch(_){ } };
-          window.setWall_TMSL   = function(){ try{ window.WW_applyFor('TMSL'); }catch(_){ } };
-          window.setWall_RAUM   = function(){ try{ window.WW_applyFor('RAUM'); }catch(_){ } };
-          window.setWall_13245  = function(){ try{ window.WW_applyFor('13245'); }catch(_){ } };
-          window.setWall_KEPLR  = function(){ try{ window.WW_applyFor('KEPLR'); }catch(_){ } };
-          window.setWall_RAPHI  = function(){ try{ window.WW_applyFor('RAPHI'); }catch(_){ } };
-          window.setWall_GRVTY  = function(){ try{ window.WW_applyFor('GRVTY'); }catch(_){ } };
-          window.setWall_R5NOVA = function(){ try{ window.WW_applyFor('R5NOVA'); }catch(_){ } };
-        })();
+  window.WW_applyFor = function(){ wall.setVisible(true); };
+})();
+;
 
 
 
@@ -4001,16 +2706,6 @@ async function showInformation(){
     renderInfoPanel(html);
   }catch(err){
     renderInfoPanel('<h2>Information</h2><p>Error cargando information.html</p>');
-    console.error(err);
-  }
-}
-
-async function showFRBNInfo(){
-  try{
-    const html = await loadTextPartial('./texts/frbn.html');
-    renderInfoPanel(html);
-  }catch(err){
-    renderInfoPanel('<h2>FRBN</h2><p>Error cargando frbn.html</p>');
     console.error(err);
   }
 }
@@ -4123,21 +2818,11 @@ async function showFRBNInfo(){
       final.width = A2_W; final.height = A2_H;
       const fctx = final.getContext('2d');
 
-      if (isFRBN) {
-        // — FRBN: cubrir A2 (recorte centrado, sin bandas)
-        const scale = Math.max(A2_W / renderW, A2_H / renderH);
-        const drawW = Math.ceil(renderW * scale);
-        const drawH = Math.ceil(renderH * scale);
-        const offX  = Math.floor((A2_W - drawW) / 2);
-        const offY  = Math.floor((A2_H - drawH) / 2);
-        fctx.drawImage(tmp, offX, offY, drawW, drawH);
-      } else {
-        // — Modo normal: letterbox centrado
-        fctx.fillStyle = clearHex; fctx.fillRect(0, 0, A2_W, A2_H);
-        const offX = Math.floor((A2_W - renderW) / 2);
-        const offY = Math.floor((A2_H - renderH) / 2);
-        fctx.drawImage(tmp, offX, offY);
-      }
+      fctx.fillStyle = clearHex;
+      fctx.fillRect(0, 0, A2_W, A2_H);
+      const offX = Math.floor((A2_W - renderW) / 2);
+      const offY = Math.floor((A2_H - renderH) / 2);
+      fctx.drawImage(tmp, offX, offY);
 
       const blob = await new Promise(res => final.toBlob(res, 'image/png'));
       // restaurar
@@ -4155,15 +2840,21 @@ async function showFRBNInfo(){
 
     /* Configuración actual (mismo formato que exportEmbed) */
     function exportCurrentConfiguration(){
-      const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
-      const mapping = { forma: attributeMapping[0], color: attributeMapping[1],
-                        x: attributeMapping[2], y: attributeMapping[3], z: attributeMapping[4] };
-      const colors = {}; for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
-      const bg   = document.getElementById('bgColor').value;
-      const cube = document.getElementById('cubeColor').value;
-      const view = "front";
-      return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global, frbnK: FRBN_K };
-    }
+  const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+  const mapping = {
+    forma: attributeMapping[0],
+    color: attributeMapping[1],
+    x: attributeMapping[2],
+    y: attributeMapping[3],
+    z: attributeMapping[4]
+  };
+  const colors = {};
+  for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
+  const bg   = document.getElementById('bgColor').value;
+  const cube = document.getElementById('cubeColor').value;
+  const view = "front";
+  return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global };
+}
 
     /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
     async function computeConfigHash(){
@@ -4194,7 +2885,6 @@ async function showFRBNInfo(){
         const now = new Date();
         const prettyJSON = JSON.stringify(cfg, null, 2);
         const TOTAL_BUILD = 120 * 11;                 // 1,320 (no se multiplica por el tamaño del conjunto de permutaciones)
-        const TOTAL_FRBN  = TOTAL_BUILD * FRBN_K;     // estados canónicos para FRBN
         const fmt = n => n.toLocaleString('en-US').replace(/,/g,'\u202f'); // separador fino
 
         const certHTML =
@@ -4217,7 +2907,7 @@ async function showFRBNInfo(){
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
   <div>Chromatic pattern: ${activePatternId}</div>
-  <div>sceneSeed: ${sceneSeed} · S_global: ${S_global} · FRBN_K: ${FRBN_K}</div>
+  <div>sceneSeed: ${sceneSeed} · S_global: ${S_global}</div>
 </div>
 
 <h2>Image (A2)</h2>
@@ -4241,8 +2931,7 @@ openssl dgst -sha256 prmttn_config.json</pre>
 <h2>Phenotypic scope</h2>
 <div class="box">
   <ul>
-    <li><b>BUILD (static):</b> 120 attribute‑mappings × 11 chromatic‑patterns = <b>${fmt(TOTAL_BUILD)}</b> deterministic visuals.</li>
-    <li><b>FRBN (dynamic):</b> continuous deterministic field. For cataloging we adopt <b>K = ${FRBN_K}</b> canonical phases → <b>${fmt(TOTAL_FRBN)}</b> canonical states.</li>
+    <li><b>BUILD:</b> 120 attribute-mappings × 11 chromatic-patterns = <b>${fmt(TOTAL_BUILD)}</b> deterministic visuals.</li>
   </ul>
   <p style="font-size:12px;color:#555;margin:8px 0 0;">
     Note: permutations are acquired as a <b>group</b>; the count does not multiply by the size of the group.
