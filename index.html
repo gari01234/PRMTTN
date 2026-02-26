@@ -82,10 +82,26 @@
   }
 
   #controls {
-    position: absolute; top: 10px; left: 10px; z-index: 100;
-    padding: 10px; border-radius: 5px;
-    background: rgba(255,255,255,0.12); max-width: 350px;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 100;
+    padding: 10px;
+    border-radius: 5px;
+    background: rgba(255,255,255,0.12);
+    max-width: 350px;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+
+    max-height: 60vh;
   }
+
+  #controls::-webkit-scrollbar { width: 10px; }
+  #controls::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 8px; }
+  #controls::-webkit-scrollbar-track { background: rgba(255,255,255,0.06); }
   details {
     margin-bottom: 10px;
     background: rgba(255,255,255,0.06);
@@ -1561,6 +1577,29 @@ function updateCubeColor(manual = true){
   updateChromaModeUI();
 }
 
+function layoutLeftControlsPanel(){
+  const panel = document.getElementById('controls');
+  const dock  = document.getElementById('engineSelectWrap');
+
+  if(!panel) return;
+
+  const panelStyle = window.getComputedStyle(panel);
+  if(panelStyle.display === 'none') return;
+
+  const panelRect = panel.getBoundingClientRect();
+
+  if(!dock || window.getComputedStyle(dock).display === 'none'){
+    const safe = Math.max(180, Math.floor(window.innerHeight - panelRect.top - 20));
+    panel.style.maxHeight = safe + 'px';
+    return;
+  }
+
+  const dockRect = dock.getBoundingClientRect();
+  const gap = 14;
+  const maxH = Math.max(180, Math.floor(dockRect.top - gap - panelRect.top));
+  panel.style.maxHeight = maxH + 'px';
+}
+
     function toggleTexts(){
       const ids = [
         'controls',
@@ -1590,6 +1629,8 @@ function updateCubeColor(manual = true){
       // Asegura que el cursor personalizado vuelva a mostrarse
       const cc = document.getElementById('customCursor');
       if (cc) cc.style.display = 'block';
+
+      setTimeout(layoutLeftControlsPanel, 0);
     }
 
     /* 3.1 Patrón cromático siguiente */
@@ -2162,6 +2203,7 @@ function renderArchPanel(html){
       populateAttributeMappingSelect();
       applyEmbedParams();
       refreshAll({rebuild:true});
+      layoutLeftControlsPanel();
       updateChromaModeUI();
       enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
 
@@ -2174,6 +2216,7 @@ function renderArchPanel(html){
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth,window.innerHeight);
+      layoutLeftControlsPanel();
     }
     function animate(){
   requestAnimationFrame(animate);
