@@ -545,6 +545,10 @@ if (typeof config.chroma_mode === 'string') {
     let bgOverride   = null;        // override del fondo (solo si el usuario interviene)
     let cubeOverride = null;        // override paredes (solo si el usuario interviene)
 
+    // --- Color management (A): UI shows sRGB albedo, scene stores linear ---
+    let __bgHexSRGB   = '#ffffff';  // último color sRGB efectivo del background (para UI/export/canvas fill)
+    let __cubeHexSRGB = '#808080';  // último color sRGB efectivo del cubo
+
     function normHex6(hex){
       if(typeof hex !== 'string') return null;
       let s = hex.trim();
@@ -552,6 +556,14 @@ if (typeof config.chroma_mode === 'string') {
       if(s[0] !== '#') s = '#'+s;
       if(!/^#[0-9a-fA-F]{6}$/.test(s)) return null;
       return s.toLowerCase();
+    }
+
+    function setColorFromSRGBHex(colorObj, hex){
+      const h = normHex6(hex);
+      if(!h) return;
+      // Interpretar el string como sRGB (lo que ve el usuario) y convertir a lineal para el pipeline 3D
+      colorObj.setStyle(h);
+      if (typeof colorObj.convertSRGBToLinear === 'function') colorObj.convertSRGBToLinear();
     }
 
 function srgbHexToLinearColor(hex){
@@ -1104,12 +1116,9 @@ function rebuildSceneColours(){
   // Posición (sin cambios)
   const [X,Y,Z] = computeShiftRankXYZ(pa);
 
-  // Material puro (sin emissive)
-  const c = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
-  c.convertSRGBToLinear(); // <<< clave
-
+  // Material: el hex/rgb viene en sRGB (albedo). Convertimos a lineal antes de renderizar.
   const mat = new THREE.MeshLambertMaterial({
-    color: c,
+    color: new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255).convertSRGBToLinear(),
     dithering: true
   });
 
@@ -1467,10 +1476,10 @@ function saveImage(){
   camera.updateProjectionMatrix();
 
   const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
+  rt.texture.encoding = THREE.sRGBEncoding; // IMPORTANT: igualar salida a pantalla
 
-  const uiBgHex = normHex6(document.getElementById('bgColor')?.value) || '#ffffff';
-  renderer.setClearColor(srgbHexToLinearColor(uiBgHex), 1);
-  const clearHex = uiBgHex; // este se usa para el canvas 2D
+  const clearHex = __bgHexSRGB || '#ffffff';     // para el canvas (sRGB)
+  renderer.setClearColor(prevBg || new THREE.Color(clearHex).convertSRGBToLinear(), 1); // para WebGL (lineal)
   renderer.setRenderTarget(rt);
   renderer.clear(true, true, true);
   renderer.render(scene, camera);
@@ -1525,17 +1534,18 @@ function applyPalette(){
     const permStr = o.userData.permStr;
     const ov = permOverride[permStr];
 
+    // Siempre partimos de un valor sRGB y lo convertimos a lineal
     if (chromaMode === 'HABITATED' && ov){
-      setThreeColorFromSRGBHex(o.material.color, ov);
+      setColorFromSRGBHex(o.material.color, ov);
       return;
     }
 
     const pa  = permStrToArray(permStr);
-    const rgb = colorForPermutation(pa); // rgb 0..255 (sRGB)
-    setThreeColorFromSRGB01(
-      o.material.color,
-      rgb[0]/255, rgb[1]/255, rgb[2]/255
-    );
+    const rgb = colorForPermutation(pa);
+
+    // rgb es sRGB (0..255). Lo seteamos como sRGB y convertimos a lineal.
+    o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    o.material.color.convertSRGBToLinear();
   });
 
   rebuildPermOverrideUI();
@@ -1571,12 +1581,16 @@ function updateBackground(manual = true){
     markHabited();
   }
 
-  const hex = (chromaMode === 'HABITATED' && bgOverride)
+  // hex sRGB efectivo (lo que debe mostrar el UI)
+  const hexSRGB = (chromaMode === 'HABITATED' && bgOverride)
     ? bgOverride
-    : hsvToHex(bgHSV); // <- sRGB hex
+    : hsvToHex(bgHSV);
 
-  scene.background = srgbHexToLinearColor(hex); // <<< clave
-  if (input) input.value = hex;
+  __bgHexSRGB = hexSRGB;
+  if (input) input.value = hexSRGB;
+
+  // escena: almacenar en lineal
+  scene.background = new THREE.Color(hexSRGB).convertSRGBToLinear();
 
   updateChromaModeUI();
 }
@@ -1591,12 +1605,15 @@ function updateCubeColor(manual = true){
     markHabited();
   }
 
-  const hex = (chromaMode === 'HABITATED' && cubeOverride)
+  const hexSRGB = (chromaMode === 'HABITATED' && cubeOverride)
     ? cubeOverride
-    : hsvToHex(wallHSV); // <- sRGB hex
+    : hsvToHex(wallHSV);
 
-  cubeUniverse.material.color.copy(srgbHexToLinearColor(hex)); // <<< clave
-  if (input) input.value = hex;
+  __cubeHexSRGB = hexSRGB;
+  if (input) input.value = hexSRGB;
+
+  // cubo: almacenar en lineal (material.color es lineal)
+  setColorFromSRGBHex(cubeUniverse.material.color, hexSRGB);
 
   updateChromaModeUI();
 }
@@ -2316,6 +2333,8 @@ function cycleEngine(){
     const matJamb  = new THREE.MeshStandardMaterial({
       color: 0xDEDAD4, roughness: 0.95, metalness: 0.0, dithering: true
     });
+    matFront.color.convertSRGBToLinear();
+    matJamb.color.convertSRGBToLinear();
 
     const geo = makeFrameGeometry(outer, open, thickness);
     const frame = new THREE.Mesh(geo, matFront);
@@ -2542,10 +2561,10 @@ async function showInformation(){
       camera.updateProjectionMatrix();
 
       const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
-      const uiBgHex = normHex6(document.getElementById('bgColor')?.value) || '#ffffff';
-      const clearHex = uiBgHex;
+      rt.texture.encoding = THREE.sRGBEncoding; // IMPORTANT: igualar salida a pantalla
+      const clearHex = __bgHexSRGB || '#ffffff'; // canvas wants sRGB
 
-      renderer.setClearColor(srgbHexToLinearColor(uiBgHex), 1);
+      renderer.setClearColor(prevBg || new THREE.Color(clearHex).convertSRGBToLinear(), 1);
       renderer.setRenderTarget(rt);
       renderer.clear(true, true, true);
       renderer.render(scene, camera);
