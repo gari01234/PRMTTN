@@ -213,6 +213,33 @@
     cursor:none; transition:background .2s;
   }
   #playButton:hover{ background:rgba(0,0,0,0.20); }
+
+#permOverrideList .permOverrideRow{
+  margin: 8px 0 10px;
+}
+#permOverrideList .permOverrideLabel{
+  font-size: 11px;
+  opacity: .85;
+  margin-bottom: 4px;
+}
+#permOverrideList .permOverrideControls{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#permOverrideList .permOverrideControls input[type="color"]{
+  width: 100% !important;     /* pisa tu regla global */
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(0,0,0,0.25);
+  border-radius: 3px;
+  background: transparent;
+}
+#permOverrideList .permOverrideControls button{
+  width: auto;
+  padding: 6px 10px;
+  font-size: 11px;
+}
   </style>
 </head>
 <body>
@@ -302,22 +329,18 @@
 
 
   <details>
-    <summary>Manual Colors (override)</summary>
+  <summary>Manual Colors (override)</summary>
 
-    <div><label>1: <input type="color" id="color1" onchange="onColourPick(1,this.value)"></label></div>
-    <div><label>2: <input type="color" id="color2" onchange="onColourPick(2,this.value)"></label></div>
-    <div><label>3: <input type="color" id="color3" onchange="onColourPick(3,this.value)"></label></div>
-    <div><label>4: <input type="color" id="color4" onchange="onColourPick(4,this.value)"></label></div>
-    <div><label>5: <input type="color" id="color5" onchange="onColourPick(5,this.value)"></label></div>
+  <div id="permOverrideList" style="margin-top:6px;"></div>
 
-    <div id="chromaModeStatus" style="margin-top:6px;opacity:.85;">
-      Chroma: canonical
-    </div>
+  <div id="chromaModeStatus" style="margin-top:6px;opacity:.85;">
+    Chroma: canonical
+  </div>
 
-    <button id="btnResetAll" style="margin-top:6px;" onclick="resetAllColours()">
-      Return to canonical (clear overrides)
-    </button>
-  </details>
+  <button id="btnResetAll" style="margin-top:6px;" onclick="resetAllColours()">
+    Return to canonical (clear overrides)
+  </button>
+</details>
 
   <details>
     <summary>Background</summary>
@@ -395,42 +418,71 @@ document.getElementById('json-upload').addEventListener('change', function(event
         if (selPattern) selPattern.value = String(activePatternId);
       }
 
-      // Chroma mode + overrides (nuevo) con fallback a formato legacy
-      manualOverride = {};
-      bgOverride = null;
-      cubeOverride = null;
+      // Chroma mode + overrides con fallback a formatos legacy
+permOverride = {};
+bgOverride = null;
+cubeOverride = null;
 
-      if (config.overrides && typeof config.overrides === 'object') {
-        const ch = config.overrides.channels || {};
-        Object.entries(ch).forEach(([i, c]) => {
-          const k = Number(i);
-          const h = normHex6(c);
-          if (k>=1 && k<=5 && h) manualOverride[k] = h;
-        });
+if (config.overrides && typeof config.overrides === 'object') {
+  // Nuevo: overrides.perms (por permStr)
+  const permsOv = (config.overrides.perms && typeof config.overrides.perms === 'object')
+    ? config.overrides.perms
+    : {};
 
-        const bgh = normHex6(config.overrides.bg);
-        const cuh = normHex6(config.overrides.cube);
-        bgOverride = bgh || null;
-        cubeOverride = cuh || null;
-      } else {
-        // Legacy: colors/bg/cube como overrides directos
-        if (config.colors && typeof config.colors === 'object') {
-          Object.entries(config.colors).forEach(([i, c]) => {
-            const k = Number(i);
-            const h = normHex6(c);
-            if (k>=1 && k<=5 && h) manualOverride[k] = h;
-          });
-        }
-        bgOverride = normHex6(config.bg) || null;
-        cubeOverride = normHex6(config.cube) || null;
-      }
+  Object.entries(permsOv).forEach(([ps, c]) => {
+    const h = normHex6(c);
+    if (h) permOverride[ps] = h;
+  });
 
-      // Modo explícito si viene; si no, inferimos
-      if (typeof config.chroma_mode === 'string') {
-        setChromaMode(config.chroma_mode.toUpperCase() === 'HABITATED' ? 'HABITATED' : 'CANONICAL');
-      } else {
-        setChromaMode(hasOverrides() ? 'HABITATED' : 'CANONICAL');
-      }
+  // Legacy dentro de overrides: overrides.channels (1..5)
+  const ch = (config.overrides.channels && typeof config.overrides.channels === 'object')
+    ? config.overrides.channels
+    : null;
+
+  if (ch) {
+    const channelMap = {};
+    Object.entries(ch).forEach(([i, c]) => {
+      const k = Number(i);
+      const h = normHex6(c);
+      if (k>=1 && k<=5 && h) channelMap[k] = h;
+    });
+    applyChannelOverridesToSelected(channelMap);
+  }
+
+  bgOverride   = normHex6(config.overrides.bg)   || null;
+  cubeOverride = normHex6(config.overrides.cube) || null;
+} else {
+  // Legacy: config.colors (puede ser 1..5 o { "1,2,3,4,5": "#rrggbb" })
+  if (config.colors && typeof config.colors === 'object') {
+    const keys = Object.keys(config.colors);
+    const looksLikePermMap = keys.some(k => k.includes(','));
+
+    if (looksLikePermMap) {
+      Object.entries(config.colors).forEach(([ps, c]) => {
+        const h = normHex6(c);
+        if (h) permOverride[ps] = h;
+      });
+    } else {
+      const channelMap = {};
+      Object.entries(config.colors).forEach(([i, c]) => {
+        const k = Number(i);
+        const h = normHex6(c);
+        if (k>=1 && k<=5 && h) channelMap[k] = h;
+      });
+      applyChannelOverridesToSelected(channelMap);
+    }
+  }
+
+  bgOverride   = normHex6(config.bg)   || null;
+  cubeOverride = normHex6(config.cube) || null;
+}
+
+// Modo explícito si viene; si no, inferimos
+if (typeof config.chroma_mode === 'string') {
+  setChromaMode(config.chroma_mode.toUpperCase() === 'HABITATED' ? 'HABITATED' : 'CANONICAL');
+} else {
+  setChromaMode(hasOverrides() ? 'HABITATED' : 'CANONICAL');
+}
 
       // Scene invariants (optional)
       if (typeof config.sceneSeed === 'number') {
@@ -472,9 +524,8 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let isPaused = false, textsVisible = true;
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
-    let paletteRGB = [];
     let chromaMode = 'CANONICAL';   // 'CANONICAL' | 'HABITATED'
-    let manualOverride = {};        // overrides por canal 1..5 (solo si el usuario interviene)
+    let permOverride = {};        // overrides por permStr: {"1,2,3,4,5":"#rrggbb", ...}
     let bgOverride   = null;        // override del fondo (solo si el usuario interviene)
     let cubeOverride = null;        // override paredes (solo si el usuario interviene)
 
@@ -488,10 +539,10 @@ document.getElementById('json-upload').addEventListener('change', function(event
     }
 
     function hasOverrides(){
-      if (bgOverride) return true;
-      if (cubeOverride) return true;
-      return manualOverride && Object.keys(manualOverride).length > 0;
-    }
+  if (bgOverride) return true;
+  if (cubeOverride) return true;
+  return permOverride && Object.keys(permOverride).length > 0;
+}
 
     function setChromaMode(mode){
       chromaMode = (mode === 'HABITATED') ? 'HABITATED' : 'CANONICAL';
@@ -512,6 +563,96 @@ document.getElementById('json-upload').addEventListener('change', function(event
         el.textContent = 'Chroma: canonical';
       }
     }
+
+function permStrToArray(permStr){
+  return permStr.split(',').map(Number);
+}
+
+function canonicalHexForPermStr(permStr){
+  return colorInfoForPermutation(permStrToArray(permStr)).hex;
+}
+
+/* Compatibilidad: aplicar overrides legacy 1..5 a las permutaciones seleccionadas
+   usando el “atributo color” del mapping (attributeMapping[1]) */
+function applyChannelOverridesToSelected(channelMap){
+  const sel = document.getElementById('permutationList');
+  if(!sel) return;
+
+  const permStrs = Array.from(sel.selectedOptions).map(o=>o.value);
+  permStrs.forEach(ps=>{
+    const pa = permStrToArray(ps);
+    const v  = pa[attributeMapping[1]];   // dígito 1..5 en la posición “color”
+    const hx = channelMap[v];
+    if(hx) permOverride[ps] = hx;
+  });
+}
+
+function rebuildPermOverrideUI(){
+  const wrap = document.getElementById('permOverrideList');
+  if(!wrap) return;
+
+  wrap.innerHTML = '';
+
+  const sel = document.getElementById('permutationList');
+  const permStrs = sel ? Array.from(sel.selectedOptions).map(o=>o.value) : [];
+
+  if(!permStrs.length){
+    const empty = document.createElement('div');
+    empty.style.opacity = '.7';
+    empty.textContent = '(no permutations selected)';
+    wrap.appendChild(empty);
+    return;
+  }
+
+  permStrs.forEach((permStr, idx)=>{
+    const autoHex = canonicalHexForPermStr(permStr);
+    const ovHex   = permOverride[permStr] || null;
+    const effHex  = (chromaMode === 'HABITATED' && ovHex) ? ovHex : autoHex;
+
+    const row = document.createElement('div');
+    row.className = 'permOverrideRow';
+
+    const lab = document.createElement('div');
+    lab.className = 'permOverrideLabel';
+    lab.textContent = `Perm ${idx+1}: (${permStr})`;
+
+    const controls = document.createElement('div');
+    controls.className = 'permOverrideControls';
+
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = effHex;
+    input.onchange = ()=> onPermColourPick(permStr, input.value);
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Clear';
+    btn.disabled = !permOverride[permStr];
+    btn.style.opacity = btn.disabled ? '0.35' : '1';
+    btn.onclick = ()=>{
+      if(permOverride[permStr]){
+        delete permOverride[permStr];
+        if(!hasOverrides()) setChromaMode('CANONICAL');
+        refreshAll({rebuild:false});
+      }
+    };
+
+    controls.appendChild(input);
+    controls.appendChild(btn);
+
+    row.appendChild(lab);
+    row.appendChild(controls);
+
+    wrap.appendChild(row);
+  });
+}
+
+function onPermColourPick(permStr, hex){
+  const h = normHex6(hex);
+  if(!h) return;
+  permOverride[permStr] = h;
+  markHabited();
+  refreshAll({rebuild:false});
+}
 
     /* variables globales para fondo y paredes */
     let bgHSV = {h:0,s:0,v:1};
@@ -1342,46 +1483,29 @@ function saveImage(){
 }
 
 
-function makePalette(){
-  paletteRGB = [];
-  for(let k=1;k<=5;k++){
-    paletteRGB.push(colorForChannel(k));
-  }
-}
-
-    function applyPalette(){
-  // 1) Actualiza los pickers (solo canales 1..5)
-  updateColorPickersFromScene();
-
-  // 2) Aplica color a cada glifo: canónico por permutación, salvo override manual por canal
+function applyPalette(){
   permutationGroup.children.forEach(o=>{
-    const pa   = o.userData.permStr.split(',').map(Number);
-    const idx  = pa[attributeMapping[1]]; // valor 1..5 del atributo “color”
-    if(manualOverride[idx]){
-      o.material.color.setStyle(manualOverride[idx]);
+    const permStr = o.userData.permStr;
+    const ov = permOverride[permStr];
+
+    if (chromaMode === 'HABITATED' && ov){
+      o.material.color.setStyle(ov);
       return;
     }
+
+    const pa  = permStrToArray(permStr);
     const rgb = colorForPermutation(pa);
     o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
   });
-}
 
-    /* ——— Sincroniza los <input type="color"> con los colores reales ——— */
-    function updateColorPickersFromScene(){
-  for(let i=1;i<=5;i++){
-    const autoRGB = paletteRGB[i-1] || [255,255,255];
-    const autoHEX = rgbToHex(autoRGB);
-    const hex     = manualOverride[i] || autoHEX;
-    const input   = document.getElementById('color'+i);
-    if(input) input.value = hex;
-  }
+  rebuildPermOverrideUI();
 }
 
       function refreshAll(opts = {rebuild:false}){
   if(opts.rebuild) updateScene(false);
 
   rebuildSceneColours();
-  makePalette();
+
   applyPalette();
 
   updateBackground(false);
@@ -1389,18 +1513,11 @@ function makePalette(){
 
   updateChromaModeUI();
 }
-function onColourPick(idx, hex){
-  const h = normHex6(hex);
-  if(!h) return;
-  manualOverride[idx] = h;
-  markHabited();
-  refreshAll({rebuild:false});
-}
 
 function resetAllColours(){
-  manualOverride = {};
-  bgOverride     = null;
-  cubeOverride   = null;
+  permOverride  = {};
+  bgOverride    = null;
+  cubeOverride  = null;
   setChromaMode('CANONICAL');
   refreshAll({rebuild:false});
 }
@@ -1570,15 +1687,28 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           document.getElementById('cubeColor').value=instr.cube;
           updateCubeColor();
         }
-        if(instr.colors){
-          Object.entries(instr.colors).forEach(([i,c])=>{
-            i=Number(i);
-            if(manualOverride[i]!==undefined){
-              manualOverride[i]=c;
-            }
-          });
-          refreshAll({rebuild:true});
-        }
+        if(instr.colors && typeof instr.colors === 'object'){
+  const keys = Object.keys(instr.colors);
+  const hasComma = keys.some(k => k.includes(','));
+
+  if(hasComma){
+    keys.forEach(ps=>{
+      const h = normHex6(instr.colors[ps]);
+      if(h) permOverride[ps] = h;
+    });
+  } else {
+    const channelMap = {};
+    Object.entries(instr.colors).forEach(([i,c])=>{
+      const k = Number(i);
+      const h = normHex6(c);
+      if(k>=1 && k<=5 && h) channelMap[k] = h;
+    });
+    applyChannelOverridesToSelected(channelMap);
+  }
+
+  if(Object.keys(permOverride).length) markHabited();
+  refreshAll({rebuild:false});
+}
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
             o.scale.set(instr.scale,instr.scale,instr.scale);
@@ -1663,15 +1793,17 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         attributeMapping=[m[0],m[1],m[2],m[3],m[4], attributeMapping[5], attributeMapping[6]];
       }
       if(p.has('colors')){
-        const cols = p.get('colors').split(',');
-        cols.forEach((hex,i)=>{
-          if(i<5){
-            const h = normHex6('#'+hex);
-            if(h) manualOverride[i+1] = h;
-          }
-        });
-        if(Object.keys(manualOverride).length) markHabited();
-      }
+  const cols = p.get('colors').split(',');
+  const channelMap = {};
+  cols.forEach((hex,i)=>{
+    if(i<5){
+      const h = normHex6('#'+hex);
+      if(h) channelMap[i+1] = h;
+    }
+  });
+  applyChannelOverridesToSelected(channelMap);
+  if(Object.keys(channelMap).length) markHabited();
+}
       if(p.has('bg')){
         const bg = normHex6('#'+p.get('bg'));
         if(bg){
@@ -2029,7 +2161,6 @@ function renderArchPanel(html){
       populatePermutationList();
       populateAttributeMappingSelect();
       applyEmbedParams();
-      makePalette();
       refreshAll({rebuild:true});
       updateChromaModeUI();
       enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
@@ -2404,24 +2535,26 @@ async function showInformation(){
     z: attributeMapping[4]
   };
 
+  // Colors ahora es por permutación (N entradas)
   const colors = {};
-  for(let i=1;i<=5;i++){
-    const v = document.getElementById('color'+i).value;
-    colors[i] = normHex6(v) || v;
-  }
+  perms.forEach(ps=>{
+    const autoHex = canonicalHexForPermStr(ps);
+    const ovHex   = permOverride[ps] || null;
+    const effHex  = (chromaMode === 'HABITATED' && ovHex) ? ovHex : autoHex;
+    colors[ps] = effHex;
+  });
 
   const bg   = normHex6(document.getElementById('bgColor').value)   || document.getElementById('bgColor').value;
   const cube = normHex6(document.getElementById('cubeColor').value) || document.getElementById('cubeColor').value;
 
-  const channels = {};
-  Object.keys(manualOverride || {}).sort((a,b)=>Number(a)-Number(b)).forEach(k=>{
-    const kk = Number(k);
-    const hv = normHex6(manualOverride[kk]);
-    if(kk>=1 && kk<=5 && hv) channels[kk] = hv;
+  const permsSorted = {};
+  Object.keys(permOverride || {}).sort().forEach(ps=>{
+    const hv = normHex6(permOverride[ps]);
+    if(hv) permsSorted[ps] = hv;
   });
 
   const overrides = {
-    channels,
+    perms: permsSorted,
     bg: bgOverride ? normHex6(bgOverride) : null,
     cube: cubeOverride ? normHex6(cubeOverride) : null
   };
@@ -2444,29 +2577,27 @@ async function showInformation(){
 }
 
     function exportCanonicalConfiguration(){
-      const base = exportCurrentConfiguration();
+  const base = exportCurrentConfiguration();
 
-      const canonicalColors = {};
-      for(let i=1;i<=5;i++){
-        canonicalColors[i] = rgbToHex(colorForChannel(i));
-      }
+  const canonicalColors = {};
+  base.perms.forEach(ps=>{
+    canonicalColors[ps] = canonicalHexForPermStr(ps);
+  });
 
-      const canonical = {
-        perms: base.perms,
-        mapping: base.mapping,
-        colors: canonicalColors,
-        bg: hsvToHex(bgHSV),
-        cube: hsvToHex(wallHSV),
-        view: base.view,
-        pattern: base.pattern,
-        sceneSeed: base.sceneSeed,
-        S_global: base.S_global,
-        chroma_mode: 'CANONICAL',
-        overrides: { channels:{}, bg:null, cube:null }
-      };
-
-      return canonical;
-    }
+  return {
+    perms: base.perms,
+    mapping: base.mapping,
+    colors: canonicalColors,
+    bg: hsvToHex(bgHSV),
+    cube: hsvToHex(wallHSV),
+    view: base.view,
+    pattern: base.pattern,
+    sceneSeed: base.sceneSeed,
+    S_global: base.S_global,
+    chroma_mode: 'CANONICAL',
+    overrides: { perms:{}, bg:null, cube:null }
+  };
+}
 
     /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
     async function computeConfigHash(){
