@@ -554,6 +554,23 @@ if (typeof config.chroma_mode === 'string') {
       return s.toLowerCase();
     }
 
+function srgbHexToLinearColor(hex){
+  const h = normHex6(hex) || hex;
+  const c = new THREE.Color(h);
+  c.convertSRGBToLinear();
+  return c;
+}
+
+function setThreeColorFromSRGBHex(threeColor, hex){
+  threeColor.setStyle(hex);          // interpreta como sRGB
+  threeColor.convertSRGBToLinear();  // pasa a linear para iluminación/ACES
+}
+
+function setThreeColorFromSRGB01(threeColor, r01, g01, b01){
+  threeColor.setRGB(r01, g01, b01);  // r,g,b en 0..1 (sRGB)
+  threeColor.convertSRGBToLinear();  // pasa a linear
+}
+
     function hasOverrides(){
   if (bgOverride) return true;
   if (cubeOverride) return true;
@@ -1088,8 +1105,11 @@ function rebuildSceneColours(){
   const [X,Y,Z] = computeShiftRankXYZ(pa);
 
   // Material puro (sin emissive)
+  const c = new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+  c.convertSRGBToLinear(); // <<< clave
+
   const mat = new THREE.MeshLambertMaterial({
-    color: new THREE.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255),
+    color: c,
     dithering: true
   });
 
@@ -1448,8 +1468,9 @@ function saveImage(){
 
   const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
 
-  const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
-  renderer.setClearColor(clearHex, 1);
+  const uiBgHex = normHex6(document.getElementById('bgColor')?.value) || '#ffffff';
+  renderer.setClearColor(srgbHexToLinearColor(uiBgHex), 1);
+  const clearHex = uiBgHex; // este se usa para el canvas 2D
   renderer.setRenderTarget(rt);
   renderer.clear(true, true, true);
   renderer.render(scene, camera);
@@ -1505,13 +1526,16 @@ function applyPalette(){
     const ov = permOverride[permStr];
 
     if (chromaMode === 'HABITATED' && ov){
-      o.material.color.setStyle(ov);
+      setThreeColorFromSRGBHex(o.material.color, ov);
       return;
     }
 
     const pa  = permStrToArray(permStr);
-    const rgb = colorForPermutation(pa);
-    o.material.color.setRGB(rgb[0]/255, rgb[1]/255, rgb[2]/255);
+    const rgb = colorForPermutation(pa); // rgb 0..255 (sRGB)
+    setThreeColorFromSRGB01(
+      o.material.color,
+      rgb[0]/255, rgb[1]/255, rgb[2]/255
+    );
   });
 
   rebuildPermOverrideUI();
@@ -1549,9 +1573,9 @@ function updateBackground(manual = true){
 
   const hex = (chromaMode === 'HABITATED' && bgOverride)
     ? bgOverride
-    : hsvToHex(bgHSV);
+    : hsvToHex(bgHSV); // <- sRGB hex
 
-  scene.background = new THREE.Color(hex);
+  scene.background = srgbHexToLinearColor(hex); // <<< clave
   if (input) input.value = hex;
 
   updateChromaModeUI();
@@ -1569,9 +1593,9 @@ function updateCubeColor(manual = true){
 
   const hex = (chromaMode === 'HABITATED' && cubeOverride)
     ? cubeOverride
-    : hsvToHex(wallHSV);
+    : hsvToHex(wallHSV); // <- sRGB hex
 
-  cubeUniverse.material.color = new THREE.Color(hex);
+  cubeUniverse.material.color.copy(srgbHexToLinearColor(hex)); // <<< clave
   if (input) input.value = hex;
 
   updateChromaModeUI();
@@ -2188,6 +2212,7 @@ function renderArchPanel(html){
       const cubeGeo=new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize),
             cubeMat=new THREE.MeshBasicMaterial({color:0x808080,transparent:true,opacity:0.2,side:THREE.BackSide,dithering:true});
       cubeUniverse=new THREE.Mesh(cubeGeo,cubeMat);
+      cubeUniverse.material.color.convertSRGBToLinear();
       scene.add(cubeUniverse);
 
       permutationGroup=new THREE.Group();
@@ -2517,9 +2542,10 @@ async function showInformation(){
       camera.updateProjectionMatrix();
 
       const rt = new THREE.WebGLRenderTarget(renderW, renderH, { depthBuffer:true, stencilBuffer:false });
-      const clearHex = prevBg ? '#' + prevBg.getHexString() : '#ffffff';
+      const uiBgHex = normHex6(document.getElementById('bgColor')?.value) || '#ffffff';
+      const clearHex = uiBgHex;
 
-      renderer.setClearColor(clearHex, 1);
+      renderer.setClearColor(srgbHexToLinearColor(uiBgHex), 1);
       renderer.setRenderTarget(rt);
       renderer.clear(true, true, true);
       renderer.render(scene, camera);
