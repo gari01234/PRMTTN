@@ -303,13 +303,19 @@
 
   <details>
     <summary>Manual Colors (override)</summary>
+
     <div><label>1: <input type="color" id="color1" onchange="onColourPick(1,this.value)"></label></div>
     <div><label>2: <input type="color" id="color2" onchange="onColourPick(2,this.value)"></label></div>
     <div><label>3: <input type="color" id="color3" onchange="onColourPick(3,this.value)"></label></div>
     <div><label>4: <input type="color" id="color4" onchange="onColourPick(4,this.value)"></label></div>
     <div><label>5: <input type="color" id="color5" onchange="onColourPick(5,this.value)"></label></div>
+
+    <div id="chromaModeStatus" style="margin-top:6px;opacity:.85;">
+      Chroma: canonical
+    </div>
+
     <button id="btnResetAll" style="margin-top:6px;" onclick="resetAllColours()">
-      Reset Background + Walls + Colors
+      Return to canonical (clear overrides)
     </button>
   </details>
 
@@ -389,22 +395,41 @@ document.getElementById('json-upload').addEventListener('change', function(event
         if (selPattern) selPattern.value = String(activePatternId);
       }
 
-      // Manual colors
-      if (config.colors) {
-        manualOverride = {};
-        Object.entries(config.colors).forEach(([i, c]) => {
-          manualOverride[Number(i)] = c;
+      // Chroma mode + overrides (nuevo) con fallback a formato legacy
+      manualOverride = {};
+      bgOverride = null;
+      cubeOverride = null;
+
+      if (config.overrides && typeof config.overrides === 'object') {
+        const ch = config.overrides.channels || {};
+        Object.entries(ch).forEach(([i, c]) => {
+          const k = Number(i);
+          const h = normHex6(c);
+          if (k>=1 && k<=5 && h) manualOverride[k] = h;
         });
+
+        const bgh = normHex6(config.overrides.bg);
+        const cuh = normHex6(config.overrides.cube);
+        bgOverride = bgh || null;
+        cubeOverride = cuh || null;
+      } else {
+        // Legacy: colors/bg/cube como overrides directos
+        if (config.colors && typeof config.colors === 'object') {
+          Object.entries(config.colors).forEach(([i, c]) => {
+            const k = Number(i);
+            const h = normHex6(c);
+            if (k>=1 && k<=5 && h) manualOverride[k] = h;
+          });
+        }
+        bgOverride = normHex6(config.bg) || null;
+        cubeOverride = normHex6(config.cube) || null;
       }
 
-      // BG / cube
-      if (config.bg) {
-        document.getElementById('bgColor').value = config.bg;
-        bgOverride = config.bg;
-      }
-      if (config.cube) {
-        document.getElementById('cubeColor').value = config.cube;
-        cubeOverride = config.cube;
+      // Modo explícito si viene; si no, inferimos
+      if (typeof config.chroma_mode === 'string') {
+        setChromaMode(config.chroma_mode.toUpperCase() === 'HABITATED' ? 'HABITATED' : 'CANONICAL');
+      } else {
+        setChromaMode(hasOverrides() ? 'HABITATED' : 'CANONICAL');
       }
 
       // Scene invariants (optional)
@@ -420,7 +445,7 @@ document.getElementById('json-upload').addEventListener('change', function(event
       document.getElementById('standardView').value = view;
 
       // Rebuild
-      refreshAll({rebuild:true, keepManual:true});
+      refreshAll({rebuild:true});
       applyStandardView();
 
       alert('JSON loaded successfully');
@@ -448,9 +473,46 @@ document.getElementById('json-upload').addEventListener('change', function(event
     let attributeMapping = [0,1,2,3,4, 0,1];   // forma,color,x,y,z,bg,wall
     let colorAttrCycle = 0;                    // ← cuenta las rotaciones de color
     let paletteRGB = [];
-    let manualOverride = {1:'#ff0000',2:'#00ff00',3:'#0000ff',4:'#ff00ff',5:'#00ffff'};
-    let bgOverride   = null;
-    let cubeOverride = null;
+    let chromaMode = 'CANONICAL';   // 'CANONICAL' | 'HABITATED'
+    let manualOverride = {};        // overrides por canal 1..5 (solo si el usuario interviene)
+    let bgOverride   = null;        // override del fondo (solo si el usuario interviene)
+    let cubeOverride = null;        // override paredes (solo si el usuario interviene)
+
+    function normHex6(hex){
+      if(typeof hex !== 'string') return null;
+      let s = hex.trim();
+      if(!s) return null;
+      if(s[0] !== '#') s = '#'+s;
+      if(!/^#[0-9a-fA-F]{6}$/.test(s)) return null;
+      return s.toLowerCase();
+    }
+
+    function hasOverrides(){
+      if (bgOverride) return true;
+      if (cubeOverride) return true;
+      return manualOverride && Object.keys(manualOverride).length > 0;
+    }
+
+    function setChromaMode(mode){
+      chromaMode = (mode === 'HABITATED') ? 'HABITATED' : 'CANONICAL';
+      updateChromaModeUI();
+    }
+
+    function markHabited(){
+      if (chromaMode !== 'HABITATED') setChromaMode('HABITATED');
+      else updateChromaModeUI();
+    }
+
+    function updateChromaModeUI(){
+      const el = document.getElementById('chromaModeStatus');
+      if(!el) return;
+      if (chromaMode === 'HABITATED'){
+        el.textContent = hasOverrides() ? 'Chroma: habitated (manual overrides)' : 'Chroma: habitated';
+      } else {
+        el.textContent = 'Chroma: canonical';
+      }
+    }
+
     /* variables globales para fondo y paredes */
     let bgHSV = {h:0,s:0,v:1};
     let wallHSV = {h:0,s:0,v:1};
@@ -1316,50 +1378,71 @@ function makePalette(){
 }
 
       function refreshAll(opts = {rebuild:false}){
-  if(!opts.keepManual){
-    manualOverride = {};
-  }
   if(opts.rebuild) updateScene(false);
 
   rebuildSceneColours();
   makePalette();
   applyPalette();
 
-  // En BUILD siempre aplicamos los automáticos
   updateBackground(false);
   updateCubeColor(false);
+
+  updateChromaModeUI();
 }
-function onColourPick(idx,hex){
-  manualOverride[idx]=hex;
-  refreshAll({keepManual:true});
+function onColourPick(idx, hex){
+  const h = normHex6(hex);
+  if(!h) return;
+  manualOverride[idx] = h;
+  markHabited();
+  refreshAll({rebuild:false});
 }
 
 function resetAllColours(){
   manualOverride = {};
   bgOverride     = null;
   cubeOverride   = null;
-  refreshAll({keepManual:false});   // reconstruye escena y pickers
+  setChromaMode('CANONICAL');
+  refreshAll({rebuild:false});
 }
 function updateBackground(manual = true){
+  const input = document.getElementById("bgColor");
+
   if (manual){
-    bgOverride = document.getElementById("bgColor").value;
+    const picked = normHex6(input ? input.value : null);
+    if(!picked) return;
+    bgOverride = picked;
+    markHabited();
   }
 
-  const hex = (manual && bgOverride) ? bgOverride : hsvToHex(bgHSV);
-  scene.background = new THREE.Color(hex);
+  const hex = (chromaMode === 'HABITATED' && bgOverride)
+    ? bgOverride
+    : hsvToHex(bgHSV);
 
-  const input = document.getElementById("bgColor");
+  scene.background = new THREE.Color(hex);
   if (input) input.value = hex;
+
+  updateChromaModeUI();
 }
 
-function updateCubeColor(manual=true){
-      if (manual){
-        cubeOverride = document.getElementById("cubeColor").value;
-      }
-      const hex = manual ? cubeOverride : hsvToHex(wallHSV);
-      cubeUniverse.material.color = new THREE.Color(hex);
-      document.getElementById("cubeColor").value = hex;
-    }
+function updateCubeColor(manual = true){
+  const input = document.getElementById("cubeColor");
+
+  if (manual){
+    const picked = normHex6(input ? input.value : null);
+    if(!picked) return;
+    cubeOverride = picked;
+    markHabited();
+  }
+
+  const hex = (chromaMode === 'HABITATED' && cubeOverride)
+    ? cubeOverride
+    : hsvToHex(wallHSV);
+
+  cubeUniverse.material.color = new THREE.Color(hex);
+  if (input) input.value = hex;
+
+  updateChromaModeUI();
+}
 
     function toggleTexts(){
       const ids = [
@@ -1494,7 +1577,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
               manualOverride[i]=c;
             }
           });
-          refreshAll({rebuild:true, keepManual:true});
+          refreshAll({rebuild:true});
         }
         if(instr.scale){
           permutationGroup.children.forEach(o=>{
@@ -1520,7 +1603,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
           const opts=Array.from(document.getElementById('permutationList').options);
           opts.forEach(o=>o.selected=false);
           shuffle(opts).slice(0,instr.permCount).forEach(o=>o.selected=true);
-          refreshAll({rebuild:true, keepManual:true});
+          refreshAll({rebuild:true});
         }
         showPopup("Evolución AI aplicada.",2000);
       } catch(err){
@@ -1580,21 +1663,28 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
         attributeMapping=[m[0],m[1],m[2],m[3],m[4], attributeMapping[5], attributeMapping[6]];
       }
       if(p.has('colors')){
-        const cols=p.get('colors').split(',');
+        const cols = p.get('colors').split(',');
         cols.forEach((hex,i)=>{
           if(i<5){
-            const h='#'+hex;
-            manualOverride[i+1]=h;
+            const h = normHex6('#'+hex);
+            if(h) manualOverride[i+1] = h;
           }
         });
+        if(Object.keys(manualOverride).length) markHabited();
       }
       if(p.has('bg')){
-        const bg='#'+p.get('bg');
-        document.getElementById('bgColor').value=bg; updateBackground();
+        const bg = normHex6('#'+p.get('bg'));
+        if(bg){
+          document.getElementById('bgColor').value = bg;
+          updateBackground(true);
+        }
       }
       if(p.has('cube')){
-        const c='#'+p.get('cube');
-        document.getElementById('cubeColor').value=c; updateCubeColor();
+        const c = normHex6('#'+p.get('cube'));
+        if(c){
+          document.getElementById('cubeColor').value = c;
+          updateCubeColor(true);
+        }
       }
       if(p.has('view')){
         document.getElementById('standardView').value=p.get('view');
@@ -1941,6 +2031,7 @@ function renderArchPanel(html){
       applyEmbedParams();
       makePalette();
       refreshAll({rebuild:true});
+      updateChromaModeUI();
       enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
 
       // ← NUEVO: como si hubieras presionado BUILD al cargar
@@ -2304,6 +2395,7 @@ async function showInformation(){
     /* Configuración actual (mismo formato que exportEmbed) */
     function exportCurrentConfiguration(){
   const perms = Array.from(document.getElementById('permutationList').selectedOptions).map(o=>o.value);
+
   const mapping = {
     forma: attributeMapping[0],
     color: attributeMapping[1],
@@ -2311,13 +2403,70 @@ async function showInformation(){
     y: attributeMapping[3],
     z: attributeMapping[4]
   };
+
   const colors = {};
-  for(let i=1;i<=5;i++){ colors[i] = document.getElementById('color'+i).value; }
-  const bg   = document.getElementById('bgColor').value;
-  const cube = document.getElementById('cubeColor').value;
+  for(let i=1;i<=5;i++){
+    const v = document.getElementById('color'+i).value;
+    colors[i] = normHex6(v) || v;
+  }
+
+  const bg   = normHex6(document.getElementById('bgColor').value)   || document.getElementById('bgColor').value;
+  const cube = normHex6(document.getElementById('cubeColor').value) || document.getElementById('cubeColor').value;
+
+  const channels = {};
+  Object.keys(manualOverride || {}).sort((a,b)=>Number(a)-Number(b)).forEach(k=>{
+    const kk = Number(k);
+    const hv = normHex6(manualOverride[kk]);
+    if(kk>=1 && kk<=5 && hv) channels[kk] = hv;
+  });
+
+  const overrides = {
+    channels,
+    bg: bgOverride ? normHex6(bgOverride) : null,
+    cube: cubeOverride ? normHex6(cubeOverride) : null
+  };
+
   const view = "front";
-  return { perms, mapping, colors, bg, cube, view, pattern: activePatternId, sceneSeed, S_global };
+
+  return {
+    perms,
+    mapping,
+    colors,
+    bg,
+    cube,
+    view,
+    pattern: activePatternId,
+    sceneSeed,
+    S_global,
+    chroma_mode: chromaMode,
+    overrides
+  };
 }
+
+    function exportCanonicalConfiguration(){
+      const base = exportCurrentConfiguration();
+
+      const canonicalColors = {};
+      for(let i=1;i<=5;i++){
+        canonicalColors[i] = rgbToHex(colorForChannel(i));
+      }
+
+      const canonical = {
+        perms: base.perms,
+        mapping: base.mapping,
+        colors: canonicalColors,
+        bg: hsvToHex(bgHSV),
+        cube: hsvToHex(wallHSV),
+        view: base.view,
+        pattern: base.pattern,
+        sceneSeed: base.sceneSeed,
+        S_global: base.S_global,
+        chroma_mode: 'CANONICAL',
+        overrides: { channels:{}, bg:null, cube:null }
+      };
+
+      return canonical;
+    }
 
     /* Hash para NFT u otros usos (lo pedía tu mintNFT) */
     async function computeConfigHash(){
@@ -2331,10 +2480,14 @@ async function showInformation(){
       try{
         showPopup("Generando certificado…",2000);
 
-        // 1) JSON canónico + hash
-        const cfg = exportCurrentConfiguration();
-        const canonicalJSON = stableStringify(cfg);            // ← archivo exacto para hash
-        const hashHex = await sha256Hex(canonicalJSON);
+        const cfgCurrent   = exportCurrentConfiguration();
+        const cfgCanonical = exportCanonicalConfiguration();
+
+        const jsonCurrent   = stableStringify(cfgCurrent);
+        const jsonCanonical = stableStringify(cfgCanonical);
+
+        const hashCurrent   = await sha256Hex(jsonCurrent);
+        const hashCanonical = await sha256Hex(jsonCanonical);
 
         // 2) Imagen A2
         const pngBlob = await renderA2ImageBlob();
@@ -2346,7 +2499,7 @@ async function showInformation(){
 
         // 3) Certificado HTML auto‑contenible
         const now = new Date();
-        const prettyJSON = JSON.stringify(cfg, null, 2);
+        const prettyJSON = JSON.stringify(cfgCurrent, null, 2);
         const TOTAL_BUILD = 120 * 11;                 // 1,320 (no se multiplica por el tamaño del conjunto de permutaciones)
         const fmt = n => n.toLocaleString('en-US').replace(/,/g,'\u202f'); // separador fino
 
@@ -2371,6 +2524,7 @@ async function showInformation(){
   <div>Date: ${now.toISOString()}</div>
   <div>Chromatic pattern: ${activePatternId}</div>
   <div>sceneSeed: ${sceneSeed} · S_global: ${S_global}</div>
+  <div>chroma_mode: ${cfgCurrent.chroma_mode}</div>
 </div>
 
 <h2>Image (A2)</h2>
@@ -2381,12 +2535,16 @@ async function showInformation(){
 
 <h2>Integrity</h2>
 <div class="box">
-  <div>SHA‑256 (prmttn_config.json):</div>
-  <div><code>${hashHex}</code></div>
+  <div>SHA-256 (prmttn_config.json) — current view:</div>
+  <div><code>${hashCurrent}</code></div>
+  <div style="margin-top:10px;">SHA-256 (prmttn_canonical.json) — canonical view:</div>
+  <div><code>${hashCanonical}</code></div>
   <details><summary>How to verify</summary>
     <pre>shasum -a 256 prmttn_config.json
+shasum -a 256 prmttn_canonical.json
 # or
-openssl dgst -sha256 prmttn_config.json</pre>
+openssl dgst -sha256 prmttn_config.json
+openssl dgst -sha256 prmttn_canonical.json</pre>
   </details>
 </div>
 
@@ -2416,8 +2574,11 @@ openssl dgst -sha256 prmttn_config.json</pre>
         // 4) Descargas (3 archivos + hash opcional)
         downloadBlob('PRMMTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
         downloadBlob('PRMTTN_A2.png', pngBlob);
-        downloadBlob('prmttn_config.json', new Blob([canonicalJSON], {type:'application/json'}));
-        downloadBlob('prmttn_hash.txt', new Blob([`sha256  prmttn_config.json\n${hashHex}\n`], {type:'text/plain'}));
+        downloadBlob('prmttn_config.json', new Blob([jsonCurrent], {type:'application/json'}));
+        downloadBlob('prmttn_canonical.json', new Blob([jsonCanonical], {type:'application/json'}));
+        downloadBlob('prmttn_hash.txt', new Blob([
+          `sha256  prmttn_config.json\n${hashCurrent}\n\nsha256  prmttn_canonical.json\n${hashCanonical}\n`
+        ], {type:'text/plain'}));
 
         showPopup("Certificado, imagen A2, JSON y hash descargados.", 3000);
       }catch(err){
