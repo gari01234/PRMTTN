@@ -171,6 +171,12 @@
   #infoButton{
     position:fixed; left:10px; bottom:10px; z-index:260;
   }
+  #frontWallButton{
+    position:fixed; left:10px; bottom:50px; z-index:260;
+  }
+  #xrayButton{
+    position:fixed; left:10px; bottom:90px; z-index:260;
+  }
   #infoPanel{
     position:fixed; z-index:1000; top:5%; left:50%;
     transform:translateX(-50%);
@@ -288,6 +294,8 @@
 
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <button id="infoButton" onclick="showInformation()">Information</button>
+  <button id="frontWallButton" onclick="toggleFrontWall()">Hide Front Wall</button>
+  <button id="xrayButton" onclick="toggleXRay()">X-Ray: Off</button>
   <button id="btnDebugColors"
           style="position:fixed;bottom:180px;right:10px;z-index:260;display:none;"
           onclick="mostrarDebugColores()">
@@ -549,6 +557,12 @@ if (typeof config.chroma_mode === 'string') {
     let __bgHexSRGB   = '#ffffff';  // último color sRGB efectivo del background (para UI/export/canvas fill)
     let __cubeHexSRGB = '#808080';  // último color sRGB efectivo del cubo
 
+    // --- View helpers ---
+    let frontWallVisible = true;
+    let xrayMode = false;
+    let rasterGridGroup = null;
+    let rasterGridMaterial = null;
+
     function normHex6(hex){
       if(typeof hex !== 'string') return null;
       let s = hex.trim();
@@ -581,6 +595,119 @@ function setThreeColorFromSRGBHex(threeColor, hex){
 function setThreeColorFromSRGB01(threeColor, r01, g01, b01){
   threeColor.setRGB(r01, g01, b01);  // r,g,b en 0..1 (sRGB)
   threeColor.convertSRGBToLinear();  // pasa a linear
+}
+
+function updateViewButtonsUI(){
+  const wallBtn = document.getElementById('frontWallButton');
+  const xrayBtn = document.getElementById('xrayButton');
+
+  if (wallBtn){
+    wallBtn.textContent = frontWallVisible ? 'Hide Front Wall' : 'Show Front Wall';
+  }
+
+  if (xrayBtn){
+    xrayBtn.textContent = xrayMode ? 'X-Ray: On' : 'X-Ray: Off';
+  }
+}
+
+function updateRasterGridContrast(){
+  if (!rasterGridMaterial) return;
+
+  const bg = new THREE.Color(__bgHexSRGB || '#ffffff');
+  const luma = 0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b;
+  const lineHex = luma > 0.55 ? '#111111' : '#f2f2f2';
+
+  rasterGridMaterial.color.setStyle(lineHex);
+  rasterGridMaterial.color.convertSRGBToLinear();
+  rasterGridMaterial.opacity = luma > 0.55 ? 0.30 : 0.38;
+  rasterGridMaterial.needsUpdate = true;
+}
+
+function createRasterGridHelper(){
+  const group = new THREE.Group();
+  const step = cubeSize / 5;
+  const gridVals = [];
+
+  for (let i = 0; i <= 5; i++){
+    gridVals.push(-halfCube + i * step);
+  }
+
+  const verts = [];
+  const pushLine = (x1, y1, z1, x2, y2, z2) => {
+    verts.push(x1, y1, z1, x2, y2, z2);
+  };
+
+  // Líneas paralelas a X
+  gridVals.forEach(y=>{
+    gridVals.forEach(z=>{
+      pushLine(-halfCube, y, z, halfCube, y, z);
+    });
+  });
+
+  // Líneas paralelas a Y
+  gridVals.forEach(x=>{
+    gridVals.forEach(z=>{
+      pushLine(x, -halfCube, z, x, halfCube, z);
+    });
+  });
+
+  // Líneas paralelas a Z
+  gridVals.forEach(x=>{
+    gridVals.forEach(y=>{
+      pushLine(x, y, -halfCube, x, y, halfCube);
+    });
+  });
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+
+  rasterGridMaterial = new THREE.LineBasicMaterial({
+    color: 0x111111,
+    transparent: true,
+    opacity: 0.30,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false
+  });
+  rasterGridMaterial.color.convertSRGBToLinear();
+
+  const lines = new THREE.LineSegments(geo, rasterGridMaterial);
+  lines.renderOrder = 9999;
+  lines.frustumCulled = false;
+
+  group.add(lines);
+  group.visible = false;
+
+  updateRasterGridContrast();
+  return group;
+}
+
+function toggleFrontWall(forceValue){
+  frontWallVisible = (typeof forceValue === 'boolean') ? forceValue : !frontWallVisible;
+
+  try{
+    if (window.WW && typeof window.WW.get === 'function'){
+      const wall = window.WW.get();
+      if (wall) wall.setVisible(frontWallVisible);
+    }
+  }catch(_){}
+
+  updateViewButtonsUI();
+}
+
+function toggleXRay(forceValue){
+  xrayMode = (typeof forceValue === 'boolean') ? forceValue : !xrayMode;
+
+  if (rasterGridGroup){
+    rasterGridGroup.visible = xrayMode;
+  }
+
+  if (cubeUniverse && cubeUniverse.material){
+    cubeUniverse.material.opacity = xrayMode ? 0.08 : 0.20;
+    cubeUniverse.material.needsUpdate = true;
+  }
+
+  updateViewButtonsUI();
 }
 
     function hasOverrides(){
@@ -1592,6 +1719,7 @@ function updateBackground(manual = true){
   // escena: almacenar en lineal
   scene.background = new THREE.Color(hexSRGB).convertSRGBToLinear();
 
+  updateRasterGridContrast();
   updateChromaModeUI();
 }
 
@@ -1646,7 +1774,7 @@ function layoutLeftControlsPanel(){
         'controls',
         'playButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
-        'infoButton','certButton','engineSelectWrap'
+        'infoButton','frontWallButton','xrayButton','certButton','engineSelectWrap'
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -2232,6 +2360,9 @@ function renderArchPanel(html){
       cubeUniverse.material.color.convertSRGBToLinear();
       scene.add(cubeUniverse);
 
+      rasterGridGroup = createRasterGridHelper();
+      scene.add(rasterGridGroup);
+
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
 
@@ -2247,6 +2378,9 @@ function renderArchPanel(html){
       refreshAll({rebuild:true});
       layoutLeftControlsPanel();
       updateChromaModeUI();
+      updateViewButtonsUI();
+      toggleFrontWall(true);
+      toggleXRay(false);
       enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
 
       // ← NUEVO: como si hubieras presionado BUILD al cargar
@@ -2422,7 +2556,7 @@ function cycleEngine(){
   }
 
   const wall = createWall({open:100, outer:600, thickness:15, distance:93});
-  wall.setVisible(true);
+  wall.setVisible(frontWallVisible);
 
   (function tick(){
     try{
@@ -2447,7 +2581,7 @@ function cycleEngine(){
     }
   };
 
-  window.WW_applyFor = function(){ wall.setVisible(true); };
+  window.WW_applyFor = function(){ wall.setVisible(frontWallVisible); };
 })();
 ;
 
