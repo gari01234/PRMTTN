@@ -562,6 +562,7 @@ if (typeof config.chroma_mode === 'string') {
     let xrayMode = false;
     let rasterGridGroup = null;
     let rasterGridMaterial = null;
+    let rasterCenterMaterial = null;
 
     function normHex6(hex){
       if(typeof hex !== 'string') return null;
@@ -611,55 +612,68 @@ function updateViewButtonsUI(){
 }
 
 function updateRasterGridContrast(){
-  if (!rasterGridMaterial) return;
-
   const bg = new THREE.Color(__bgHexSRGB || '#ffffff');
   const luma = 0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b;
-  const lineHex = luma > 0.55 ? '#111111' : '#f2f2f2';
+  const inkHex = luma > 0.55 ? '#111111' : '#f2f2f2';
 
-  rasterGridMaterial.color.setStyle(lineHex);
-  rasterGridMaterial.color.convertSRGBToLinear();
-  rasterGridMaterial.opacity = luma > 0.55 ? 0.30 : 0.38;
-  rasterGridMaterial.needsUpdate = true;
+  if (rasterGridMaterial){
+    rasterGridMaterial.color.setStyle(inkHex);
+    rasterGridMaterial.color.convertSRGBToLinear();
+    rasterGridMaterial.opacity = luma > 0.55 ? 0.30 : 0.38;
+    rasterGridMaterial.needsUpdate = true;
+  }
+
+  if (rasterCenterMaterial){
+    rasterCenterMaterial.color.setStyle(inkHex);
+    rasterCenterMaterial.color.convertSRGBToLinear();
+    rasterCenterMaterial.opacity = luma > 0.55 ? 0.65 : 0.78;
+    rasterCenterMaterial.needsUpdate = true;
+  }
 }
 
 function createRasterGridHelper(){
   const group = new THREE.Group();
   const step = cubeSize / 5;
-  const gridVals = [];
+
+  const borderVals = [];
+  const centerVals = [];
 
   for (let i = 0; i <= 5; i++){
-    gridVals.push(-halfCube + i * step);
+    borderVals.push(-halfCube + i * step);
   }
 
-  const verts = [];
+  for (let i = 0; i < 5; i++){
+    centerVals.push(-halfCube + (step * 0.5) + i * step);
+  }
+
+  const lineVerts = [];
   const pushLine = (x1, y1, z1, x2, y2, z2) => {
-    verts.push(x1, y1, z1, x2, y2, z2);
+    lineVerts.push(x1, y1, z1, x2, y2, z2);
   };
 
   // Líneas paralelas a X
-  gridVals.forEach(y=>{
-    gridVals.forEach(z=>{
+  borderVals.forEach(y=>{
+    borderVals.forEach(z=>{
       pushLine(-halfCube, y, z, halfCube, y, z);
     });
   });
 
   // Líneas paralelas a Y
-  gridVals.forEach(x=>{
-    gridVals.forEach(z=>{
+  borderVals.forEach(x=>{
+    borderVals.forEach(z=>{
       pushLine(x, -halfCube, z, x, halfCube, z);
     });
   });
 
   // Líneas paralelas a Z
-  gridVals.forEach(x=>{
-    gridVals.forEach(y=>{
+  borderVals.forEach(x=>{
+    borderVals.forEach(y=>{
       pushLine(x, y, -halfCube, x, y, halfCube);
     });
   });
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(lineVerts, 3));
 
   rasterGridMaterial = new THREE.LineBasicMaterial({
     color: 0x111111,
@@ -671,13 +685,42 @@ function createRasterGridHelper(){
   });
   rasterGridMaterial.color.convertSRGBToLinear();
 
-  const lines = new THREE.LineSegments(geo, rasterGridMaterial);
+  const lines = new THREE.LineSegments(lineGeo, rasterGridMaterial);
   lines.renderOrder = 9999;
   lines.frustumCulled = false;
-
   group.add(lines);
-  group.visible = false;
 
+  // 125 centros reales de celda: x,y,z ∈ {-12,-6,0,6,12}
+  const centerVerts = [];
+  centerVals.forEach(x=>{
+    centerVals.forEach(y=>{
+      centerVals.forEach(z=>{
+        centerVerts.push(x, y, z);
+      });
+    });
+  });
+
+  const pointGeo = new THREE.BufferGeometry();
+  pointGeo.setAttribute('position', new THREE.Float32BufferAttribute(centerVerts, 3));
+
+  rasterCenterMaterial = new THREE.PointsMaterial({
+    color: 0x111111,
+    size: 5,
+    sizeAttenuation: false,
+    transparent: true,
+    opacity: 0.65,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false
+  });
+  rasterCenterMaterial.color.convertSRGBToLinear();
+
+  const points = new THREE.Points(pointGeo, rasterCenterMaterial);
+  points.renderOrder = 10000;
+  points.frustumCulled = false;
+  group.add(points);
+
+  group.visible = false;
   updateRasterGridContrast();
   return group;
 }
@@ -1205,18 +1248,37 @@ function rebuildSceneColours(){
       return S % 125;
     }
 
-    function computeShiftRankXYZ(p){
+    function getShiftRankCellInfo(p){
       const r = lehmerRank(p);
-      const I = (r + sceneSeed + S_global) % 125;   // <<< NUEVO: acoplado a S_global
-      const x = Math.floor(I/25),
-            y = Math.floor((I%25)/5),
-            z = I%5;
-      const step = cubeSize/5;
-      return [
-        (x-2)*step,
-        (y-2)*step,
-        (z-2)*step
-      ];
+      const I = (r + sceneSeed + S_global) % 125;
+
+      const xIndex = Math.floor(I / 25);
+      const yIndex = Math.floor((I % 25) / 5);
+      const zIndex = I % 5;
+
+      const step = cubeSize / 5;
+      const X = (xIndex - 2) * step;
+      const Y = (yIndex - 2) * step;
+      const Z = (zIndex - 2) * step;
+
+      return {
+        r,
+        I,
+        xIndex,
+        yIndex,
+        zIndex,
+        xHuman: xIndex + 1,
+        yHuman: yIndex + 1,
+        zHuman: zIndex + 1,
+        X,
+        Y,
+        Z
+      };
+    }
+
+    function computeShiftRankXYZ(p){
+      const info = getShiftRankCellInfo(p);
+      return [info.X, info.Y, info.Z];
     }
 
     function getSelectedPerms(){
@@ -1240,8 +1302,8 @@ function rebuildSceneColours(){
   // Color canónico (hash → HSV lattice → RGB)
   const rgb = colorForPermutation(pa);
 
-  // Posición (sin cambios)
-  const [X,Y,Z] = computeShiftRankXYZ(pa);
+  // Posición discreta real: centro de una de las 125 celdas
+  const cell = getShiftRankCellInfo(pa);
 
   // Material: el hex/rgb viene en sRGB (albedo). Convertimos a lineal antes de renderizar.
   const mat = new THREE.MeshLambertMaterial({
@@ -1253,18 +1315,34 @@ function rebuildSceneColours(){
   const mesh = new THREE.Mesh(geo, mat);
 
   mesh.position.set(
-    clamp(X,-halfCube+w/2,halfCube-w/2),
-    clamp(Y,-halfCube+h/2,halfCube-h/2),
-    clamp(Z,-halfCube+t/2,halfCube-t/2)
+    clamp(cell.X,-halfCube+w/2,halfCube-w/2),
+    clamp(cell.Y,-halfCube+h/2,halfCube-h/2),
+    clamp(cell.Z,-halfCube+t/2,halfCube-t/2)
   );
 
   const sig = computeSignature(pa);
   const rg  = computeRange(sig);
+
   mesh.userData = {
     permStr: pa.join(','),
     signature: sig,
     range: rg,
-    rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue)
+    rotationSpeed: mapRangeToSpeed(rg, minRangeValue, maxRangeValue),
+
+    lehmerRank: cell.r,
+    shiftIndex: cell.I,
+
+    cellIndexX: cell.xIndex,
+    cellIndexY: cell.yIndex,
+    cellIndexZ: cell.zIndex,
+
+    cellHumanX: cell.xHuman,
+    cellHumanY: cell.yHuman,
+    cellHumanZ: cell.zHuman,
+
+    centerX: cell.X,
+    centerY: cell.Y,
+    centerZ: cell.Z
   };
 
   return mesh;
@@ -1547,17 +1625,29 @@ function updateScene(attemptResolve=true){
       mouse.x=(e.clientX/window.innerWidth)*2-1;
       mouse.y=-(e.clientY/window.innerHeight)*2+1;
       raycaster.setFromCamera(mouse,camera);
-      const ints=raycaster.intersectObjects(permutationGroup.children),
-            pop=document.getElementById('hoverPopup');
+
+      const ints = raycaster.intersectObjects(permutationGroup.children);
+      const pop  = document.getElementById('hoverPopup');
+
       if(ints.length>0){
-        const d=ints[0].object.userData;
-        pop.style.display="block"; pop.style.opacity=1;
-        pop.style.left=`${e.clientX+20}px`;
-        pop.style.top=`${e.clientY+20}px`;
-        pop.innerHTML=`Perm (${d.permStr})<br>Firma [${d.signature.join(', ')}]<br>Rango ${d.range}`;
+        const d = ints[0].object.userData;
+
+        pop.style.display = "block";
+        pop.style.opacity = 1;
+        pop.style.left = `${e.clientX+20}px`;
+        pop.style.top  = `${e.clientY+20}px`;
+
+        pop.innerHTML =
+          `Perm (${d.permStr})<br>` +
+          `Firma [${d.signature.join(', ')}]<br>` +
+          `Rango ${d.range}<br>` +
+          `Cell 1..5 [${d.cellHumanX}, ${d.cellHumanY}, ${d.cellHumanZ}]<br>` +
+          `Cell 0..4 [${d.cellIndexX}, ${d.cellIndexY}, ${d.cellIndexZ}]<br>` +
+          `Center (${d.centerX.toFixed(0)}, ${d.centerY.toFixed(0)}, ${d.centerZ.toFixed(0)})<br>` +
+          `I ${d.shiftIndex} · r ${d.lehmerRank}`;
       } else {
-        pop.style.opacity=0;
-        setTimeout(()=>{pop.style.display="none";},300);
+        pop.style.opacity = 0;
+        setTimeout(()=>{ pop.style.display="none"; },300);
       }
     }
 
