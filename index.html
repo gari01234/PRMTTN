@@ -964,8 +964,9 @@ function onPermColourPick(permStr, hex){
     let wallHSV = {h:0,s:0,v:1};
     let activePatternId = 1;           // arranca en Contención
 
-      // >>> NUEVO:
-      let S_global = 0; // término estructural para posiciones (Shift-Rank acoplado)
+      // >>> Invariantes de escena
+      let S_global = 0;     // invariante cromático legado (se mantiene para el sistema de color)
+      let globalShift = 0;  // único desplazamiento global para posiciones (opción B)
 
       /* Cambia al motor BUILD sin generar una nueva configuración */
     function switchToBuild(){
@@ -1328,8 +1329,7 @@ function rebuildSceneColours(){
       const mRank = mappingRank(m);
       return (37*sumR + 101*sumR2 + 53*mRank) % 360;
     }
-
-    /** S = ( Σ (P_{mx}+P_{my}+P_{mz}) ) mod 125  — usa los índices x,y,z del mapping */
+    /** S = ( Σ (P_{mx}+P_{my}+P_{mz}) ) mod 125  — se mantiene para el sistema cromático */
     function computeGlobalS(perms, m){
       const mx = m[2], my = m[3], mz = m[4];
       let S = 0;
@@ -1339,9 +1339,18 @@ function rebuildSceneColours(){
       return S % 125;
     }
 
+    /** Opción B: un único desplazamiento global para posiciones */
+    function computeGlobalShift(perms, m){
+      let sumR = 0;
+      perms.forEach(p=>{
+        sumR += lehmerRank(p);
+      });
+      return (sumR + mappingRank(m)) % 125;
+    }
+
     function getShiftRankCellInfo(p){
       const r = lehmerRank(p);
-      const I = (r + sceneSeed + S_global) % 125;
+      const I = (r + globalShift) % 125;
 
       const xIndex = Math.floor(I / 25);
       const yIndex = Math.floor((I % 25) / 5);
@@ -1450,28 +1459,28 @@ function rebuildSceneColours(){
       }
       return false;
     }
-    function autoResolveColisionesGlobal(){
-      let found=null;
-      getAttributeMappings([0,1,2,3,4]).forEach(m=>{
-        if(found) return;
-        const cm=[m[0],m[1],m[2],m[3],m[4], attributeMapping[5], attributeMapping[6]],
-              tg=new THREE.Group(),
-              opts=Array.from(document.getElementById('permutationList').selectedOptions);
-        opts.forEach((o)=>{
-          const pa=o.value.split(',').map(Number),
-                mo=createPermutationObjectWithMapping(pa,cm);
-          tg.add(mo);
-        });
-        if(!checkCollisionsInGroup(tg)) found=cm;
-      });
-      if(found){
-        attributeMapping=found;
-        document.getElementById('attrMapping').value=`${found[0]},${found[1]},${found[2]},${found[3]},${found[4]}`;
-        refreshAll({rebuild:true}); updateTopRightDisplay();
-      } else {
-        showPopup("No se encontró reorganización sin colisiones.",7000);
-      }
-    }
+function autoResolveColisionesGlobal(){
+  let found = null;
+  const opts  = Array.from(document.getElementById('permutationList').selectedOptions);
+  const perms = opts.map(o => o.value.split(',').map(Number));
+
+  getAttributeMappings([0,1,2,3,4]).forEach(m=>{
+    if(found) return;
+    const cm = [m[0],m[1],m[2],m[3],m[4], attributeMapping[5], attributeMapping[6]];
+    const tg = buildTempGroup(perms, cm);
+    if(!checkCollisionsInGroup(tg)) found = cm;
+  });
+
+  if(found){
+    attributeMapping = found;
+    document.getElementById('attrMapping').value =
+      `${found[0]},${found[1]},${found[2]},${found[3]},${found[4]}`;
+    refreshAll({rebuild:true});
+    updateTopRightDisplay();
+  } else {
+    showPopup("No se encontró reorganización sin colisiones.",7000);
+  }
+}
 
 /* ==============================
  * 120 Architectural Permutations
@@ -1557,18 +1566,21 @@ function buildTempGroup(perms, mapping){
   const tg = new THREE.Group();
 
   // Guardamos estado global
-  const prevSeed = sceneSeed;
-  const prevS    = S_global;
-  const prevMap  = attributeMapping.slice();
+  const prevSeed  = sceneSeed;
+  const prevS     = S_global;
+  const prevShift = globalShift;
+  const prevMap   = attributeMapping.slice();
 
   // Calculamos los nuevos valores teóricos
-  const tmpSeed = computeSceneSeedFrom(perms, mapping);
-  const tmpS    = computeGlobalS(perms, mapping);
+  const tmpSeed  = computeSceneSeedFrom(perms, mapping);
+  const tmpS     = computeGlobalS(perms, mapping);
+  const tmpShift = computeGlobalShift(perms, mapping);
 
   // Seteamos temporalmente los globales para que createPermutationObjectWithMapping
-  // use exactamente la misma lógica que la escena final:
+  // use exactamente la misma lógica que la escena final
   sceneSeed        = tmpSeed;
   S_global         = tmpS;
+  globalShift      = tmpShift;
   attributeMapping = mapping;
 
   perms.forEach(pa=>{
@@ -1579,6 +1591,7 @@ function buildTempGroup(perms, mapping){
   // Restauramos
   sceneSeed        = prevSeed;
   S_global         = prevS;
+  globalShift      = prevShift;
   attributeMapping = prevMap;
 
   return tg;
@@ -1699,9 +1712,10 @@ function updateScene(attemptResolve=true){
   const opts  = Array.from(document.getElementById('permutationList').selectedOptions);
   const perms = opts.map(o => o.value.split(',').map(Number));
 
-  // Nueva sceneSeed & S_global (orden-invariante + dependiente del mapping)
-  sceneSeed = computeSceneSeedFrom(perms, attributeMapping);
-  S_global  = computeGlobalS(perms, attributeMapping);
+  // Invariantes de escena
+  sceneSeed   = computeSceneSeedFrom(perms, attributeMapping); // croma
+  S_global    = computeGlobalS(perms, attributeMapping);       // croma
+  globalShift = computeGlobalShift(perms, attributeMapping);   // posición
 
   // Construye objetos
   perms.forEach(pa=>{
@@ -2271,42 +2285,48 @@ function showArchitecturalDescription(){
   const perms    = selOpts.map(o => o.value.split(',').map(Number));
   const m        = attributeMapping.slice(0,5);
 
-  const sceneSeed_new = computeSceneSeedFrom(perms, m);
-  const S_new         = computeGlobalS(perms, m);
-  const mRank         = mappingRank(m);
+  const sceneSeed_new   = computeSceneSeedFrom(perms, m);
+  const S_new           = computeGlobalS(perms, m);
+  const globalShift_new = computeGlobalShift(perms, m);
+  const mRank           = mappingRank(m);
 
-  let sumR=0, sumR2=0;
+  let sumR = 0, sumR2 = 0;
   const ranks = perms.map(p=>lehmerRank(p));
-  ranks.forEach(r=>{ sumR+=r; sumR2+=r*r; });
+  ranks.forEach(r=>{
+    sumR  += r;
+    sumR2 += r*r;
+  });
 
-  const step = cubeSize/5;
+  const step = cubeSize / 5;
   const keys = getPatternKeys(activePatternId);
 
   const structureHTML = `
   <h3>Structure</h3>
   <p>
-    Below are the deterministic formulas that explain
-    <b>why each permutation is exactly at its position</b>,
-    and <b>why each permutation has exactly its color</b>,
-    and why <b>the whole scene is reproducible whenever the inputs are the same</b>.
+    BUILD now uses a simplified positional system:
+    each permutation contributes its Lehmer-rank, and the scene contributes one single global shift.
+    Position = rank + global shift, modulo 125.
   </p>
 
   <div class="formula">
-    <b>1) Global scene seed (sceneSeed)</b><br>
-    sumR = Σ LehmerRank(Pᵢ) &nbsp;|&nbsp; sumR2 = Σ (LehmerRank(Pᵢ))² <br>
+    <b>1) Global shift for positions (option B)</b><br>
+    sumR = Σ LehmerRank(Pᵢ)<br>
     mRank = LehmerRank([m₀+1,m₁+1,m₂+1,m₃+1,m₄+1])<br><br>
-    <span class="box">sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360</span>
+    <span class="box">globalShift = (sumR + mRank) mod 125</span>
   </div>
 
   <div class="formula">
-    <b>2) Structural term for positions (S)</b><br>
-    <span class="box">S = ( Σ (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125</span>
-  </div>
-
-  <div class="formula">
-    <b>3) Shift-Rank: position of each permutation</b><br>
-    <span class="box">I = (r + sceneSeed + S) mod 125</span><br>
+    <b>2) Position of each permutation</b><br>
+    <span class="box">I = (r + globalShift) mod 125</span><br>
     From I → (x,y,z) ∈ {0..4}³ → position inside the 30×30×30 cube.
+  </div>
+
+  <div class="formula">
+    <b>3) Chromatic system (unchanged)</b><br>
+    Colors keep the current deterministic chromatic invariants of the scene.<br><br>
+    sumR2 = Σ (LehmerRank(Pᵢ))²<br>
+    <span class="box">sceneSeed = (37·sumR + 101·sumR2 + 53·mRank) mod 360</span><br>
+    <span class="box">S = ( Σ (P<sub>mx</sub> + P<sub>my</sub> + P<sub>mz</sub>) ) mod 125</span>
   </div>
 
   <div class="formula">
@@ -2334,9 +2354,10 @@ function showArchitecturalDescription(){
     <h4>Global invariants</h4>
     <ul>
       <li>sumR = <b>${sumR}</b></li>
-      <li>sumR2 = <b>${sumR2}</b></li>
       <li>m = [${m.join(', ')}] (shape,color,x,y,z)</li>
       <li>mRank = <b>${mRank}</b></li>
+      <li><b>globalShift</b> = <b>${globalShift_new}</b></li>
+      <li>sumR2 = <b>${sumR2}</b></li>
       <li><b>sceneSeed</b> = <b>${sceneSeed_new}</b></li>
       <li><b>S</b> = <b>${S_new}</b></li>
       <li>activePatternId = <b>${activePatternId}</b></li>
@@ -2348,15 +2369,15 @@ function showArchitecturalDescription(){
   `;
 
   perms.forEach((perm, i)=>{
-    const r    = ranks[i];
-    const sig  = computeSignature(perm);
-    const rango= computeRange(sig);
+    const r     = ranks[i];
+    const sig   = computeSignature(perm);
+    const rango = computeRange(sig);
 
-    const I    = (r + sceneSeed_new + S_new) % 125;
-    const x    = Math.floor(I/25);
-    const y    = Math.floor((I%25)/5);
-    const z    = I % 5;
-    const X    = (x-2)*step, Y=(y-2)*step, Z=(z-2)*step;
+    const I = (r + globalShift_new) % 125;
+    const x = Math.floor(I / 25);
+    const y = Math.floor((I % 25) / 5);
+    const z = I % 5;
+    const X = (x - 2) * step, Y = (y - 2) * step, Z = (z - 2) * step;
 
     const info = colorInfoForPermutation(perm, sceneSeed_new, S_new, activePatternId);
 
@@ -2368,7 +2389,7 @@ function showArchitecturalDescription(){
         Lehmer-rank r = ${r}
       </div>
       <div class="formula">
-        I = (r + sceneSeed + S) mod 125 = (${r} + ${sceneSeed_new} + ${S_new}) mod 125 = <b>${I}</b><br>
+        I = (r + globalShift) mod 125 = (${r} + ${globalShift_new}) mod 125 = <b>${I}</b><br>
         (x,y,z) = (${x}, ${y}, ${z}) → (X,Y,Z) = (${X.toFixed(2)}, ${Y.toFixed(2)}, ${Z.toFixed(2)})
       </div>
       <div class="formula">
@@ -2985,6 +3006,7 @@ async function showInformation(){
     pattern: activePatternId,
     sceneSeed,
     S_global,
+    globalShift,
     chroma_mode: chromaMode,
     overrides
   };
@@ -3008,6 +3030,7 @@ async function showInformation(){
     pattern: base.pattern,
     sceneSeed: base.sceneSeed,
     S_global: base.S_global,
+    globalShift: base.globalShift,
     chroma_mode: 'CANONICAL',
     overrides: { perms:{}, bg:null, cube:null }
   };
@@ -3068,6 +3091,7 @@ async function showInformation(){
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
   <div>Chromatic pattern: ${activePatternId}</div>
+  <div>globalShift: ${globalShift}</div>
   <div>sceneSeed: ${sceneSeed} · S_global: ${S_global}</div>
   <div>chroma_mode: ${cfgCurrent.chroma_mode}</div>
 </div>
