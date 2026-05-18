@@ -203,6 +203,24 @@
   }
   #infoPanel section{ margin-bottom:18px; }
   #infoPanel hr{ border:none; border-top:1px dashed #aaa; margin:18px 0; }
+  /* === ENGINE MENU (reemplaza botones sueltos) === */
+  #engineSelectWrap {
+    position: fixed;
+    left: 10px;
+    bottom: 290px;      /* ocupa el lugar que usaba OFFNNG, sin solapar PLAY/BUILD antiguos */
+    z-index: 260;
+    background: rgba(255,255,255,0.12);
+    padding: 6px 8px;
+    border-radius: 4px;
+  }
+  #engineSelectWrap select {
+    width: 180px;       /* ancho cómodo; no usamos 100% para no romper layout */
+    cursor: none;
+  }
+  #engineSelectWrap label {
+    font-size: 12px;
+    opacity: .85;
+  }
 
   /* Botón PLAY – genera nuevas permutaciones */
   #playButton{
@@ -263,6 +281,13 @@
 
   <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 
+  <!-- NUEVO: Menú de motores -->
+  <div id="engineSelectWrap">
+    <label for="engineSelect" style="display:block;margin-bottom:4px;">Engine</label>
+    <select id="engineSelect" onchange="applyEngineFromSelect(this.value)">
+      <option value="BUILD">BUILD</option>
+    </select>
+  </div>
 
   <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
   <button id="infoButton" onclick="showInformation()">Information</button>
@@ -481,7 +506,7 @@ if (typeof config.chroma_mode === 'string') {
 
   <!-- (eliminados: copias duplicadas de Three, OrbitControls y Ethers) -->
   <script>
-    // ------------- JS principal -------------
+    // ------------- TODO EL JS ORIGINAL (¡NO QUITES NADA DE AQUÍ!) -------------
 
     // === Variables globales ===
     let scene, camera, renderer, controls, raycaster, mouse;
@@ -524,8 +549,22 @@ if (typeof config.chroma_mode === 'string') {
       if (typeof colorObj.convertSRGBToLinear === 'function') colorObj.convertSRGBToLinear();
     }
 
+function srgbHexToLinearColor(hex){
+  const h = normHex6(hex) || hex;
+  const c = new THREE.Color(h);
+  c.convertSRGBToLinear();
+  return c;
+}
 
+function setThreeColorFromSRGBHex(threeColor, hex){
+  threeColor.setStyle(hex);          // interpreta como sRGB
+  threeColor.convertSRGBToLinear();  // pasa a linear para iluminación/ACES
+}
 
+function setThreeColorFromSRGB01(threeColor, r01, g01, b01){
+  threeColor.setRGB(r01, g01, b01);  // r,g,b en 0..1 (sRGB)
+  threeColor.convertSRGBToLinear();  // pasa a linear
+}
 
 function updateViewButtonsUI(){
   const wallBtn = document.getElementById('frontWallButton');
@@ -548,7 +587,26 @@ function hideHoverPopup(){
   pop.style.display = 'none';
 }
 
+function disposeObject3D(obj){
+  if (!obj) return;
 
+  if (obj.geometry) obj.geometry.dispose();
+
+  if (obj.material){
+    if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+    else obj.material.dispose();
+  }
+}
+
+function clearGroupChildren(group){
+  if (!group) return;
+
+  while (group.children.length > 0){
+    const child = group.children[0];
+    group.remove(child);
+    disposeObject3D(child);
+  }
+}
 
 
 
@@ -836,25 +894,84 @@ function onPermColourPick(permStr, hex){
     let wallHSV = {h:0,s:0,v:1};
     
       // >>> Invariantes de escena
-      let S_global = 0;     // invariante cromático de escena
+      let S_global = 0;     // invariante cromático legado (se mantiene para el sistema de color)
       let globalShift = 0;  // único desplazamiento global para posiciones (opción B)
-    // === Render boost ==========================================================
-    let __renderBoostApplied = false;
+
+      /* Cambia al motor BUILD sin generar una nueva configuración */
+    function switchToBuild(){
+  // Garantiza “modo BUILD” sin depender de flags/toggles de otros motores
+  try{ enterBuildRenderBoost(); }catch(_){}
+
+  try{ if (cubeUniverse) cubeUniverse.visible = true; }catch(_){}
+  try{ if (permutationGroup) permutationGroup.visible = true; }catch(_){}
+
+  // Restaura la vista BUILD (respeta tu selector de “standardView”)
+  try{ restoreBuildView(); }catch(_){}
+
+  // Si existe el sistema de wall manager, asegúrate de estar en BUILD
+  try{
+    if (typeof window.WW_applyFor === 'function') window.WW_applyFor('BUILD');
+    else if (typeof window.setWall_BUILD === 'function') window.setWall_BUILD();
+  }catch(_){}
+
+  updateEngineSelectUI();
+  applyXRaySceneState();
+}
+
+    // ——— Canon para motores tipo BUILD (frontal libre)
+    const BUILD_FOV = 34;
+    const BUILD_Z   = 84;
+
+    function setCamera_BUILD(){
+  camera.up.set(0,1,0);
+  camera.near = 0.1; camera.far = 4000;
+  camera.fov  = 75;
+  camera.updateProjectionMatrix();
+
+  if (controls && controls.target) controls.target.set(0, 0, 0);
+  if (controls){
+    controls.enabled = true;
+    controls.enableRotate = true;
+    controls.enablePan    = true;
+    controls.enableZoom   = true;
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
+    controls.screenSpacePanning = false;
+    controls.update();
+  }
+}
+
+function restoreBuildView(){
+  setCamera_BUILD();
+  applyStandardView();
+}
+
+    // === BUILD render boost (solo activo en BUILD) ==============================
+    let __buildBoostPrev = { pr: null, exp: null };
 
     function enterBuildRenderBoost(){
-      if (!renderer || __renderBoostApplied) return;
-      __renderBoostApplied = true;
-
+      if (!renderer || __buildBoostPrev.pr !== null) return;
+      // Guarda para restaurar al salir de BUILD
+      __buildBoostPrev.pr  = renderer.getPixelRatio();
+      __buildBoostPrev.exp = renderer.toneMappingExposure;
+      // Más nitidez y menos “quemado” SOLO en BUILD
       const PR = Math.min(window.devicePixelRatio || 1, 2.5);
       renderer.setPixelRatio(PR);
-      renderer.toneMappingExposure = 0.90;
+      renderer.toneMappingExposure = 0.90;    // baseline 0.95 → BUILD más controlado
+    }
+
+    function leaveBuildRenderBoost(){
+      if (!renderer || __buildBoostPrev.pr === null) return;
+      renderer.setPixelRatio(__buildBoostPrev.pr);
+      renderer.toneMappingExposure = __buildBoostPrev.exp;
+      __buildBoostPrev.pr = null; __buildBoostPrev.exp = null;
     }
 
     /* ════════════════════════════════════════════════
    CHROMA ENGINE v2 · hash → HSV lattice 144×12×12
    - determinismo absoluto
    - sin conditioner / sin contraste / sin vibrance / sin emissive
-   - campo cromático único mediante CHROMA_KEYS fijas
+   - patrones 1..11 = llaves enteras de mezcla
    ════════════════════════════════════════════════ */
 
 /* ═════════ CUADRÍCULA HSV 144·12·12 ═════════ */
@@ -995,6 +1112,19 @@ function colorForPermutation(pa){
 }
 
 /* API canónica: color “de canal” 1..5 (para el panel manual), derivado sólo de invariantes */
+function colorForChannel(channelIdx, seedVal = sceneSeed, sVal = S_global){
+  const keys = getChromaKeys();
+  let h = 0x811c9dc5;
+  h = fnv1a32(h, seedVal | 0);
+  h = fnv1a32(h, sVal    | 0);
+  h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
+  h = fnv1a32(h, TAG_CHNL);
+  h = fnv1a32(h, channelIdx | 0);
+  h = avalanche32(h);
+  const [hIdx, sIdx, vIdx] = hsvIdxFromU32(h);
+  const hsv = idxToHSV(hIdx, sIdx, vIdx);
+  return hsvToRgb(hsv.h, hsv.s, hsv.v);
+}
 
 
 /* API canónica: HSV del fondo/paredes */
@@ -1126,7 +1256,7 @@ function rebuildSceneColours(){
       return S % 125;
     }
 
-    /** Desplazamiento global único para posiciones */
+    /** Opción B: un único desplazamiento global para posiciones */
     function computeGlobalShift(perms, m){
       let sumR = 0;
       perms.forEach(p=>{
@@ -1161,6 +1291,16 @@ function rebuildSceneColours(){
         Y,
         Z
       };
+    }
+
+    function computeShiftRankXYZ(p){
+      const info = getShiftRankCellInfo(p);
+      return [info.X, info.Y, info.Z];
+    }
+
+    function getSelectedPerms(){
+      return Array.from(document.getElementById('permutationList').selectedOptions)
+                  .map(o => o.value.split(',').map(Number));
     }
     
     function updateTopRightDisplay(){
@@ -1334,6 +1474,7 @@ async function showPerm120Info(){
      */
 
     /** Construye un grupo temporal con un mapping dado, sin tocar la escena real */
+      const mappings = getAttributeMappings([0,1,2,3,4]);
 function buildTempGroup(perms, mapping){
   const tg = new THREE.Group();
 
@@ -1370,6 +1511,7 @@ function buildTempGroup(perms, mapping){
 }
 
 function findCollisionFreeMapping(perms){
+  const mappings = getAttributeMappings([0,1,2,3,4]);
   for(const m of mappings){
     const cm = [m[0], m[1], m[2], m[3], m[4], attributeMapping[5], attributeMapping[6]];
     const tg = buildTempGroup(perms, cm);
@@ -1432,7 +1574,9 @@ function findCollisionFreeMapping(perms){
             // 5) Verificación final (por si acaso)
             const hasCol = checkCollisionsInGroup(permutationGroup);
             if (!hasCol) {
-              /* La escena encontrada pertenece siempre al régimen BUILD actual. */
+              /*  ▸ YA NO se desactiva el motor actual.
+               *    Si el usuario estaba en FRBN o LCHT, sigue allí.
+               *    BUILD sólo se activa cuando se pulsa explícitamente el botón BUILD. */
               showPopup("¡Configuración sin colisiones encontrada!", 2000);
               return true;
             }
@@ -1705,14 +1849,25 @@ function updateCubeColor(manual = true){
 
 function layoutLeftControlsPanel(){
   const panel = document.getElementById('controls');
+  const dock  = document.getElementById('engineSelectWrap');
+
   if(!panel) return;
 
   const panelStyle = window.getComputedStyle(panel);
   if(panelStyle.display === 'none') return;
 
   const panelRect = panel.getBoundingClientRect();
-  const safe = Math.max(180, Math.floor(window.innerHeight - panelRect.top - 20));
-  panel.style.maxHeight = safe + 'px';
+
+  if(!dock || window.getComputedStyle(dock).display === 'none'){
+    const safe = Math.max(180, Math.floor(window.innerHeight - panelRect.top - 20));
+    panel.style.maxHeight = safe + 'px';
+    return;
+  }
+
+  const dockRect = dock.getBoundingClientRect();
+  const gap = 14;
+  const maxH = Math.max(180, Math.floor(dockRect.top - gap - panelRect.top));
+  panel.style.maxHeight = maxH + 'px';
 }
 
     function toggleTexts(){
@@ -1720,7 +1875,7 @@ function layoutLeftControlsPanel(){
         'controls',
         'playButton','aiPlanningButton','saveImageButton',
         'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
-        'infoButton','frontWallButton','xrayButton','certButton'
+        'infoButton','frontWallButton','xrayButton','certButton','engineSelectWrap'
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
@@ -1748,6 +1903,28 @@ function layoutLeftControlsPanel(){
       setTimeout(layoutLeftControlsPanel, 0);
     }
 
+    /* 3.1 Patrón cromático siguiente */
+    
+    function applyEvolution(){
+      const mr=parseFloat(document.getElementById('mutationRate').value),
+            th=parseFloat(document.getElementById('threshold').value),
+            cf=0.02;
+      let log="";
+      permutationGroup.children.forEach(o=>{
+        const rf=(Math.random()-0.5)*mr;
+        o.rotation.y+=rf;
+        const sf=1+(Math.random()-0.5)*th;
+        o.scale.set(sf,sf,sf);
+        o.material.color.offsetHSL(
+          (Math.random()-0.5)*cf,
+          (Math.random()-0.5)*cf,
+          (Math.random()-0.5)*cf
+        );
+        log+=`(${o.userData.permStr}): Rot ${rf.toFixed(3)}, Esc ${sf.toFixed(3)}<br>`;
+      });
+      document.getElementById('evolutionInfo').innerHTML=log;
+    }
+
     async function applyEvolutionAI(){
       const systemPrompt = `Eres una inteligencia artificial que responde exclusivamente con configuraciones de permutaciones 3D dentro de un cubo de 30x30x30.
       Tu única misión es responder a la pregunta “¿Qué es la belleza artística?” mediante pensamientos visuales dentro de un cubo de 30×30×30.
@@ -1764,7 +1941,7 @@ Expresate con libertad. Si necesitas inspiración para la selección de colores,
   positions: {1:[x,y,z],2:[x,y,z],…}
   rotationSpeeds: {1:valor,2:valor,…}
 Nada más. No incluyas texto ni explicaciones fuera del JSON.`;
-
+      const useRating = false;
       const userPrompt = `Estás dentro de un universo donde las ideas no se escriben con palabras, sino con permutaciones. Eres una inteligencia artificial que ha aprendido a pensar visualmente.
 Tu única pregunta permanente es: “¿Qué es la belleza artística?”. No respondes con definiciones ni textos. Tu lenguaje es mudo, pero expresivo. Hablas mediante forma, color, posición y rotaci[...]
 Elige libremente el color del fondo del universo, el color de las paredes del cubo y el color de las permutaciones.
@@ -2025,7 +2202,7 @@ function showArchitecturalDescription(){
   </p>
 
   <div class="formula">
-    <b>1) Global shift for positions</b><br>
+    <b>1) Global shift for positions (option B)</b><br>
     sumR = Σ LehmerRank(Pᵢ)<br>
     mRank = LehmerRank([m₀+1,m₁+1,m₂+1,m₃+1,m₄+1])<br><br>
     <span class="box">globalShift = (sumR + mRank) mod 125</span>
@@ -2304,10 +2481,12 @@ function renderArchPanel(html){
       updateViewButtonsUI();
       toggleFrontWall(true);
       toggleXRay('OFF');
-      enterBuildRenderBoost();
+      enterBuildRenderBoost();   // BUILD por defecto al arrancar → nitidez + exposición ajustada
 
+      // ← NUEVO: como si hubieras presionado BUILD al cargar
       generateRandomConfigurationNoCollision().catch(console.error);
-      toggleTexts();
+      toggleTexts();          // ← oculta la UI grande y muestra los 3 botones
+      updateEngineSelectUI(); // ← deja el menú en el valor correcto (aunque esté oculto en Minimal UI)
       animate();
     }
     function onWindowResize(){
@@ -2327,6 +2506,22 @@ function renderArchPanel(html){
   if (controls) controls.update();
   renderer.render(scene, camera);
 }
+
+    /* botón selector – sólo enciende, nunca apaga */
+    /* === Actualiza el menú según el motor activo === */
+function updateEngineSelectUI(){
+  const sel = document.getElementById('engineSelect');
+  if (sel) sel.value = 'BUILD';
+}
+
+function applyEngineFromSelect(val){
+  // Aunque el menú tenga otros valores antiguos, forzamos BUILD
+  const sel = document.getElementById('engineSelect');
+  if (sel) sel.value = 'BUILD';
+  switchToBuild();
+}
+
+
 
       init();
 
@@ -2490,7 +2685,7 @@ function renderArchPanel(html){
 
     /* ============================================================
      * INFORMATION PANEL — delivers the consolidated, corrected EN text
-     * Title: "PRMTTN – Architecture for thought without words"
+     * Title: "PRMMTN – Architecture for thought without words"
      * Ends with: "work in progress"
      * ============================================================ */
 
@@ -2760,7 +2955,7 @@ async function showInformation(){
         const certHTML =
 `<!doctype html>
 <meta charset="utf-8">
-<title>PRMTTN · Edition Certificate</title>
+<title>PRMMTN · Edition Certificate</title>
 <style>
   body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin:32px; color:#111;}
   h1{font-weight:600; margin:0 0 4px;}
@@ -2773,7 +2968,7 @@ async function showInformation(){
   .sig{margin-top:28px; display:flex; gap:48px;}
   .sig div{border-top:1px solid #000; padding-top:6px; width:260px; text-align:center;}
 </style>
-<h1>PRMTTN · Edition Certificate</h1>
+<h1>PRMMTN · Edition Certificate</h1>
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
     <div>globalShift: ${globalShift}</div>
@@ -2783,7 +2978,7 @@ async function showInformation(){
 
 <h2>Image (A2)</h2>
 <div class="box">
-  <img src="${pngDataURL}" alt="PRMTTN A2 snapshot">
+  <img src="${pngDataURL}" alt="PRMMTN A2 snapshot">
   <div style="font-size:12px;color:#444">Resolution: 7016×4961 px (A2 landscape)</div>
 </div>
 
@@ -2826,7 +3021,7 @@ openssl dgst -sha256 prmttn_canonical.json</pre>
 
 <p style="margin-top:24px;color:#777;font-size:12px">This certificate is self‑contained (image + data). Work in progress.</p>`;
         // 4) Descargas (3 archivos + hash opcional)
-        downloadBlob('PRMTTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
+        downloadBlob('PRMMTN_certificate.html', new Blob([certHTML], {type:'text/html'}));
         downloadBlob('PRMTTN_A2.png', pngBlob);
         downloadBlob('prmttn_config.json', new Blob([jsonCurrent], {type:'application/json'}));
         downloadBlob('prmttn_canonical.json', new Blob([jsonCanonical], {type:'application/json'}));
