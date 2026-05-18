@@ -45,24 +45,23 @@
     background:rgba(255,255,255,0.20);
   }
 
-  #patternNextButton,
-  #engineCycleButton,
   #permNextButton{
-    position:fixed; z-index:260;                /* siempre encima */
-    border:none; border-radius:4px;
-    padding:8px 12px; font-size:12px;
+    position:fixed;
+    z-index:260;
+    right:10px;
+    top:10px;
+    border:none;
+    border-radius:4px;
+    padding:8px 12px;
+    font-size:12px;
     background:rgba(255,255,255,0.12);
-    cursor:none; display:none;                  /* ocultos por defecto */
+    cursor:none;
+    display:none;
     transition:background .2s;
   }
-  #patternNextButton:hover,
-  #engineCycleButton:hover,
   #permNextButton:hover{
     background:rgba(255,255,255,0.20);
   }
-  #patternNextButton{left:10px;  top:10px;}     /* 1 · patrón siguiente   */
-  #engineCycleButton {left:10px;  bottom:10px;} /* 2 · motor siguiente     */
-  #permNextButton   {right:10px; top:10px;}     /* 3 · NEXT (120 perms)    */
 
   /* === LAYOUT (orden y ESPACIADO nuevos) === */
   #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }   /* Minimal UI */
@@ -266,9 +265,7 @@
 </head>
 <body>
   <div id="customCursor"></div>
-  <button id="patternNextButton" onclick="cyclePattern()">11</button>
-  <button id="engineCycleButton"  onclick="cycleEngine()">4</button>
-  <button id="permNextButton"     onclick="nextPerm120()">120</button>
+  <button id="permNextButton" onclick="nextPerm120()">120</button>
   <div id="topRightDisplay"></div>
 
   <input type="file" id="json-upload" accept=".json" style="display:none;" />
@@ -320,28 +317,7 @@
 
 
   <div id="controls">
-  <details open>
-    <summary>Chromatic Pattern</summary>
-          <select id="patternSelect" onchange="setActivePattern(this.value)">
-        <option value="1">1 · Chromatic Containment</option>
-        <option value="2">2 · Contrast &amp; Dissonance</option>
-        <option value="3">3 · Non‑semantic Disposition</option>
-        <option value="4">4 · Structured Ambiguity</option>
-        <option value="5">5 · Chromatic Isotropy</option>
-        <option value="6">6 · Self‑Sufficient Presence</option>
-        <option value="7">7 · Associative Asymmetry</option>
-        <option value="8">8 · Irregular Dynamics</option>
-        <option value="9">9 · Habitable without Translation</option>
-        <option value="10">10 · Resonance</option>
-        <option value="11">11 · Active Transparency</option>
-      </select>
-      <button id="patternInfoButton"
-              style="margin-top:6px;width:100%;"
-              onclick="showPatternInfo()">
-        Pattern Information
-      </button>
-
-  </details>
+  
 
   <div id="manualControls">
     <details>
@@ -432,14 +408,6 @@ document.getElementById('json-upload').addEventListener('change', function(event
         const v = [config.mapping.forma, config.mapping.color, config.mapping.x, config.mapping.y, config.mapping.z];
         document.getElementById('attrMapping').value = v.join(',');
         attributeMapping = [v[0], v[1], v[2], v[3], v[4], attributeMapping[5], attributeMapping[6]];
-      }
-
-      // Pattern
-      if (typeof config.pattern === 'number') {
-        const p = Math.floor(config.pattern);
-        activePatternId = (p >= 1 && p <= 11) ? p : 1;
-        const selPattern = document.getElementById('patternSelect');
-        if (selPattern) selPattern.value = String(activePatternId);
       }
 
       // Chroma mode + overrides con fallback a formatos legacy
@@ -563,8 +531,7 @@ if (typeof config.chroma_mode === 'string') {
     let rasterGridGroup = null;
     let rasterGridMaterial = null;
     let rasterCenterMaterial = null;
-    let topographyGroup = null;
-
+    
     function normHex6(hex){
       if(typeof hex !== 'string') return null;
       let s = hex.trim();
@@ -608,11 +575,10 @@ function updateViewButtonsUI(){
   }
 
   if (xrayBtn){
-    if (xrayMode === 'ON') xrayBtn.textContent = 'X-Ray: On';
-    else if (xrayMode === 'TOPO') xrayBtn.textContent = 'X-Ray: Topography';
-    else xrayBtn.textContent = 'X-Ray: Off';
+    xrayBtn.textContent = xrayMode === 'ON' ? 'X-Ray: On' : 'X-Ray: Off';
   }
 }
+
 
 function hideHoverPopup(){
   const pop = document.getElementById('hoverPopup');
@@ -642,61 +608,30 @@ function clearGroupChildren(group){
   }
 }
 
-function syncTopographyFromPermutationGroup(){
-  if (!topographyGroup || !permutationGroup) return;
 
-  clearGroupChildren(topographyGroup);
-
-  const cellSize = cubeSize / 5;
-
-  permutationGroup.children.forEach(src=>{
-    const geo = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
-    const mat = new THREE.MeshBasicMaterial({
-      color: src.material.color.clone(),
-      transparent: true,
-      opacity: 0.96,
-      toneMapped: false
-    });
-
-    const voxel = new THREE.Mesh(geo, mat);
-    voxel.position.copy(src.position);
-    voxel.userData = { ...src.userData };
-    voxel.renderOrder = 9500;
-    voxel.frustumCulled = false;
-
-    topographyGroup.add(voxel);
-  });
-
-  topographyGroup.visible = (xrayMode === 'TOPO');
-}
 
 function applyXRaySceneState(){
   const isGrid = xrayMode === 'ON';
-  const isTopo = xrayMode === 'TOPO';
 
   if (rasterGridGroup){
     rasterGridGroup.visible = isGrid;
   }
 
-  if (topographyGroup){
-    topographyGroup.visible = isTopo;
-  }
-
   if (permutationGroup){
-    permutationGroup.visible = !isTopo;
+    permutationGroup.visible = true;
   }
 
   if (cubeUniverse){
     cubeUniverse.visible = true;
     if (cubeUniverse.material){
-      cubeUniverse.material.opacity = isGrid ? 0.08 : (isTopo ? 0.14 : 0.20);
+      cubeUniverse.material.opacity = isGrid ? 0.08 : 0.20;
       cubeUniverse.material.needsUpdate = true;
     }
   }
 
-  if (isTopo) hideHoverPopup();
   updateViewButtonsUI();
 }
+
 
 function updateRasterGridContrast(){
   const bg = new THREE.Color(__bgHexSRGB || '#ffffff');
@@ -826,22 +761,17 @@ function toggleFrontWall(forceValue){
 }
 
 function toggleXRay(forceValue){
-  if (forceValue === true) {
+  if (forceValue === true || forceValue === 'ON') {
     xrayMode = 'ON';
-  } else if (forceValue === false) {
+  } else if (forceValue === false || forceValue === 'OFF') {
     xrayMode = 'OFF';
-  } else if (forceValue === 'OFF' || forceValue === 'ON' || forceValue === 'TOPO') {
-    xrayMode = forceValue;
-  } else if (xrayMode === 'OFF') {
-    xrayMode = 'ON';
-  } else if (xrayMode === 'ON') {
-    xrayMode = 'TOPO';
   } else {
-    xrayMode = 'OFF';
+    xrayMode = xrayMode === 'OFF' ? 'ON' : 'OFF';
   }
 
   applyXRaySceneState();
 }
+
 
     function hasOverrides(){
   if (bgOverride) return true;
@@ -962,8 +892,7 @@ function onPermColourPick(permStr, hex){
     /* variables globales para fondo y paredes */
     let bgHSV = {h:0,s:0,v:1};
     let wallHSV = {h:0,s:0,v:1};
-    let activePatternId = 1;           // arranca en Contención
-
+    
       // >>> Invariantes de escena
       let S_global = 0;     // invariante cromático legado (se mantiene para el sistema de color)
       let globalShift = 0;  // único desplazamiento global para posiciones (opción B)
@@ -1119,22 +1048,11 @@ function hsvIdxFromU32(u){
   return [hIdx, sIdx, vIdx];
 }
 
-/* Llaves enteras por patrón (1..11) */
-const PATTERN_KEYS = {
-  1:  [0x243f6a88, 0x85a308d3, 0x13198a2e],
-  2:  [0x03707344, 0xa4093822, 0x299f31d0],
-  3:  [0x082efa98, 0xec4e6c89, 0x452821e6],
-  4:  [0x38d01377, 0xbe5466cf, 0x34e90c6c],
-  5:  [0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5],
-  6:  [0xb5470917, 0x9216d5d9, 0x8979fb1b],
-  7:  [0xd1310ba6, 0x98dfb5ac, 0x2ffd72db],
-  8:  [0xd01adfb7, 0xb8e1afed, 0x6a267e96],
-  9:  [0xba7c9045, 0xf12c7f99, 0x24a19947],
-  10: [0xb3916cf7, 0x0801f2e2, 0x858efc16],
-  11: [0x636920d8, 0x71574e69, 0xa458fea3]
-};
-function getPatternKeys(patternId){
-  return PATTERN_KEYS[patternId] || PATTERN_KEYS[1];
+/* Llaves enteras fijas para el campo cromático único */
+const CHROMA_KEYS = [0x243f6a88, 0x85a308d3, 0x13198a2e];
+
+function getChromaKeys(){
+  return CHROMA_KEYS;
 }
 
 /* Tags para separar dominios (glifo / fondo / paredes / palette) */
@@ -1144,35 +1062,31 @@ const TAG_WALL  = 0x57414c4c; // 'WALL'
 const TAG_CHNL  = 0x43484e4c; // 'CHNL'
 
 /* Hash canónico para una permutación (puede ser “escena actual” o “escena hipotética”) */
-function hashPermutationCore(pa, sig, r, seedVal, sVal, patternId){
-  const keys = getPatternKeys(patternId);
+function hashPermutationCore(pa, sig, r, seedVal, sVal){
+  const keys = getChromaKeys();
 
-  let h = 0x811c9dc5;                 // offset basis FNV
+  let h = 0x811c9dc5;
   h = fnv1a32(h, seedVal | 0);
   h = fnv1a32(h, sVal    | 0);
-  h = fnv1a32(h, patternId | 0);
   h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
   h = fnv1a32(h, TAG_GLYPH);
 
   h = fnv1a32(h, r | 0);
 
-  // números base de la permutación (1..5)
   for(let i=0;i<5;i++) h = fnv1a32(h, pa[i] | 0);
-
-  // firma (f1..f5)
   for(let i=0;i<5;i++) h = fnv1a32(h, sig[i] | 0);
 
   return avalanche32(h);
 }
 
+
 /* Hash canónico para color de escena (fondo / paredes) */
-function hashSceneCore(sig, slot, seedVal, sVal, patternId, tag){
-  const keys = getPatternKeys(patternId);
+function hashSceneCore(sig, slot, seedVal, sVal, tag){
+  const keys = getChromaKeys();
 
   let h = 0x811c9dc5;
   h = fnv1a32(h, seedVal | 0);
   h = fnv1a32(h, sVal    | 0);
-  h = fnv1a32(h, patternId | 0);
   h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
   h = fnv1a32(h, tag >>> 0);
   h = fnv1a32(h, slot | 0);
@@ -1180,28 +1094,29 @@ function hashSceneCore(sig, slot, seedVal, sVal, patternId, tag){
   return avalanche32(h);
 }
 
+
 /* API canónica: color del glifo */
-function colorInfoForPermutation(pa, seedVal = sceneSeed, sVal = S_global, patternId = activePatternId){
+function colorInfoForPermutation(pa, seedVal = sceneSeed, sVal = S_global){
   const r = lehmerRank(pa);
   const sig = computeSignature(pa);
-  const u = hashPermutationCore(pa, sig, r, seedVal, sVal, patternId);
+  const u = hashPermutationCore(pa, sig, r, seedVal, sVal);
   const [hIdx, sIdx, vIdx] = hsvIdxFromU32(u);
   const hsv = idxToHSV(hIdx, sIdx, vIdx);
   const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v);
   const hex = rgbToHex(rgb);
   return { r, sig, u, hIdx, sIdx, vIdx, hsv, rgb, hex };
 }
+
 function colorForPermutation(pa){
   return colorInfoForPermutation(pa).rgb;
 }
 
 /* API canónica: color “de canal” 1..5 (para el panel manual), derivado sólo de invariantes */
-function colorForChannel(channelIdx, seedVal = sceneSeed, sVal = S_global, patternId = activePatternId){
-  const keys = getPatternKeys(patternId);
+function colorForChannel(channelIdx, seedVal = sceneSeed, sVal = S_global){
+  const keys = getChromaKeys();
   let h = 0x811c9dc5;
   h = fnv1a32(h, seedVal | 0);
   h = fnv1a32(h, sVal    | 0);
-  h = fnv1a32(h, patternId | 0);
   h = fnv1a32(h, keys[0]); h = fnv1a32(h, keys[1]); h = fnv1a32(h, keys[2]);
   h = fnv1a32(h, TAG_CHNL);
   h = fnv1a32(h, channelIdx | 0);
@@ -1211,15 +1126,17 @@ function colorForChannel(channelIdx, seedVal = sceneSeed, sVal = S_global, patte
   return hsvToRgb(hsv.h, hsv.s, hsv.v);
 }
 
+
 /* API canónica: HSV del fondo/paredes */
-function hsvInfoForScene(tag, sig, slot, seedVal = sceneSeed, sVal = S_global, patternId = activePatternId){
-  const u = hashSceneCore(sig, slot, seedVal, sVal, patternId, tag);
+function hsvInfoForScene(tag, sig, slot, seedVal = sceneSeed, sVal = S_global){
+  const u = hashSceneCore(sig, slot, seedVal, sVal, tag);
   const [hIdx, sIdx, vIdx] = hsvIdxFromU32(u);
   const hsv = idxToHSV(hIdx, sIdx, vIdx);
   const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v);
   const hex = rgbToHex(rgb);
   return { u, hIdx, sIdx, vIdx, hsv, rgb, hex };
 }
+
 
 /* ---------- FIN BLOQUE UTILIDADES ---------- */
 /* ——— calcula HSV para fondo y paredes de forma acoplada al set activo ——— */
@@ -1385,11 +1302,7 @@ function rebuildSceneColours(){
       return Array.from(document.getElementById('permutationList').selectedOptions)
                   .map(o => o.value.split(',').map(Number));
     }
-    function setActivePattern(id){
-      const p = parseInt(id, 10);
-      activePatternId = (p >= 1 && p <= 11) ? p : 1;
-      refreshAll({rebuild:false});
-    }
+    
     function updateTopRightDisplay(){
       // HUD desactivado (topRightDisplay está oculto por CSS)
     }
@@ -1626,9 +1539,6 @@ function findCollisionFreeMapping(perms){
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
     async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
-      // Elegimos un patrón cromático aleatorio (1..11, evitando el legacy 0)
-      const randPattern = Math.floor(Math.random() * 11) + 1;
-
       let round = 0;
       while (true) { // sigue intentando hasta que realmente encuentre una sin colisiones
         round++;
@@ -1639,11 +1549,6 @@ function findCollisionFreeMapping(perms){
           const mapping = findCollisionFreeMapping(perms);
 
           if (mapping) {
-            // 1) Setea el patrón cromático escogido
-            activePatternId = randPattern;
-            const selPattern = document.getElementById('patternSelect');
-            if (selPattern) selPattern.value = String(randPattern);
-
             // 2) Pon las permutaciones en el <select>
             const sel = document.getElementById('permutationList');
             Array.from(sel.options).forEach(o => o.selected = false);
@@ -1727,12 +1632,7 @@ function updateScene(attemptResolve=true){
   else updateTopRightDisplay();
 }
     function onMouseMove(e){
-  if (xrayMode === 'TOPO'){
-    hideHoverPopup();
-    return;
-  }
-
-  mouse.x=(e.clientX/window.innerWidth)*2-1;
+    mouse.x=(e.clientX/window.innerWidth)*2-1;
   mouse.y=-(e.clientY/window.innerHeight)*2+1;
   raycaster.setFromCamera(mouse,camera);
 
@@ -1875,8 +1775,7 @@ function applyPalette(){
     o.material.color.convertSRGBToLinear();
   });
 
-  syncTopographyFromPermutationGroup();
-  applyXRaySceneState();
+    applyXRaySceneState();
   rebuildPermOverrideUI();
 }
 
@@ -1983,7 +1882,7 @@ function layoutLeftControlsPanel(){
         if(e) e.style.display = textsVisible ? 'none' : 'block';
       });
 
-      const miniBtns = ['patternNextButton','engineCycleButton','permNextButton'];
+      const miniBtns = ['permNextButton'];
       miniBtns.forEach(id=>{
         const e = document.getElementById(id);
         if(e) e.style.display = textsVisible ? 'block' : 'none';
@@ -2005,12 +1904,7 @@ function layoutLeftControlsPanel(){
     }
 
     /* 3.1 Patrón cromático siguiente */
-    function cyclePattern(){
-      activePatternId = (activePatternId % 11) + 1;           // 1…11 en ciclo
-      const sel = document.getElementById('patternSelect');
-      if(sel) sel.value = String(activePatternId);            // actualiza el <select>
-      refreshAll({rebuild:false});
-    }
+    
     function applyEvolution(){
       const mr=parseFloat(document.getElementById('mutationRate').value),
             th=parseFloat(document.getElementById('threshold').value),
@@ -2298,8 +2192,7 @@ function showArchitecturalDescription(){
   });
 
   const step = cubeSize / 5;
-  const keys = getPatternKeys(activePatternId);
-
+  
   const structureHTML = `
   <h3>Structure</h3>
   <p>
@@ -2333,9 +2226,9 @@ function showArchitecturalDescription(){
     <b>4) Deterministic color (hash → HSV lattice 144×12×12)</b><br>
     We compute a 32-bit hash and project it uniformly onto 20&nbsp;736 discrete HSV voxels.<br><br>
     Inputs mixed (only integers from the system):<br>
-    sceneSeed, S, activePatternId, patternKeys, r, permutation digits, signature.<br><br>
+    sceneSeed, S, CHROMA_KEYS, r, permutation digits, signature.<br><br>
     <span class="box">
-      u = Avalanche32(FNV1a32(sceneSeed, S, patternId, keys, TAG_GLYPH, r, P, signature))
+      u = Avalanche32(FNV1a32(sceneSeed, S, CHROMA_KEYS, TAG_GLYPH, r, P, signature))
     </span><br>
     <span class="box">
       t = u mod (144·12·12) = u mod 20736
@@ -2360,9 +2253,7 @@ function showArchitecturalDescription(){
       <li>sumR2 = <b>${sumR2}</b></li>
       <li><b>sceneSeed</b> = <b>${sceneSeed_new}</b></li>
       <li><b>S</b> = <b>${S_new}</b></li>
-      <li>activePatternId = <b>${activePatternId}</b></li>
-      <li>patternKeys = <b>[${keys.map(x=>('0x'+(x>>>0).toString(16))).join(', ')}]</b></li>
-    </ul>
+                </ul>
   </section>
 
   <hr/>
@@ -2379,7 +2270,7 @@ function showArchitecturalDescription(){
     const z = I % 5;
     const X = (x - 2) * step, Y = (y - 2) * step, Z = (z - 2) * step;
 
-    const info = colorInfoForPermutation(perm, sceneSeed_new, S_new, activePatternId);
+    const info = colorInfoForPermutation(perm, sceneSeed_new, S_new);
 
     plansHTML += `
     <section class="perm">
@@ -2406,8 +2297,8 @@ function showArchitecturalDescription(){
   const lastSig  = perms.length ? computeSignature(perms[perms.length-1]) : firstSig;
   const n = perms.length | 0;
 
-  const bgInfo   = hsvInfoForScene(TAG_BG,   firstSig, n,   sceneSeed_new, S_new, activePatternId);
-  const wallInfo = hsvInfoForScene(TAG_WALL, lastSig,  n+1, sceneSeed_new, S_new, activePatternId);
+  const bgInfo   = hsvInfoForScene(TAG_BG,   firstSig, n,   sceneSeed_new, S_new);
+  const wallInfo = hsvInfoForScene(TAG_WALL, lastSig,  n+1, sceneSeed_new, S_new);
 
   plansHTML += `
     <section>
@@ -2572,10 +2463,6 @@ function renderArchPanel(html){
       rasterGridGroup = createRasterGridHelper();
       scene.add(rasterGridGroup);
 
-      topographyGroup = new THREE.Group();
-      topographyGroup.visible = false;
-      scene.add(topographyGroup);
-
       permutationGroup=new THREE.Group();
       scene.add(permutationGroup);
 
@@ -2634,11 +2521,7 @@ function applyEngineFromSelect(val){
   switchToBuild();
 }
 
-function cycleEngine(){
-  // El botón “4” (si existe) ya no rota motores: simplemente reafirma BUILD
-  switchToBuild();
-  updateEngineSelectUI();
-}
+
 
       init();
 
@@ -3003,7 +2886,6 @@ async function showInformation(){
     bg,
     cube,
     view,
-    pattern: activePatternId,
     sceneSeed,
     S_global,
     globalShift,
@@ -3027,7 +2909,6 @@ async function showInformation(){
     bg: hsvToHex(bgHSV),
     cube: hsvToHex(wallHSV),
     view: base.view,
-    pattern: base.pattern,
     sceneSeed: base.sceneSeed,
     S_global: base.S_global,
     globalShift: base.globalShift,
@@ -3068,7 +2949,7 @@ async function showInformation(){
         // 3) Certificado HTML auto‑contenible
         const now = new Date();
         const prettyJSON = JSON.stringify(cfgCurrent, null, 2);
-        const TOTAL_BUILD = 120 * 11;                 // 1,320 (no se multiplica por el tamaño del conjunto de permutaciones)
+        const TOTAL_BUILD = 120;
         const fmt = n => n.toLocaleString('en-US').replace(/,/g,'\u202f'); // separador fino
 
         const certHTML =
@@ -3090,8 +2971,7 @@ async function showInformation(){
 <h1>PRMMTN · Edition Certificate</h1>
 <div class="meta">
   <div>Date: ${now.toISOString()}</div>
-  <div>Chromatic pattern: ${activePatternId}</div>
-  <div>globalShift: ${globalShift}</div>
+    <div>globalShift: ${globalShift}</div>
   <div>sceneSeed: ${sceneSeed} · S_global: ${S_global}</div>
   <div>chroma_mode: ${cfgCurrent.chroma_mode}</div>
 </div>
@@ -3121,7 +3001,7 @@ openssl dgst -sha256 prmttn_canonical.json</pre>
 <h2>Phenotypic scope</h2>
 <div class="box">
   <ul>
-    <li><b>BUILD:</b> 120 attribute-mappings × 11 chromatic-patterns = <b>${fmt(TOTAL_BUILD)}</b> deterministic visuals.</li>
+    <li><b>BUILD:</b> 120 attribute-mappings = <b>${fmt(TOTAL_BUILD)}</b> deterministic canonical reorganizations.</li>
   </ul>
   <p style="font-size:12px;color:#555;margin:8px 0 0;">
     Note: permutations are acquired as a <b>group</b>; the count does not multiply by the size of the group.
