@@ -1378,11 +1378,14 @@ function buildTempGroup(perms, mapping){
 }
 
 function findCollisionFreeMapping(perms){
-  for(const m of mappings){
+  const candidateMappings = getAttributeMappings([0,1,2,3,4]);
+
+  for(const m of candidateMappings){
     const cm = [m[0], m[1], m[2], m[3], m[4], attributeMapping[5], attributeMapping[6]];
     const tg = buildTempGroup(perms, cm);
     if(!checkCollisionsInGroup(tg)) return cm;
   }
+
   return null;
 }
     /** Selecciona un subconjunto aleatorio de permutaciones (1..25) */
