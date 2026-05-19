@@ -27,10 +27,6 @@
     pointer-events: none; z-index: 300;
     transform: translate(-50%, -50%);
   }
-  /* HUD eliminado */
-  #topRightDisplay{
-    display:none !important;
-  }
   button{
     cursor:none;
     border:none;
@@ -63,7 +59,7 @@
     background:rgba(255,255,255,0.20);
   }
 
-  /* === LAYOUT (orden y ESPACIADO nuevos) === */
+  /* === Main UI layout === */
   #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }   /* Minimal UI */
   #aiPlanningButton     { position:fixed; right:10px; bottom:50px;   }   /* AI Planning */
   #saveImageButton      { position:fixed; right:10px; bottom:90px;   }   /* Save Image (A2) */
@@ -166,7 +162,6 @@
 <body>
   <div id="customCursor"></div>
   <button id="permNextButton" onclick="nextPerm120()">120</button>
-  <div id="topRightDisplay"></div>
 
   <input type="file" id="json-upload" accept=".json" style="display:none;" />
 
@@ -175,7 +170,7 @@
   <button id="uploadConfigButton" onclick="document.getElementById('json-upload').click()">Load JSON</button>
   <button id="saveImageButton"    onclick="saveImage()">Save Image (A2)</button>
   <button id="exportEmbedButton"  onclick="exportEmbed()">Save JSON</button>
-  <!-- NUEVO: Play (genera nueva configuración) -->
+  <!-- Play: generate a new collision-free scene -->
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
 
 
@@ -762,9 +757,6 @@ function idxToHSV(hIdx,sIdx,vIdx){
 }
 
 /* Normaliza cualquier hue a rango [0 … 360) */
-function normHue(deg){
-  return ((deg % 360) + 360) % 360;
-}
 
 /* HSV → RGB */
 function hsvToRgb(h,s,v){
@@ -965,7 +957,6 @@ function rebuildSceneColours(){
         if(s==='0,1,2,3,4') o.selected=true;
         sel.appendChild(o);
       });
-      updateTopRightDisplay();
     }
 
     function computeSignature(a){let s=[];for(let i=0;i<a.length;i++) s.push(a[i]+a[(i+1)%a.length]);return s;}
@@ -1047,10 +1038,6 @@ function rebuildSceneColours(){
         Y,
         Z
       };
-    }
-    
-    function updateTopRightDisplay(){
-      // HUD desactivado (topRightDisplay está oculto por CSS)
     }
 
     function createPermutationObjectWithMapping(pa,map){
@@ -1135,7 +1122,6 @@ function autoResolveColisionesGlobal(){
     document.getElementById('attrMapping').value =
       `${found[0]},${found[1]},${found[2]},${found[3]},${found[4]}`;
     refreshAll({rebuild:true});
-    updateTopRightDisplay();
   } else {
     showPopup("No se encontró reorganización sin colisiones.",7000);
   }
@@ -1325,7 +1311,7 @@ function updateScene(attemptResolve=true){
   });
 
   if(attemptResolve) autoResolveColisionesGlobal();
-  else updateTopRightDisplay();
+  else {}
 }
     function onMouseMove(e){
     mouse.x=(e.clientX/window.innerWidth)*2-1;
@@ -1711,7 +1697,7 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       const v=document.getElementById('attrMapping').value.split(',').map(Number);
       if(v.length===5){
         attributeMapping=[v[0],v[1],v[2],v[3],v[4], attributeMapping[5], attributeMapping[6]];
-        refreshAll({rebuild:true}); updateTopRightDisplay();
+        refreshAll({rebuild:true});
       }
     }
     function applyStandardView(){
