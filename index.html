@@ -66,12 +66,9 @@
   /* === LAYOUT (orden y ESPACIADO nuevos) === */
   #toggleTextButton     { position:fixed; right:10px; bottom:10px;   }   /* Minimal UI */
   #aiPlanningButton     { position:fixed; right:10px; bottom:50px;   }   /* AI Planning */
-  #saveImageButton      { position:fixed; right:10px; bottom:90px;  }   /* Save Image (A2) – debajo de Load JSON */
+  #saveImageButton      { position:fixed; right:10px; bottom:90px;   }   /* Save Image (A2) */
   #uploadConfigButton   { position:fixed; right:10px; bottom:130px;  }   /* Load JSON */
   #exportEmbedButton    { position:fixed; right:10px; bottom:170px;  }   /* Save JSON */
-  #archDescButton       { position:fixed; right:10px; bottom:210px;  }   /* Architectural Description */
-  #perm120Button        { position:fixed; right:10px; bottom:250px;  }   /* 120 Architectural Permutations */
-   #certButton           { position:fixed; right:10px; bottom:30px; }   /* Edition Certificate */
 
   #saveImageButton { background:rgba(255,255,255,0.2); }
 
@@ -151,25 +148,7 @@
   #archPanel .perm h4{ margin-bottom:6px; }
   code, pre{ font-family:monospace; }
 
-  /* Panel 120 perms */
-  #perm120Panel{
-    position:fixed; right:10px; bottom:340px; z-index:260;
-    background:rgba(255,255,255,0.12);
-    padding:8px 10px; border-radius:4px; width:260px;
-    display:none; /* ← cerrado por defecto */
-  }
-  #perm120Panel label{ display:block; margin-bottom:6px; }
-  #perm120Panel input, #perm120Panel button{ width:100%; margin-top:4px; }
-  #perm120Status{
-    margin-top:8px;
-    font-size:12px;       /* ← mismo tamaño que los demás */
-    font-weight:normal;
-    text-align:center;
-  }
   /* === Information button & panel === */
-  #infoButton{
-    position:fixed; left:10px; bottom:10px; z-index:260;
-  }
   #frontWallButton{
     position:fixed; left:10px; bottom:50px; z-index:260;
   }
@@ -257,14 +236,10 @@
   <button id="uploadConfigButton" onclick="document.getElementById('json-upload').click()">Load JSON</button>
   <button id="saveImageButton"    onclick="saveImage()">Save Image (A2)</button>
   <button id="exportEmbedButton"  onclick="exportEmbed()">Save JSON</button>
-  <button id="archDescButton"     onclick="showArchitecturalDescription()">Architectural Description</button>
   <!-- NUEVO: Play (genera nueva configuración) -->
   <button id="playButton" onclick="generateRandomConfigurationNoCollision()">▮</button>
 
-  <button id="perm120Button"      onclick="togglePerm120Panel()">120 Architectural Permutations</button>
 
-  <button id="certButton" onclick="exportEditionCertificate()">Edition Certificate</button>
-  <button id="infoButton" onclick="showInformation()">Information</button>
   <button id="frontWallButton" onclick="toggleFrontWall()">Hide Front Wall</button>
   <button id="xrayButton" onclick="toggleXRay()">X-Ray: Off</button>
   <button id="btnDebugColors"
@@ -273,21 +248,7 @@
     Debug Colors
   </button>
 
-  <!-- Panel controles 120 perms -->
-  <div id="perm120Panel">
-    <label>Auto‑advance (1s → 12m)</label>
-    <input type="range" id="perm120Slider" min="1000" max="720000" step="1000" value="5000"
-           oninput="syncPerm120InputsFromSlider()">
-    <input type="number" id="perm120Seconds" min="1" max="720" value="5"
-           oninput="syncPerm120SliderFromSeconds()">
-    <small>(seconds)</small>
-    <button onclick="playPerm120()">Play</button>
-    <button onclick="pausePerm120()">Pause</button>
-    <button onclick="prevPerm120()">Prev</button>
-    <button onclick="nextPerm120()">Next</button>
-    <button onclick="showPerm120Info()">Information</button>
-    <div id="perm120Status">Permutation: 0 / 119</div>
-  </div>
+
 
 
   <div id="controls">
@@ -1272,10 +1233,11 @@ let perm120Timer = null;
 
 function togglePerm120Panel(){
   const p = document.getElementById('perm120Panel');
+  if (!p) return;
+
   const isHidden = (p.style.display === 'none' || !p.style.display);
   p.style.display = isHidden ? 'block' : 'none';
 
-  // Re‑muestra siempre el cursor personalizado
   const cc = document.getElementById('customCursor');
   if (cc) cc.style.display = 'block';
 }
@@ -1730,8 +1692,8 @@ function layoutLeftControlsPanel(){
       const ids = [
         'controls',
         'playButton','aiPlanningButton','saveImageButton',
-        'exportEmbedButton','archDescButton','uploadConfigButton','perm120Button',
-        'infoButton','frontWallButton','xrayButton','certButton'
+        'exportEmbedButton','uploadConfigButton',
+        'frontWallButton','xrayButton','engineSelectWrap'
       ];
       ids.forEach(id=>{
         const e=document.getElementById(id);
