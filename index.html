@@ -1247,13 +1247,15 @@ function findCollisionFreeMapping(perms){
 }
     /** Selecciona un subconjunto aleatorio de permutaciones (1..25) */
     function pickRandomPerms(){
-      const n  = Math.floor(Math.random()*25) + 1;
-      const out = [];
-      for(let i=0;i<n;i++){
-        const str = permutationStrings[Math.floor(Math.random()*permutationStrings.length)];
-        out.push(str.split(',').map(Number));
+      const n = Math.floor(Math.random() * 25) + 1;
+      const pool = permutationStrings.slice();
+
+      for(let i = pool.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
       }
-      return out;
+
+      return pool.slice(0, n).map(str => str.split(',').map(Number));
     }
 
     /**
@@ -1265,9 +1267,9 @@ function findCollisionFreeMapping(perms){
      * No bloquea la UI gracias al pequeño await en cada iteración.
      */
     async function generateRandomConfigurationNoCollision(MAX_TRIES = 5000){
-      let round = 0;
-      while (true) { // sigue intentando hasta que realmente encuentre una sin colisiones
-        round++;
+      const MAX_ROUNDS = 6;
+
+      for (let round = 1; round <= MAX_ROUNDS; round++) {
         for (let t = 0; t < MAX_TRIES; t++) {
           showPopup(`Buscando configuración sin colisiones… (ronda ${round}, intento ${t+1})`, 500);
 
@@ -1275,43 +1277,40 @@ function findCollisionFreeMapping(perms){
           const mapping = findCollisionFreeMapping(perms);
 
           if (mapping) {
-            // 2) Pon las permutaciones en el <select>
             const sel = document.getElementById('permutationList');
             Array.from(sel.options).forEach(o => o.selected = false);
+
             perms.forEach(p=>{
               const val = p.join(',');
               const opt = sel.querySelector(`option[value="${val}"]`);
               if(opt) opt.selected = true;
             });
 
-            // 3) Aplica el mapping encontrado
             attributeMapping = mapping;
 
-            // mantenemos tu ciclo de atributo "color"
             attributeMapping[1] = colorAttrCycle % 5;
             colorAttrCycle++;
 
             document.getElementById('attrMapping').value =
               `${attributeMapping[0]},${attributeMapping[1]},${attributeMapping[2]},${attributeMapping[3]},${attributeMapping[4]}`;
 
-            // 4) Reconstruye escena completa
             refreshAll({rebuild:true});
 
-            // 5) Verificación final (por si acaso)
             const hasCol = checkCollisionsInGroup(permutationGroup);
             if (!hasCol) {
-              /* La escena encontrada pertenece siempre al régimen BUILD actual. */
-              showPopup("¡Configuración sin colisiones encontrada!", 2000);
+              showPopup("Configuración sin colisiones encontrada.", 2000);
               return true;
             }
           }
 
-          // cede el hilo para no congelar la UI
           if ((t % 25) === 0) await new Promise(r => setTimeout(r, 0));
         }
-        // pequeña pausa entre rondas largas
+
         await new Promise(r => setTimeout(r, 10));
       }
+
+      showPopup("No se encontró nueva configuración sin colisiones. Se conserva la escena actual.", 4000);
+      return false;
     }
 
     function showPopup(msg, dur = 2000){
@@ -1956,9 +1955,15 @@ Nada más. No incluyas texto ni explicaciones fuera del JSON.
       toggleXRay('OFF');
       enterBuildRenderBoost();
 
-      generateRandomConfigurationNoCollision().catch(console.error);
-      toggleTexts();
+      // Primero deja la página renderizando y en estado interactivo.
+      toggleTexts();          // oculta la UI grande y muestra los controles mínimos
+      updateEngineSelectUI(); // mantiene BUILD como único motor activo
       animate();
+
+      // Después genera la primera escena, sin bloquear el arranque visual.
+      setTimeout(() => {
+        generateRandomConfigurationNoCollision().catch(console.error);
+      }, 0);
     }
     function onWindowResize(){
       camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
